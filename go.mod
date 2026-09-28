@@ -3,6 +3,7 @@ module gitlab.com/telara-labs/tap-runtime
 go 1.26.1
 
 require (
+	github.com/evanw/esbuild v0.25.10
 	github.com/itchyny/gojq v0.12.19
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/tetratelabs/wazero v1.12.0

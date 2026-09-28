@@ -258,6 +258,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return nil, err
 	}
 	kind := in.Kind
+	if kind == "ts" {
+		js, err := stripTypes(string(script), m.Execution.Entrypoint)
+		if err != nil {
+			return nil, err
+		}
+		script, kind = []byte(js), "js"
+	}
 	journal := o.Journal
 	if journal == nil {
 		journal = io.Discard

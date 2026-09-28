@@ -34,6 +34,14 @@ var interpreters = map[string]interpreter{
 		URL:    "https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-wasi.wasm",
 		SHA256: "42a732a676ec2d93488c19411e0fad283bf72658fdad746f089914b523c783b1",
 	},
+	// TypeScript runs in the JavaScript interpreter, after the runner has
+	// removed its types (typescript.go).
+	".ts": {
+		Kind:   "ts",
+		File:   "qjs-wasi-0.17.0.wasm",
+		URL:    "https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-wasi.wasm",
+		SHA256: "42a732a676ec2d93488c19411e0fad283bf72658fdad746f089914b523c783b1",
+	},
 	// No upstream publishes a bash-compatible interpreter as wasm. It is this
 	// repository's own guest-sh, and becomes a release file here once the
 	// repository cuts releases. Until then it is built locally.
