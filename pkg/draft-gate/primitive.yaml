@@ -1,6 +1,6 @@
 apiVersion: primitives.telara.dev/v3
 kind: Primitive
 metadata: {publisher: dev.telara, name: draft-gate, version: 0.1.0}
-entrypoint: main.py
+execution: {entrypoint: main.py}
 tools:
   - {alias: draft, capability: gmail.drafts.create, effect: write}

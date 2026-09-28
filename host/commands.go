@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-// command is one entry of the manifest's commands block: a host program the
-// runner may start on the primitive's behalf.
+// A command (manifest.Command) is one entry of the manifest's commands block:
+// a host program the runner may start on the primitive's behalf.
 //
 //   - command: kubectl
 //     globals: ["--context minikube", "-n <any>"]
@@ -26,13 +26,6 @@ import (
 // followed by a literal allows that value and no other, and a flag followed
 // by <any> allows any value. A flag with nothing after it takes no value.
 // What follows the subcommand is not bounded.
-type command struct {
-	Command string   `yaml:"command"`
-	Globals []string `yaml:"globals"`
-	Args    []string `yaml:"args"`
-	Effect  string   `yaml:"effect"`
-	Env     []string `yaml:"env"`
-}
 
 // arbitraryCode lists invocations that run code the manifest cannot describe.
 // Whatever the author declared, these are treated as destructive. This is a

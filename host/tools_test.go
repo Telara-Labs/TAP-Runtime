@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"gitlab.com/telara-labs/tap-runtime/bind"
+	mf "gitlab.com/telara-labs/tap-runtime/manifest"
 )
 
 // fakeBridge stands in for a client. It is a test double for a third party's
@@ -97,15 +98,7 @@ func TestAdmitRefusesBadPackagesBeforeAskingTheClient(t *testing.T) {
 }
 
 func TestPin(t *testing.T) {
-	pin := func(server, tool string) *struct {
-		Server string `yaml:"server"`
-		Tool   string `yaml:"tool"`
-	} {
-		return &struct {
-			Server string `yaml:"server"`
-			Tool   string `yaml:"tool"`
-		}{server, tool}
-	}
+	pin := func(server, tool string) *mf.Pin { return &mf.Pin{Server: server, Tool: tool} }
 	a, err := admit([]toolDecl{{Alias: "x", Capability: "gmail.anything.at_all", Effect: "read", Pin: pin("claude.ai Gmail", "get_thread")}}, gmail())
 	if err != nil || a.byAlias["x"].Tool != "get_thread" || !a.byAlias["x"].Pinned {
 		t.Fatalf("pin did not bind: %v %+v", err, a)

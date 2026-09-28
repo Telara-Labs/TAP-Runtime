@@ -4,6 +4,7 @@ go 1.26.1
 
 require (
 	github.com/itchyny/gojq v0.12.19
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/tetratelabs/wazero v1.12.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0

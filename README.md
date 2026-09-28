@@ -20,6 +20,18 @@ MCP tool calls, no client bridges, no resume, macOS arm64 only.
 - Refuses any command the manifest does not declare.
 - Gates `write` and `destructive` commands unless the run is approved.
 
+## The manifest: short to run, full to publish
+
+    host manifest check pkg/recent-mail            # may it run?
+    host manifest check --publish pkg/recent-mail  # may it be published?
+    host manifest complete pkg/recent-mail         # the publishable form
+
+To run, `primitive.yaml` needs a name, an entrypoint and what the primitive
+uses. To publish it must satisfy `manifest/manifest.v3.schema.json` in full.
+`complete` derives what it can and marks with `TODO:` what a person must
+write. A field the format does not have is an error, so a misspelt bound never
+reads as no bound.
+
 ## As an MCP server
 
     host serve

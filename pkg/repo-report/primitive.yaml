@@ -1,7 +1,7 @@
 apiVersion: primitives.telara.dev/v3
 kind: Primitive
 metadata: {publisher: dev.telara, name: repo-report, version: 0.1.0}
-entrypoint: main.py
+execution: {entrypoint: main.py}
 files:
   - {path: out, access: write}
 fetch:

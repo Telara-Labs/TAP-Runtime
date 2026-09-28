@@ -1,0 +1,645 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://primitives.telara.dev/schemas/tap/manifest.v3.schema.json",
+  "version": "3.0.0",
+  "title": "TAP portable primitive manifest (apiVersion primitives.telara.dev/v3)",
+  "description": "Determined by the ruling of 2026-09-28 on architecture/tap/34 section 2.0 (the portability floor is a program) and the twelve decisions in 34 section 11. v3 is the ONLY admitted apiVersion; v1 and v2 remain in-tree as history and are never reinterpreted by this schema. Deleted from v2 and NOT carried forward: requirements.credentials (ruling 9 -- a manifest is a requirements declaration, not a request for privilege, and TAP holds no credentials), requirements.network.egressHosts (ruling 3 -- a package reaches a destination only through a bound tool, so there is no package egress to declare), requirements.actions[] with its adapter/descriptor_version/resource_binding vocabulary (superseded by capabilities[] + tools[]), the single top-level effects.class (superseded by a per-tool effect, 34 section 7.6), and suggested_mode (superseded by the two-gate model of 34 section 11.6 -- gating now follows from each tool's effect class, not from a package-level hint). EXTENDED 2026-09-28 (34 section 13, rulings 1-21): an entrypoint may be a source file run by an interpreter the runner obtains; commands[], files[] and fetch[] declare host programs, files and origins the runner acts on for the primitive. This schema is the PUBLISH level. A runner admits a shorter manifest to RUN (ruling 21); see package manifest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "interface",
+    "execution",
+    "provenance"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "primitives.telara.dev/v3"
+    },
+    "kind": {
+      "const": "Primitive"
+    },
+    "metadata": {
+      "$ref": "#/$defs/metadata"
+    },
+    "interface": {
+      "$ref": "#/$defs/interface"
+    },
+    "capabilities": {
+      "$ref": "#/$defs/capabilities"
+    },
+    "tools": {
+      "$ref": "#/$defs/tools"
+    },
+    "oracle": {
+      "$ref": "#/$defs/oracle"
+    },
+    "requires": {
+      "$ref": "#/$defs/requires"
+    },
+    "execution": {
+      "$ref": "#/$defs/execution"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    },
+    "tests": {
+      "$ref": "#/$defs/tests"
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/command"
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/file"
+      }
+    },
+    "fetch": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fetchOrigin"
+      }
+    }
+  },
+  "$defs": {
+    "alias": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "packagePath": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9._/-]{0,254}$"
+    },
+    "effectClass": {
+      "description": "Declared PER TOOL, never once for the package (34 section 7.6). It is a ceiling that binds the package, not information the host relies on: it lives inside the signed bytes and is what the admin approves. A cross-check may only RAISE it, never lower it. For a tool declared `read`, admission additionally REQUIRES independent confirmation -- an MCP readOnlyHint:true annotation, or the Telara catalog for a Telara plugin action -- and refuses without one (34 section 11.5). write and destructive need no cross-check because they are approval-gated and over-declaration is harmless.",
+      "enum": [
+        "read",
+        "write",
+        "destructive",
+        "financial",
+        "identity-admin"
+      ]
+    },
+    "capabilityLabel": {
+      "description": "Definer-scoped reverse-DNS label plus a major, e.g. dev.telara/gmail.threads.search@1. Namespace ownership is proven by DNS, the same mechanism 15 section 6 uses for publishers -- NOT by vendor, because that rule is self-defeating for capabilities (we are not google.com, so we could never name a Gmail capability). The label is a HUMAN LABEL: it does no work at runtime, because resolution matches contracts against live inputSchemas and never matches a name (34 section 11.1).",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)+/[a-z][a-z0-9_.-]{0,127}@[0-9]+$"
+    },
+    "capabilityId": {
+      "description": "sha256 of the NORMALISED contract -- the capability's actual identity. Two publishers who write the same contract get the same id, which is why definer fragmentation is harmless. Declared here so admission can verify its own normalisation agrees with the publisher's: a mismatch means two implementations normalise differently and MUST refuse loudly rather than proceed. Canonical normalisation (key order, optional-field representation, type spelling) is normative and lives in the conformance corpus.",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "id",
+        "question",
+        "args",
+        "result"
+      ],
+      "properties": {
+        "label": {
+          "$ref": "#/$defs/capabilityLabel"
+        },
+        "id": {
+          "$ref": "#/$defs/capabilityId"
+        },
+        "question": {
+          "description": "What answering this capability actually asks, in prose. Read by the admin at approval -- it is the honest disclosure, because the label is publisher-chosen and the code is an opaque blob. `gmail.threads.search` and `gmail.messages.search` are SEPARATE capabilities: measured on one inbox they returned 107 and 108, so a primitive resolving one against the other would silently answer a different question and report success (34 section 4.1.1).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "args": {
+          "description": "JSON Schema for the arguments. Satisfaction is REQUIRED BOTH WAYS and is checked at admission: every argument declared here must be accepted by the connector, AND every argument the connector marks required must be supplied here. Extras on either side are allowed. This is the whole definition of 'host compatible' (34 section 11.3), which ruling 9 claimed to supply and did not.",
+          "type": "object"
+        },
+        "result": {
+          "description": "JSON Schema for the result. NOT checkable at admission -- MCP's outputSchema is optional and largely absent -- so it is validated at RUN TIME. A mismatch returns output_schema_violation to the guest as a tool error so the program can branch, and the receipt records it. 15 section 4 already places both schema-violation codes in the execution family, which anticipated this.",
+          "type": "object"
+        }
+      }
+    },
+    "capabilities": {
+      "description": "The capability contracts this package was written against, carried INSIDE the signed bytes. This is what makes a primitive self-describing: verifiable offline, testable in CI with no client or connector, and able to detect a drifted connector itself. There is NO RUNTIME CATALOG (34 section 11.4) -- resolution reads only this block and the caller's live inventory, which is why a stale catalog can no longer mis-bind anything.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/capability"
+      }
+    },
+    "pin": {
+      "description": "Narrows resolution when no capability contract can express a vendor's shape. A pin belongs on the CONNECTOR, not the client, unless the author genuinely means the client -- the same connector reached through a different client should still satisfy it. A pin must cost something visible: it is recorded as a portability constraint and surfaced at publish/adopt as 'runs on 1 of your 5 connectors', so pinning is never the free path. A pin DECLARES a vendor-specific problem; it does not fix one.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "client": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "server": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "tool": {
+          "type": "string",
+          "maxLength": 128
+        }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alias",
+        "capability",
+        "effect"
+      ],
+      "properties": {
+        "alias": {
+          "description": "The only name the guest ever sees. Calling a tool by its real name is refused as an undeclared alias, as is any tool the manifest did not declare -- both demonstrated in 34 section 10.",
+          "$ref": "#/$defs/alias"
+        },
+        "capability": {
+          "description": "Must match the `label` of an entry in capabilities[].",
+          "$ref": "#/$defs/capabilityLabel"
+        },
+        "effect": {
+          "$ref": "#/$defs/effectClass"
+        },
+        "optional": {
+          "description": "Bound if it resolves; the program branches on what it got, reading which aliases resolved from tools/list. Resolution happens at ADMISSION, which deletes the runtime probe-and-fallback measured in 34 section 10.12 (an extra dispatch per run on Codex).",
+          "type": "boolean",
+          "default": false
+        },
+        "pin": {
+          "$ref": "#/$defs/pin"
+        }
+      }
+    },
+    "tools": {
+      "description": "Requirements, not privileges. At execute time the runtime checks `manifest tools subset-of tools the caller can already use` and refuses otherwise, before any effect (ruling 9). Resolution is per capability contract against the caller's live inventory: exactly one candidate binds; ZERO refuses (incompatible here); TWO OR MORE refuse and NAME the candidates. Never score and pick -- a wrong bind is worse than a refusal because it runs.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/tool"
+      }
+    },
+    "oracle": {
+      "description": "23 section 1 decision 6: a tool reply alone cannot assert the business result. Under a program model the PREDICATE IS GUEST CODE, where it can be arbitrary; the manifest declares only which capabilities the oracle reads back through, so a reviewer can see the verification path. There is deliberately no predicate language here -- that would be the interpreter the 2026-09-28 ruling rejected. Stated plainly: the check itself is unverifiable by the host. The run report carries the verdict, including `unknown` when external state cannot be established.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verifies_with"
+      ],
+      "properties": {
+        "verifies_with": {
+          "description": "Aliases from tools[] that the oracle reads back through.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/alias"
+          }
+        },
+        "may_report_unknown": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "requires": {
+      "description": "Client features this package needs. 34 section 7.2: these must be declared requirements refused UP FRONT, never a downgraded run, because sampling and elicitation are optional in MCP and unevenly implemented. Note elicitation is NOT declared here -- it is derived, because any tool declaring write or destructive requires it (34 section 11.6).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sampling": {
+          "description": "Model calls from inside the primitive, mapped to MCP sampling/createMessage. 23 section 1 decision 5: the author should encode stable decisions as code and reserve model calls for specified ambiguity. A client that does not offer sampling refuses the package at admission.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_tokens"
+          ],
+          "properties": {
+            "max_tokens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            },
+            "data_classes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 64
+              }
+            }
+          }
+        },
+        "features": {
+          "description": "Capability negotiation per 15 section 5. Runtimes advertise their feature set; a primitive needing a feature a runtime lacks is undiscoverable rather than merely denied.",
+          "type": "array",
+          "uniqueItems": true,
+          "default": [],
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9.-]{0,63}$"
+          }
+        }
+      }
+    },
+    "limits": {
+      "description": "RESOURCE ceilings only. Blast radius is deliberately NOT here: the run ceiling is carried by elicitation, per run, and by the Automation object's limits/budget/expiry for unattended runs (34 section 11.11). Reads are unbounded. Effective limit = min(package, installation profile, runtime ceiling).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_steps": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 2000000,
+          "default": 2000000
+        },
+        "max_dispatches": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "default": 1000
+        },
+        "max_input_bytes": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 1048576,
+          "default": 1048576
+        },
+        "max_result_bytes": {
+          "description": "Ceiling on the canonical size of the complete terminal report envelope.",
+          "type": "integer",
+          "minimum": 4096,
+          "maximum": 65536,
+          "default": 65536
+        },
+        "max_checkpoint_bytes": {
+          "description": "Bounds the journal INDEX, not its payloads. The journal is tiered (34 section 11.9): an ordered index of (seq, kind, digest) with payloads in content-addressed blob storage. Measured motivation -- the volume was never the crossing count (11 vs 6 is about 5 fixed entries, mostly the Go runtime reading the clock before main) but that every tool entry stored its result verbatim: one Gmail page is 38,174 bytes, so a ten-page run journalled about 380 KB.",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 1048576,
+          "default": 1048576
+        },
+        "max_dispatch_result_bytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 4194304,
+          "default": 4194304
+        },
+        "max_worker_memory_bytes": {
+          "type": "integer",
+          "minimum": 33554432,
+          "maximum": 268435456,
+          "default": 268435456
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime",
+        "entrypoint"
+      ],
+      "properties": {
+        "runtime": {
+          "description": "tap-wasm-v1 is the portability floor: every conformant TAP runtime embeds a wasm engine (ruling of 2026-09-28). tap-subprocess-v1 is the UNSEALED AUTHORING profile of 34 section 5.1 -- the identical program run as an ordinary subprocess with ambient authority, contained only by the OS. It is never publishable and admission must refuse it for any release seeking promotion. With tap-wasm-v1 the entrypoint is a compiled .wasm module, or a source file (.py, .js, .sh) run inside an interpreter that is itself a wasm module; both are contained.",
+          "enum": [
+            "tap-wasm-v1",
+            "tap-subprocess-v1"
+          ]
+        },
+        "entrypoint": {
+          "$ref": "#/$defs/packagePath"
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600,
+          "default": 120
+        },
+        "resumable": {
+          "description": "Whether the run may be suspended and resumed. Resume semantics -- observe real time, or continue a journalled timeline -- are chosen by the CALLER at invoke time, not declared here (34 section 11.8). Both were demonstrated working in 34 section 10.2, including a hard kill after 3 dispatches with NO call dispatched twice across crash and resume, which is the property that makes suspension safe for writes.",
+          "type": "boolean",
+          "default": false
+        },
+        "may_suspend": {
+          "description": "`approval` is the write-class elicitation gate. `ceiling` is new in v3: hitting the run's elicited blast-radius ceiling suspends for re-elicitation rather than ending the run (34 section 11.11). An unattended run that suspends holds its lease until expiry and then ends classified -- it never waits forever.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "approval",
+              "ceiling"
+            ]
+          }
+        },
+        "triggers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "manual",
+              "schedule",
+              "event"
+            ]
+          }
+        },
+        "limits": {
+          "$ref": "#/$defs/limits"
+        },
+        "params": {
+          "description": "Static package parameters, exposed read-only to the guest. Keys may never equal a reserved host name.",
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "default": {}
+        }
+      }
+    },
+    "provenance": {
+      "description": "Answers 34 section 7.7: a wasm blob is bytes no admin can read, so binding only its digest makes the approval theatre. Promotion binds SOURCE PLUS REPRODUCIBLE BUILD -- the publish pipeline of 14 section 5 rebuilds from these inputs and REFUSES if the digest differs. A SEALED package hands its source to the pipeline only; adopters receive the signed attestation instead, so 14 section 1's 'seal the how, never the what-it-touches' survives. A standalone host verifies that attestation against profile.json's trusted_publishers[] keys; it cannot reproduce the build, which is a trust root rather than a service dependency.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "toolchain",
+        "build"
+      ],
+      "properties": {
+        "source": {
+          "description": "Path within the package holding the buildable source.",
+          "$ref": "#/$defs/packagePath"
+        },
+        "toolchain": {
+          "description": "Exact toolchain identity, e.g. go1.26.1. Reproducibility must hold per language; a language whose builds are not reproducible cannot be promoted until it is.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "build": {
+          "description": "The exact command the pipeline re-runs. For Go, -trimpath and a pinned toolchain are what make the rebuild byte-identical.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "sealed": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "tests": {
+      "description": "34 section 10.13 built this and found why it matters: a LOGIC mutation (thread recency changed from max message date to messages[0], digest verified changed) ESCAPED a fixture recorded from 150 real threads, because all 8 affected threads fell on one side of the cutoff so no aggregate moved. It was caught only by a fixture built to straddle the boundary (in_window 108 -> 49). The rule: a recorded fixture proves the primitive still does what it did; only a fixture built to straddle each decision boundary proves it does the right thing.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixtures"
+      ],
+      "properties": {
+        "fixtures": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "file",
+              "kind",
+              "expect"
+            ],
+            "properties": {
+              "file": {
+                "description": "Recorded tool results AND clock reads -- both halves, because a guest deriving a cutoff from the clock classifies differently when replayed later and the test would fail for the wrong reason.",
+                "$ref": "#/$defs/packagePath"
+              },
+              "kind": {
+                "description": "`captured` is a recording of real traffic: a REGRESSION test. `adversarial` is built to straddle a decision boundary: a CORRECTNESS test. The distinction is surfaced to the reviewer in the approval packet rather than gated, so a package shipping only captured traffic is visibly a regression suite.",
+                "enum": [
+                  "captured",
+                  "adversarial"
+                ]
+              },
+              "expect": {
+                "$ref": "#/$defs/packagePath"
+              },
+              "boundary": {
+                "description": "For an adversarial fixture, which decision boundary it straddles.",
+                "type": "string",
+                "maxLength": 256
+              }
+            }
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "publisher",
+        "name",
+        "version",
+        "description"
+      ],
+      "properties": {
+        "publisher": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)+$",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "output_description": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "license": {
+          "description": "SPDX identifier (15 section 6).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "forkOf": {
+          "type": [
+            "string",
+            "object"
+          ]
+        }
+      }
+    },
+    "schemaRef": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "$ref"
+          ],
+          "properties": {
+            "$ref": {
+              "$ref": "#/$defs/packagePath"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "not": {
+            "required": [
+              "$ref"
+            ]
+          },
+          "properties": {
+            "type": {
+              "const": "object"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    },
+    "interface": {
+      "description": "The primitive's OWN typed contract -- how it appears as a tool to its caller. Distinct from the capability contracts above, which describe the tools it consumes. inputSchema is what the approval packet shows in place of the deleted targets[]: 'this takes a project name', not 'this is approved for project X'.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputSchema",
+        "outputSchema"
+      ],
+      "properties": {
+        "inputSchema": {
+          "$ref": "#/$defs/schemaRef"
+        },
+        "outputSchema": {
+          "$ref": "#/$defs/schemaRef"
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "effect"
+      ],
+      "description": "A host program the runner may start for the primitive, one gated and journaled invocation at a time (34 section 13.4). args is the subcommand and must come first after any globals. globals are the only flags allowed before it: a flag followed by a literal allows that value only, a flag followed by <any> allows any value, a bare flag takes none. env names the variables of the runner's environment the program is given beyond PATH, HOME, USER, LANG and TMPDIR.",
+      "properties": {
+        "command": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9._+-]{0,63}$"
+        },
+        "globals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^-{1,2}[A-Za-z0-9][A-Za-z0-9_-]*( .+)?$"
+          }
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "effect": {
+          "$ref": "#/$defs/effectClass"
+        },
+        "env": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          }
+        }
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "access"
+      ],
+      "description": "A file, or a directory and everything under it, the primitive may read or write through the runner. A relative path is taken from the directory the runner was started in. write includes read.",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "access": {
+          "enum": [
+            "read",
+            "write"
+          ]
+        }
+      }
+    },
+    "fetchOrigin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "origin"
+      ],
+      "description": "An origin the primitive may fetch through the runner: a scheme, a host and an optional port. No wildcard, path, query or user. methods defaults to GET. GET and HEAD are reads; every other method is a write.",
+      "properties": {
+        "origin": {
+          "type": "string",
+          "pattern": "^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?$"
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "GET",
+              "HEAD",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
