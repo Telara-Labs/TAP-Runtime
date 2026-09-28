@@ -1,0 +1,332 @@
+[
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_document_paragraph_range",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.search_emails",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.bulk_label_matching_emails",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.upload_file",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_presentation_outline",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.forward_emails",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_spreadsheet_cells",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.send_draft",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.batch_update_spreadsheet",
+  "annotated": "destructive"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.delete_emails",
+  "annotated": "destructive"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_spreadsheet_range",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.archive_emails",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_slide",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.delete_file",
+  "annotated": "destructive"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.read_email_thread",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.search",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.search_spreadsheet_rows",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.bulk_update_file_comments",
+  "annotated": "destructive"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.fetch",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_document",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_presentation_text",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_document_comments",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.create_draft",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.read_attachment",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.batch_update_document",
+  "annotated": "destructive"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.list_drives",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.recent_documents",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.get_profile",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_slide_thumbnail",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.update_draft",
+  "annotated": "destructive"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.batch_update_presentation",
+  "annotated": "destructive"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.duplicate_sheet_in_new_spreadsheet",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_presentation",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_document_tables",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.batch_modify_email",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.read_email",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.search_email_ids",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_document_text",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_spreadsheet_metadata",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.share_file",
+  "annotated": "destructive"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.batch_read_email",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.copy_file",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.list_folder",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.export_file",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.update_file",
+  "annotated": "destructive"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_presentation_tables",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.import_spreadsheet",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.create_file",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_file_comments",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.fetch_file_revision",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.find_document_text_range",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.create_folder",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.create_label",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.send_email",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_profile",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.apply_labels_to_emails",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.list_file_revisions",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.import_presentation",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.list_labels",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.batch_read_email_threads",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "gmail.list_drafts",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.create_presentation_from_template",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_presentation_comments",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.import_document",
+  "annotated": "write"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_spreadsheet_comments",
+  "annotated": "read"
+ },
+ {
+  "server": "codex_apps",
+  "name": "google_drive.get_file_metadata",
+  "annotated": "read"
+ }
+]

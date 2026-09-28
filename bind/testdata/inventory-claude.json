@@ -1,0 +1,562 @@
+[
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_close",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_resize",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_console_messages",
+  "annotated": "read"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_handle_dialog",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_emulate_media",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_evaluate",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_file_upload",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_drop",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_find",
+  "annotated": "read"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_fill_form",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_press_key",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_type",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_navigate",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_navigate_back",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_network_requests",
+  "annotated": "read"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_network_request",
+  "annotated": "read"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_run_code_unsafe",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_take_screenshot",
+  "annotated": "read"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_snapshot",
+  "annotated": "read"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_click",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_drag",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_hover",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_select_option",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_tabs",
+  "annotated": "destructive"
+ },
+ {
+  "server": "plugin:playwright:playwright",
+  "name": "browser_wait_for",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_add_comment",
+  "annotated": "unknown"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_add_vote",
+  "annotated": "unknown"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_bulk_create_issues",
+  "annotated": "unknown"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_create_issue",
+  "annotated": "unknown"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_create_issue_link",
+  "annotated": "unknown"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_create_project",
+  "annotated": "unknown"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_create_remote_issue_link",
+  "annotated": "unknown"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_delete_issue",
+  "annotated": "destructive"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_delete_issue_link",
+  "annotated": "destructive"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_get_create_issue_meta_fields",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_get_create_issue_meta_issue_types",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_list_alternative_issue_types",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_list_board_issues",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_list_issue_links",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_list_issue_types",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_list_issues",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_list_transitions",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_search_issue_ids",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_search_issue_picker",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_search_issues",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_search_projects",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_transition_issue",
+  "annotated": "unknown"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_update_comment",
+  "annotated": "unknown"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_update_issue",
+  "annotated": "unknown"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_issue_created",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_issue_updated",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_issue_deleted",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_comment_added",
+  "annotated": "read"
+ },
+ {
+  "server": "telara",
+  "name": "telara_jira_issue_transited",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Claude Docs",
+  "name": "create",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Claude Docs",
+  "name": "read",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Claude Docs",
+  "name": "update",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Claude Docs",
+  "name": "delete",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Claude Docs",
+  "name": "query",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Claude Docs",
+  "name": "batch",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Claude Docs",
+  "name": "guide",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Claude Docs",
+  "name": "export",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Google Drive",
+  "name": "copy_file",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Google Drive",
+  "name": "create_file",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Google Drive",
+  "name": "download_file_content",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Google Drive",
+  "name": "get_file_metadata",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Google Drive",
+  "name": "get_file_permissions",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Google Drive",
+  "name": "list_recent_files",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Google Drive",
+  "name": "read_file_content",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Google Drive",
+  "name": "search_files",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Google Drive",
+  "name": "share_file",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Google Drive",
+  "name": "trash_file",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Google Drive",
+  "name": "update_file",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "create_draft",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "update_draft",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "delete_draft",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "send_message",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "reply",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "forward",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "list_drafts",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "get_draft",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "get_thread",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "get_message",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "search_threads",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "label_thread",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "unlabel_thread",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "apply_sensitive_thread_label",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "trash_thread",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "untrash_thread",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "mark_thread_spam",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "unmark_thread_spam",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "list_labels",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "label_message",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "update_message_labels",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "unlabel_message",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "apply_sensitive_message_label",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "trash_message",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "untrash_message",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "mark_message_spam",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "unmark_message_spam",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "create_label",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "update_label",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Gmail",
+  "name": "delete_label",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Google Calendar",
+  "name": "list_events",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Google Calendar",
+  "name": "get_event",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Google Calendar",
+  "name": "list_calendars",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Google Calendar",
+  "name": "suggest_time",
+  "annotated": "read"
+ },
+ {
+  "server": "claude.ai Google Calendar",
+  "name": "create_event",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Google Calendar",
+  "name": "update_event",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Google Calendar",
+  "name": "delete_event",
+  "annotated": "destructive"
+ },
+ {
+  "server": "claude.ai Google Calendar",
+  "name": "respond_to_event",
+  "annotated": "unknown"
+ },
+ {
+  "server": "claude.ai Google Calendar",
+  "name": "search_events",
+  "annotated": "read"
+ }
+]
