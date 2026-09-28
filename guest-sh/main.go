@@ -34,19 +34,23 @@ type initMsg struct {
 }
 
 type request struct {
-	Method  string   `json:"method"`
-	Command string   `json:"command,omitempty"`
-	Args    []string `json:"args,omitempty"`
-	Stdout  string   `json:"stdout,omitempty"`
-	Stderr  string   `json:"stderr,omitempty"`
-	Exit    int      `json:"exit"`
+	Method    string         `json:"method"`
+	Alias     string         `json:"alias,omitempty"`
+	Arguments map[string]any `json:"arguments,omitempty"`
+	Command   string         `json:"command,omitempty"`
+	Args      []string       `json:"args,omitempty"`
+	Stdout    string         `json:"stdout,omitempty"`
+	Stderr    string         `json:"stderr,omitempty"`
+	Exit      int            `json:"exit"`
 }
 
 type reply struct {
-	Refused string `json:"refused,omitempty"`
-	Stdout  string `json:"stdout"`
-	Stderr  string `json:"stderr"`
-	Exit    int    `json:"exit"`
+	Refused string   `json:"refused,omitempty"`
+	Result  string   `json:"result,omitempty"`
+	Tools   []string `json:"tools,omitempty"`
+	Stdout  string   `json:"stdout"`
+	Stderr  string   `json:"stderr"`
+	Exit    int      `json:"exit"`
 }
 
 var (
@@ -128,6 +132,8 @@ func execMiddleware(next interp.ExecHandlerFunc) interp.ExecHandlerFunc {
 			return runHead(hc, args[1:])
 		case "wc":
 			return runWC(hc, args[1:])
+		case "tap":
+			return runTap(hc, args[1:])
 		}
 		// Anything else is a host program. Never call next: the default
 		// handler would try to start a process.
@@ -251,5 +257,50 @@ func runWC(hc interp.HandlerContext, args []string) error {
 	}
 	b, _ := io.ReadAll(hc.Stdin)
 	fmt.Fprintln(hc.Stdout, bytes.Count(b, []byte{'\n'}))
+	return nil
+}
+
+// runTap is the shell's form of the SDK:
+//
+//	tap tools                      the aliases that are bound, one per line
+//	tap call <alias> [json]        call a tool; its result goes to stdout
+func runTap(hc interp.HandlerContext, args []string) error {
+	if len(args) == 1 && args[0] == "tools" {
+		send(request{Method: "tools"})
+		var rp reply
+		if err := recv(&rp); err != nil {
+			return interp.ExitStatus(125)
+		}
+		for _, t := range rp.Tools {
+			fmt.Fprintln(hc.Stdout, t)
+		}
+		return nil
+	}
+	if len(args) < 2 || args[0] != "call" {
+		fmt.Fprintln(hc.Stderr, "usage: tap tools | tap call <alias> [json arguments]")
+		return interp.ExitStatus(2)
+	}
+	arguments := map[string]any{}
+	if len(args) > 2 {
+		if err := json.Unmarshal([]byte(args[2]), &arguments); err != nil {
+			fmt.Fprintf(hc.Stderr, "tap call: arguments are not a JSON object: %v\n", err)
+			return interp.ExitStatus(2)
+		}
+	}
+	send(request{Method: "call", Alias: args[1], Arguments: arguments})
+	var rp reply
+	if err := recv(&rp); err != nil {
+		fmt.Fprintf(hc.Stderr, "tap call: host did not answer: %v\n", err)
+		return interp.ExitStatus(125)
+	}
+	if rp.Refused != "" {
+		fmt.Fprintf(hc.Stderr, "tap call %s: REFUSED by host: %s\n", args[1], rp.Refused)
+		return interp.ExitStatus(126)
+	}
+	if rp.Exit != 0 {
+		io.WriteString(hc.Stderr, rp.Stderr+"\n")
+		return interp.ExitStatus(uint8(rp.Exit))
+	}
+	fmt.Fprintln(hc.Stdout, rp.Result)
 	return nil
 }

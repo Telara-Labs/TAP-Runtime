@@ -1,0 +1,8 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}
+entrypoint: main.py
+tools:
+  # Two vendors, two nouns. Whichever this client has is bound.
+  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}
+  - {alias: emails,  capability: gmail.emails.search,  effect: read, optional: true}

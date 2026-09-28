@@ -31,6 +31,8 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"gopkg.in/yaml.v3"
+
+	"gitlab.com/telara-labs/tap-runtime/bridge"
 )
 
 type manifest struct {
@@ -38,8 +40,9 @@ type manifest struct {
 	Metadata   struct {
 		Name string `yaml:"name"`
 	} `yaml:"metadata"`
-	Entrypoint string    `yaml:"entrypoint"`
-	Commands   []command `yaml:"commands"`
+	Entrypoint string     `yaml:"entrypoint"`
+	Tools      []toolDecl `yaml:"tools"`
+	Commands   []command  `yaml:"commands"`
 }
 
 type command struct {
@@ -49,19 +52,23 @@ type command struct {
 }
 
 type request struct {
-	Method  string   `json:"method"`
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
-	Stdout  string   `json:"stdout"`
-	Stderr  string   `json:"stderr"`
-	Exit    int      `json:"exit"`
+	Method    string         `json:"method"`
+	Alias     string         `json:"alias"`
+	Arguments map[string]any `json:"arguments"`
+	Command   string         `json:"command"`
+	Args      []string       `json:"args"`
+	Stdout    string         `json:"stdout"`
+	Stderr    string         `json:"stderr"`
+	Exit      int            `json:"exit"`
 }
 
 type reply struct {
-	Refused string `json:"refused,omitempty"`
-	Stdout  string `json:"stdout"`
-	Stderr  string `json:"stderr"`
-	Exit    int    `json:"exit"`
+	Refused string   `json:"refused,omitempty"`
+	Result  string   `json:"result,omitempty"`
+	Tools   []string `json:"tools,omitempty"`
+	Stdout  string   `json:"stdout"`
+	Stderr  string   `json:"stderr"`
+	Exit    int      `json:"exit"`
 }
 
 // arbitraryCode lists invocations that run code the manifest cannot describe.
@@ -117,6 +124,8 @@ func main() {
 	journalPath := flag.String("journal", "", "append one JSON line per host command")
 	interpDir := flag.String("interpreters", "", "interpreter store; default is the user cache directory")
 	cacheDir := flag.String("cache", "", "directory for the compiled-interpreter cache")
+	client := flag.String("client", "", "client whose connections to borrow: claude or codex; detected when empty")
+	receiptPath := flag.String("receipt", "", "write the admission record as JSON")
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
 	flag.Parse()
 	if flag.NArg() < 1 {
@@ -140,6 +149,44 @@ func main() {
 	logf("interpreter %s (%d bytes) sha256:%s", in.File, len(wasmBytes), sum[:12])
 	for _, c := range m.Commands {
 		logf("declared   %-8s %-18s %s", c.Command, strings.Join(c.Args, " "), c.Effect)
+	}
+
+	var adm *admission
+	var br bridge.Bridge
+	if len(m.Tools) > 0 {
+		c := *client
+		if c == "" {
+			c = detectClient()
+		}
+		br, err = openBridge(c)
+		must(err)
+		defer br.Close()
+		adm, err = admit(m.Tools, br)
+		if err != nil {
+			br.Close()
+			must(err)
+		}
+		logf("client     %s %s", adm.Client, adm.Version)
+		if !adm.Tested {
+			logf("WARNING    this runner was not run against %s %s; proceeding (recorded on the receipt)", adm.Client, adm.Version)
+		}
+		for _, b := range adm.Bindings {
+			note := "contract not checked: the client gives no schema"
+			if br.HasSchemas() {
+				note = "contract not checked: schema satisfaction is not built"
+			}
+			if b.Pinned {
+				note = "pinned"
+			}
+			logf("bound      %-10s %-26s -> %s / %s  score %.3f  declared %s, annotated %s  (%s)", b.Alias, b.Capability, b.Server, b.Tool, b.Score, b.Declared, b.Annotated, note)
+			if b.Gated {
+				logf("           %-10s its server says nothing about what it does; treated as a write", b.Alias)
+			}
+		}
+		if *receiptPath != "" {
+			j, _ := json.MarshalIndent(adm, "", "  ")
+			must(os.WriteFile(*receiptPath, append(j, '\n'), 0o600))
+		}
 	}
 
 	var journal io.Writer = io.Discard
@@ -202,6 +249,20 @@ func main() {
 			} else if rq.Method == "return" {
 				final = &rq
 				break
+			} else if rq.Method == "call" {
+				rp := callTool(adm, br, rq, *approve, journal)
+				if rp.Refused != "" {
+					refused++
+				} else {
+					dispatched++
+				}
+				must(enc.Encode(rp))
+			} else if rq.Method == "tools" {
+				rp := reply{Tools: []string{}}
+				if adm != nil {
+					rp.Tools = adm.aliases()
+				}
+				must(enc.Encode(rp))
 			} else if rq.Method == "exec" {
 				rp := runCommand(&m, rq, *approve, journal)
 				if rp.Refused != "" {
@@ -224,7 +285,7 @@ func main() {
 	if guestErr.Len() > 0 {
 		logf("guest stderr:\n%s", strings.TrimRight(guestErr.String(), "\n"))
 	}
-	logf("%d host command(s) run, %d refused, in %s", dispatched, refused, time.Since(t0).Round(time.Millisecond))
+	logf("%d call(s) and command(s) run, %d refused, in %s", dispatched, refused, time.Since(t0).Round(time.Millisecond))
 	if final == nil {
 		logf("guest ended without a result")
 		os.Exit(1)
@@ -245,6 +306,16 @@ const pyPrelude = `
 import sys, json, io
 _in, _out = sys.stdin, sys.stdout
 class _Tap:
+    def call(self, alias, arguments=None):
+        _out.write(json.dumps({"method": "call", "alias": alias, "arguments": arguments or {}}) + "\n"); _out.flush()
+        r = json.loads(_in.readline())
+        if r.get("refused"): raise PermissionError(r["refused"])
+        if r.get("exit"): raise RuntimeError(r.get("stderr") or "tool call failed")
+        try: return json.loads(r.get("result") or "null")
+        except ValueError: return r.get("result")
+    def tools(self):
+        _out.write(json.dumps({"method": "tools"}) + "\n"); _out.flush()
+        return json.loads(_in.readline()).get("tools") or []
     def exec(self, command, args=()):
         _out.write(json.dumps({"method": "exec", "command": command, "args": list(args)}) + "\n"); _out.flush()
         return json.loads(_in.readline())
@@ -266,7 +337,15 @@ let _buf = "", _err = "", _exit = 0;
 const _line = (a) => a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ") + "\n";
 globalThis.print = (...a) => { _buf += _line(a); };
 globalThis.console = { log: (...a) => { _buf += _line(a); }, error: (...a) => { _err += _line(a); } };
+const _ask = (o) => { std.out.puts(JSON.stringify(o) + "\n"); std.out.flush(); return JSON.parse(std.in.getline()); };
 globalThis.tap = {
+  call(alias, args = {}) {
+    const r = _ask({ method: "call", alias, arguments: args });
+    if (r.refused) throw new Error(r.refused);
+    if (r.exit) throw new Error(r.stderr || "tool call failed");
+    try { return JSON.parse(r.result ?? "null"); } catch (e) { return r.result; }
+  },
+  tools() { return _ask({ method: "tools" }).tools ?? []; },
   exec(command, args = []) {
     std.out.puts(JSON.stringify({ method: "exec", command, args }) + "\n"); std.out.flush();
     return JSON.parse(std.in.getline());
