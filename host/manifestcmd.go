@@ -8,19 +8,21 @@ import (
 	"path/filepath"
 
 	mf "gitlab.com/telara-labs/tap-runtime/manifest"
+	"gitlab.com/telara-labs/tap-runtime/rebuild"
 )
 
 // manifestCommand is `host manifest`:
 //
 //	host manifest check [--publish] <package-dir>
 //	host manifest complete [--publisher NAME] [--write] <package-dir>
+//	host manifest rebuild <package-dir>
 //
 // check says whether a manifest may be run, or published. complete prints
 // the publishable manifest the short one grows into, deriving what it can
 // and marking with TODO what a person has to write.
 func manifestCommand(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: host manifest check [--publish] <dir> | host manifest complete [--publisher NAME] [--write] <dir>")
+		fmt.Fprintln(stderr, "usage: host manifest check [--publish] <dir> | complete [--publisher NAME] [--write] <dir> | rebuild <dir>")
 		return 2
 	}
 	fs := flag.NewFlagSet("manifest "+args[0], flag.ContinueOnError)
@@ -53,6 +55,21 @@ func manifestCommand(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "  - %s\n", p)
 		}
 		return 1
+	case "rebuild":
+		// Runs the build the manifest names. See package rebuild for what
+		// that means for a package nobody has reason to trust.
+		r, err := rebuild.Verify(dir)
+		if err != nil {
+			fmt.Fprintln(stdout, m.Metadata.Name+": refused")
+			fmt.Fprintln(stdout, "  "+err.Error())
+			return 1
+		}
+		if !r.Built {
+			fmt.Fprintf(stdout, "%s: %s is its own source, %s\n", m.Metadata.Name, r.Entrypoint, r.Shipped)
+			return 0
+		}
+		fmt.Fprintf(stdout, "%s: %s is what its source builds to, %s (rebuilt in %.1fs)\n", m.Metadata.Name, r.Entrypoint, r.Shipped, r.Seconds)
+		return 0
 	case "complete":
 		if problems := m.RunProblems(); len(problems) > 0 {
 			fmt.Fprintf(stderr, "%s cannot be run yet, so it is not completed:\n", m.Metadata.Name)

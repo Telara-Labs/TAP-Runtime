@@ -1,0 +1,7 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata: {publisher: dev.telara, name: windows-smoke, version: 0.1.0}
+execution: {entrypoint: main.sh}
+files:
+  - {path: in, access: read}
+  - {path: out, access: write}
