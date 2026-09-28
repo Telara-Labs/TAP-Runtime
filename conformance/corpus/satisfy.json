@@ -1,0 +1,428 @@
+{
+ "rule": "doc 34 section 11.3",
+ "note": "Type compatibility is proposed, not ruled (TENG-3033).",
+ "arguments": [
+  {
+   "name": "identical",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "pageSize": {
+      "type": "integer"
+     },
+     "pageToken": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "connector": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "pageSize": {
+      "type": "integer"
+     },
+     "pageToken": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "satisfies": true
+  },
+  {
+   "name": "connector accepts more than the contract sends",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "pageSize": {
+      "type": "integer"
+     },
+     "pageToken": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "connector": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "pageSize": {
+      "type": "integer"
+     },
+     "pageToken": {
+      "type": "string"
+     },
+     "view": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "satisfies": true
+  },
+  {
+   "name": "contract declares an argument the connector does not accept",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "pageSize": {
+      "type": "integer"
+     },
+     "pageToken": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "connector": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "max_results": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "satisfies": false
+  },
+  {
+   "name": "connector requires an argument the contract does not supply",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "pageSize": {
+      "type": "integer"
+     },
+     "pageToken": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "connector": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "pageSize": {
+      "type": "integer"
+     },
+     "pageToken": {
+      "type": "string"
+     },
+     "account": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "query",
+     "account"
+    ]
+   },
+   "satisfies": false
+  },
+  {
+   "name": "connector requires less than the contract does",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "pageSize": {
+      "type": "integer"
+     },
+     "pageToken": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "connector": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "pageSize": {
+      "type": "integer"
+     },
+     "pageToken": {
+      "type": "string"
+     }
+    }
+   },
+   "satisfies": true
+  },
+  {
+   "name": "an integer is accepted where a number is taken",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "n": {
+      "type": "integer"
+     }
+    }
+   },
+   "connector": {
+    "type": "object",
+    "properties": {
+     "n": {
+      "type": "number"
+     }
+    }
+   },
+   "satisfies": true
+  },
+  {
+   "name": "a number is not accepted where an integer is taken",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "n": {
+      "type": "number"
+     }
+    }
+   },
+   "connector": {
+    "type": "object",
+    "properties": {
+     "n": {
+      "type": "integer"
+     }
+    }
+   },
+   "satisfies": false
+  },
+  {
+   "name": "a string is not accepted where an integer is taken",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "n": {
+      "type": "string"
+     }
+    }
+   },
+   "connector": {
+    "type": "object",
+    "properties": {
+     "n": {
+      "type": "integer"
+     }
+    }
+   },
+   "satisfies": false
+  },
+  {
+   "name": "a nullable connector type",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string"
+     }
+    }
+   },
+   "connector": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    }
+   },
+   "satisfies": true
+  },
+  {
+   "name": "a property that names no type accepts anything",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string"
+     }
+    }
+   },
+   "connector": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "description": "a query"
+     }
+    }
+   },
+   "satisfies": true
+  },
+  {
+   "name": "an open connector accepts what it does not list",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "pageSize": {
+      "type": "integer"
+     },
+     "pageToken": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "connector": {
+    "type": "object",
+    "additionalProperties": true
+   },
+   "satisfies": true
+  },
+  {
+   "name": "a connector with an empty schema accepts nothing we can be sure of",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "pageSize": {
+      "type": "integer"
+     },
+     "pageToken": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "connector": {
+    "type": "object"
+   },
+   "satisfies": false
+  },
+  {
+   "name": "no schema at all",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "pageSize": {
+      "type": "integer"
+     },
+     "pageToken": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "connector": null,
+   "satisfies": false
+  },
+  {
+   "name": "a contract that sends nothing satisfies a connector that requires nothing",
+   "contract": {
+    "type": "object",
+    "properties": {}
+   },
+   "connector": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string"
+     }
+    }
+   },
+   "satisfies": true
+  }
+ ],
+ "result_contract": {
+  "type": "object",
+  "required": [
+   "threads"
+  ],
+  "properties": {
+   "threads": {
+    "type": "array"
+   },
+   "nextPageToken": {
+    "type": "string"
+   }
+  }
+ },
+ "results": [
+  {
+   "name": "conforms",
+   "answer": "{\"threads\":[],\"nextPageToken\":\"x\"}",
+   "conforms": true
+  },
+  {
+   "name": "extra fields are allowed",
+   "answer": "{\"threads\":[],\"resultCountEstimate\":3}",
+   "conforms": true
+  },
+  {
+   "name": "a required field is missing",
+   "answer": "{\"emails\":[]}",
+   "conforms": false
+  },
+  {
+   "name": "a field of the wrong type",
+   "answer": "{\"threads\":\"none\"}",
+   "conforms": false
+  },
+  {
+   "name": "not JSON",
+   "answer": "Action completed.",
+   "conforms": false
+  }
+ ]
+}
