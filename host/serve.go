@@ -219,7 +219,7 @@ func (s *server) handle(m rpcMessage) {
 		s.reply(m.ID, map[string]any{
 			"protocolVersion": p.ProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "tap-runtime", "version": "0.1.0"},
+			"serverInfo":      map[string]any{"name": "tap-runtime", "version": version},
 		})
 	case "ping":
 		s.reply(m.ID, map[string]any{})

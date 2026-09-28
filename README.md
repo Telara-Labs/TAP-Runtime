@@ -8,8 +8,8 @@ entrypoint: a source file (`main.sh`, `main.py`, `main.js`) or a compiled `.wasm
 Design: `telara-documentation/architecture/tap/34-the-baseline-primitive-is-a-program.md`
 section 13. Ticket: TENG-3031.
 
-**Status: spike.** It proves the shape works. It is not the shipping runner: no
-MCP tool calls, no client bridges, no resume, macOS arm64 only.
+**Status: built and tested on macOS arm64. Not released.** Cross-builds for
+Linux and Windows compile and have not been run.
 
 ## What it does
 
@@ -52,13 +52,20 @@ client can start a primitive, and the runner can ask the person there to
 approve a change. A client that cannot show an approval prompt is never asked,
 and every change under it is refused.
 
-## Build and run
+## Build, test, release
 
     export GOWORK=off
-    go build -o bin/host ./host
-    go test ./host
-    ./bin/host pkg/deploy-check-py
-    ./bin/host --approve pkg/approve-check
+    go build -o bin/tap-runtime ./host
+    go test ./...
+    ./bin/tap-runtime pkg/deploy-check-py
+    ./bin/tap-runtime install --client claude --print
+
+    go run ./release build --version 0.1.0 --out dist --key release.key
+    go run ./release verify --dir dist --pub release.pub
+
+A release holds the runner for five platforms, the bash-compatible
+interpreter, their checksums and the licence notices of everything compiled
+in. It is reproducible: the same source and toolchain give the same bytes.
 
 ## Interpreters are downloaded, not bundled
 

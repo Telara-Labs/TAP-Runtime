@@ -138,6 +138,13 @@ type Result struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		fmt.Println("tap-runtime", version)
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "install" {
+		os.Exit(installCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "manifest" {
 		os.Exit(manifestCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
