@@ -11,8 +11,8 @@ import (
 
 	"golang.org/x/term"
 
-	"telara.dev/tap/runner/third_party/sh/expand"
-	"telara.dev/tap/runner/third_party/sh/syntax"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/expand"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/syntax"
 )
 
 // non-empty string is true, empty string is false

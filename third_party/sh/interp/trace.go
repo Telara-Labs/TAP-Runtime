@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"telara.dev/tap/runner/third_party/sh/syntax"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/syntax"
 )
 
 // tracer prints expressions like a shell would do if its

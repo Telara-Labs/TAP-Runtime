@@ -12,7 +12,7 @@ import (
 	"text/tabwriter"
 	"unicode"
 
-	"telara.dev/tap/runner/third_party/sh/fileutil"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/fileutil"
 )
 
 // PrinterOption is a function which can be passed to NewPrinter

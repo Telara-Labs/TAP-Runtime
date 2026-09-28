@@ -1,4 +1,4 @@
-module telara.dev/tap/runner
+module gitlab.com/telara-labs/tap-runtime
 
 go 1.26.1
 
