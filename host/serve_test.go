@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+// repoRoot is fixed before any test changes directory.
+var repoRoot = func() string {
+	wd, _ := os.Getwd()
+	return filepath.Dir(wd)
+}()
+
 var (
 	shOnce  sync.Once
 	shStore string
@@ -28,7 +34,8 @@ func interpreterStore(t *testing.T) string {
 		if shErr != nil {
 			return
 		}
-		cmd := exec.Command("go", "build", "-o", filepath.Join(shStore, "sh.wasm"), "../guest-sh")
+		cmd := exec.Command("go", "build", "-o", filepath.Join(shStore, "sh.wasm"), "./guest-sh")
+		cmd.Dir = repoRoot // tests change directory; the source does not move
 		cmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			shErr = err
@@ -67,7 +74,7 @@ func startServer(t *testing.T, elicitation bool, answer func(map[string]any) map
 	c := &client{t: t, in: cw, sc: bufio.NewScanner(cr), answer: answer, done: make(chan error, 1)}
 	c.sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	go func() {
-		c.done <- serve(sr, sw, []string{"--interpreters", store, "--journal", filepath.Join(t.TempDir(), "journal.jsonl")})
+		c.done <- serve(sr, sw, []string{"--interpreters", store, "--runs", t.TempDir(), "--journal", filepath.Join(t.TempDir(), "journal.jsonl")})
 		sw.Close()
 	}()
 	caps := map[string]any{}

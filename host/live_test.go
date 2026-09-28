@@ -25,7 +25,9 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 	}
 	store := interpreterStore(t)
 	bin := filepath.Join(t.TempDir(), "host")
-	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+	build := exec.Command("go", "build", "-o", bin, "./host")
+	build.Dir = repoRoot
+	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("building the runner: %v\n%s", err, out)
 	}
 	pkg := writePackage(t, writeManifest, "echo approved-content > out/live.txt && echo written || echo refused\n")
@@ -42,7 +44,7 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 			work, _ := filepath.EvalSymlinks(t.TempDir())
 			cfg := filepath.Join(work, "mcp.json")
 			j, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"tap": map[string]any{
-				"command": bin, "args": []string{"serve", "--interpreters", store, "--journal", filepath.Join(work, "journal.jsonl")}}}})
+				"command": bin, "args": []string{"serve", "--interpreters", store, "--runs", filepath.Join(work, "runs"), "--journal", filepath.Join(work, "journal.jsonl")}}}})
 			os.WriteFile(cfg, j, 0o600)
 
 			cmd := exec.Command("claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",

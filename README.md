@@ -32,6 +32,17 @@ uses. To publish it must satisfy `manifest/manifest.v3.schema.json` in full.
 write. A field the format does not have is an error, so a misspelt bound never
 reads as no bound.
 
+## Runs are recorded, and a stopped run can continue
+
+    host pkg/recent-mail                 # prints its run id
+    host --resume <run id> pkg/recent-mail
+
+Every request a program makes is recorded before it is acted on and again
+when it is answered. A run that stops is continued by starting the program
+again and answering what it already asked from the record, so nothing is done
+twice. A change that was in progress when the run stopped is not repeated and
+is reported as unknown for a person to check. A read is simply asked again.
+
 ## As an MCP server
 
     host serve
@@ -84,4 +95,6 @@ becomes an ordinary dependency again.
 - From the command line, approval is the `--approve` flag, which approves
   everything. Run as an MCP server (`host serve`) it asks the person at the
   client, once for each distinct action.
-- No resume and no pipelining.
+- Bash sends one request at a time: the sandbox has one thread. Python and
+  JavaScript can send several together with `tap.call_many` / `tap.callMany`.
+- Codex accepts several calls at once and runs them one after another.

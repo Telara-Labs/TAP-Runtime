@@ -7,6 +7,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/bind"
@@ -17,9 +18,12 @@ import (
 type Claude struct {
 	cmd     *exec.Cmd
 	in      io.WriteCloser
-	sc      *bufio.Scanner
-	n       int
 	version string
+
+	mu      sync.Mutex
+	n       int
+	pending map[string]chan map[string]any
+	gone    bool
 	deny    []string
 	denied  bool // deny has been read
 }
@@ -46,7 +50,8 @@ func NewClaude(extra ...string) (*Claude, error) {
 	}
 	sc := bufio.NewScanner(out)
 	sc.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
-	c := &Claude{cmd: cmd, in: in, sc: sc, version: strings.Fields(string(v))[0]}
+	c := &Claude{cmd: cmd, in: in, version: strings.Fields(string(v))[0], pending: map[string]chan map[string]any{}}
+	go c.read(sc)
 	if _, err := c.request("initialize", map[string]any{"hooks": map[string]any{}}); err != nil {
 		c.Close()
 		return nil, err
@@ -54,34 +59,69 @@ func NewClaude(extra ...string) (*Claude, error) {
 	return c, nil
 }
 
+// read hands each response to whoever asked for it. Several requests may be
+// in flight; the request id on a response says which it answers.
+func (c *Claude) read(sc *bufio.Scanner) {
+	for sc.Scan() {
+		var m map[string]any
+		if json.Unmarshal(sc.Bytes(), &m) != nil || m["type"] != "control_response" {
+			continue
+		}
+		r, _ := m["response"].(map[string]any)
+		id, _ := r["request_id"].(string)
+		c.mu.Lock()
+		ch := c.pending[id]
+		delete(c.pending, id)
+		c.mu.Unlock()
+		if ch != nil {
+			ch <- r
+		}
+	}
+	c.mu.Lock()
+	c.gone = true
+	for id, ch := range c.pending {
+		close(ch)
+		delete(c.pending, id)
+	}
+	c.mu.Unlock()
+}
+
 func (c *Claude) request(subtype string, fields map[string]any) (map[string]any, error) {
-	c.n++
-	rid := fmt.Sprintf("tap-%d", c.n)
 	req := map[string]any{"subtype": subtype}
 	for k, v := range fields {
 		req[k] = v
 	}
+	ch := make(chan map[string]any, 1)
+	c.mu.Lock()
+	if c.gone {
+		c.mu.Unlock()
+		return nil, fmt.Errorf("%s: claude has exited", subtype)
+	}
+	c.n++
+	rid := fmt.Sprintf("tap-%d", c.n)
+	c.pending[rid] = ch
 	b, _ := json.Marshal(map[string]any{"type": "control_request", "request_id": rid, "request": req})
-	if _, err := c.in.Write(append(b, '\n')); err != nil {
+	_, err := c.in.Write(append(b, '\n'))
+	c.mu.Unlock()
+	if err != nil {
 		return nil, err
 	}
-	deadline := time.Now().Add(120 * time.Second)
-	for time.Now().Before(deadline) && c.sc.Scan() {
-		var m map[string]any
-		if json.Unmarshal(c.sc.Bytes(), &m) != nil || m["type"] != "control_response" {
-			continue
-		}
-		r, _ := m["response"].(map[string]any)
-		if r["request_id"] != rid {
-			continue
+	select {
+	case r, ok := <-ch:
+		if !ok {
+			return nil, fmt.Errorf("%s: claude exited before it answered", subtype)
 		}
 		if r["subtype"] == "error" {
 			return nil, fmt.Errorf("%s: %v", subtype, r["error"])
 		}
 		res, _ := r["response"].(map[string]any)
 		return res, nil
+	case <-time.After(120 * time.Second):
+		c.mu.Lock()
+		delete(c.pending, rid)
+		c.mu.Unlock()
+		return nil, fmt.Errorf("%s: claude did not answer", subtype)
 	}
-	return nil, fmt.Errorf("%s: claude did not answer", subtype)
 }
 
 func (c *Claude) Client() (string, string) { return "claude-code", c.version }
@@ -127,7 +167,10 @@ func (c *Claude) Inventory() ([]bind.Tool, error) {
 }
 
 func (c *Claude) Denied(t bind.Tool) (bool, error) {
-	if !c.denied {
+	c.mu.Lock()
+	read := c.denied
+	c.mu.Unlock()
+	if !read {
 		r, err := c.request("list_permission_rules", nil)
 		if err != nil {
 			return false, err
@@ -138,11 +181,15 @@ func (c *Claude) Denied(t bind.Tool) (bool, error) {
 			rm, _ := x.(map[string]any)
 			if rm["behavior"] == "deny" {
 				if s, ok := rm["rule"].(string); ok {
+					c.mu.Lock()
 					c.deny = append(c.deny, s)
+					c.mu.Unlock()
 				}
 			}
 		}
+		c.mu.Lock()
 		c.denied = true
+		c.mu.Unlock()
 	}
 	q := claudeName(t.Server, t.Name)
 	for _, rule := range c.deny {
