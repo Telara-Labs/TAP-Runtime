@@ -6,7 +6,10 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/satisfy"
 
 	"gitlab.com/telara-labs/tap-runtime/bind"
 	"gitlab.com/telara-labs/tap-runtime/bridge"
@@ -15,19 +18,27 @@ import (
 
 // binding is what an alias resolved to, and what the receipt says about it.
 type binding struct {
-	Alias           string    `json:"alias"`
-	Capability      string    `json:"capability"`
-	Declared        string    `json:"declared"`
-	Server          string    `json:"server"`
-	Tool            string    `json:"tool"`
-	Annotated       string    `json:"annotated"`
-	Score           float64   `json:"score"`
-	RunnerUp        string    `json:"runner_up,omitempty"`
-	RunnerUpScore   float64   `json:"runner_up_score,omitempty"`
-	Gated           bool      `json:"treated_as_write"`
-	Pinned          bool      `json:"pinned"`
-	ContractChecked bool      `json:"contract_checked"`
-	tool            bind.Tool `json:"-"`
+	Alias         string  `json:"alias"`
+	Capability    string  `json:"capability"`
+	Declared      string  `json:"declared"`
+	Server        string  `json:"server"`
+	Tool          string  `json:"tool"`
+	Annotated     string  `json:"annotated"`
+	Score         float64 `json:"score"`
+	RunnerUp      string  `json:"runner_up,omitempty"`
+	RunnerUpScore float64 `json:"runner_up_score,omitempty"`
+	Gated         bool    `json:"treated_as_write"`
+	Pinned        bool    `json:"pinned"`
+	// ContractChecked says the tool's input schema was checked against the
+	// capability's contract at admission. ResultChecked says each answer is
+	// checked against the contract as it arrives. Schema is the digest of
+	// the input schema that was checked.
+	ContractChecked bool           `json:"contract_checked"`
+	ResultChecked   bool           `json:"result_checked"`
+	Schema          string         `json:"schema,omitempty"`
+	Candidates      []string       `json:"candidates,omitempty"`
+	tool            bind.Tool      `json:"-"`
+	result          map[string]any `json:"-"`
 }
 
 // admission is the outcome of resolving a manifest against a client.
@@ -76,7 +87,11 @@ func validEffect(e string) bool {
 // admit resolves every declared tool before the guest is started. A required
 // tool that does not bind refuses the whole run; an optional one is left out
 // and the guest is told.
-func admit(decls []toolDecl, b bridge.Bridge) (*admission, error) {
+func admit(decls []toolDecl, b bridge.Bridge, contracts ...mf.Capability) (*admission, error) {
+	byLabel := map[string]*mf.Capability{}
+	for i := range contracts {
+		byLabel[contracts[i].Label] = &contracts[i]
+	}
 	name, version := b.Client()
 	a := &admission{Client: name, Version: version, Tested: bridge.Tested(name, version), byAlias: map[string]*binding{}}
 	seen := map[string]bool{}
@@ -100,6 +115,12 @@ func admit(decls []toolDecl, b bridge.Bridge) (*admission, error) {
 	for _, d := range decls {
 		bd := binding{Alias: d.Alias, Capability: d.Capability, Declared: d.Effect}
 		refusal := ""
+		contract := byLabel[d.Capability]
+		if contract != nil {
+			// Whatever the client, an answer can be held to the contract.
+			bd.result, bd.ResultChecked = contract.Result, len(contract.Result) > 0
+		}
+		bySchema := contract != nil && b.HasSchemas()
 		if d.Pin != nil {
 			bd.Pinned = true
 			found := false
@@ -116,6 +137,49 @@ func admit(decls []toolDecl, b bridge.Bridge) (*admission, error) {
 			}
 			bd.Score = 1
 			bd.Gated = bd.tool.Annotated == bind.Unknown
+			if refusal == "" && bySchema {
+				if why := satisfy.Arguments(contract.Args, bd.tool.Schema); len(why) > 0 {
+					refusal = "the pinned tool does not satisfy the contract: " + strings.Join(why, "; ")
+				} else {
+					bd.ContractChecked, bd.Schema = true, satisfy.Digest(bd.tool.Schema)
+				}
+			}
+		} else if bySchema {
+			// 34 section 11.3: host compatible means exactly one tool whose
+			// live input schema satisfies the contract. The name is not
+			// matched against anything. More than one is refused and named
+			// (section 4.1.4), never scored.
+			var fit []bind.Tool
+			for _, t := range inv {
+				if t.Annotated != bind.Unknown && rankOf(t.Annotated) > rankOf(bind.Effect(d.Effect)) {
+					continue
+				}
+				if len(satisfy.Arguments(contract.Args, t.Schema)) == 0 {
+					fit = append(fit, t)
+				}
+			}
+			sort.Slice(fit, func(i, j int) bool {
+				if fit[i].Server != fit[j].Server {
+					return fit[i].Server < fit[j].Server
+				}
+				return fit[i].Name < fit[j].Name
+			})
+			for _, t := range fit {
+				bd.Candidates = append(bd.Candidates, t.Server+" / "+t.Name)
+			}
+			switch len(fit) {
+			case 0:
+				refusal = "no tool on this client satisfies the contract"
+			case 1:
+				bd.tool, bd.Score, bd.Gated = fit[0], 1, fit[0].Annotated == bind.Unknown
+				bd.ContractChecked, bd.Schema = true, satisfy.Digest(fit[0].Schema)
+			default:
+				shown := bd.Candidates
+				if len(shown) > 6 {
+					shown = append(append([]string{}, shown[:6]...), fmt.Sprintf("and %d more", len(bd.Candidates)-6))
+				}
+				refusal = fmt.Sprintf("%d tools satisfy the contract, and one must: %s. Pin the one meant, or make the contract say more", len(fit), strings.Join(shown, ", "))
+			}
 		} else {
 			c := bind.Resolve(mf.CapabilityName(d.Capability), bind.Effect(d.Effect), inv)
 			if c.RunnerUp != nil {
@@ -207,6 +271,17 @@ func callTool(a *admission, b bridge.Bridge, rq request, approve bool, journal i
 		logf("  FAILED   call %s -> %s / %s: %v", rq.Alias, bd.Server, bd.Tool, err)
 		record("failed", map[string]any{"error": err.Error()})
 		return reply{Exit: 1, Stderr: err.Error()}
+	}
+	if bd.ResultChecked {
+		if why := satisfy.Result(bd.result, res); why != "" {
+			// The answer is not what the contract promises. For a read that
+			// is a failed call. For a change, the change has been made: the
+			// program and the record are told both things (34 section 11.3).
+			landed := bd.effective() != string(bind.Read)
+			logf("  VIOLATES call %s -> %s / %s: %s (landed=%v)", rq.Alias, bd.Server, bd.Tool, why, landed)
+			record("output_schema_violation", map[string]any{"error": why, "landed": landed, "result_bytes": len(res)})
+			return reply{Exit: 1, Stderr: "output_schema_violation: " + why, Violation: true, Landed: landed}
+		}
 	}
 	logf("  call     %s -> %s / %s  [%s] %dB in, %s", rq.Alias, bd.Server, bd.Tool, bd.effective(), len(res), time.Since(t0).Round(time.Millisecond))
 	record("ran", map[string]any{"result_bytes": len(res), "ms": time.Since(t0).Milliseconds()})

@@ -159,7 +159,8 @@ func (c *Codex) Inventory() ([]bind.Tool, error) {
 			for tn, tv := range tools {
 				tm, _ := tv.(map[string]any)
 				ann, _ := tm["annotations"].(map[string]any)
-				out = append(out, bind.Tool{Server: name, Name: tn, Annotated: codexEffect(ann)})
+				schema, _ := tm["inputSchema"].(map[string]any)
+				out = append(out, bind.Tool{Server: name, Name: tn, Annotated: codexEffect(ann), Schema: schema})
 			}
 		}
 		cursor, _ = r["nextCursor"].(string)
