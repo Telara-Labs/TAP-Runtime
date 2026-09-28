@@ -52,7 +52,7 @@ func storeDir(override string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "telara-tap", "interpreters"), nil
+	return filepath.Join(base, "tap-runtime", "interpreters"), nil
 }
 
 // obtain returns the interpreter's bytes, downloading it into the store on

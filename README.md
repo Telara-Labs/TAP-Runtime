@@ -20,6 +20,15 @@ MCP tool calls, no client bridges, no resume, macOS arm64 only.
 - Refuses any command the manifest does not declare.
 - Gates `write` and `destructive` commands unless the run is approved.
 
+## As an MCP server
+
+    host serve
+
+exposes one tool, `tap_run`. Add it to a client's MCP configuration and the
+client can start a primitive, and the runner can ask the person there to
+approve a change. A client that cannot show an approval prompt is never asked,
+and every change under it is refused.
+
 ## Build and run
 
     export GOWORK=off
@@ -60,5 +69,7 @@ becomes an ordinary dependency again.
   the runner grants it nothing, not because the calls are absent.
 - What follows a declared subcommand is not bounded: `kubectl get` allows any
   resource and any later flag.
-- Approval is the `--approve` flag. It stands in for MCP elicitation.
+- From the command line, approval is the `--approve` flag, which approves
+  everything. Run as an MCP server (`host serve`) it asks the person at the
+  client, once for each distinct action.
 - No resume and no pipelining.

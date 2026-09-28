@@ -191,7 +191,7 @@ func runCommand(m *manifest, rq request, approve bool, journal io.Writer) reply 
 	if effect != "read" && !approve {
 		logf("  GATED    %s  (%s, no approval)", line, effect)
 		record("gated", nil)
-		return reply{Refused: effect + " command needs approval"}
+		return reply{Refused: effect + " command needs approval", Gated: true}
 	}
 	path, err := exec.LookPath(rq.Command)
 	if err != nil {

@@ -172,7 +172,7 @@ func fileOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 		if !approve {
 			logf("  GATED    write %s  (write, no approval)", rq.Path)
 			rec.done("gated", nil)
-			return reply{Refused: "write needs approval"}
+			return reply{Refused: "write needs approval", Gated: true}
 		}
 		if rq.Method == "canwrite" {
 			// Asked at open, so a script learns of a refusal where it
@@ -236,7 +236,7 @@ func fetchOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 	if effect != "read" && !approve {
 		logf("  GATED    fetch %s %s  (write, no approval)", method, rq.URL)
 		rec.done("gated", nil)
-		return reply{Refused: "write needs approval"}
+		return reply{Refused: "write needs approval", Gated: true}
 	}
 	req, err := http.NewRequest(method, rq.URL, bytes.NewReader([]byte(rq.Stdin)))
 	if err != nil {

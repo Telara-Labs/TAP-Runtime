@@ -1,4 +1,4 @@
-// host is the spike runner for doc 34 section 13. It loads a package whose
+// host is the runner. Doc 34 section 13. It loads a package whose
 // entrypoint is a SOURCE FILE, runs it inside an interpreter that is itself a
 // wasm module, and executes each declared host command on the guest's behalf.
 //
@@ -70,11 +70,55 @@ type reply struct {
 	Exit    int      `json:"exit"`
 	Stdin   string   `json:"stdin"`
 	Status  int      `json:"status,omitempty"`
+	// Gated is set when the only thing missing is a person's agreement.
+	Gated bool `json:"gated,omitempty"`
+}
+
+// Approver decides one gated action. It is asked once for each distinct
+// action in a run, and told what exactly would happen.
+type Approver func(ask Ask) bool
+
+// Ask describes one action that needs a person's agreement.
+type Ask struct {
+	Primitive string
+	Effect    string // write or destructive
+	Action    string // one line: exactly what would be done
+}
+
+// Options is everything a run is given.
+type Options struct {
+	Package     string
+	Args        []string
+	Approve     Approver
+	Journal     io.Writer
+	InterpDir   string
+	CacheDir    string
+	PyLib       string
+	Client      string        // claude, codex, or empty to detect
+	Bridge      bridge.Bridge // set by the server, which already knows the client
+	ReceiptPath string
+}
+
+// Result is what a run produced.
+type Result struct {
+	Exit      int
+	Stdout    string
+	Stderr    string
+	Ran       int
+	Refused   int
+	Admission *admission
 }
 
 func main() {
-	approve := flag.Bool("approve", false, "approve write and destructive commands for this run")
-	journalPath := flag.String("journal", "", "append one JSON line per host command")
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		if err := serve(os.Stdin, os.Stdout, os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "host  fatal:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	approve := flag.Bool("approve", false, "approve write and destructive actions for this run")
+	journalPath := flag.String("journal", "", "append one JSON line per action")
 	interpDir := flag.String("interpreters", "", "interpreter store; default is the user cache directory")
 	cacheDir := flag.String("cache", "", "directory for the compiled-interpreter cache")
 	client := flag.String("client", "", "client whose connections to borrow: claude or codex; detected when empty")
@@ -82,22 +126,60 @@ func main() {
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: host [--approve] [--journal FILE] <package-dir> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: host [--approve] [--journal FILE] <package-dir> [args...]\n       host serve")
 		os.Exit(2)
 	}
-	pkg := flag.Arg(0)
-	raw, err := os.ReadFile(filepath.Join(pkg, "primitive.yaml"))
+	var journal io.Writer = io.Discard
+	if *journalPath != "" {
+		f, err := os.OpenFile(*journalPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		must(err)
+		defer f.Close()
+		journal = f
+	}
+	yes := *approve
+	res, err := Run(context.Background(), Options{
+		Package: flag.Arg(0), Args: flag.Args()[1:], Journal: journal,
+		Approve:   func(Ask) bool { return yes },
+		InterpDir: *interpDir, CacheDir: *cacheDir, PyLib: *pyLib, Client: *client, ReceiptPath: *receiptPath,
+	})
 	must(err)
+	if res.Stderr != "" {
+		logf("script stderr:\n%s", strings.TrimRight(res.Stderr, "\n"))
+	}
+	fmt.Printf("RESULT (exit %d)\n%s", res.Exit, res.Stdout)
+	os.Exit(res.Exit)
+}
+
+// Run admits a package, runs it in the sandbox and serves its requests.
+func Run(ctx context.Context, o Options) (*Result, error) {
+	raw, err := os.ReadFile(filepath.Join(o.Package, "primitive.yaml"))
+	if err != nil {
+		return nil, err
+	}
 	var m manifest
-	must(yaml.Unmarshal(raw, &m))
-	must(validateCapabilities(&m))
-	script, err := os.ReadFile(filepath.Join(pkg, m.Entrypoint))
-	must(err)
-	store, err := storeDir(*interpDir)
-	must(err)
+	if err := yaml.Unmarshal(raw, &m); err != nil {
+		return nil, fmt.Errorf("primitive.yaml: %w", err)
+	}
+	if err := validateCapabilities(&m); err != nil {
+		return nil, err
+	}
+	script, err := os.ReadFile(filepath.Join(o.Package, m.Entrypoint))
+	if err != nil {
+		return nil, err
+	}
+	store, err := storeDir(o.InterpDir)
+	if err != nil {
+		return nil, err
+	}
 	wasmBytes, in, sum, err := obtain(store, m.Entrypoint)
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 	kind := in.Kind
+	journal := o.Journal
+	if journal == nil {
+		journal = io.Discard
+	}
 
 	logf("package    %s  entrypoint %s (source, not compiled)", m.Metadata.Name, m.Entrypoint)
 	logf("interpreter %s (%d bytes) sha256:%s", in.File, len(wasmBytes), sum[:12])
@@ -106,19 +188,22 @@ func main() {
 	}
 
 	var adm *admission
-	var br bridge.Bridge
+	br := o.Bridge
 	if len(m.Tools) > 0 {
-		c := *client
-		if c == "" {
-			c = detectClient()
+		if br == nil {
+			c := o.Client
+			if c == "" {
+				c = detectClient()
+			}
+			br, err = openBridge(c)
+			if err != nil {
+				return nil, err
+			}
+			defer br.Close()
 		}
-		br, err = openBridge(c)
-		must(err)
-		defer br.Close()
 		adm, err = admit(m.Tools, br)
 		if err != nil {
-			br.Close()
-			must(err)
+			return nil, err
 		}
 		logf("client     %s %s", adm.Client, adm.Version)
 		if !adm.Tested {
@@ -137,25 +222,20 @@ func main() {
 				logf("           %-10s its server says nothing about what it does; treated as a write", b.Alias)
 			}
 		}
-		if *receiptPath != "" {
+		if o.ReceiptPath != "" {
 			j, _ := json.MarshalIndent(adm, "", "  ")
-			must(os.WriteFile(*receiptPath, append(j, '\n'), 0o600))
+			if err := os.WriteFile(o.ReceiptPath, append(j, '\n'), 0o600); err != nil {
+				return nil, err
+			}
 		}
 	}
 
-	var journal io.Writer = io.Discard
-	if *journalPath != "" {
-		f, err := os.OpenFile(*journalPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-		must(err)
-		defer f.Close()
-		journal = f
-	}
-
-	ctx := context.Background()
 	rc := wazero.NewRuntimeConfig()
-	if *cacheDir != "" {
-		cache, err := wazero.NewCompilationCacheWithDir(*cacheDir)
-		must(err)
+	if o.CacheDir != "" {
+		cache, err := wazero.NewCompilationCacheWithDir(o.CacheDir)
+		if err != nil {
+			return nil, err
+		}
 		defer cache.Close(ctx)
 		rc = rc.WithCompilationCache(cache)
 	}
@@ -165,18 +245,23 @@ func main() {
 
 	t0 := time.Now()
 	compiled, err := rt.CompileModule(ctx, wasmBytes)
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 	logf("compiled interpreter in %s", time.Since(t0).Round(time.Millisecond))
 
 	// OS pipes, not io.Pipe: io.Pipe is unbuffered, so a guest flushing stdout
 	// while the host writes its reply deadlocks both sides.
 	toGuestR, toGuestW, err := os.Pipe()
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 	fromGuestR, fromGuestW, err := os.Pipe()
-	must(err)
+	if err != nil {
+		return nil, err
+	}
 	var guestErr bytes.Buffer
-
-	cfg := guestConfig(kind, *pyLib, string(script), flag.Args()[1:]).
+	cfg := guestConfig(kind, o.PyLib, string(script), o.Args).
 		WithStdin(toGuestR).WithStdout(fromGuestW).WithStderr(&guestErr)
 
 	done := make(chan error, 1)
@@ -188,14 +273,39 @@ func main() {
 
 	enc := json.NewEncoder(toGuestW)
 	if kind == "sh" {
-		must(enc.Encode(map[string]any{"script": string(script), "args": flag.Args()[1:]}))
+		if err := enc.Encode(map[string]any{"script": string(script), "args": o.Args}); err != nil {
+			return nil, err
+		}
 	}
 
+	// decided remembers the answer for an action already asked about, so a
+	// loop does not ask a person the same question on every pass.
+	decided := map[string]bool{}
+	gate := func(op func(approve bool) reply, describe func() string, effect string) reply {
+		rp := op(false)
+		if !rp.Gated {
+			return rp
+		}
+		action := describe()
+		ok, asked := decided[action]
+		if !asked {
+			ok = o.Approve != nil && o.Approve(Ask{Primitive: m.Metadata.Name, Effect: effect, Action: action})
+			decided[action] = ok
+			b, _ := json.Marshal(map[string]any{"ts": time.Now().UTC().Format(time.RFC3339Nano),
+				"outcome": map[bool]string{true: "approved", false: "declined"}[ok], "action": action, "effect": effect})
+			journal.Write(append(b, '\n'))
+		}
+		if !ok {
+			return rp
+		}
+		return op(true)
+	}
+
+	res := &Result{Admission: adm}
 	rd := bufio.NewReaderSize(fromGuestR, 1<<20)
-	dispatched, refused := 0, 0
 	var final *request
 	for {
-		line, err := rd.ReadBytes('\n')
+		line, rerr := rd.ReadBytes('\n')
 		if len(line) > 0 {
 			var rq request
 			if jerr := json.Unmarshal(line, &rq); jerr != nil {
@@ -203,44 +313,51 @@ func main() {
 			} else if rq.Method == "return" {
 				final = &rq
 				break
-			} else if rq.Method == "call" {
-				rp := callTool(adm, br, rq, *approve, journal)
-				if rp.Refused != "" {
-					refused++
-				} else {
-					dispatched++
-				}
-				must(enc.Encode(rp))
-			} else if rq.Method == "read" || rq.Method == "write" || rq.Method == "canwrite" || rq.Method == "fetch" {
+			} else {
 				var rp reply
-				if rq.Method == "fetch" {
-					rp = fetchOp(&m, rq, *approve, journal)
-				} else {
-					rp = fileOp(&m, rq, *approve, journal)
+				counted := true
+				switch rq.Method {
+				case "tools":
+					rp.Tools = []string{}
+					if adm != nil {
+						rp.Tools = adm.aliases()
+					}
+					counted = false
+				case "call":
+					effect, action := "write", "call "+rq.Alias
+					if adm != nil {
+						if bd := adm.byAlias[rq.Alias]; bd != nil {
+							effect = bd.effective()
+							args, _ := json.Marshal(rq.Arguments)
+							action = fmt.Sprintf("call %s / %s with %s", bd.Server, bd.Tool, args)
+						}
+					}
+					rp = gate(func(a bool) reply { return callTool(adm, br, rq, a, journal) }, func() string { return action }, effect)
+				case "exec":
+					_, effect := resolve(&m, rq.Command, rq.Args)
+					rp = gate(func(a bool) reply { return runCommand(&m, rq, a, journal) },
+						func() string { return "run " + strings.TrimSpace(rq.Command+" "+strings.Join(rq.Args, " ")) }, effect)
+				case "read", "write", "canwrite":
+					rp = gate(func(a bool) reply { return fileOp(&m, rq, a, journal) },
+						func() string { return "write the file " + rq.Path }, "write")
+					counted = rq.Method != "canwrite"
+				case "fetch":
+					rp = gate(func(a bool) reply { return fetchOp(&m, rq, a, journal) },
+						func() string { return "send " + strings.ToUpper(rq.HTTPMethod) + " to " + rq.URL }, "write")
+				default:
+					rp.Refused = "unknown request"
 				}
 				if rp.Refused != "" {
-					refused++
-				} else if rq.Method != "canwrite" {
-					dispatched++
+					res.Refused++
+				} else if counted {
+					res.Ran++
 				}
-				must(enc.Encode(rp))
-			} else if rq.Method == "tools" {
-				rp := reply{Tools: []string{}}
-				if adm != nil {
-					rp.Tools = adm.aliases()
+				if err := enc.Encode(rp); err != nil {
+					return nil, err
 				}
-				must(enc.Encode(rp))
-			} else if rq.Method == "exec" {
-				rp := runCommand(&m, rq, *approve, journal)
-				if rp.Refused != "" {
-					refused++
-				} else {
-					dispatched++
-				}
-				must(enc.Encode(rp))
 			}
 		}
-		if err != nil {
+		if rerr != nil {
 			break
 		}
 	}
@@ -252,16 +369,12 @@ func main() {
 	if guestErr.Len() > 0 {
 		logf("guest stderr:\n%s", strings.TrimRight(guestErr.String(), "\n"))
 	}
-	logf("%d call(s) and command(s) run, %d refused, in %s", dispatched, refused, time.Since(t0).Round(time.Millisecond))
+	logf("%d call(s) and command(s) run, %d refused, in %s", res.Ran, res.Refused, time.Since(t0).Round(time.Millisecond))
 	if final == nil {
-		logf("guest ended without a result")
-		os.Exit(1)
+		return nil, fmt.Errorf("the primitive ended without a result")
 	}
-	if final.Stderr != "" {
-		logf("script stderr:\n%s", strings.TrimRight(final.Stderr, "\n"))
-	}
-	fmt.Printf("RESULT (exit %d)\n%s", final.Exit, final.Stdout)
-	os.Exit(final.Exit)
+	res.Exit, res.Stdout, res.Stderr = final.Exit, final.Stdout, final.Stderr
+	return res, nil
 }
 
 // guestConfig is the whole of what a guest is given. Kept as one function so a
