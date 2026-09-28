@@ -1,0 +1,294 @@
+{
+  "name": "dev.telara/gitlab-mr-review-queue",
+  "description": "Fetch open merge requests for a GitLab project, join each to its source branch's latest CI pipeline status, and rank them into a review queue using a deterministic urgency score (failing pipeline, staleness since last activity, and — for the single longest-untouched merge request each run — whether any reviewer has commented). Read-only; never merges, approves, comments, or triggers pipelines. Fully deterministic: no model reasoning is used.",
+  "entry_node_id": "__entry__",
+  "nodes": [
+    {
+      "id": "__entry__",
+      "name": "entry",
+      "type": "noop"
+    },
+    {
+      "id": "merge_requests",
+      "name": "merge_requests",
+      "type": "tool",
+      "input_bindings": [
+        {
+          "name": "project_id",
+          "target_path": "project_id",
+          "source_expression": "trigger.project_id"
+        }
+      ],
+      "tool": {
+        "integration_type": "gitlab",
+        "tool_name": "list_merge_requests",
+        "static_parameters": {
+          "order_by": "updated_at",
+          "per_page": 100,
+          "sort": "asc",
+          "state": "opened"
+        }
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_seconds": 2,
+        "retry_on": [
+          "timeout",
+          "unavailable",
+          "rate_limit"
+        ]
+      },
+      "effect_class": "read",
+      "metadata": {
+        "credential_slot": "gitlab",
+        "paginate": "all"
+      }
+    },
+    {
+      "id": "pipelines",
+      "name": "pipelines",
+      "type": "tool",
+      "input_bindings": [
+        {
+          "name": "project_id",
+          "target_path": "project_id",
+          "source_expression": "trigger.project_id"
+        }
+      ],
+      "tool": {
+        "integration_type": "gitlab",
+        "tool_name": "list_pipelines",
+        "static_parameters": {
+          "per_page": 100
+        }
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_seconds": 2,
+        "retry_on": [
+          "timeout",
+          "unavailable",
+          "rate_limit"
+        ]
+      },
+      "effect_class": "read",
+      "metadata": {
+        "credential_slot": "gitlab",
+        "paginate": "all"
+      }
+    },
+    {
+      "id": "rank",
+      "name": "rank",
+      "type": "transform",
+      "input_bindings": [
+        {
+          "name": "max_mrs",
+          "target_path": "max_mrs",
+          "source_expression": "trigger.max_mrs"
+        },
+        {
+          "name": "merge_requests",
+          "target_path": "merge_requests",
+          "source_expression": "nodes.merge_requests.result.items"
+        }
+      ],
+      "transform": {
+        "language": "starlark",
+        "program": "# rank.star — deterministic capping + stalest-candidate selection.\n# TAP transform contract: step params arrive as predeclared globals (merge_requests,\n# max_mrs); the value assigned to `result` is the step's output. No I/O, no imports —\n# Starlark is sandboxed by construction; the runtime enforces step/time ceilings.\n#\n# `stalest` is ALWAYS a resolvable dict, even when there are no open merge requests\n# (a sentinel with iid 0) — this keeps the downstream `notes` api: step's params free\n# of a null dereference regardless of whether the engine actually honors `when:` on an\n# api: step (see workflow.yaml's `notes` step comment / README SPEC-FEEDBACK #4).\n_SENTINEL = {\"iid\": 0, \"author\": \"\", \"updated_at\": \"\"}\n\ndef _stalest(mrs):\n    stalest = _SENTINEL\n    for m in mrs:\n        if stalest[\"iid\"] == 0 or m[\"updated_at\"] \u003c stalest[\"updated_at\"]:\n            stalest = m\n    return stalest\n\ndef _rank(mrs, max_mrs):\n    capped = mrs[:max_mrs]\n    return {\n        \"capped\": capped,\n        \"stalest\": _stalest(capped),\n        \"has_mrs\": len(capped) \u003e 0,\n        \"total_open\": len(mrs),\n    }\n\nresult = _rank(merge_requests, max_mrs)\n"
+      },
+      "effect_class": "read"
+    },
+    {
+      "id": "notes",
+      "name": "notes",
+      "type": "tool",
+      "input_bindings": [
+        {
+          "name": "mr_iid",
+          "target_path": "mr_iid",
+          "source_expression": "nodes.rank.result.stalest.iid"
+        },
+        {
+          "name": "project_id",
+          "target_path": "project_id",
+          "source_expression": "trigger.project_id"
+        }
+      ],
+      "tool": {
+        "integration_type": "gitlab",
+        "tool_name": "list_mr_notes",
+        "static_parameters": {
+          "per_page": 100
+        }
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_seconds": 2,
+        "retry_on": [
+          "timeout",
+          "unavailable",
+          "rate_limit"
+        ]
+      },
+      "effect_class": "read",
+      "metadata": {
+        "credential_slot": "gitlab",
+        "paginate": "all"
+      }
+    },
+    {
+      "id": "notes__gate",
+      "name": "notes gate",
+      "type": "branch",
+      "branch": {
+        "condition_expression": "nodes.rank.result.has_mrs == true",
+        "default_node_id": "notes__skip"
+      },
+      "metadata": {
+        "gated_step": "notes",
+        "when": "steps.rank.has_mrs == true"
+      }
+    },
+    {
+      "id": "notes__skip",
+      "name": "notes skipped",
+      "type": "noop",
+      "metadata": {
+        "bypass_of": "notes"
+      }
+    },
+    {
+      "id": "queue",
+      "name": "queue",
+      "type": "transform",
+      "input_bindings": [
+        {
+          "name": "merge_requests",
+          "target_path": "merge_requests",
+          "source_expression": "nodes.rank.result.capped"
+        },
+        {
+          "name": "notes",
+          "target_path": "notes",
+          "source_expression": "nodes.notes.result.items"
+        },
+        {
+          "name": "pipelines",
+          "target_path": "pipelines",
+          "source_expression": "nodes.pipelines.result.items"
+        },
+        {
+          "name": "stale_before",
+          "target_path": "stale_before",
+          "source_expression": "trigger.stale_before"
+        },
+        {
+          "name": "stalest",
+          "target_path": "stalest",
+          "source_expression": "nodes.rank.result.stalest"
+        },
+        {
+          "name": "total_open",
+          "target_path": "total_open",
+          "source_expression": "nodes.rank.result.total_open"
+        }
+      ],
+      "transform": {
+        "language": "starlark",
+        "program": "# queue.star — join pipelines to merge requests by source branch, apply the\n# deterministic urgency score, merge in the single enriched MR's reviewers_pending\n# signal, and rank. Predeclared params: merge_requests, pipelines, notes (None when\n# the notes step was skipped by `when:` in an engine that honors it — see\n# rank.star/workflow.yaml), stalest, stale_before, total_open. Output via `result`.\n#\n# No date-math is available (Starlark here has no time/date module — see README\n# SPEC-FEEDBACK #5), so staleness is a lexicographic string comparison against the\n# caller-supplied stale_before threshold; this is valid because GitLab timestamps are\n# consistently UTC / 'Z'-suffixed ISO 8601, which sorts correctly as plain strings.\n\n_INFLIGHT_STATUSES = [\"created\", \"waiting_for_resource\", \"preparing\", \"pending\", \"running\", \"scheduled\"]\n\ndef _pipelines_by_ref(pipelines):\n    best = {}\n    for p in pipelines:\n        ref = p.get(\"ref\")\n        if ref == None:\n            continue\n        cur = best.get(ref)\n        if cur == None or p[\"id\"] \u003e cur[\"id\"]:\n            best[ref] = p\n    return best\n\ndef _reviewers_pending(notes, mr_author):\n    # True (nobody has weighed in) unless a non-system note from someone other than\n    # the MR's own author exists.\n    if notes == None or len(notes) == 0:\n        return True\n    for n in notes:\n        if not n.get(\"system\", False) and n.get(\"author\") != mr_author:\n            return False\n    return True\n\ndef _score(pipeline_status, is_stale, reviewers_pending):\n    score = 0\n    if pipeline_status == \"failed\":\n        score += 40\n    elif pipeline_status == \"no_pipeline_found\":\n        score += 10\n    elif pipeline_status in _INFLIGHT_STATUSES:\n        score += 5\n    if is_stale:\n        score += 25\n    if reviewers_pending == True:\n        score += 20\n    return score\n\ndef _sort_key(row):\n    # Ascending sort of (100 - score, updated_at) yields descending urgency with a\n    # stalest-first tiebreak, using only operators/types this sandbox actually has.\n    return (100 - row[\"urgency_score\"], row[\"updated_at\"])\n\ndef _build(merge_requests, pipelines, notes, stalest, stale_before, total_open):\n    by_ref = _pipelines_by_ref(pipelines)\n    stalest_iid = stalest[\"iid\"]\n    notes_list = notes if notes != None else []\n\n    rows = []\n    counts = {\"failed_pipeline\": 0, \"stale\": 0, \"reviewers_pending_unknown\": 0}\n\n    for mr in merge_requests:\n        pipeline = by_ref.get(mr[\"source_branch\"])\n        if pipeline == None:\n            pipeline_status = \"no_pipeline_found\"\n            pipeline_id = None\n        else:\n            pipeline_status = pipeline[\"status\"]\n            pipeline_id = pipeline[\"id\"]\n\n        is_stale = mr[\"updated_at\"] \u003c stale_before\n        notes_checked = stalest_iid != 0 and mr[\"iid\"] == stalest_iid\n\n        if notes_checked:\n            reviewers_pending = _reviewers_pending(notes_list, mr[\"author\"])\n            last_activity = mr[\"updated_at\"]\n            for n in notes_list:\n                if n[\"created_at\"] \u003e last_activity:\n                    last_activity = n[\"created_at\"]\n            last_activity_source = \"mr_notes\" if len(notes_list) \u003e 0 else \"mr_updated_at\"\n        else:\n            reviewers_pending = None\n            last_activity = mr[\"updated_at\"]\n            last_activity_source = \"mr_updated_at\"\n\n        score = _score(pipeline_status, is_stale, reviewers_pending)\n\n        if pipeline_status == \"failed\":\n            counts[\"failed_pipeline\"] += 1\n        if is_stale:\n            counts[\"stale\"] += 1\n        if reviewers_pending == None:\n            counts[\"reviewers_pending_unknown\"] += 1\n\n        rows.append({\n            \"iid\": mr[\"iid\"],\n            \"title\": mr[\"title\"],\n            \"source_branch\": mr[\"source_branch\"],\n            \"target_branch\": mr[\"target_branch\"],\n            \"author\": mr[\"author\"],\n            \"created_at\": mr[\"created_at\"],\n            \"updated_at\": mr[\"updated_at\"],\n            \"pipeline_status\": pipeline_status,\n            \"pipeline_id\": pipeline_id,\n            \"is_stale\": is_stale,\n            \"reviewers_pending\": reviewers_pending,\n            \"notes_checked\": notes_checked,\n            \"last_activity\": last_activity,\n            \"last_activity_source\": last_activity_source,\n            \"urgency_score\": score,\n        })\n\n    ranked = sorted(rows, key=_sort_key)\n\n    return {\n        \"queue\": ranked,\n        \"summary\": {\n            \"total_open\": total_open,\n            \"considered\": len(rows),\n            \"enriched_iid\": stalest_iid if stalest_iid != 0 else None,\n            \"top_urgency_score\": ranked[0][\"urgency_score\"] if len(ranked) \u003e 0 else None,\n            \"counts\": counts,\n        },\n    }\n\nresult = _build(merge_requests, pipelines, notes, stalest, stale_before, total_open)\n"
+      },
+      "effect_class": "read"
+    },
+    {
+      "id": "__end__",
+      "name": "end",
+      "type": "end"
+    }
+  ],
+  "edges": [
+    {
+      "from_node_id": "__entry__",
+      "to_node_id": "merge_requests"
+    },
+    {
+      "from_node_id": "__entry__",
+      "to_node_id": "pipelines"
+    },
+    {
+      "from_node_id": "merge_requests",
+      "to_node_id": "rank"
+    },
+    {
+      "from_node_id": "notes",
+      "to_node_id": "queue"
+    },
+    {
+      "from_node_id": "notes__gate",
+      "to_node_id": "notes",
+      "condition_expression": "nodes.rank.result.has_mrs == true"
+    },
+    {
+      "from_node_id": "notes__gate",
+      "to_node_id": "notes__skip",
+      "default_edge": true
+    },
+    {
+      "from_node_id": "notes__skip",
+      "to_node_id": "queue"
+    },
+    {
+      "from_node_id": "pipelines",
+      "to_node_id": "queue"
+    },
+    {
+      "from_node_id": "queue",
+      "to_node_id": "__end__"
+    },
+    {
+      "from_node_id": "rank",
+      "to_node_id": "notes__gate"
+    },
+    {
+      "from_node_id": "rank",
+      "to_node_id": "queue"
+    }
+  ],
+  "inputs": [
+    {
+      "name": "max_mrs",
+      "type": "int",
+      "description": "Cap on open merge requests considered per run, applied after fetching",
+      "default_value": 50
+    },
+    {
+      "name": "project_id",
+      "type": "string",
+      "description": "GitLab project ID (numeric) or URL-encoded path like 'group%2Fproject'",
+      "required": true
+    },
+    {
+      "name": "stale_before",
+      "type": "string",
+      "description": "ISO 8601 timestamp; merge requests with no activity since this time are flagged stale",
+      "required": true
+    }
+  ],
+  "outputs": [
+    {
+      "name": "queue",
+      "source_expression": "nodes.queue.result.queue"
+    },
+    {
+      "name": "summary",
+      "source_expression": "nodes.queue.result.summary"
+    }
+  ],
+  "metadata": {
+    "compiled_by": "tap-compile",
+    "effect_class": "read",
+    "primitive_version": "0.1.0",
+    "tap_api_version": "primitives.telara.dev/v1",
+    "tap_source": "dev.telara/gitlab-mr-review-queue"
+  }
+}

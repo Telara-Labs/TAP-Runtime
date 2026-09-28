@@ -1,0 +1,8 @@
+{
+  "artifact": "tap-creator requirements classification — every observed call classified as declared or rejected; tap validate cross-checks this file against the manifest and fixtures",
+  "source_transcript": "REPLACE — e.g. 'authoring session <date> (exploration: <what task was manually performed>)'",
+  "tool_calls_observed": [],
+  "hosts_contacted": [],
+  "writes_observed": [],
+  "unclassified_remaining": 0
+}

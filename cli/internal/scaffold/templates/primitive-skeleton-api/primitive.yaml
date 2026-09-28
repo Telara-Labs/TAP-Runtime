@@ -1,0 +1,63 @@
+apiVersion: primitives.telara.dev/v1
+kind: Primitive
+
+metadata:
+  name: REPLACE_KEBAB_NAME                # e.g. pipeline-triage — no publisher prefix here
+  publisher: dev.telara                    # reverse-DNS, domain-verified; full id is <publisher>/<name>
+  version: 0.1.0
+  description: >-
+    REPLACE. Describe SHAPE and EFFECT only: what it fetches/classifies/returns, and what it
+    never does (e.g. "read-only; never retries, cancels, or writes anything"). No IDs, no live
+    URLs, no "if this fails, try..." language. Run every draft through
+    references/requirements-taxonomy.md §7 before finalizing.
+  output_description: >-
+    REPLACE. Describe the output shape and any documented empty/null cases (e.g. "failed_jobs is
+    empty for green pipelines"). Never a claim the outputSchema can't back up.
+  license: Apache-2.0
+  source: REPLACE_GIT_URL
+  artifactDigest: sha256:TBD-at-publish
+  forkOf: null
+
+interface:
+  inputSchema:
+    $ref: schemas/input.json
+  outputSchema:
+    $ref: schemas/output.json
+
+requirements:
+  network:
+    egressHosts: [REPLACE_HOST]           # exact hostnames only, one per host in hosts_contacted.
+                                           # If the real host is per-tenant SaaS with no fixed
+                                           # literal (e.g. Jira/Confluence's *.atlassian.net), use
+                                           # an egress-host SLOT instead: {slot: REPLACE_SLOT_NAME}
+                                           # -- bound at install exactly like a browser origin slot
+                                           # (v1 ruling 2) -- and add egress_slots to
+                                           # requires_features below.
+  credentials:
+    - slot: REPLACE_SLOT                   # e.g. "gitlab" — names the INTEGRATION, not the auth method
+      integration: REPLACE_INTEGRATION      # catalog integration id
+      actions: [REPLACE_RESOURCE.read]       # class/operation/resource tokens; see requirements-taxonomy.md §2
+      # DO NOT add a `type:` field here naming oauth2/personal_access_token/api_key/basic — a slot
+      # declares capability (integration + actions), never the mechanism observed while exploring.
+      # Any credential type the catalog supports satisfies this slot if its grant covers `actions`.
+  reasoning:                                # DELETE this block (together with the reason_unknown
+                                             # step in workflow.yaml — see its comment) if step 2's
+                                             # deterministic classification never leaves a residue
+    provider: caller
+    capabilities: [structured-output]
+    maxTokens: REPLACE_INT
+
+effects:
+  class: read                              # read | write | destructive | financial | identity-admin
+  idempotent: true
+  # NOTE: no `destructive:` field -- removed in v1 (ruling 1); `class` carries severity alone.
+
+execution:
+  runtime: telara-workflow-v1
+  entrypoint: workflow.yaml
+  timeoutSeconds: 120
+  resumable: false                          # compiler-derived; leave false for read-class v0.1
+  may_suspend: []                            # compiler-derived
+  requires_features: [transform.starlark, lease]  # drop `lease` too if you deleted the reason_unknown step; add pagination.* if paginated
+
+suggested_mode: autonomous                    # non-binding hint; read-class primitives default here

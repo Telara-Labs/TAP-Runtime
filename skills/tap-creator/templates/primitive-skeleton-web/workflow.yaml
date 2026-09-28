@@ -1,0 +1,87 @@
+apiVersion: primitives.telara.dev/v1
+kind: Workflow
+
+inputs:
+  url:
+    type: string
+    format: url
+    required: true
+    description: Page URL; must be within the origin(s) bound to the REPLACE_ORIGIN_SLOT slot
+  since:
+    type: string
+    format: iso_date
+    description: REPLACE — return only entries newer than this; omit for the full first page
+    examples: ["2026-07-01"]
+  max_entries:
+    type: int
+    default: 25
+    min: 1
+    max: 100
+  # `object` is also a valid type (v1 ruling 5) for a structured, non-scalar input.
+  #
+  # RESERVED: `now` (v1 ruling 3) is an ISO-8601 datetime the runtime auto-stamps every run --
+  # usable as {from: inputs.now} WITHOUT declaring it here at all. Never declare it
+  # `required: true` if you do declare it for documentation purposes -- `tap validate` rejects
+  # that (a caller never supplies it).
+
+steps:
+  # Compiled fast path: load the page and extract with the cached selector plan (src/extract_plan.yaml).
+  # The browser tool enforces the origin slot, same-origin navigation, and no downloads/uploads at
+  # the step boundary; it renders JS and waits for the plan's ready condition.
+  # Output shape: {entries_raw: [...], drift: bool, drift_reason, page_text}. On drift it returns
+  # readability-extracted page text INSTEAD of entries, so the fallback lease has something
+  # schema-constrained to read — never fail-silent on drift.
+  - id: page
+    browser:
+      action: extract
+      origin: {slot: REPLACE_ORIGIN_SLOT}
+      url: {from: inputs.url}
+      plan_from: src/extract_plan.yaml
+      on_drift: capture_text
+    retry: {max_attempts: 2, initial_backoff_seconds: 3, retry_on: [timeout, navigation]}
+    # NOTE: an anti-bot/challenge page is drift, not retry fodder — the plan's drift_detection
+    # list (src/extract_plan.yaml) must include anti_bot_interstitial so this never hammers a
+    # challenge page under `retry:`.
+
+  # Fallback ONLY on drift: schema-constrained extraction from captured page text. This is a
+  # runtime fallback that keeps THIS pass alive; it also emits a drift event that opens a repair
+  # proposal (updated selectors) for review — repair fixes the compiled path for next time, this
+  # step never mutates the installed primitive itself.
+  - id: extract_fallback
+    when: steps.page.drift == true
+    reason:
+      purpose: REPLACE_extract_purpose
+      input: {from: steps.page.page_text}
+      inputSchema: {type: string}
+      outputSchema:
+        type: array
+        items:
+          type: object
+          required: [title]
+          properties:
+            title: {type: string}
+            date: {type: [string, "null"], format: date}
+            url: {type: [string, "null"], format: uri}
+      maxTokens: REPLACE_INT
+      capabilities: [structured-output]
+      dataClasses: [public-web-content]
+
+  # Deterministic merge/filter/sort/provenance-stamp. `reasoned` is null on the fast path (no
+  # drift) — normalize.star must branch on `drift`, never assume both cached and reasoned exist.
+  - id: normalize
+    transform:
+      language: starlark
+      expression_from: src/normalize.star
+      params:
+        cached: {from: steps.page.entries_raw}
+        reasoned: {from: steps.extract_fallback}
+        drift: {from: steps.page.drift}
+        drift_reason: {from: steps.page.drift_reason}
+        since: {from: inputs.since}
+        cap: {from: inputs.max_entries}
+        page_url: {from: inputs.url}
+
+outputs:
+  entries: {from: steps.normalize.entries}
+  source: {from: steps.normalize.source}
+  extraction: {from: steps.normalize.extraction}

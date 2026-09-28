@@ -1,0 +1,15 @@
+# Built files and downloaded interpreters never go in git.
+bin/
+*.wasm
+cache/
+journal.jsonl
+cli/tap
+
+# Local environment and secret material
+.env
+.env.*
+*.key
+*.pem
+id_rsa*
+id_ed25519*
+.DS_Store

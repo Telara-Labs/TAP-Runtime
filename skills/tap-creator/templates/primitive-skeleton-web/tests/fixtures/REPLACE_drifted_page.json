@@ -1,0 +1,18 @@
+{
+  "_comment": "Delete or rename this placeholder. drift: true fixtures return page_text instead of entries_raw, plus a lease_mock-referenced reasoning_lease_response for the fallback lease.",
+  "browser_extract": {
+    "entries_raw": null,
+    "drift": true,
+    "drift_reason": "REPLACE — e.g. 'root_selector_matches: 0 (site redesign)'",
+    "page_text": "REPLACE — readability-extracted main-content text, <=20000 chars"
+  },
+  "variant_anti_bot": {
+    "entries_raw": null,
+    "drift": true,
+    "drift_reason": "anti_bot_interstitial: challenge page detected",
+    "page_text": null
+  },
+  "reasoning_lease_response": [
+    {"title": "REPLACE", "date": "REPLACE-STABLE-DATE", "url": null}
+  ]
+}

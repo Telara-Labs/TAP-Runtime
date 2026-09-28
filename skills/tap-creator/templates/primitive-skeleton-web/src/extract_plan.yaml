@@ -1,0 +1,43 @@
+# Cached extraction plan — the compiled browser path. Capture this from the exploration run's
+# successful extraction; it executes WITHOUT model work. Cache key (per primitive-structure §6):
+# primitive digest + origin + version signals + locale.
+#
+# Selector philosophy: semantic/stable locators first (roles, headings, datetime attributes),
+# never nth-child chains. Every selector carries the drift condition that invalidates it.
+
+ready:
+  wait_for: REPLACE_SELECTOR             # readiness = main content rendered
+  timeout_ms: 15000
+  network_idle_ms: 800                    # only needed for JS-rendered pages that hydrate late
+
+version_signals:                          # change in these != drift, but re-keys the cache
+  - meta[name="generator"]
+
+entries:
+  root: "REPLACE_ROOT_SELECTOR"
+  item: "REPLACE_ITEM_SELECTOR"
+  fields:
+    title:
+      selector: "REPLACE"
+      attr: text
+      required: true                      # missing on >20% of items => drift
+    date:
+      selector: "time"
+      attr: "datetime | text"
+      parse: date
+    url:
+      selector: "a[href]"
+      attr: href
+      resolve: absolute                   # resolved against page origin only
+
+drift_detection:                          # explicit — any of these = drift
+  - root_selector_matches: 0
+  - required_field_missing_pct: 20
+  - unexpected_navigation: true
+  - anti_bot_interstitial: true           # challenge pages are drift, not retry fodder
+  - dom_shape_hash_delta: 0.35             # material structural change vs captured shape
+
+on_drift:
+  capture: readability_text                # boilerplate-stripped main-content text
+  max_capture_chars: 20000                  # bounds the fallback lease input
+  emit: drift_event                          # opens a repair proposal for review
