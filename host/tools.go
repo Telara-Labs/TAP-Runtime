@@ -214,7 +214,7 @@ func callTool(a *admission, b bridge.Bridge, rq request, approve bool, journal i
 	if bd.effective() != string(bind.Read) && !approve {
 		logf("  GATED    call %s -> %s / %s  (%s, no approval)", rq.Alias, bd.Server, bd.Tool, bd.effective())
 		record("gated", nil)
-		return reply{Refused: bd.effective() + " tool needs approval"}
+		return reply{Refused: bd.effective() + " tool needs approval", Gated: true}
 	}
 	t0 := time.Now()
 	res, err := b.Call(bd.tool, rq.Arguments)
