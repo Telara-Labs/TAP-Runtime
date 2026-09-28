@@ -1,0 +1,343 @@
+{
+ "rule": "doc 34 section 13.12: binding by name where the client gives no schema",
+ "floor": 0.6,
+ "note": "bind null means the runner must refuse. Written by the author of the reference implementation; an independent corpus is still owed (doc 35 section 3.3).",
+ "cases": [
+  {
+   "capability": "gmail.threads.search",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "search_threads",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.threads.get",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "get_thread",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.messages.get",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "get_message",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.drafts.list",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "list_drafts",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.drafts.get",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "get_draft",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.labels.list",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "list_labels",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.drafts.create",
+   "declared": "write",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "create_draft",
+   "treated_as_write": true,
+   "why": ""
+  },
+  {
+   "capability": "gmail.drafts.update",
+   "declared": "write",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "update_draft",
+   "treated_as_write": true,
+   "why": ""
+  },
+  {
+   "capability": "gmail.labels.create",
+   "declared": "write",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "create_label",
+   "treated_as_write": true,
+   "why": ""
+  },
+  {
+   "capability": "gmail.messages.send",
+   "declared": "write",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "send_message",
+   "treated_as_write": true,
+   "why": ""
+  },
+  {
+   "capability": "gmail.drafts.delete",
+   "declared": "destructive",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "delete_draft",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.threads.trash",
+   "declared": "destructive",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "trash_thread",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "calendar.events.list",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "list_events",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "calendar.events.search",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "search_events",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "calendar.events.get",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "get_event",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "calendar.calendars.list",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "list_calendars",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "calendar.events.create",
+   "declared": "write",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "create_event",
+   "treated_as_write": true,
+   "why": ""
+  },
+  {
+   "capability": "calendar.events.delete",
+   "declared": "destructive",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "delete_event",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "google_drive.files.search",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "search_files",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "google_drive.files.create",
+   "declared": "write",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "create_file",
+   "treated_as_write": true,
+   "why": ""
+  },
+  {
+   "capability": "google_drive.files.trash",
+   "declared": "destructive",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "trash_file",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "jira.issues.search",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "telara_jira_search_issues",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "jira.issues.create",
+   "declared": "write",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": "telara_jira_create_issue",
+   "treated_as_write": true,
+   "why": "Must refuse."
+  },
+  {
+   "capability": "gmail.messages.search",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": null,
+   "treated_as_write": false,
+   "why": "this connector searches threads only"
+  },
+  {
+   "capability": "slack.messages.send",
+   "declared": "write",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": null,
+   "treated_as_write": false,
+   "why": "no such connector"
+  },
+  {
+   "capability": "gmail.drafts.delete",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": null,
+   "treated_as_write": false,
+   "why": "declared read, the tool is destructive"
+  },
+  {
+   "capability": "gmail.threads.archive",
+   "declared": "write",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": null,
+   "treated_as_write": false,
+   "why": "no such action"
+  },
+  {
+   "capability": "calendar.events.delete",
+   "declared": "read",
+   "inventory": "inventory-claude-code-2.1.284.json",
+   "bind": null,
+   "treated_as_write": false,
+   "why": "declared read, the tool is destructive"
+  },
+  {
+   "capability": "gmail.emails.search",
+   "declared": "read",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": "gmail.search_emails",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.threads.get",
+   "declared": "read",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": "gmail.read_email_thread",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.emails.get",
+   "declared": "read",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": "gmail.read_email",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.drafts.list",
+   "declared": "read",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": "gmail.list_drafts",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.labels.list",
+   "declared": "read",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": "gmail.list_labels",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.drafts.create",
+   "declared": "write",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": "gmail.create_draft",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.emails.send",
+   "declared": "write",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": "gmail.send_email",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.emails.delete",
+   "declared": "destructive",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": "gmail.delete_emails",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "google_drive.files.search",
+   "declared": "read",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": "google_drive.search",
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "google_drive.files.create",
+   "declared": "write",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": "google_drive.create_file",
+   "treated_as_write": false,
+   "why": "Must refuse."
+  },
+  {
+   "capability": "gmail.threads.search",
+   "declared": "read",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": null,
+   "treated_as_write": false,
+   "why": "section 4.1.1: this connector searches messages"
+  },
+  {
+   "capability": "calendar.events.list",
+   "declared": "read",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": null,
+   "treated_as_write": false,
+   "why": "no calendar connector installed"
+  },
+  {
+   "capability": "slack.messages.send",
+   "declared": "write",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": null,
+   "treated_as_write": false,
+   "why": ""
+  },
+  {
+   "capability": "gmail.emails.send",
+   "declared": "read",
+   "inventory": "inventory-codex-0.147.0.json",
+   "bind": null,
+   "treated_as_write": false,
+   "why": "declared read, the tool writes"
+  }
+ ]
+}

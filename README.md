@@ -93,6 +93,19 @@ unimplemented. The changes, all in `interp/`:
 If upstream accepts that change, this directory is deleted and the library
 becomes an ordinary dependency again.
 
+## Conformance
+
+    go run ./conformance/cmd/tap-conformance -- ./bin/tap-runtime serve
+
+`conformance/corpus/` is data: binding, satisfaction and manifest cases with
+their required outcomes, for a runner written by anybody in any language.
+The kit tests a runner from outside, as an MCP server, with real packages and
+a real directory. `conformance/testdata/badrunner` does everything wrong on
+purpose, and a test asserts the kit fails it.
+
+The corpus was written by the author of this runner. Cases written by
+somebody who has not seen the code are still owed.
+
 ## Known limits
 
 - The Python interpreter imports file and socket calls. It is contained because

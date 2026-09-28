@@ -1,0 +1,100 @@
+{
+ "rule": "doc 34 section 13.14, ruling 21: what a runner admits to RUN",
+ "cases": [
+  {
+   "name": "a short manifest",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": true
+  },
+  {
+   "name": "a misspelt block",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfile:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "a misspelt field",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, acess: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "an unknown tool field",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true, allow_all: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "an unknown command field",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG], shell: true}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "manifest v2",
+   "manifest": "apiVersion: primitives.telara.dev/v2\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "no entrypoint",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "an entrypoint that leaves the package",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: ../../etc/passwd}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "an absolute entrypoint",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: /bin/sh}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "an effect that does not exist",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: harmless, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "a capability that is one word",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "a command that is a path",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: /usr/bin/kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "an access that does not exist",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: append}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "an origin with a path",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com/repos\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "an origin with a wildcard",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://*.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "an origin with no scheme",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "a runtime that does not exist",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py, runtime: docker}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": false
+  },
+  {
+   "name": "vocabulary of manifest v2",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\nrequirements: {credentials: []}\n",
+   "may_run": false
+  },
+  {
+   "name": "a top-level entrypoint",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\nentrypoint: main.py\n",
+   "may_run": false
+  }
+ ]
+}
