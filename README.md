@@ -1,4 +1,4 @@
-# telara-tap
+# tap-runtime
 
 The TAP runner.
 
