@@ -31,7 +31,7 @@ echo three | tee -a counter.txt
 echo finished
 `
 
-var yes = func(Ask) bool { return true }
+var yes = func(Ask) Grant { return Grant{OK: true, Limit: Unlimited} }
 
 func lines(t *testing.T, path string) []string {
 	t.Helper()

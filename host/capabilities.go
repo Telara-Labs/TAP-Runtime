@@ -117,6 +117,26 @@ func (r *capRecorder) done(outcome string, extra map[string]any) {
 	r.journal.Write(append(b, '\n'))
 }
 
+// declaredRoot is the declared path a file falls under, as the manifest
+// writes it, so an approval can name a directory instead of one file.
+func declaredRoot(m *manifest, path string) string {
+	cwd, _ := os.Getwd()
+	real, err := resolvePath(path, cwd)
+	if err != nil {
+		return path
+	}
+	for _, d := range m.Files {
+		root, err := resolvePath(d.Path, cwd)
+		if err != nil {
+			continue
+		}
+		if real == root || strings.HasPrefix(real, root+string(filepath.Separator)) {
+			return d.Path
+		}
+	}
+	return path
+}
+
 func fileOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 	rec := newCapRecorder(journal, "file."+rq.Method)
 	rec.entry["path"] = rq.Path

@@ -24,6 +24,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,16 +88,29 @@ type reply struct {
 	Gated bool `json:"gated,omitempty"`
 }
 
-// Approver decides one gated action. It is asked once for each distinct
-// action in a run, and told what exactly would happen.
-type Approver func(ask Ask) bool
+// Approver is asked, on a person's behalf, whether a primitive may make a
+// kind of change, and how many times. Doc 34 section 11.11: the approval
+// carries the ceiling, and reaching it asks again.
+type Approver func(ask Ask) Grant
 
-// Ask describes one action that needs a person's agreement.
+// Ask describes a kind of change a primitive wants to make.
 type Ask struct {
 	Primitive string
-	Effect    string // write or destructive
-	Action    string // one line: exactly what would be done
+	Effect    string // write, destructive, financial or identity-admin
+	Kind      string // what kind of change: one tool, one command, one directory, one origin
+	Example   string // the exact change that is waiting
+	Done      int    // how many of this kind this run has already made
 }
+
+// Grant is the answer. Limit is how many more changes of this kind may be
+// made before the person is asked again. Unlimited is for a caller who has
+// already agreed to everything, such as --approve on the command line.
+type Grant struct {
+	OK    bool
+	Limit int
+}
+
+const Unlimited = -1
 
 // Options is everything a run is given.
 type Options struct {
@@ -160,6 +174,7 @@ func main() {
 		return
 	}
 	approve := flag.Bool("approve", false, "approve write and destructive actions for this run")
+	limit := flag.Int("limit", 0, "with --approve: how many changes of each kind may be made; 0 is no limit")
 	journalPath := flag.String("journal", "", "append one JSON line per action")
 	interpDir := flag.String("interpreters", "", "interpreter store; default is the user cache directory")
 	cacheDir := flag.String("cache", "", "directory for the compiled-interpreter cache")
@@ -181,10 +196,13 @@ func main() {
 		defer f.Close()
 		journal = f
 	}
-	yes := *approve
+	grant := Grant{OK: *approve, Limit: Unlimited}
+	if *limit > 0 {
+		grant.Limit = *limit
+	}
 	res, err := Run(context.Background(), Options{
 		Package: flag.Arg(0), Args: flag.Args()[1:], Journal: journal,
-		Approve:   func(Ask) bool { return yes },
+		Approve:   func(Ask) Grant { return grant },
 		InterpDir: *interpDir, CacheDir: *cacheDir, PyLib: *pyLib, Client: *client, ReceiptPath: *receiptPath,
 		RunsDir: *runsDir, Resume: *resume, NoJournal: *noJournal,
 	})
@@ -394,24 +412,64 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 	}
 
-	// decided remembers the answer for an action already asked about, so a
-	// loop does not ask a person the same question on every pass.
+	// allowance is what a person has agreed to, by kind of change. A kind
+	// they declined stays declined for the run. A kind whose allowance is
+	// used up is asked about again, with the count so far.
+	type allowance struct {
+		left     int
+		done     int
+		declined bool
+	}
 	var gateMu sync.Mutex
-	decided := map[string]bool{}
-	gate := func(op func(approve bool) reply, describe func() string, effect string) reply {
+	allowed := map[string]*allowance{}
+	audit := func(outcome, kind, effect string, extra map[string]any) {
+		e := map[string]any{"ts": time.Now().UTC().Format(time.RFC3339Nano), "outcome": outcome, "kind": kind, "effect": effect}
+		for k, v := range extra {
+			e[k] = v
+		}
+		b, _ := json.Marshal(e)
+		journal.Write(append(b, '\n'))
+	}
+	// gate runs op without approval first. If the only thing missing is a
+	// person's agreement, it finds or asks for that agreement and runs op
+	// again with it. spend is false for a question that changes nothing.
+	gate := func(op func(approve bool) reply, kind, example, effect string, spend bool) reply {
 		rp := op(false)
 		if !rp.Gated {
 			return rp
 		}
 		gateMu.Lock()
-		action := describe()
-		ok, asked := decided[action]
-		if !asked {
-			ok = o.Approve != nil && o.Approve(Ask{Primitive: m.Metadata.Name, Effect: effect, Action: action})
-			decided[action] = ok
-			b, _ := json.Marshal(map[string]any{"ts": time.Now().UTC().Format(time.RFC3339Nano),
-				"outcome": map[bool]string{true: "approved", false: "declined"}[ok], "action": action, "effect": effect})
-			journal.Write(append(b, '\n'))
+		a := allowed[kind]
+		if a == nil {
+			a = &allowance{}
+			allowed[kind] = a
+		}
+		if !a.declined && a.left == 0 {
+			var g Grant
+			if o.Approve != nil {
+				g = o.Approve(Ask{Primitive: m.Metadata.Name, Effect: effect, Kind: kind, Example: example, Done: a.done})
+			}
+			switch {
+			case !g.OK:
+				a.declined = true
+				audit("declined", kind, effect, map[string]any{"after": a.done})
+			case g.Limit == Unlimited:
+				a.left = Unlimited
+				audit("approved", kind, effect, map[string]any{"limit": "none", "after": a.done})
+			default:
+				if g.Limit < 1 {
+					g.Limit = 1
+				}
+				a.left = g.Limit
+				audit("approved", kind, effect, map[string]any{"limit": g.Limit, "after": a.done})
+			}
+		}
+		ok := !a.declined && a.left != 0
+		if ok && spend {
+			if a.left > 0 {
+				a.left--
+			}
+			a.done++
 		}
 		gateMu.Unlock()
 		if !ok {
@@ -455,23 +513,33 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			return rp
 		case "call":
-			action := "call " + rq.Alias
+			kind, example := "call "+rq.Alias, "call "+rq.Alias
 			if adm != nil {
 				if bd := adm.byAlias[rq.Alias]; bd != nil {
 					a, _ := json.Marshal(rq.Arguments)
-					action = fmt.Sprintf("call %s / %s with %s", bd.Server, bd.Tool, a)
+					kind = fmt.Sprintf("call the tool %s / %s", bd.Server, bd.Tool)
+					example = fmt.Sprintf("%s with %s", kind, a)
 				}
 			}
-			return gate(func(a bool) reply { return callTool(adm, br, rq, a, journal) }, func() string { return action }, effectOf(rq))
+			return gate(func(a bool) reply { return callTool(adm, br, rq, a, journal) }, kind, example, effectOf(rq), true)
 		case "exec":
-			return gate(func(a bool) reply { return runCommand(&m, rq, a, journal) },
-				func() string { return "run " + strings.TrimSpace(rq.Command+" "+strings.Join(rq.Args, " ")) }, effectOf(rq))
+			kind := "run " + rq.Command
+			if decl, _ := resolve(&m, rq.Command, rq.Args); decl != nil {
+				kind = strings.TrimSpace("run " + decl.Command + " " + strings.Join(decl.Args, " "))
+			}
+			return gate(func(a bool) reply { return runCommand(&m, rq, a, journal) }, kind,
+				"run "+strings.TrimSpace(rq.Command+" "+strings.Join(rq.Args, " ")), effectOf(rq), true)
 		case "read", "write", "canwrite":
 			return gate(func(a bool) reply { return fileOp(&m, rq, a, journal) },
-				func() string { return "write the file " + rq.Path }, "write")
+				"write files under "+declaredRoot(&m, rq.Path), "write the file "+rq.Path, "write", rq.Method == "write")
 		case "fetch":
+			origin := rq.URL
+			if u, err := url.Parse(rq.URL); err == nil {
+				origin = u.Scheme + "://" + u.Host
+			}
+			mth := strings.ToUpper(rq.HTTPMethod)
 			return gate(func(a bool) reply { return fetchOp(&m, rq, a, journal) },
-				func() string { return "send " + strings.ToUpper(rq.HTTPMethod) + " to " + rq.URL }, "write")
+				"send "+mth+" requests to "+origin, "send "+mth+" to "+rq.URL, "write", true)
 		}
 		return reply{Refused: "unknown request"}
 	}

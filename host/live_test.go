@@ -37,7 +37,7 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 		answer  map[string]any
 		written bool
 	}{
-		{"the person says yes", map[string]any{"action": "accept", "content": map[string]any{"approve": true}}, true},
+		{"the person says yes", map[string]any{"action": "accept", "content": map[string]any{"approve": true, "limit": 1}}, true},
 		{"the person says no", map[string]any{"action": "decline"}, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {

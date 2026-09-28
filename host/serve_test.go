@@ -152,6 +152,10 @@ echo hi > /tmp/tap-serve-escape.txt || echo "outside refused"
 
 var (
 	accept = func(map[string]any) map[string]any {
+		return map[string]any{"action": "accept", "content": map[string]any{"approve": true, "limit": 10}}
+	}
+	// Ticking the box and naming no number allows one.
+	acceptOne = func(map[string]any) map[string]any {
 		return map[string]any{"action": "accept", "content": map[string]any{"approve": true}}
 	}
 	decline = func(map[string]any) map[string]any { return map[string]any{"action": "decline"} }
@@ -172,7 +176,7 @@ func TestServeListsOneTool(t *testing.T) {
 	}
 }
 
-func TestServeAsksOncePerActionAndWritesOnYes(t *testing.T) {
+func TestServeAsksOncePerKindAndWritesOnYes(t *testing.T) {
 	dir := inDir(t)
 	os.Remove("/tmp/tap-serve-escape.txt")
 	c := startServer(t, true, accept)
@@ -185,16 +189,59 @@ func TestServeAsksOncePerActionAndWritesOnYes(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, "out", "a.txt")); strings.TrimSpace(string(b)) != "second" {
 		t.Errorf("a.txt holds %q", b)
 	}
-	// Two files, three writes: a.txt is asked about once, b.txt once. The
-	// path outside is refused before anybody is asked.
-	if len(c.asked) != 2 {
-		t.Fatalf("the person was asked %d times, want 2:\n%s", len(c.asked), strings.Join(c.asked, "\n---\n"))
+	// Three writes under one declared directory, and ten allowed: asked
+	// once. The path outside is refused before anybody is asked.
+	if len(c.asked) != 1 {
+		t.Fatalf("the person was asked %d times, want 1:\n%s", len(c.asked), strings.Join(c.asked, "\n---\n"))
 	}
-	if !strings.Contains(c.asked[0], "out/a.txt") || !strings.Contains(c.asked[0], "writer") {
-		t.Errorf("the prompt does not say what would happen: %q", c.asked[0])
+	for _, want := range []string{"writer", "write files under out", "out/a.txt", "write change"} {
+		if !strings.Contains(c.asked[0], want) {
+			t.Errorf("the prompt does not say %q: %q", want, c.asked[0])
+		}
 	}
 	if _, err := os.Stat("/tmp/tap-serve-escape.txt"); err == nil {
 		t.Fatal("a file was written outside the declared directory")
+	}
+}
+
+// Doc 34 section 11.11: the approval carries the ceiling, and reaching it
+// asks again.
+func TestReachingTheCeilingAsksAgain(t *testing.T) {
+	inDir(t)
+	c := startServer(t, true, acceptOne)
+	out := c.run(writePackage(t, writeManifest, writeScript))
+	if len(c.asked) != 3 {
+		t.Fatalf("three writes with one allowed each time asked %d times:\n%s", len(c.asked), strings.Join(c.asked, "\n---\n"))
+	}
+	if strings.Contains(c.asked[0], "has made") || !strings.Contains(c.asked[1], "has made 1 of these") || !strings.Contains(c.asked[2], "has made 2 of these") {
+		t.Errorf("the prompts do not say how many were made:\n%s", strings.Join(c.asked, "\n---\n"))
+	}
+	if !strings.Contains(out, "b written") {
+		t.Errorf("output:\n%s", out)
+	}
+
+	// Yes to the first, no to the second: one change is made and no more.
+	dir := inDir(t)
+	n := 0
+	c = startServer(t, true, func(p map[string]any) map[string]any {
+		n++
+		if n == 1 {
+			return acceptOne(p)
+		}
+		return decline(p)
+	})
+	out = c.run(writePackage(t, writeManifest, writeScript))
+	if b, _ := os.ReadFile(filepath.Join(dir, "out", "a.txt")); strings.TrimSpace(string(b)) != "first" {
+		t.Fatalf("a.txt holds %q; the ceiling of one did not hold", b)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "out", "b.txt")); err == nil {
+		t.Fatal("a change was made after the person said no")
+	}
+	if len(c.asked) != 2 {
+		t.Fatalf("asked %d times, want 2: a no is remembered for the run", len(c.asked))
+	}
+	if !strings.Contains(out, "a refused again") || !strings.Contains(out, "b refused") {
+		t.Errorf("the program was not told:\n%s", out)
 	}
 }
 
@@ -212,8 +259,8 @@ func TestServeWritesNothingWithoutAnExplicitYes(t *testing.T) {
 			if entries, _ := os.ReadDir(filepath.Join(dir, "out")); len(entries) != 0 {
 				t.Fatalf("%d file(s) were written", len(entries))
 			}
-			if len(c.asked) != 2 {
-				t.Errorf("asked %d times, want 2: a refusal is remembered for the run", len(c.asked))
+			if len(c.asked) != 1 {
+				t.Errorf("asked %d times, want 1: a no is remembered for the run", len(c.asked))
 			}
 		})
 	}
