@@ -1,0 +1,453 @@
+{
+  "name": "dev.telara/slack-standup-digest",
+  "description": "Scan a Slack channel's recent history and, when a standup thread is present, its replies, then extract per-person yesterday/today/blockers fields from the free-text posts using a schema-constrained reasoning step. Author and channel identity are resolved deterministically before any reasoning runs. Extractions below a confidence threshold are routed to unparsed_messages rather than trusted. Read-only; never posts, edits, or reacts to anything.",
+  "entry_node_id": "__entry__",
+  "nodes": [
+    {
+      "id": "__entry__",
+      "name": "entry",
+      "type": "noop"
+    },
+    {
+      "id": "messages",
+      "name": "messages",
+      "type": "tool",
+      "input_bindings": [
+        {
+          "name": "channel",
+          "target_path": "channel",
+          "source_expression": "trigger.channel"
+        },
+        {
+          "name": "latest",
+          "target_path": "latest",
+          "source_expression": "trigger.latest"
+        },
+        {
+          "name": "oldest",
+          "target_path": "oldest",
+          "source_expression": "trigger.oldest"
+        }
+      ],
+      "tool": {
+        "integration_type": "slack",
+        "tool_name": "list_messages",
+        "static_parameters": {
+          "limit": 200
+        }
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_seconds": 2,
+        "retry_on": [
+          "timeout",
+          "unavailable",
+          "rate_limit"
+        ]
+      },
+      "effect_class": "read",
+      "metadata": {
+        "credential_slot": "slack",
+        "paginate": "all"
+      }
+    },
+    {
+      "id": "pick_thread",
+      "name": "pick_thread",
+      "type": "transform",
+      "input_bindings": [
+        {
+          "name": "explicit_thread_ts",
+          "target_path": "explicit_thread_ts",
+          "source_expression": "trigger.thread_ts"
+        },
+        {
+          "name": "messages",
+          "target_path": "messages",
+          "source_expression": "nodes.messages.result.items"
+        }
+      ],
+      "transform": {
+        "language": "starlark",
+        "program": "# pick_thread.star -- deterministic selection of the one standup thread (if\n# any) to expand this run. TAP transform contract: step params arrive as\n# predeclared globals (messages, explicit_thread_ts); the value assigned to\n# `result` is the step's output. No I/O, no imports.\n#\n# Slack sets a message's thread_ts equal to its own ts exactly when that\n# message is the root of a thread with replies (conversations.history docs).\n# That is known-field matching, not semantic extraction -- the same\n# deterministic-first discipline as gitlab-pipeline-triage's signature table,\n# just over a boolean/equality field instead of a string enum.\n#\n# SCOPE DECISION (see README): today's engine has no per-item fan-out step\n# type, so a single static workflow cannot call list_thread_replies once per\n# thread root found in list_messages. This primitive resolves at most one\n# thread per run: an explicit thread_ts input wins; otherwise the most\n# recently active thread root in the scanned window is used.\n\ndef _is_thread_root(m):\n    ts = m.get(\"ts\")\n    thread_ts = m.get(\"thread_ts\")\n    return ts != None and thread_ts != None and thread_ts == ts\n\ndef _pick(messages, explicit_thread_ts):\n    if explicit_thread_ts:\n        return explicit_thread_ts\n    roots = [m for m in messages if _is_thread_root(m)]\n    if len(roots) == 0:\n        return None\n    best = roots[0]\n    for r in roots[1:]:\n        if r[\"ts\"] \u003e best[\"ts\"]:\n            best = r\n    return best[\"ts\"]\n\nresult = {\"thread_ts\": _pick(messages, explicit_thread_ts)}\n"
+      },
+      "effect_class": "read"
+    },
+    {
+      "id": "thread_replies",
+      "name": "thread_replies",
+      "type": "tool",
+      "input_bindings": [
+        {
+          "name": "channel",
+          "target_path": "channel",
+          "source_expression": "trigger.channel"
+        },
+        {
+          "name": "ts",
+          "target_path": "ts",
+          "source_expression": "nodes.pick_thread.result.thread_ts"
+        }
+      ],
+      "tool": {
+        "integration_type": "slack",
+        "tool_name": "list_thread_replies",
+        "static_parameters": {
+          "limit": 200
+        }
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_seconds": 2,
+        "retry_on": [
+          "timeout",
+          "unavailable",
+          "rate_limit"
+        ]
+      },
+      "effect_class": "read",
+      "metadata": {
+        "credential_slot": "slack"
+      }
+    },
+    {
+      "id": "thread_replies__gate",
+      "name": "thread_replies gate",
+      "type": "branch",
+      "branch": {
+        "condition_expression": "nodes.pick_thread.result.thread_ts",
+        "default_node_id": "thread_replies__skip"
+      },
+      "metadata": {
+        "gated_step": "thread_replies",
+        "when": "steps.pick_thread.thread_ts"
+      }
+    },
+    {
+      "id": "thread_replies__skip",
+      "name": "thread_replies skipped",
+      "type": "noop",
+      "metadata": {
+        "bypass_of": "thread_replies"
+      }
+    },
+    {
+      "id": "users",
+      "name": "users",
+      "type": "tool",
+      "tool": {
+        "integration_type": "slack",
+        "tool_name": "list_users",
+        "static_parameters": {
+          "limit": 200
+        }
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_seconds": 2,
+        "retry_on": [
+          "timeout",
+          "unavailable",
+          "rate_limit"
+        ]
+      },
+      "effect_class": "read",
+      "metadata": {
+        "credential_slot": "slack"
+      }
+    },
+    {
+      "id": "resolve_candidates",
+      "name": "resolve_candidates",
+      "type": "transform",
+      "input_bindings": [
+        {
+          "name": "cap",
+          "target_path": "cap",
+          "source_expression": "trigger.max_messages"
+        },
+        {
+          "name": "messages",
+          "target_path": "messages",
+          "source_expression": "nodes.messages.result.items"
+        },
+        {
+          "name": "thread_replies_items",
+          "target_path": "thread_replies_items",
+          "source_expression": "nodes.thread_replies.result.items"
+        },
+        {
+          "name": "thread_ts",
+          "target_path": "thread_ts",
+          "source_expression": "nodes.pick_thread.result.thread_ts"
+        },
+        {
+          "name": "users",
+          "target_path": "users",
+          "source_expression": "nodes.users.result.items"
+        }
+      ],
+      "transform": {
+        "language": "starlark",
+        "program": "# resolve_candidates.star -- deterministic identity resolution + candidate\n# filtering. Predeclared params: messages, thread_replies_items (list or None\n# when the thread_replies step was skipped), users, thread_ts (string or\n# None), cap. Output via `result`.\n#\n# Everything here is known-field matching (subtype presence, is_bot lookup,\n# thread-root dedup, a numeric cap) -- deliberately NOT semantic judgment.\n# The free text itself is never interpreted here; that is extract_fields'\n# (the lease's) job alone, per the deterministic-first ladder.\n\ndef _user_lookup(users):\n    m = {}\n    for u in users:\n        m[u[\"id\"]] = u\n    return m\n\ndef _display_name(u):\n    if u == None:\n        return \"unknown\"\n    dn = u.get(\"display_name\")\n    if dn:\n        return dn\n    rn = u.get(\"real_name\")\n    if rn:\n        return rn\n    return u.get(\"id\", \"unknown\")\n\ndef _is_candidate(msg, user_map):\n    if msg.get(\"subtype\") != None:\n        return False  # system messages (channel_join, etc.), never a standup post\n    uid = msg.get(\"user\")\n    if uid == None:\n        return False\n    u = user_map.get(uid)\n    if u != None and u.get(\"is_bot\"):\n        return False  # bots (reminder bots, standup bots) never author a standup themselves\n    text = msg.get(\"text\")\n    if text == None or text == \"\":\n        return False\n    return True\n\ndef _resolve(messages, thread_replies_items, users, thread_ts, cap):\n    user_map = _user_lookup(users)\n    candidates = []\n    for m in messages:\n        if _is_candidate(m, user_map):\n            candidates.append({\n                \"ts\": m[\"ts\"],\n                \"user_id\": m[\"user\"],\n                \"display_name\": _display_name(user_map.get(m[\"user\"])),\n                \"text\": m[\"text\"],\n                \"source\": \"channel\",\n            })\n    if thread_replies_items != None:\n        for r in thread_replies_items:\n            # conversations.replies repeats the thread's parent message as its\n            # first row; it was already counted above via `messages`, so skip\n            # it here rather than double-counting the same post.\n            if thread_ts != None and r.get(\"ts\") == thread_ts:\n                continue\n            if _is_candidate(r, user_map):\n                candidates.append({\n                    \"ts\": r[\"ts\"],\n                    \"user_id\": r[\"user\"],\n                    \"display_name\": _display_name(user_map.get(r[\"user\"])),\n                    \"text\": r[\"text\"],\n                    \"source\": \"thread_reply\",\n                })\n    candidates = candidates[:cap]\n    return {\"candidates\": candidates, \"has_candidates\": len(candidates) \u003e 0}\n\nresult = _resolve(messages, thread_replies_items, users, thread_ts, cap)\n"
+      },
+      "effect_class": "read"
+    },
+    {
+      "id": "extract_fields",
+      "name": "extract_fields",
+      "type": "model",
+      "input_bindings": [
+        {
+          "name": "input",
+          "target_path": "input",
+          "source_expression": "nodes.resolve_candidates.result.candidates"
+        }
+      ],
+      "model": {
+        "prompt": "Perform the workflow reasoning task: extract_standup_fields_from_free_text",
+        "task": "extract_standup_fields_from_free_text",
+        "output_schema": {
+          "items": {
+            "properties": {
+              "blockers": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "confidence": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "today": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ts": {
+                "type": "string"
+              },
+              "yesterday": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "ts",
+              "yesterday",
+              "today",
+              "blockers",
+              "confidence"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "max_iterations": 1,
+        "routing_profile": "structured-output",
+        "lease_config_json": "{\"capabilities\":[\"structured-output\"],\"data_classes\":[\"internal-workplace-chat\"],\"input_schema\":{\"items\":{\"properties\":{\"display_name\":{\"type\":\"string\"},\"source\":{\"enum\":[\"channel\",\"thread_reply\"]},\"text\":{\"type\":\"string\"},\"ts\":{\"type\":\"string\"},\"user_id\":{\"type\":\"string\"}},\"type\":\"object\"},\"type\":\"array\"},\"max_tokens\":800,\"output_schema\":{\"items\":{\"properties\":{\"blockers\":{\"type\":[\"string\",\"null\"]},\"confidence\":{\"maximum\":1,\"minimum\":0,\"type\":\"number\"},\"today\":{\"type\":[\"string\",\"null\"]},\"ts\":{\"type\":\"string\"},\"yesterday\":{\"type\":[\"string\",\"null\"]}},\"required\":[\"ts\",\"yesterday\",\"today\",\"blockers\",\"confidence\"],\"type\":\"object\"},\"type\":\"array\"}}"
+      },
+      "effect_class": "read"
+    },
+    {
+      "id": "extract_fields__gate",
+      "name": "extract_fields gate",
+      "type": "branch",
+      "branch": {
+        "condition_expression": "nodes.resolve_candidates.result.has_candidates == true",
+        "default_node_id": "extract_fields__skip"
+      },
+      "metadata": {
+        "gated_step": "extract_fields",
+        "when": "steps.resolve_candidates.has_candidates == true"
+      }
+    },
+    {
+      "id": "extract_fields__skip",
+      "name": "extract_fields skipped",
+      "type": "noop",
+      "metadata": {
+        "bypass_of": "extract_fields"
+      }
+    },
+    {
+      "id": "gate",
+      "name": "gate",
+      "type": "transform",
+      "input_bindings": [
+        {
+          "name": "min_confidence",
+          "target_path": "min_confidence",
+          "literal_value": 0.6
+        },
+        {
+          "name": "candidates",
+          "target_path": "candidates",
+          "source_expression": "nodes.resolve_candidates.result.candidates"
+        },
+        {
+          "name": "channel",
+          "target_path": "channel",
+          "source_expression": "trigger.channel"
+        },
+        {
+          "name": "reasoned",
+          "target_path": "reasoned",
+          "source_expression": "nodes.extract_fields.result"
+        },
+        {
+          "name": "thread_ts",
+          "target_path": "thread_ts",
+          "source_expression": "nodes.pick_thread.result.thread_ts"
+        }
+      ],
+      "transform": {
+        "language": "starlark",
+        "program": "# gate.star -- deterministic confidence gate. Predeclared params: candidates\n# (from resolve_candidates.star), reasoned (list from extract_fields, or None\n# when that step was skipped because there were no candidates), channel,\n# thread_ts, min_confidence. Output via `result`.\n#\n# Gate rule: a reasoned extraction below min_confidence, OR a candidate the\n# lease didn't return a matching row for at all, is routed to\n# unparsed_messages -- never silently trusted or folded into digest. This is\n# the same \"model output is bounded by a deterministic gate\" discipline as\n# gitlab-pipeline-triage's verdict.star, applied to every candidate rather\n# than only to a signature-unmatched residue, because here every candidate's\n# fields come from the lease (there is no deterministic classification path\n# for free text -- see README).\n\ndef _reasoned_lookup(reasoned):\n    m = {}\n    if reasoned == None:\n        return m\n    for r in reasoned:\n        m[r[\"ts\"]] = r\n    return m\n\ndef _gate(candidates, reasoned, channel, thread_ts, min_confidence):\n    rmap = _reasoned_lookup(reasoned)\n    digest = []\n    unparsed = []\n    for c in candidates:\n        r = rmap.get(c[\"ts\"])\n        if r == None:\n            unparsed.append({\n                \"user_id\": c[\"user_id\"],\n                \"display_name\": c[\"display_name\"],\n                \"source\": c[\"source\"],\n                \"posted_at\": c[\"ts\"],\n                \"text\": c[\"text\"],\n                \"confidence\": 0.0,\n                \"reason\": \"extraction_incomplete\",\n            })\n            continue\n        conf = r.get(\"confidence\", 0.0)\n        if conf \u003e= min_confidence:\n            digest.append({\n                \"user_id\": c[\"user_id\"],\n                \"display_name\": c[\"display_name\"],\n                \"source\": c[\"source\"],\n                \"posted_at\": c[\"ts\"],\n                \"yesterday\": r.get(\"yesterday\"),\n                \"today\": r.get(\"today\"),\n                \"blockers\": r.get(\"blockers\"),\n                \"confidence\": conf,\n            })\n        else:\n            unparsed.append({\n                \"user_id\": c[\"user_id\"],\n                \"display_name\": c[\"display_name\"],\n                \"source\": c[\"source\"],\n                \"posted_at\": c[\"ts\"],\n                \"text\": c[\"text\"],\n                \"confidence\": conf,\n                \"reason\": \"below_confidence_threshold\",\n            })\n    return {\n        \"digest\": digest,\n        \"unparsed_messages\": unparsed,\n        \"summary\": {\n            \"channel\": channel,\n            \"thread_id\": thread_ts,\n            \"total_candidates\": len(candidates),\n            \"parsed_count\": len(digest),\n            \"unparsed_count\": len(unparsed),\n        },\n    }\n\nresult = _gate(candidates, reasoned, channel, thread_ts, min_confidence)\n"
+      },
+      "effect_class": "read"
+    },
+    {
+      "id": "__end__",
+      "name": "end",
+      "type": "end"
+    }
+  ],
+  "edges": [
+    {
+      "from_node_id": "__entry__",
+      "to_node_id": "messages"
+    },
+    {
+      "from_node_id": "__entry__",
+      "to_node_id": "users"
+    },
+    {
+      "from_node_id": "extract_fields",
+      "to_node_id": "gate"
+    },
+    {
+      "from_node_id": "extract_fields__gate",
+      "to_node_id": "extract_fields",
+      "condition_expression": "nodes.resolve_candidates.result.has_candidates == true"
+    },
+    {
+      "from_node_id": "extract_fields__gate",
+      "to_node_id": "extract_fields__skip",
+      "default_edge": true
+    },
+    {
+      "from_node_id": "extract_fields__skip",
+      "to_node_id": "gate"
+    },
+    {
+      "from_node_id": "gate",
+      "to_node_id": "__end__"
+    },
+    {
+      "from_node_id": "messages",
+      "to_node_id": "pick_thread"
+    },
+    {
+      "from_node_id": "messages",
+      "to_node_id": "resolve_candidates"
+    },
+    {
+      "from_node_id": "pick_thread",
+      "to_node_id": "gate"
+    },
+    {
+      "from_node_id": "pick_thread",
+      "to_node_id": "resolve_candidates"
+    },
+    {
+      "from_node_id": "pick_thread",
+      "to_node_id": "thread_replies__gate"
+    },
+    {
+      "from_node_id": "resolve_candidates",
+      "to_node_id": "extract_fields__gate"
+    },
+    {
+      "from_node_id": "resolve_candidates",
+      "to_node_id": "gate"
+    },
+    {
+      "from_node_id": "thread_replies",
+      "to_node_id": "resolve_candidates"
+    },
+    {
+      "from_node_id": "thread_replies__gate",
+      "to_node_id": "thread_replies",
+      "condition_expression": "nodes.pick_thread.result.thread_ts"
+    },
+    {
+      "from_node_id": "thread_replies__gate",
+      "to_node_id": "thread_replies__skip",
+      "default_edge": true
+    },
+    {
+      "from_node_id": "thread_replies__skip",
+      "to_node_id": "resolve_candidates"
+    },
+    {
+      "from_node_id": "users",
+      "to_node_id": "resolve_candidates"
+    }
+  ],
+  "inputs": [
+    {
+      "name": "channel",
+      "type": "string",
+      "description": "Slack channel ID whose recent activity is scanned for standup posts",
+      "required": true
+    },
+    {
+      "name": "latest",
+      "type": "string",
+      "description": "Slack timestamp upper bound of the scan window; omitted scans through the most recent message"
+    },
+    {
+      "name": "max_messages",
+      "type": "int",
+      "description": "Cap on standup candidates considered per run, after bot/system-message filtering",
+      "default_value": 200
+    },
+    {
+      "name": "oldest",
+      "type": "string",
+      "description": "Slack timestamp lower bound of the scan window; omitted scans from retained history start"
+    },
+    {
+      "name": "thread_ts",
+      "type": "string",
+      "description": "Optional explicit standup-thread parent timestamp; when omitted, the most recently active thread root found in the scanned window (if any) is used instead"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "digest",
+      "source_expression": "nodes.gate.result.digest"
+    },
+    {
+      "name": "summary",
+      "source_expression": "nodes.gate.result.summary"
+    },
+    {
+      "name": "unparsed_messages",
+      "source_expression": "nodes.gate.result.unparsed_messages"
+    }
+  ],
+  "metadata": {
+    "compiled_by": "tap-compile",
+    "effect_class": "read",
+    "primitive_version": "0.1.0",
+    "tap_api_version": "primitives.telara.dev/v1",
+    "tap_source": "dev.telara/slack-standup-digest"
+  }
+}
