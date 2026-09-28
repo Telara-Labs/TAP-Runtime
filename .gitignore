@@ -12,3 +12,5 @@ journal.jsonl
 id_rsa*
 id_ed25519*
 .DS_Store
+dist/
+*.key

@@ -1,0 +1,15 @@
+# Tests that need an installed client, or the network, skip themselves when
+# there is none. Everything else runs real programs in the real sandbox.
+stages: [verify]
+
+test:
+  stage: verify
+  image: golang:1.26
+  variables:
+    GOWORK: "off"
+    GOFLAGS: "-mod=readonly"
+  script:
+    - test -z "$(gofmt -l bind bridge host journal manifest release guest-sh)"
+    - go vet ./bind ./bridge ./host ./journal ./manifest ./release ./guest-sh
+    - GOOS=wasip1 GOARCH=wasm go build -o /dev/null ./guest-sh
+    - go test ./bind ./bridge ./host ./journal ./manifest ./release -count=1
