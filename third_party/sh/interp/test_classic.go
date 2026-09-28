@@ -6,7 +6,7 @@ package interp
 import (
 	"fmt"
 
-	"telara.dev/tap/runner/third_party/sh/syntax"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/syntax"
 )
 
 const illegalTok = 0

@@ -23,9 +23,9 @@ import (
 	"strings"
 
 	"github.com/itchyny/gojq"
-	"telara.dev/tap/runner/third_party/sh/expand"
-	"telara.dev/tap/runner/third_party/sh/interp"
-	"telara.dev/tap/runner/third_party/sh/syntax"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/expand"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/interp"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/syntax"
 )
 
 type initMsg struct {

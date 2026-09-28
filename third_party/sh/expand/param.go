@@ -13,9 +13,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"telara.dev/tap/runner/third_party/sh/internal"
-	"telara.dev/tap/runner/third_party/sh/pattern"
-	"telara.dev/tap/runner/third_party/sh/syntax"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/internal"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/pattern"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/syntax"
 )
 
 func nodeLit(node syntax.Node) string {

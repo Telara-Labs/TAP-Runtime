@@ -16,9 +16,9 @@ import (
 	"strconv"
 	"strings"
 
-	"telara.dev/tap/runner/third_party/sh/expand"
-	"telara.dev/tap/runner/third_party/sh/internal"
-	"telara.dev/tap/runner/third_party/sh/syntax"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/expand"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/internal"
+	"gitlab.com/telara-labs/tap-runtime/third_party/sh/syntax"
 )
 
 func newOverlayEnviron(parent expand.Environ, background bool) *overlayEnviron {
