@@ -153,3 +153,114 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 		})
 	}
 }
+
+// TestLiveElicitationThroughCodex is the same proof through Codex. Codex
+// forwards the runner's question on its app-server protocol as a request of
+// its own, mcpServer/elicitation/request, which this test answers the way
+// Codex's own window would.
+func TestLiveElicitationThroughCodex(t *testing.T) {
+	if _, err := exec.LookPath("codex"); err != nil {
+		t.Skip("codex is not installed")
+	}
+	store := interpreterStore(t)
+	bin := filepath.Join(t.TempDir(), "host")
+	build := exec.Command("go", "build", "-o", bin, "./host")
+	build.Dir = repoRoot
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("building the runner: %v\n%s", err, out)
+	}
+	pkg := writePackage(t, writeManifest, "echo approved-content > out/live.txt && echo written || echo refused\n")
+
+	for _, c := range []struct {
+		name    string
+		answer  map[string]any
+		written bool
+	}{
+		{"the person says yes", map[string]any{"action": "accept", "content": map[string]any{"approve": true, "limit": 1}}, true},
+		{"the person says no", map[string]any{"action": "decline"}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			work, _ := filepath.EvalSymlinks(t.TempDir())
+			args, _ := json.Marshal([]string{"serve", "--interpreters", store, "--runs", filepath.Join(work, "runs")})
+			// The runner is registered for this one process. No
+			// configuration file is changed.
+			cmd := exec.Command("codex", "-c", fmt.Sprintf("mcp_servers.tap.command=%q", bin),
+				"-c", "mcp_servers.tap.args="+string(args), "app-server")
+			cmd.Dir = work
+			in, _ := cmd.StdinPipe()
+			out, _ := cmd.StdoutPipe()
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer func() { in.Close(); cmd.Process.Kill(); cmd.Wait() }()
+			sc := bufio.NewScanner(out)
+			sc.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
+			send := func(v any) { b, _ := json.Marshal(v); in.Write(append(b, '\n')) }
+
+			n := 0
+			var prompts []string
+			call := func(method string, params any) (map[string]any, error) {
+				n++
+				id := n + 1000
+				send(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+				deadline := time.Now().Add(90 * time.Second)
+				for time.Now().Before(deadline) && sc.Scan() {
+					var m map[string]any
+					if json.Unmarshal(sc.Bytes(), &m) != nil {
+						continue
+					}
+					if m["method"] == "mcpServer/elicitation/request" {
+						p, _ := m["params"].(map[string]any)
+						msg, _ := p["message"].(string)
+						prompts = append(prompts, fmt.Sprintf("from %v: %s", p["serverName"], msg))
+						send(map[string]any{"jsonrpc": "2.0", "id": m["id"], "result": c.answer})
+						continue
+					}
+					if m["id"] == float64(id) && m["method"] == nil {
+						if e, ok := m["error"]; ok && e != nil {
+							return nil, fmt.Errorf("%s: %v", method, e)
+						}
+						r, _ := m["result"].(map[string]any)
+						return r, nil
+					}
+				}
+				return nil, fmt.Errorf("%s: no answer", method)
+			}
+
+			if _, err := call("initialize", map[string]any{"clientInfo": map[string]string{"name": "tap-test", "version": "0"}}); err != nil {
+				t.Fatal(err)
+			}
+			r, err := call("thread/start", map[string]any{"ephemeral": true, "cwd": work})
+			if err != nil {
+				t.Fatal(err)
+			}
+			th, _ := r["thread"].(map[string]any)
+			thread, _ := th["id"].(string)
+			r, err = call("mcpServer/tool/call", map[string]any{"server": "tap", "tool": "tap_run",
+				"arguments": map[string]any{"package": pkg}, "threadId": thread})
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, _ := json.Marshal(r)
+			t.Logf("prompts Codex forwarded: %d", len(prompts))
+			for _, p := range prompts {
+				t.Logf("  %s", strings.ReplaceAll(p, "\n", " | "))
+			}
+			t.Logf("tool result: %.300s", body)
+
+			if len(prompts) != 1 {
+				t.Fatalf("the person was asked %d times, want 1", len(prompts))
+			}
+			if !strings.Contains(prompts[0], "out/live.txt") {
+				t.Errorf("the prompt does not name the file: %s", prompts[0])
+			}
+			b, err := os.ReadFile(filepath.Join(work, "out", "live.txt"))
+			if c.written && strings.TrimSpace(string(b)) != "approved-content" {
+				t.Fatalf("approved, and the file holds %q (%v)", b, err)
+			}
+			if !c.written && err == nil {
+				t.Fatalf("declined, and the file was written: %q", b)
+			}
+		})
+	}
+}

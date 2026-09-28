@@ -2,14 +2,45 @@
 # there is none. Everything else runs real programs in the real sandbox.
 stages: [verify]
 
-test:
+variables:
+  GOWORK: "off"
+  GOFLAGS: "-mod=readonly"
+
+.suite: &suite
+  - test -z "$(gofmt -l bind bridge conformance host journal manifest rebuild release satisfy guest-sh)"
+  - go vet ./bind ./bridge ./conformance/... ./host ./journal ./manifest ./rebuild ./release ./satisfy ./guest-sh
+  - GOOS=wasip1 GOARCH=wasm go build -o /dev/null ./guest-sh
+  - go test ./bind ./bridge ./conformance ./host ./journal ./manifest ./rebuild ./release ./satisfy -count=1
+
+linux-amd64:
   stage: verify
   image: golang:1.26
-  variables:
-    GOWORK: "off"
-    GOFLAGS: "-mod=readonly"
+  script: *suite
+
+linux-arm64:
+  stage: verify
+  image: golang:1.26
+  tags: [saas-linux-small-arm64]
   script:
-    - test -z "$(gofmt -l bind bridge conformance host journal manifest release satisfy guest-sh)"
-    - go vet ./bind ./bridge ./conformance/... ./host ./journal ./manifest ./release ./satisfy ./guest-sh
-    - GOOS=wasip1 GOARCH=wasm go build -o /dev/null ./guest-sh
-    - go test ./bind ./bridge ./conformance ./host ./journal ./manifest ./release ./satisfy -count=1
+    - uname -m
+    - *suite
+
+# The suite drives Unix programs (tee, cat, grep), so on Windows the packages
+# that touch no program are tested, the runner is built, and one primitive is
+# run in the sandbox.
+windows-amd64:
+  stage: verify
+  tags: [saas-windows-medium-amd64]
+  script:
+    - choco install golang --version=1.26.1 -y --no-progress
+    - $env:Path = "C:\Program Files\Go\bin;" + $env:Path
+    - go version
+    - go test ./bind ./journal ./manifest ./satisfy -count=1
+    - go build -o tap-runtime.exe ./host
+    - $env:GOOS = "wasip1"; $env:GOARCH = "wasm"; go build -o store/sh.wasm ./guest-sh; Remove-Item Env:GOOS; Remove-Item Env:GOARCH
+    - New-Item -ItemType Directory -Force -Path work/in | Out-Null
+    - Set-Content -Path work/in/x.txt -Value "read-on-windows"
+    - cd work
+    - ../tap-runtime.exe --interpreters ../store --runs ../runs --approve ../pkg/windows-smoke
+    - if ((Get-Content out/y.txt) -notmatch "written-on-windows") { throw "the approved write did not happen" }
+    - if (Test-Path ../escaped.txt) { throw "a write left the declared directory" }
