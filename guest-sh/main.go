@@ -34,15 +34,18 @@ type initMsg struct {
 }
 
 type request struct {
-	Method    string         `json:"method"`
-	Alias     string         `json:"alias,omitempty"`
-	Arguments map[string]any `json:"arguments,omitempty"`
-	Command   string         `json:"command,omitempty"`
-	Args      []string       `json:"args,omitempty"`
-	Stdout    string         `json:"stdout,omitempty"`
-	Stderr    string         `json:"stderr,omitempty"`
-	Exit      int            `json:"exit"`
-	Stdin     string         `json:"stdin,omitempty"`
+	Method     string         `json:"method"`
+	Alias      string         `json:"alias,omitempty"`
+	Arguments  map[string]any `json:"arguments,omitempty"`
+	Command    string         `json:"command,omitempty"`
+	Args       []string       `json:"args,omitempty"`
+	Stdout     string         `json:"stdout,omitempty"`
+	Stderr     string         `json:"stderr,omitempty"`
+	Exit       int            `json:"exit"`
+	Stdin      string         `json:"stdin,omitempty"`
+	Path       string         `json:"path,omitempty"`
+	URL        string         `json:"url,omitempty"`
+	HTTPMethod string         `json:"http_method,omitempty"`
 }
 
 type reply struct {
@@ -52,6 +55,7 @@ type reply struct {
 	Stdout  string   `json:"stdout"`
 	Stderr  string   `json:"stderr"`
 	Exit    int      `json:"exit"`
+	Status  int      `json:"status,omitempty"`
 }
 
 var (
@@ -108,13 +112,74 @@ func main() {
 	send(request{Method: "return", Stdout: stdout.String(), Stderr: stderr.String(), Exit: exit})
 }
 
-// openHandler refuses every path but /dev/null. Redirection to a file is an
-// effect, and effects belong to the host.
+// openHandler sends every file the script opens to the host, which allows it
+// only inside what the manifest declares. Reading fetches the content at
+// open; writing sends it at close. Appending is refused: the host is given
+// whole files.
 func openHandler(ctx context.Context, path string, flag int, perm os.FileMode) (io.ReadWriteCloser, error) {
 	if path == "/dev/null" {
 		return devNull{}, nil
 	}
-	return nil, &fs.PathError{Op: "open", Path: path, Err: fs.ErrPermission}
+	// A relative path is sent as written. The host takes it from the
+	// directory the runner was started in; the sandbox has no directory.
+	if flag&os.O_APPEND != 0 {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: errors.New("appending is not supported; write the whole file")}
+	}
+	if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
+		send(request{Method: "canwrite", Path: path})
+		var rp reply
+		if err := recv(&rp); err != nil {
+			return nil, &fs.PathError{Op: "open", Path: path, Err: err}
+		}
+		if rp.Refused != "" {
+			return nil, &fs.PathError{Op: "open", Path: path, Err: errors.New("REFUSED by host: " + rp.Refused)}
+		}
+		return &hostFile{path: path, writing: true}, nil
+	}
+	send(request{Method: "read", Path: path})
+	var rp reply
+	if err := recv(&rp); err != nil {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: err}
+	}
+	if rp.Refused != "" {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: errors.New("REFUSED by host: " + rp.Refused)}
+	}
+	if rp.Exit != 0 {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: errors.New(rp.Stderr)}
+	}
+	return &hostFile{path: path, r: strings.NewReader(rp.Result)}, nil
+}
+
+type hostFile struct {
+	path    string
+	writing bool
+	r       *strings.Reader
+	w       bytes.Buffer
+}
+
+func (f *hostFile) Read(p []byte) (int, error) {
+	if f.r == nil {
+		return 0, io.EOF
+	}
+	return f.r.Read(p)
+}
+func (f *hostFile) Write(p []byte) (int, error) { return f.w.Write(p) }
+func (f *hostFile) Close() error {
+	if !f.writing {
+		return nil
+	}
+	send(request{Method: "write", Path: f.path, Stdin: f.w.String()})
+	var rp reply
+	if err := recv(&rp); err != nil {
+		return err
+	}
+	if rp.Refused != "" {
+		return &fs.PathError{Op: "write", Path: f.path, Err: errors.New("REFUSED by host: " + rp.Refused)}
+	}
+	if rp.Exit != 0 {
+		return &fs.PathError{Op: "write", Path: f.path, Err: errors.New(rp.Stderr)}
+	}
+	return nil
 }
 
 type devNull struct{}
@@ -135,6 +200,8 @@ func execMiddleware(next interp.ExecHandlerFunc) interp.ExecHandlerFunc {
 			return runWC(hc, args[1:])
 		case "tap":
 			return runTap(hc, args[1:])
+		case "cat":
+			return runCat(ctx, hc, args[1:])
 		}
 		// Anything else is a host program. Never call next: the default
 		// handler would try to start a process.
@@ -283,8 +350,37 @@ func runTap(hc interp.HandlerContext, args []string) error {
 		}
 		return nil
 	}
+	if len(args) >= 2 && args[0] == "fetch" {
+		method := "GET"
+		if len(args) > 2 {
+			method = args[2]
+		}
+		body := ""
+		if method != "GET" && method != "HEAD" && hc.Stdin != nil {
+			b, _ := io.ReadAll(hc.Stdin)
+			body = string(b)
+		}
+		send(request{Method: "fetch", URL: args[1], HTTPMethod: method, Stdin: body})
+		var rp reply
+		if err := recv(&rp); err != nil {
+			return interp.ExitStatus(125)
+		}
+		if rp.Refused != "" {
+			fmt.Fprintf(hc.Stderr, "tap fetch: REFUSED by host: %s\n", rp.Refused)
+			return interp.ExitStatus(126)
+		}
+		if rp.Exit != 0 {
+			io.WriteString(hc.Stderr, rp.Stderr+"\n")
+			return interp.ExitStatus(uint8(rp.Exit))
+		}
+		io.WriteString(hc.Stdout, rp.Result)
+		if rp.Status >= 400 {
+			return interp.ExitStatus(22) // what curl --fail returns
+		}
+		return nil
+	}
 	if len(args) < 2 || args[0] != "call" {
-		fmt.Fprintln(hc.Stderr, "usage: tap tools | tap call <alias> [json arguments]")
+		fmt.Fprintln(hc.Stderr, "usage: tap tools | tap call <alias> [json] | tap fetch <url> [method]")
 		return interp.ExitStatus(2)
 	}
 	arguments := map[string]any{}
@@ -309,5 +405,26 @@ func runTap(hc interp.HandlerContext, args []string) error {
 		return interp.ExitStatus(uint8(rp.Exit))
 	}
 	fmt.Fprintln(hc.Stdout, rp.Result)
+	return nil
+}
+
+// runCat copies its standard input, or the files it names, to its output.
+// Files go through openHandler, so they are bounded like any other.
+func runCat(ctx context.Context, hc interp.HandlerContext, args []string) error {
+	if len(args) == 0 {
+		if hc.Stdin != nil {
+			io.Copy(hc.Stdout, hc.Stdin)
+		}
+		return nil
+	}
+	for _, a := range args {
+		f, err := openHandler(ctx, a, os.O_RDONLY, 0)
+		if err != nil {
+			fmt.Fprintf(hc.Stderr, "cat: %v\n", err)
+			return interp.ExitStatus(1)
+		}
+		io.Copy(hc.Stdout, f)
+		f.Close()
+	}
 	return nil
 }

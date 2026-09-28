@@ -38,21 +38,27 @@ type manifest struct {
 	Metadata   struct {
 		Name string `yaml:"name"`
 	} `yaml:"metadata"`
-	Entrypoint string     `yaml:"entrypoint"`
-	Tools      []toolDecl `yaml:"tools"`
-	Commands   []command  `yaml:"commands"`
+	Entrypoint string      `yaml:"entrypoint"`
+	Tools      []toolDecl  `yaml:"tools"`
+	Commands   []command   `yaml:"commands"`
+	Files      []fileDecl  `yaml:"files"`
+	Fetch      []fetchDecl `yaml:"fetch"`
 }
 
 type request struct {
-	Method    string         `json:"method"`
-	Alias     string         `json:"alias"`
-	Arguments map[string]any `json:"arguments"`
-	Command   string         `json:"command"`
-	Args      []string       `json:"args"`
-	Stdout    string         `json:"stdout"`
-	Stderr    string         `json:"stderr"`
-	Exit      int            `json:"exit"`
-	Stdin     string         `json:"stdin"`
+	Method     string            `json:"method"`
+	Alias      string            `json:"alias"`
+	Arguments  map[string]any    `json:"arguments"`
+	Command    string            `json:"command"`
+	Args       []string          `json:"args"`
+	Stdout     string            `json:"stdout"`
+	Stderr     string            `json:"stderr"`
+	Exit       int               `json:"exit"`
+	Stdin      string            `json:"stdin"`
+	Path       string            `json:"path"`
+	URL        string            `json:"url"`
+	HTTPMethod string            `json:"http_method"`
+	Headers    map[string]string `json:"headers"`
 }
 
 type reply struct {
@@ -63,6 +69,7 @@ type reply struct {
 	Stderr  string   `json:"stderr"`
 	Exit    int      `json:"exit"`
 	Stdin   string   `json:"stdin"`
+	Status  int      `json:"status,omitempty"`
 }
 
 func main() {
@@ -83,6 +90,7 @@ func main() {
 	must(err)
 	var m manifest
 	must(yaml.Unmarshal(raw, &m))
+	must(validateCapabilities(&m))
 	script, err := os.ReadFile(filepath.Join(pkg, m.Entrypoint))
 	must(err)
 	store, err := storeDir(*interpDir)
@@ -203,6 +211,19 @@ func main() {
 					dispatched++
 				}
 				must(enc.Encode(rp))
+			} else if rq.Method == "read" || rq.Method == "write" || rq.Method == "canwrite" || rq.Method == "fetch" {
+				var rp reply
+				if rq.Method == "fetch" {
+					rp = fetchOp(&m, rq, *approve, journal)
+				} else {
+					rp = fileOp(&m, rq, *approve, journal)
+				}
+				if rp.Refused != "" {
+					refused++
+				} else if rq.Method != "canwrite" {
+					dispatched++
+				}
+				must(enc.Encode(rp))
 			} else if rq.Method == "tools" {
 				rp := reply{Tools: []string{}}
 				if adm != nil {
@@ -259,6 +280,17 @@ class _Tap:
         if r.get("exit"): raise RuntimeError(r.get("stderr") or "tool call failed")
         try: return json.loads(r.get("result") or "null")
         except ValueError: return r.get("result")
+    def _cap(self, o):
+        _out.write(json.dumps(o) + "\n"); _out.flush()
+        r = json.loads(_in.readline())
+        if r.get("refused"): raise PermissionError(r["refused"])
+        if r.get("exit"): raise OSError(r.get("stderr") or "failed")
+        return r
+    def read(self, path): return self._cap({"method": "read", "path": path}).get("result", "")
+    def write(self, path, text): self._cap({"method": "write", "path": path, "stdin": text})
+    def fetch(self, url, method="GET", body="", headers=None):
+        r = self._cap({"method": "fetch", "url": url, "http_method": method, "stdin": body, "headers": headers or {}})
+        return {"status": r.get("status"), "body": r.get("result", "")}
     def tools(self):
         _out.write(json.dumps({"method": "tools"}) + "\n"); _out.flush()
         return json.loads(_in.readline()).get("tools") or []
@@ -292,6 +324,10 @@ globalThis.tap = {
     try { return JSON.parse(r.result ?? "null"); } catch (e) { return r.result; }
   },
   tools() { return _ask({ method: "tools" }).tools ?? []; },
+  _cap(o) { const r = _ask(o); if (r.refused) throw new Error(r.refused); if (r.exit) throw new Error(r.stderr || "failed"); return r; },
+  read(path) { return this._cap({ method: "read", path }).result ?? ""; },
+  write(path, text) { this._cap({ method: "write", path, stdin: text }); },
+  fetch(url, method = "GET", body = "", headers = {}) { const r = this._cap({ method: "fetch", url, http_method: method, stdin: body, headers }); return { status: r.status, body: r.result ?? "" }; },
   exec(command, args = [], stdin = "") { return _ask({ method: "exec", command, args, stdin }); },
 };
 globalThis.std = std;
