@@ -37,6 +37,8 @@ func contract() mf.Capability {
 }
 
 // withSchemas is a client that gives schemas, as Codex does.
+var _ = messagesTool
+
 func withSchemas(tools ...bind.Tool) *fakeBridge {
 	return &fakeBridge{deny: map[string]bool{}, inv: tools, schemas: true}
 }
@@ -53,37 +55,60 @@ func decl() []toolDecl {
 	return []toolDecl{{Alias: "search", Capability: label, Effect: "read"}}
 }
 
-func TestWithASchemaExactlyOneToolMustSatisfy(t *testing.T) {
-	a, err := admit(decl(), withSchemas(threadsTool, messagesTool, writer), contract())
+// Ruling 22: the name chooses, the schema checks.
+func TestTheNameChoosesAndTheSchemaChecks(t *testing.T) {
+	g := func(name string, eff bind.Effect, sc map[string]any) bind.Tool {
+		return bind.Tool{Server: "codex_apps", Name: name, Annotated: eff, Schema: sc}
+	}
+	fits := schema([]string{"query"}, "query", "string", "pageSize", "integer", "pageToken", "string", "view", "string")
+	other := schema([]string{"query"}, "query", "string", "max_results", "integer")
+
+	// The best name fits: it binds, and the contract was checked.
+	a, err := admit(decl(), withSchemas(g("gmail.search_threads", bind.Read, fits), g("gmail.search_emails", bind.Read, other)), contract())
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := a.byAlias["search"]
-	if b.Tool != "search_threads" || !b.ContractChecked || !b.ResultChecked || !strings.HasPrefix(b.Schema, "sha256:") {
+	if b := a.byAlias["search"]; b.Tool != "gmail.search_threads" || !b.ContractChecked || !strings.HasPrefix(b.Schema, "sha256:") || len(b.Candidates) != 0 {
 		t.Fatalf("%+v", b)
 	}
 
-	// Section 4.1.1: the connector that searches messages does not satisfy
-	// a contract written for threads. It takes max_results, not pageSize.
-	if _, err := admit(decl(), withSchemas(messagesTool), contract()); err == nil || !strings.Contains(err.Error(), "no tool on this client satisfies") {
-		t.Fatalf("the messages connector was bound to the threads contract: %v", err)
+	// Two tools share a schema, as gmail.search_emails and
+	// gmail.search_email_ids do on the real Codex. The name decides.
+	a, err = admit(decl(), withSchemas(g("gmail.search_thread_ids", bind.Read, fits), g("gmail.search_threads", bind.Read, fits)), contract())
+	if err != nil || a.byAlias["search"].Tool != "gmail.search_threads" {
+		t.Fatalf("%v %+v", err, a)
 	}
 
-	// The name does no work: a tool called op_17 binds.
-	a, err = admit(decl(), withSchemas(oddlyNamed, messagesTool), contract())
-	if err != nil || a.byAlias["search"].Tool != "op_17" {
+	// The best name does not fit and a lesser name does: the lesser binds,
+	// and the receipt says what was passed over and why.
+	a, err = admit(decl(), withSchemas(g("gmail.search_threads", bind.Read, other), g("gmail.search_threads_v2", bind.Read, fits)), contract())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := a.byAlias["search"]; b.Tool != "gmail.search_threads_v2" || len(b.Candidates) != 1 || !strings.Contains(b.Candidates[0], "pageSize") {
+		t.Fatalf("%+v", b)
+	}
+
+	// Section 4.1.1: a connector that searches messages. Its name is not
+	// close enough and its schema does not fit. Refused.
+	if _, err := admit(decl(), withSchemas(g("gmail.search_emails", bind.Read, other)), contract()); err == nil {
+		t.Fatal("the messages connector was bound to the threads contract")
+	}
+
+	// A fitting schema under an unrelated name does not bind: names are not
+	// ignored.
+	if _, err := admit(decl(), withSchemas(bind.Tool{Server: "broker", Name: "op_17", Annotated: bind.Read, Schema: fits}), contract()); err == nil {
+		t.Fatal("a tool was bound on its schema alone")
+	}
+
+	// A fitting name with a schema that does not fit, and nothing else.
+	_, err = admit(decl(), withSchemas(g("gmail.search_threads", bind.Read, other)), contract())
+	if err == nil || !strings.Contains(err.Error(), "satisfies the contract") || !strings.Contains(err.Error(), "pageSize") {
 		t.Fatalf("%v", err)
 	}
 
-	// Two that satisfy: refused and named, never scored.
-	_, err = admit(decl(), withSchemas(threadsTool, oddlyNamed), contract())
-	if err == nil || !strings.Contains(err.Error(), "2 tools satisfy") || !strings.Contains(err.Error(), "op_17") || !strings.Contains(err.Error(), "search_threads") {
-		t.Fatalf("two satisfying tools: %v", err)
-	}
-
-	// A tool that satisfies the arguments and is annotated as destroying is
-	// not a candidate for a declared read.
-	if _, err := admit(decl(), withSchemas(writer), contract()); err == nil {
+	// A destructive tool is never a candidate for a declared read.
+	if _, err := admit(decl(), withSchemas(g("gmail.search_threads", bind.Destructive, fits)), contract()); err == nil {
 		t.Fatal("a declared read bound to a destructive tool")
 	}
 }
@@ -97,7 +122,12 @@ func TestAPinMustSatisfyToo(t *testing.T) {
 	d[0].Pin = &mf.Pin{Server: "a", Tool: "search_threads"}
 	a, err := admit(d, withSchemas(threadsTool, oddlyNamed), contract())
 	if err != nil || !a.byAlias["search"].ContractChecked {
-		t.Fatalf("a pin did not settle two satisfying tools: %v", err)
+		t.Fatalf("a pin to a tool that satisfies was refused: %v", err)
+	}
+	// A pin is how a tool with an unrelated name is reached.
+	d[0].Pin = &mf.Pin{Server: "broker", Tool: "op_17"}
+	if a, err := admit(d, withSchemas(threadsTool, oddlyNamed), contract()); err != nil || a.byAlias["search"].Tool != "op_17" {
+		t.Fatalf("%v", err)
 	}
 }
 
@@ -136,6 +166,7 @@ func TestAnAnswerIsHeldToTheContract(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			tool := threadsTool
+			tool.Server = "gmail"
 			if c.effect == "write" {
 				tool.Annotated = bind.Write
 			}
@@ -159,8 +190,7 @@ func TestAnAnswerIsHeldToTheContract(t *testing.T) {
 	}
 }
 
-// How often does the rule as ruled find exactly one tool, on a real
-// inventory? Section 4.1.6 recorded this as unmeasured.
+// Binding against the real Codex inventory, name first and schema second.
 func TestLiveSatisfactionAgainstCodex(t *testing.T) {
 	if _, err := exec.LookPath("codex"); err != nil {
 		t.Skip("codex is not installed")
@@ -200,7 +230,7 @@ func TestLiveSatisfactionAgainstCodex(t *testing.T) {
 		t.Logf("%-52s -> bound %s / %s", what, a.byAlias["s"].Server, a.byAlias["s"].Tool)
 	}
 	try("a loose contract: query only", schema([]string{"query"}, "query", "string"))
-	try("the threads contract (pageSize, pageToken)", contract().Args)
+	try("a contract that sends pageSize, which it does not take", contract().Args)
 	// The connector's own schema, as a contract.
 	try("a contract copied from the connector's schema", search.Schema)
 }
