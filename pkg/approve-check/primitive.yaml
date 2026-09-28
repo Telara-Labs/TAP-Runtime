@@ -4,4 +4,4 @@ metadata: {publisher: dev.telara, name: approve-check, version: 0.1.0}
 entrypoint: main.sh
 commands:
   - {command: git, args: [status], effect: write}
-  - {command: bash, args: [], effect: read}
+  - {command: bash, globals: ["-c <any>"], effect: read}

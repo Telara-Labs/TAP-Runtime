@@ -54,11 +54,11 @@ unimplemented. The changes, all in `interp/`:
 If upstream accepts that change, this directory is deleted and the library
 becomes an ordinary dependency again.
 
-## Known defects
+## Known limits
 
-- Command matching is by argument prefix, so `git -C <dir> log` is refused
-  against a declared `git log`.
-- Host programs inherit the runner's environment and working directory.
 - The Python interpreter imports file and socket calls. It is contained because
   the runner grants it nothing, not because the calls are absent.
-- Standard input is not passed into host programs.
+- What follows a declared subcommand is not bounded: `kubectl get` allows any
+  resource and any later flag.
+- Approval is the `--approve` flag. It stands in for MCP elicitation.
+- No resume and no pipelining.

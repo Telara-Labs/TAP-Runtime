@@ -42,6 +42,7 @@ type request struct {
 	Stdout    string         `json:"stdout,omitempty"`
 	Stderr    string         `json:"stderr,omitempty"`
 	Exit      int            `json:"exit"`
+	Stdin     string         `json:"stdin,omitempty"`
 }
 
 type reply struct {
@@ -137,7 +138,13 @@ func execMiddleware(next interp.ExecHandlerFunc) interp.ExecHandlerFunc {
 		}
 		// Anything else is a host program. Never call next: the default
 		// handler would try to start a process.
-		send(request{Method: "exec", Command: args[0], Args: args[1:]})
+		// A program at the receiving end of a pipe is given what was piped.
+		stdin := ""
+		if hc.Stdin != nil {
+			b, _ := io.ReadAll(hc.Stdin)
+			stdin = string(b)
+		}
+		send(request{Method: "exec", Command: args[0], Args: args[1:], Stdin: stdin})
 		var rp reply
 		if err := recv(&rp); err != nil {
 			fmt.Fprintf(hc.Stderr, "%s: host did not answer: %v\n", args[0], err)

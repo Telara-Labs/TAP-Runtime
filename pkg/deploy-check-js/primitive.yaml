@@ -3,6 +3,7 @@ kind: Primitive
 metadata: {publisher: dev.telara, name: deploy-check-js, version: 0.1.0}
 entrypoint: main.js
 commands:
-  - {command: git,     args: [log],    effect: read}
-  - {command: kubectl, args: [get],    effect: read}
-  - {command: kubectl, args: [delete], effect: destructive}
+  - {command: git, globals: ["-C <any>"], args: [log], effect: read}
+  - {command: kubectl, globals: ["--context minikube", "-n <any>"], args: [get], effect: read}
+  - {command: kubectl, globals: ["--context minikube", "-n <any>"], args: [delete], effect: destructive}
+  - {command: tr, effect: read}
