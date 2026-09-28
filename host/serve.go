@@ -24,6 +24,7 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 	journalPath := fs.String("journal", "", "append one JSON line per action")
 	interpDir := fs.String("interpreters", "", "interpreter store; default is the user cache directory")
 	cacheDir := fs.String("cache", "", "directory for the compiled-interpreter cache")
+	runsDir := fs.String("runs", "", "directory holding one record per run; default is the user cache directory")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -36,7 +37,7 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 		defer f.Close()
 		journal = &lockedWriter{w: f}
 	}
-	s := &server{out: out, pending: map[int]chan rpcMessage{}, journal: journal, interpDir: *interpDir, cacheDir: *cacheDir}
+	s := &server{out: out, pending: map[int]chan rpcMessage{}, journal: journal, interpDir: *interpDir, cacheDir: *cacheDir, runsDir: *runsDir}
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 	var wg sync.WaitGroup
@@ -92,6 +93,7 @@ type server struct {
 	journal   io.Writer
 	interpDir string
 	cacheDir  string
+	runsDir   string
 
 	clientName    string
 	clientVersion string
@@ -244,7 +246,7 @@ func (s *server) handle(m rpcMessage) {
 		}
 		res, err := Run(context.Background(), Options{
 			Package: p.Arguments.Package, Args: p.Arguments.Args, Journal: s.journal, Approve: approve,
-			InterpDir: s.interpDir, CacheDir: s.cacheDir, Client: clientFor(name),
+			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, Client: clientFor(name),
 		})
 		if err != nil {
 			s.reply(m.ID, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "refused: " + err.Error()}}})
@@ -255,6 +257,12 @@ func (s *server) handle(m rpcMessage) {
 			text += "\n[stderr]\n" + res.Stderr
 		}
 		text += fmt.Sprintf("\n[%d action(s) run, %d refused]", res.Ran, res.Refused)
+		if res.RunID != "" {
+			text += "\n[run " + res.RunID + "]"
+		}
+		if res.Unknown > 0 {
+			text += fmt.Sprintf("\n[%d change(s) have an unknown outcome and need a person to check]", res.Unknown)
+		}
 		if !canElicit && res.Refused > 0 {
 			text += "\n[this client cannot show an approval prompt, so every change was refused]"
 		}

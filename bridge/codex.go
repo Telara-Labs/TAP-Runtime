@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/bind"
@@ -18,10 +19,13 @@ import (
 type Codex struct {
 	cmd     *exec.Cmd
 	in      io.WriteCloser
-	sc      *bufio.Scanner
-	n       int
 	thread  string
 	version string
+
+	mu      sync.Mutex
+	n       int
+	pending map[int]chan map[string]any
+	gone    bool
 }
 
 func NewCodex() (*Codex, error) {
@@ -39,7 +43,8 @@ func NewCodex() (*Codex, error) {
 	}
 	sc := bufio.NewScanner(out)
 	sc.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
-	c := &Codex{cmd: cmd, in: in, sc: sc}
+	c := &Codex{cmd: cmd, in: in, pending: map[int]chan map[string]any{}}
+	go c.read(sc)
 	r, err := c.call("initialize", map[string]any{"clientInfo": map[string]string{"name": "tap-runtime", "version": "0"}})
 	if err != nil {
 		c.Close()
@@ -69,26 +74,66 @@ func NewCodex() (*Codex, error) {
 	return c, nil
 }
 
+// read hands each response to whoever asked for it.
+func (c *Codex) read(sc *bufio.Scanner) {
+	for sc.Scan() {
+		var m map[string]any
+		if json.Unmarshal(sc.Bytes(), &m) != nil {
+			continue
+		}
+		idf, ok := m["id"].(float64)
+		if !ok || m["method"] != nil {
+			continue // a notification, or a request of its own
+		}
+		c.mu.Lock()
+		ch := c.pending[int(idf)]
+		delete(c.pending, int(idf))
+		c.mu.Unlock()
+		if ch != nil {
+			ch <- m
+		}
+	}
+	c.mu.Lock()
+	c.gone = true
+	for id, ch := range c.pending {
+		close(ch)
+		delete(c.pending, id)
+	}
+	c.mu.Unlock()
+}
+
 func (c *Codex) call(method string, params any) (map[string]any, error) {
+	ch := make(chan map[string]any, 1)
+	c.mu.Lock()
+	if c.gone {
+		c.mu.Unlock()
+		return nil, fmt.Errorf("%s: codex has exited", method)
+	}
 	c.n++
 	id := c.n
+	c.pending[id] = ch
 	b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
-	if _, err := c.in.Write(append(b, '\n')); err != nil {
+	_, err := c.in.Write(append(b, '\n'))
+	c.mu.Unlock()
+	if err != nil {
 		return nil, err
 	}
-	deadline := time.Now().Add(120 * time.Second)
-	for time.Now().Before(deadline) && c.sc.Scan() {
-		var m map[string]any
-		if json.Unmarshal(c.sc.Bytes(), &m) != nil || m["id"] != float64(id) {
-			continue
+	select {
+	case m, ok := <-ch:
+		if !ok {
+			return nil, fmt.Errorf("%s: codex exited before it answered", method)
 		}
 		if e, ok := m["error"]; ok && e != nil {
 			return nil, fmt.Errorf("%s: %v", method, e)
 		}
 		res, _ := m["result"].(map[string]any)
 		return res, nil
+	case <-time.After(120 * time.Second):
+		c.mu.Lock()
+		delete(c.pending, id)
+		c.mu.Unlock()
+		return nil, fmt.Errorf("%s: codex did not answer", method)
 	}
-	return nil, fmt.Errorf("%s: codex did not answer", method)
 }
 
 func (c *Codex) Client() (string, string) { return "codex", c.version }

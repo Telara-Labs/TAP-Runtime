@@ -21,6 +21,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/itchyny/gojq"
 	"gitlab.com/telara-labs/tap-runtime/third_party/sh/expand"
@@ -34,6 +35,7 @@ type initMsg struct {
 }
 
 type request struct {
+	ID         string         `json:"id,omitempty"`
 	Method     string         `json:"method"`
 	Alias      string         `json:"alias,omitempty"`
 	Arguments  map[string]any `json:"arguments,omitempty"`
@@ -49,6 +51,7 @@ type request struct {
 }
 
 type reply struct {
+	ID      string   `json:"id,omitempty"`
 	Refused string   `json:"refused,omitempty"`
 	Result  string   `json:"result,omitempty"`
 	Tools   []string `json:"tools,omitempty"`
@@ -63,12 +66,48 @@ var (
 	hostOut = os.Stdout
 )
 
+// wire holds one request at a time. The sandbox has one thread, so a request
+// is sent and its answer read before the next is sent, even when the script
+// runs commands in the background. send takes the wire and recv gives it up.
+var (
+	wire   sync.Mutex
+	nextID int
+	asked  string
+)
+
 func send(r request) {
+	wire.Lock()
+	if r.Method != "return" {
+		nextID++
+		r.ID = "r" + strconv.Itoa(nextID)
+	}
+	asked = r.ID
 	b, _ := json.Marshal(r)
 	hostOut.Write(append(b, '\n'))
+	if r.Method == "return" {
+		wire.Unlock()
+	}
 }
 
 func recv(v any) error {
+	defer wire.Unlock()
+	for {
+		line, err := hostIn.ReadBytes('\n')
+		if err != nil && len(line) == 0 {
+			return err
+		}
+		var head struct {
+			ID string `json:"id"`
+		}
+		json.Unmarshal(line, &head)
+		if head.ID == asked || asked == "" {
+			return json.Unmarshal(line, v)
+		}
+	}
+}
+
+// recvInit reads the first message, which answers nothing.
+func recvInit(v any) error {
 	line, err := hostIn.ReadBytes('\n')
 	if err != nil && len(line) == 0 {
 		return err
@@ -78,7 +117,7 @@ func recv(v any) error {
 
 func main() {
 	var in initMsg
-	if err := recv(&in); err != nil {
+	if err := recvInit(&in); err != nil {
 		send(request{Method: "return", Stderr: "guest: no init: " + err.Error(), Exit: 2})
 		return
 	}
