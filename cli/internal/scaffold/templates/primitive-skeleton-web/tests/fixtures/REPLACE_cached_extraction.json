@@ -1,9 +1,0 @@
-{
-  "_comment": "Delete or rename this placeholder. Pin to a stable/closed page state — secrets redacted, shape preserved. See references/schemas.md#fixtures and agents/fixture-generator.md.",
-  "browser_extract": {
-    "entries_raw": [],
-    "drift": false,
-    "drift_reason": null,
-    "page_text": null
-  }
-}
