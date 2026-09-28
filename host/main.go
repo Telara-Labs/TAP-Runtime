@@ -67,7 +67,11 @@ type request struct {
 }
 
 type reply struct {
-	ID string `json:"id,omitempty"`
+	// Violation is set when a tool's answer is not what its contract
+	// promises. Landed adds that the call was a change and has been made.
+	Violation bool   `json:"violation,omitempty"`
+	Landed    bool   `json:"landed,omitempty"`
+	ID        string `json:"id,omitempty"`
 	// Unknown is set when a change was in progress as an earlier run stopped,
 	// so nobody can say whether it happened.
 	Unknown bool     `json:"unknown,omitempty"`
@@ -297,7 +301,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			defer br.Close()
 		}
-		adm, err = admit(m.Tools, br)
+		adm, err = admit(m.Tools, br, m.Capabilities...)
 		if err != nil {
 			return nil, err
 		}
@@ -307,11 +311,16 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 		for _, b := range adm.Bindings {
 			note := "contract not checked: the client gives no schema"
-			if br.HasSchemas() {
-				note = "contract not checked: schema satisfaction is not built"
-			}
-			if b.Pinned {
+			switch {
+			case b.ContractChecked:
+				note = "contract checked against the tool's schema " + b.Schema[:19]
+			case b.Pinned:
 				note = "pinned"
+			case br.HasSchemas():
+				note = "bound by name: the manifest carries no contract for it"
+			}
+			if b.ResultChecked {
+				note += "; answers are checked"
 			}
 			logf("bound      %-10s %-26s -> %s / %s  score %.3f  declared %s, annotated %s  (%s)", b.Alias, b.Capability, b.Server, b.Tool, b.Score, b.Declared, b.Annotated, note)
 			if b.Gated {
@@ -663,6 +672,8 @@ class _Tap:
             if r.get("id") == want: return r
     def _value(self, r):
         if r.get("refused"): raise PermissionError(r["refused"])
+        if r.get("violation"):
+            e = ValueError(r.get("stderr")); e.landed = bool(r.get("landed")); raise e
         if r.get("exit"): raise RuntimeError(r.get("stderr") or "tool call failed")
         try: return json.loads(r.get("result") or "null")
         except ValueError: return r.get("result")
@@ -719,6 +730,7 @@ const _send = (o) => { o.id = "r" + (++_n); std.out.puts(JSON.stringify(o) + "\n
 const _ask = (o) => { const want = _send(o); for (;;) { const r = JSON.parse(std.in.getline()); if (r.id === want) return r; } };
 const _value = (r) => {
   if (r.refused) throw new Error(r.refused);
+  if (r.violation) { const e = new TypeError(r.stderr); e.landed = !!r.landed; throw e; }
   if (r.exit) throw new Error(r.stderr || "tool call failed");
   try { return JSON.parse(r.result ?? "null"); } catch (e) { return r.result; }
 };

@@ -27,7 +27,7 @@ func load(t *testing.T, client string) []Tool {
 	}
 	out := make([]Tool, len(raw))
 	for i, r := range raw {
-		out[i] = Tool(r)
+		out[i] = Tool{Server: r.Server, Name: r.Name, Annotated: r.Annotated}
 	}
 	return out
 }

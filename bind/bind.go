@@ -49,6 +49,9 @@ type Tool struct {
 	Server    string
 	Name      string
 	Annotated Effect // what the server says; Unknown when it says nothing
+	// Schema is the tool's input schema, where the client gives one. Binding
+	// by name does not read it.
+	Schema map[string]any `json:"-"`
 }
 
 // Choice is the outcome for one declared capability.
