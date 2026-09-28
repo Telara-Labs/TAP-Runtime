@@ -74,13 +74,16 @@ const (
 var ErrChanged = errors.New("the program made a different request under an id it used before")
 
 type Journal struct {
-	mu     sync.Mutex
-	dir    string
-	f      *os.File
-	Header Header
-	begun  map[string]Record
-	ended  map[string]Record
-	closed bool
+	mu    sync.Mutex
+	dir   string
+	f     *os.File
+	lease *Lease
+	// Observed is the clock and random bytes the program was given.
+	Observed *Observed
+	Header   Header
+	begun    map[string]Record
+	ended    map[string]Record
+	closed   bool
 }
 
 var runIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{5,80}$`)
@@ -113,6 +116,15 @@ func Create(root string, h Header) (*Journal, error) {
 		f.Close()
 		return nil, err
 	}
+	if j.lease, err = acquire(dir, h.RunID, time.Now()); err != nil {
+		f.Close()
+		return nil, err
+	}
+	if j.Observed, err = OpenObserved(dir); err != nil {
+		j.lease.Release()
+		f.Close()
+		return nil, err
+	}
 	return j, nil
 }
 
@@ -124,11 +136,21 @@ func Open(root, runID string) (*Journal, error) {
 	}
 	dir := filepath.Join(root, runID)
 	path := filepath.Join(dir, "index.jsonl")
-	raw, err := os.Open(path)
-	if err != nil {
+	if _, err := os.Stat(path); err != nil {
 		return nil, fmt.Errorf("no run %s: %w", runID, err)
 	}
-	j := &Journal{dir: dir, begun: map[string]Record{}, ended: map[string]Record{}}
+	// The lease is taken before the record is read, so nothing a second
+	// process does can be based on a record the first is still writing.
+	lease, err := acquire(dir, runID, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.Open(path)
+	if err != nil {
+		lease.Release()
+		return nil, fmt.Errorf("no run %s: %w", runID, err)
+	}
+	j := &Journal{dir: dir, lease: lease, begun: map[string]Record{}, ended: map[string]Record{}}
 	sc := bufio.NewScanner(raw)
 	sc.Buffer(make([]byte, 0, 64<<10), 64<<20)
 	sawHeader, finished := false, false
@@ -152,19 +174,28 @@ func Open(root, runID string) (*Journal, error) {
 	}
 	raw.Close()
 	if err := sc.Err(); err != nil {
+		lease.Release()
 		return nil, err
 	}
 	if !sawHeader {
+		lease.Release()
 		return nil, fmt.Errorf("run %s has no header", runID)
 	}
 	if finished {
+		lease.Release()
 		return nil, fmt.Errorf("run %s finished; there is nothing to resume", runID)
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
+		lease.Release()
 		return nil, err
 	}
 	j.f = f
+	if j.Observed, err = OpenObserved(dir); err != nil {
+		lease.Release()
+		f.Close()
+		return nil, err
+	}
 	return j, nil
 }
 
@@ -234,6 +265,13 @@ func (j *Journal) Effect(id string) string {
 func (j *Journal) Begin(id, method, digest, effect string, at time.Time) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	// What the program read to compute this request is on disk before the
+	// request is.
+	if j.Observed != nil {
+		if err := j.Observed.Sync(); err != nil {
+			return err
+		}
+	}
 	r := Record{Phase: "begin", ID: id, Method: method, Digest: digest, Effect: effect, At: at}
 	if err := j.append(r); err != nil {
 		return err
@@ -280,6 +318,10 @@ func (j *Journal) Close() error {
 		return nil
 	}
 	j.closed = true
+	if j.Observed != nil {
+		j.Observed.Close()
+	}
+	j.lease.Release()
 	return j.f.Close()
 }
 

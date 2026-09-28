@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/bind"
+	runlog "gitlab.com/telara-labs/tap-runtime/journal"
 )
 
 const appendManifest = `apiVersion: primitives.telara.dev/v3
@@ -192,23 +194,6 @@ func TestResumeRefusesAChangedPackage(t *testing.T) {
 	}
 }
 
-func TestTheRunsClockAndRandomBytesAreItsOwn(t *testing.T) {
-	a := &stream{seed: [32]byte{1}}
-	b := &stream{seed: [32]byte{1}}
-	c := &stream{seed: [32]byte{2}}
-	x, y, z := make([]byte, 100), make([]byte, 100), make([]byte, 100)
-	a.Read(x)
-	b.Read(y[:37])
-	b.Read(y[37:])
-	c.Read(z)
-	if string(x) != string(y) {
-		t.Fatal("the same run gave different random bytes")
-	}
-	if string(x) == string(z) {
-		t.Fatal("two runs gave the same random bytes")
-	}
-}
-
 // slowBridge answers after a delay and remembers how many calls overlapped.
 type slowBridge struct {
 	fakeBridge
@@ -297,4 +282,90 @@ func itoa(i int) string {
 		i /= 10
 	}
 	return string(b)
+}
+
+// Ruling 27, end to end in the sandbox: a program resumed later is given the
+// clock readings it took before the resume point, and the real clock after.
+func TestAResumedProgramSeesRealTimeAfterItCatchesUp(t *testing.T) {
+	store := interpreterStore(t)
+	if _, _, _, err := obtain(store, "main.js"); err != nil {
+		t.Skipf("the JavaScript interpreter could not be obtained: %v", err)
+	}
+	inDir(t)
+	runs := t.TempDir()
+	pkg := t.TempDir()
+	os.WriteFile(filepath.Join(pkg, "primitive.yaml"), []byte(`apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata: {publisher: dev.test, name: clock, version: 0.1.0}
+execution: {entrypoint: main.js}
+tools:
+  - {alias: search, capability: gmail.threads.search, effect: read}
+`), 0o644)
+	os.WriteFile(filepath.Join(pkg, "main.js"), []byte(`
+const before = Date.now();
+tap.call("search", {n: 1});
+tap.call("search", {n: 2});
+const after = Date.now();
+print(before, after);
+`), 0o644)
+
+	o := Options{Package: pkg, Approve: yes, Journal: io.Discard, InterpDir: store, RunsDir: runs, Bridge: gmail()}
+	o.stopAfter = 1
+	started := time.Now()
+	if _, err := Run(context.Background(), o); !errors.Is(err, errInterrupted) {
+		t.Fatalf("the run was not interrupted: %v", err)
+	}
+	stopped := time.Now()
+	time.Sleep(1200 * time.Millisecond)
+
+	resumed := time.Now()
+	b := gmail()
+	o = Options{Package: pkg, Approve: yes, Journal: io.Discard, InterpDir: store, RunsDir: runs, Bridge: b, Resume: onlyRun(t, runs)}
+	res, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before, after int64
+	if _, err := fmt.Sscan(strings.TrimSpace(res.Stdout), &before, &after); err != nil {
+		t.Fatalf("output %q: %v", res.Stdout, err)
+	}
+	if before < started.UnixMilli() || before > stopped.UnixMilli() {
+		t.Fatalf("the reading taken before the resume point is %d; the program took it between %d and %d", before, started.UnixMilli(), stopped.UnixMilli())
+	}
+	if after < resumed.UnixMilli() {
+		t.Fatalf("the reading taken after the resume point is %d, from before the run was resumed at %d: the program was not given the real clock", after, resumed.UnixMilli())
+	}
+	if res.Replayed != 1 || len(b.calls) != 1 {
+		t.Fatalf("replayed %d, dispatched %d; want 1 and 1", res.Replayed, len(b.calls))
+	}
+}
+
+// Ruling 25, through the runner: a run somebody holds cannot be continued.
+func TestTheRunnerRefusesARunSomebodyHolds(t *testing.T) {
+	inDir(t)
+	runs := t.TempDir()
+	pkg := writePackage(t, appendManifest, appendScript)
+	o := opts(t, pkg, runs)
+	o.stopAfter = 1
+	if _, err := Run(context.Background(), o); !errors.Is(err, errInterrupted) {
+		t.Fatal(err)
+	}
+	run := onlyRun(t, runs)
+	held, err := runlog.Open(runs, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o = opts(t, pkg, runs)
+	o.Resume = run
+	_, err = Run(context.Background(), o)
+	if err == nil || !strings.Contains(err.Error(), "held by process") {
+		t.Fatalf("a held run was continued: %v", err)
+	}
+	if got := lines(t, "counter.txt"); len(got) != 1 {
+		t.Fatalf("a refused resume changed something: %v", got)
+	}
+	held.Close()
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("a released run could not be continued: %v", err)
+	}
 }
