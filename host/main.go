@@ -131,6 +131,9 @@ type Options struct {
 	NoJournal bool
 	// Resume continues the run with this id instead of starting one.
 	Resume string
+	// RetentionDays is how long the record of a run is kept. Records older
+	// than this are removed when a run starts. 0 keeps them for ever.
+	RetentionDays int
 
 	// stopAfter and stopDuring end the run the way a crash would, for tests:
 	// after that many requests have been answered, or once the request with
@@ -183,6 +186,7 @@ func main() {
 	runsDir := flag.String("runs", "", "directory holding one record per run; default is the user cache directory")
 	resume := flag.String("resume", "", "continue the run with this id")
 	noJournal := flag.Bool("no-record", false, "keep no record of the run; it cannot be resumed")
+	retention := flag.Int("retention-days", 30, "remove the records of runs older than this many days; 0 keeps them for ever")
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
 	flag.Parse()
 	if flag.NArg() < 1 {
@@ -204,7 +208,7 @@ func main() {
 		Package: flag.Arg(0), Args: flag.Args()[1:], Journal: journal,
 		Approve:   func(Ask) Grant { return grant },
 		InterpDir: *interpDir, CacheDir: *cacheDir, PyLib: *pyLib, Client: *client, ReceiptPath: *receiptPath,
-		RunsDir: *runsDir, Resume: *resume, NoJournal: *noJournal,
+		RunsDir: *runsDir, Resume: *resume, NoJournal: *noJournal, RetentionDays: *retention,
 	})
 	must(err)
 	if res.Unknown > 0 {
@@ -252,6 +256,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			root = filepath.Join(base, "tap-runtime", "runs")
 		}
+		if n := runlog.Sweep(root, o.RetentionDays, started); n > 0 {
+			logf("removed the records of %d run(s) older than %d days", n, o.RetentionDays)
+		}
 		if o.Resume != "" {
 			run, err = runlog.Open(root, o.Resume)
 			if err != nil {
@@ -261,8 +268,8 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				run.Close()
 				return nil, fmt.Errorf("run %s was started with a different version of this package; it cannot be continued with this one", o.Resume)
 			}
-			// A resumed run is the same run: the same arguments, the same clock.
-			args, started = run.Header.Args, run.Header.Started
+			// A resumed run is the same run, with the same arguments.
+			args = run.Header.Args
 			done, open := run.Counts()
 			logf("resuming   %s: %d request(s) already answered, %d left unanswered", o.Resume, done, open)
 		} else {
@@ -391,11 +398,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	cfg := guestConfig(kind, o.PyLib, string(script), args).
 		WithStdin(toGuestR).WithStdout(fromGuestW).WithStderr(&guestErr)
 	if run != nil {
-		// A resumed program must take the path it took before, so what it
-		// can observe besides its answers is fixed by the run: the clock
-		// starts where the run started and advances by reading it, and the
-		// random bytes are those of the run id.
-		cfg = deterministic(cfg, run.Header.RunID, started)
+		cfg = observed(cfg, run.Observed)
 	}
 
 	done := make(chan error, 1)

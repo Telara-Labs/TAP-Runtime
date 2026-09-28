@@ -43,6 +43,11 @@ again and answering what it already asked from the record, so nothing is done
 twice. A change that was in progress when the run stopped is not repeated and
 is reported as unknown for a person to check. A read is simply asked again.
 
+The program is given the clock readings and random bytes it took before, up
+to the point it had reached, and the real clock after. One process holds a run
+at a time: a second is refused and told which process holds it. Records are
+removed after 30 days; `--retention-days 0` keeps them for ever.
+
 ## As an MCP server
 
     host serve
