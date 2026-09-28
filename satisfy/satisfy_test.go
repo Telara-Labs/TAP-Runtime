@@ -50,9 +50,11 @@ func TestArguments(t *testing.T) {
 			obj(map[string]any{"q": typ("string")}), obj(map[string]any{"q": map[string]any{"description": "a query"}}), ""},
 		{"an open connector accepts what it does not list",
 			threads, map[string]any{"type": "object", "additionalProperties": true}, ""},
-		{"a connector with an empty schema accepts nothing we can be sure of",
-			threads, map[string]any{"type": "object"}, "does not accept"},
-		{"no schema at all", threads, nil, "gives no input schema"},
+		// Ruling 30: an empty tool schema accepts anything.
+		{"a connector with an empty schema accepts anything", threads, map[string]any{"type": "object"}, ""},
+		{"a connector with no schema at all accepts anything", threads, nil, ""},
+		{"a connector that says it takes no arguments takes none", threads,
+			map[string]any{"type": "object", "additionalProperties": false}, "does not accept"},
 		{"a contract that sends nothing satisfies a connector that requires nothing",
 			obj(map[string]any{}), obj(map[string]any{"q": typ("string")}), ""},
 	}

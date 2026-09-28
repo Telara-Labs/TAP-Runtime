@@ -29,7 +29,7 @@ func TestACommandLineLimitIsWhereChangesStop(t *testing.T) {
 	if got := lines(t, filepath.Join(dir, "counter.txt")); strings.Join(got, ",") != "one,two" {
 		t.Fatalf("with two allowed the file holds %v", got)
 	}
-	if len(asked) != 2 || asked[0].Done != 0 || asked[1].Done != 2 || asked[0].Kind != "run tee" {
+	if len(asked) != 2 || asked[0].Done != 0 || asked[1].Done != 2 || asked[0].Kind != "run tee *" {
 		t.Fatalf("asked %+v", asked)
 	}
 	if res.Ran != 2 || res.Refused != 1 {
@@ -48,19 +48,19 @@ execution: {entrypoint: main.sh}
 files:
   - {path: out, access: write}
 commands:
-  - {command: tee, globals: ["-a"], effect: write}
+  - {command: tee, globals: ["-a"], args: ["*"], effect: write}
 `, "echo one | tee -a counter.txt\necho two > out/x.txt && echo wrote || echo refused\n")
 	var kinds []string
 	o := Options{Package: pkg, Journal: io.Discard, InterpDir: interpreterStore(t), RunsDir: t.TempDir(),
 		Approve: func(a Ask) Grant {
 			kinds = append(kinds, a.Kind)
-			return Grant{OK: a.Kind == "run tee", Limit: 100}
+			return Grant{OK: a.Kind == "run tee *", Limit: 100}
 		}}
 	res, err := Run(context.Background(), o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(kinds, "|") != "run tee|write files under out" {
+	if strings.Join(kinds, "|") != "run tee *|write files under out" {
 		t.Fatalf("asked about %v", kinds)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "out", "x.txt")); err == nil {

@@ -11,9 +11,8 @@
 //	Results cannot be checked at admission, so they are validated at run
 //	time against the contract.
 //
-// What that rule leaves unsaid is TENG-3033's to write. Where this package
-// had to choose, the choice is marked PROPOSED and is the conservative one:
-// when in doubt, the tool does not satisfy.
+// Ruling 30 (doc 34 section 13.16) settled what that rule left unsaid about
+// types and about a connector that describes nothing.
 package satisfy
 
 import (
@@ -79,7 +78,7 @@ func types(prop any) []string {
 // accepts reports whether a connector that allows the types in have will
 // take a value of every type in want.
 //
-// PROPOSED: an integer is a number, so a contract that sends an integer is
+// Ruling 30: an integer is a number, so a contract that sends an integer is
 // accepted where a number is. The reverse is not: a connector wanting an
 // integer is not satisfied by a contract that may send 1.5. "null" in the
 // connector's list is ignored. A side that names no type accepts anything.
@@ -106,12 +105,17 @@ func accepts(have, want []string) bool {
 // the tool from satisfying the contract; empty means it satisfies.
 func Arguments(contract, tool map[string]any) []string {
 	var p []string
-	if tool == nil {
-		return []string{"the connector gives no input schema for this tool"}
-	}
 	cp, tp := properties(contract), properties(tool)
-	// PROPOSED: a connector whose schema lists no properties and does not
-	// say additional ones are allowed accepts nothing we can be sure of.
+	// Ruling 30: an empty tool schema accepts anything. A connector that
+	// describes no arguments has said nothing a contract can be held
+	// against, so the tool binds on its name (ruling 22) and its arguments
+	// are not checked.
+	if len(tp) == 0 && len(required(tool)) == 0 {
+		// Unless it says, in so many words, that it takes no arguments.
+		if allows, said := tool["additionalProperties"].(bool); !said || allows {
+			return nil
+		}
+	}
 	open := false
 	if ap, ok := tool["additionalProperties"].(bool); ok && ap {
 		open = true

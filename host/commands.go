@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"gitlab.com/telara-labs/tap-runtime/glob"
 	"io"
 	"os"
 	"os/exec"
@@ -21,11 +22,18 @@ import (
 //     effect: read
 //     env: [KUBECONFIG]
 //
-// args is the subcommand. It must be the first thing on the command line
-// after any globals. globals are the only flags allowed before it: a flag
-// followed by a literal allows that value and no other, and a flag followed
-// by <any> allows any value. A flag with nothing after it takes no value.
-// What follows the subcommand is not bounded.
+// args are the arguments the program may be given, as bash-style patterns
+// (ruling 31). Each word is matched against one argument, and a final bare *
+// matches whatever remains: [get, pods, "*"] allows `kubectl get pods -n app`
+// and refuses `kubectl get secrets`. They are required: a command that
+// declares none is refused at admission.
+//
+// globals are the only flags allowed before them: a flag followed by a
+// literal allows that value and no other, a flag followed by <any> allows
+// any value, and a flag with nothing after it takes no value.
+//
+// env names the variables of the runner's environment the program is given,
+// and a name may be a pattern such as AWS_* (ruling 32).
 
 // arbitraryCode lists invocations that run code the manifest cannot describe.
 // Whatever the author declared, these are treated as destructive. This is a
@@ -113,9 +121,10 @@ func stripGlobals(globals, args []string) ([]string, bool) {
 	return args, true
 }
 
-// resolve finds the declared command an invocation falls under. The longest
-// matching subcommand wins, so `kubectl delete` does not fall under a
-// declared bare `kubectl`.
+// resolve finds the declared command an invocation falls under. When several
+// match, the one that says most wins: more words written out, then more
+// words in all. So `kubectl delete pod x` falls under a declared
+// [delete, "*"] and not under a declared ["*"].
 func resolve(m *manifest, name string, args []string) (*command, string) {
 	var best *command
 	var bestRest []string
@@ -125,10 +134,11 @@ func resolve(m *manifest, name string, args []string) (*command, string) {
 			continue
 		}
 		rest, ok := stripGlobals(c.Globals, args)
-		if !ok || !hasPrefix(rest, c.Args) {
+		if !ok || !glob.Args(c.Args, rest) {
 			continue
 		}
-		if best == nil || len(c.Args) > len(best.Args) {
+		if best == nil || literal(c.Args) > literal(best.Args) ||
+			(literal(c.Args) == literal(best.Args) && len(c.Args) > len(best.Args)) {
 			best, bestRest = c, rest
 		}
 	}
@@ -145,21 +155,39 @@ func resolve(m *manifest, name string, args []string) (*command, string) {
 	return best, effect
 }
 
-// environFor builds the environment of one host program from the runner's
-// own: the base names and the names this command declares, nothing else.
-func environFor(c *command, lookup func(string) (string, bool)) (env []string, names []string) {
-	seen := map[string]bool{}
-	for _, n := range append(append([]string{}, baseEnv...), c.Env...) {
-		if seen[n] {
-			continue
-		}
-		seen[n] = true
-		if v, ok := lookup(n); ok {
-			env = append(env, n+"="+v)
-			names = append(names, n)
+// literal counts the words of a pattern that are written out in full.
+func literal(pattern []string) int {
+	n := 0
+	for _, w := range pattern {
+		if !glob.HasMeta(w) {
+			n++
 		}
 	}
-	sort.Strings(names)
+	return n
+}
+
+// environFor builds the environment of one host program from the runner's
+// own: the base names and whatever this command's declarations match,
+// nothing else. environ is the runner's environment as KEY=value.
+func environFor(c *command, environ []string) (env []string, names []string) {
+	sort.Strings(environ)
+	for _, kv := range environ {
+		name, _, ok := strings.Cut(kv, "=")
+		if !ok || name == "" {
+			continue
+		}
+		give := false
+		for _, b := range baseEnv {
+			give = give || b == name
+		}
+		for _, pattern := range c.Env {
+			give = give || glob.Word(pattern, name)
+		}
+		if give {
+			env = append(env, kv)
+			names = append(names, name)
+		}
+	}
 	return env, names
 }
 
@@ -195,7 +223,7 @@ func runCommand(m *manifest, rq request, approve bool, journal io.Writer) reply 
 	t0 := time.Now()
 	cmd := exec.Command(path, rq.Args...)
 	var names []string
-	cmd.Env, names = environFor(decl, os.LookupEnv)
+	cmd.Env, names = environFor(decl, os.Environ())
 	cwd, _ := os.Getwd()
 	cmd.Dir = cwd
 	if rq.Stdin != "" {

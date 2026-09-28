@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"gitlab.com/telara-labs/tap-runtime/glob"
 	"io"
 	"net/http"
 	"net/url"
@@ -61,6 +62,49 @@ func resolvePath(p, cwd string) (string, error) {
 	}
 }
 
+// under reports whether the real path falls under one declared path. A
+// declaration with no wildcard is a file, or a directory and everything
+// under it. One with a wildcard is a pattern (ruling 33): its leading part,
+// up to the first wildcard, is resolved through symbolic links like any
+// other path, and what follows is matched segment by segment.
+func under(declared, real, cwd string) bool {
+	if !glob.HasMeta(declared) {
+		root, err := resolvePath(declared, cwd)
+		if err != nil {
+			return false
+		}
+		return real == root || strings.HasPrefix(real, root+string(filepath.Separator))
+	}
+	parts := strings.Split(filepath.ToSlash(declared), "/")
+	fixed := 0
+	for fixed < len(parts) && !glob.HasMeta(parts[fixed]) {
+		fixed++
+	}
+	prefix := strings.Join(parts[:fixed], "/")
+	if prefix == "" {
+		if strings.HasPrefix(declared, "/") {
+			prefix = "/"
+		} else {
+			prefix = "."
+		}
+	}
+	root, err := resolvePath(filepath.FromSlash(prefix), cwd)
+	if err != nil {
+		return false
+	}
+	if real != root && !strings.HasPrefix(real, strings.TrimSuffix(root, string(filepath.Separator))+string(filepath.Separator)) {
+		return false
+	}
+	rel, err := filepath.Rel(root, real)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		rel = ""
+	}
+	return glob.Path(strings.Join(parts[fixed:], "/"), filepath.ToSlash(rel))
+}
+
 // fileAllowed reports whether the real path falls under a declaration that
 // grants the access asked for.
 func fileAllowed(decls []fileDecl, real, want, cwd string) bool {
@@ -68,11 +112,7 @@ func fileAllowed(decls []fileDecl, real, want, cwd string) bool {
 		if want == "write" && d.Access != "write" {
 			continue
 		}
-		root, err := resolvePath(d.Path, cwd)
-		if err != nil {
-			continue
-		}
-		if real == root || strings.HasPrefix(real, root+string(filepath.Separator)) {
+		if under(d.Path, real, cwd) {
 			return true
 		}
 	}
@@ -82,8 +122,18 @@ func fileAllowed(decls []fileDecl, real, want, cwd string) bool {
 // fetchAllowed reports whether a declaration admits this method on this URL.
 func fetchAllowed(decls []fetchDecl, method string, u *url.URL) bool {
 	for _, d := range decls {
-		o, err := url.Parse(d.Origin)
-		if err != nil || !strings.EqualFold(o.Scheme, u.Scheme) || !strings.EqualFold(o.Host, u.Host) {
+		// A declared origin may wildcard its first label (ruling 34). The
+		// scheme and the port are always exact.
+		scheme, rest, ok := strings.Cut(d.Origin, "://")
+		if !ok || !strings.EqualFold(scheme, u.Scheme) {
+			continue
+		}
+		rest = strings.TrimSuffix(rest, "/")
+		host, port := rest, ""
+		if i := strings.LastIndexByte(rest, ':'); i >= 0 {
+			host, port = rest[:i], rest[i+1:]
+		}
+		if port != u.Port() || !glob.Host(host, u.Hostname()) {
 			continue
 		}
 		methods := d.Methods
@@ -126,11 +176,7 @@ func declaredRoot(m *manifest, path string) string {
 		return path
 	}
 	for _, d := range m.Files {
-		root, err := resolvePath(d.Path, cwd)
-		if err != nil {
-			continue
-		}
-		if real == root || strings.HasPrefix(real, root+string(filepath.Separator)) {
+		if under(d.Path, real, cwd) {
 			return d.Path
 		}
 	}

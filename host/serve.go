@@ -172,7 +172,7 @@ func (s *server) elicit(a Ask) Grant {
 			"type": "object",
 			"properties": map[string]any{
 				"approve": map[string]any{"type": "boolean", "title": "Allow this", "description": a.Kind, "default": false},
-				"limit": map[string]any{"type": "integer", "title": "How many times", "minimum": 1, "maximum": 1000, "default": 1,
+				"limit": map[string]any{"type": "integer", "title": "How many times", "minimum": 1, "default": 1,
 					"description": "After this many you are asked again."},
 			},
 			"required": []string{"approve"},
@@ -195,9 +195,6 @@ func (s *server) elicit(a Ask) Grant {
 	limit := r.Content.Limit
 	if limit < 1 {
 		limit = 1
-	}
-	if limit > 1000 {
-		limit = 1000
 	}
 	return Grant{OK: true, Limit: limit}
 }

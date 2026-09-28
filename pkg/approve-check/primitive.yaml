@@ -3,5 +3,5 @@ kind: Primitive
 metadata: {publisher: dev.telara, name: approve-check, version: 0.1.0}
 execution: {entrypoint: main.sh}
 commands:
-  - {command: git, args: [status], effect: write}
-  - {command: bash, globals: ["-c <any>"], effect: read}
+  - {command: git, args: [status, "*"], effect: write}
+  - {command: bash, globals: ["-c <any>"], args: ["*"], effect: read}

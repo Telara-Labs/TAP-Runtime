@@ -110,8 +110,6 @@ somebody who has not seen the code are still owed.
 
 - The Python interpreter imports file and socket calls. It is contained because
   the runner grants it nothing, not because the calls are absent.
-- What follows a declared subcommand is not bounded: `kubectl get` allows any
-  resource and any later flag.
 - From the command line `--approve` agrees to everything, and `--limit N`
   caps each kind of change at N. Run as an MCP server (`host serve`) the
   runner asks the person at the client about each kind of change and how many
