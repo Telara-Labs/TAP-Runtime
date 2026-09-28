@@ -18,12 +18,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -45,12 +43,6 @@ type manifest struct {
 	Commands   []command  `yaml:"commands"`
 }
 
-type command struct {
-	Command string   `yaml:"command"`
-	Args    []string `yaml:"args"`
-	Effect  string   `yaml:"effect"`
-}
-
 type request struct {
 	Method    string         `json:"method"`
 	Alias     string         `json:"alias"`
@@ -60,6 +52,7 @@ type request struct {
 	Stdout    string         `json:"stdout"`
 	Stderr    string         `json:"stderr"`
 	Exit      int            `json:"exit"`
+	Stdin     string         `json:"stdin"`
 }
 
 type reply struct {
@@ -69,54 +62,7 @@ type reply struct {
 	Stdout  string   `json:"stdout"`
 	Stderr  string   `json:"stderr"`
 	Exit    int      `json:"exit"`
-}
-
-// arbitraryCode lists invocations that run code the manifest cannot describe.
-// Whatever the author declared, these are treated as destructive. This is a
-// hand-maintained list, which doc 34 section 13.4 names as a weakness.
-var arbitraryCode = [][]string{
-	{"bash"}, {"sh"}, {"zsh"}, {"env"}, {"xargs"},
-	{"docker", "run"}, {"docker", "exec"},
-	{"kubectl", "exec"}, {"kubectl", "run"},
-}
-
-func hasPrefix(argv, prefix []string) bool {
-	if len(argv) < len(prefix) {
-		return false
-	}
-	for i := range prefix {
-		if argv[i] != prefix[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// resolve finds the declared command an invocation falls under. The longest
-// matching args prefix wins, so `kubectl delete` does not fall under a
-// declared bare `kubectl`.
-func resolve(m *manifest, name string, args []string) (*command, string) {
-	var best *command
-	for i := range m.Commands {
-		c := &m.Commands[i]
-		if c.Command != name || !hasPrefix(args, c.Args) {
-			continue
-		}
-		if best == nil || len(c.Args) > len(best.Args) {
-			best = c
-		}
-	}
-	if best == nil {
-		return nil, ""
-	}
-	effect := best.Effect
-	argv := append([]string{name}, args...)
-	for _, p := range arbitraryCode {
-		if hasPrefix(argv, p) {
-			effect = "destructive"
-		}
-	}
-	return best, effect
+	Stdin   string   `json:"stdin"`
 }
 
 func main() {
@@ -316,8 +262,8 @@ class _Tap:
     def tools(self):
         _out.write(json.dumps({"method": "tools"}) + "\n"); _out.flush()
         return json.loads(_in.readline()).get("tools") or []
-    def exec(self, command, args=()):
-        _out.write(json.dumps({"method": "exec", "command": command, "args": list(args)}) + "\n"); _out.flush()
+    def exec(self, command, args=(), stdin=""):
+        _out.write(json.dumps({"method": "exec", "command": command, "args": list(args), "stdin": stdin}) + "\n"); _out.flush()
         return json.loads(_in.readline())
 tap = _Tap()
 _buf, _err, _exit = io.StringIO(), io.StringIO(), 0
@@ -346,10 +292,7 @@ globalThis.tap = {
     try { return JSON.parse(r.result ?? "null"); } catch (e) { return r.result; }
   },
   tools() { return _ask({ method: "tools" }).tools ?? []; },
-  exec(command, args = []) {
-    std.out.puts(JSON.stringify({ method: "exec", command, args }) + "\n"); std.out.flush();
-    return JSON.parse(std.in.getline());
-  },
+  exec(command, args = [], stdin = "") { return _ask({ method: "exec", command, args, stdin }); },
 };
 globalThis.std = std;
 try { (0, eval)(%s); } catch (e) { _err += String(e) + "\n"; _exit = 1; }
@@ -374,54 +317,6 @@ func guestConfig(kind, pyLib, script string, args []string) wazero.ModuleConfig 
 		cfg = cfg.WithArgs("sh")
 	}
 	return cfg
-}
-
-func runCommand(m *manifest, rq request, approve bool, journal io.Writer) reply {
-	line := strings.TrimSpace(rq.Command + " " + strings.Join(rq.Args, " "))
-	decl, effect := resolve(m, rq.Command, rq.Args)
-	entry := map[string]any{"ts": time.Now().UTC().Format(time.RFC3339Nano), "command": rq.Command, "args": rq.Args}
-	record := func(outcome string, extra map[string]any) {
-		entry["outcome"] = outcome
-		for k, v := range extra {
-			entry[k] = v
-		}
-		b, _ := json.Marshal(entry)
-		journal.Write(append(b, '\n'))
-	}
-	if decl == nil {
-		logf("  REFUSED  %s  (not declared)", line)
-		record("refused_undeclared", nil)
-		return reply{Refused: "command not declared in primitive.yaml"}
-	}
-	entry["effect"] = effect
-	if effect != "read" && !approve {
-		logf("  GATED    %s  (%s, no approval)", line, effect)
-		record("gated", nil)
-		return reply{Refused: effect + " command needs approval"}
-	}
-	path, err := exec.LookPath(rq.Command)
-	if err != nil {
-		logf("  ABSENT   %s  (program not on this machine)", line)
-		record("refused_absent", nil)
-		return reply{Refused: "program not installed on this machine"}
-	}
-	t0 := time.Now()
-	cmd := exec.Command(path, rq.Args...)
-	var so, se bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &so, &se
-	exit := 0
-	if err := cmd.Run(); err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			exit = ee.ExitCode()
-		} else {
-			exit = 127
-			se.WriteString(err.Error())
-		}
-	}
-	logf("  run      %s  [%s] exit=%d out=%dB %s", line, effect, exit, so.Len(), time.Since(t0).Round(time.Millisecond))
-	record("ran", map[string]any{"exit": exit, "stdout_bytes": so.Len(), "ms": time.Since(t0).Milliseconds()})
-	return reply{Stdout: so.String(), Stderr: se.String(), Exit: exit}
 }
 
 func logf(f string, a ...any) { fmt.Fprintf(os.Stderr, "host  "+f+"\n", a...) }
