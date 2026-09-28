@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,5 +140,75 @@ func TestFetchIsBoundedByOriginAndMethod(t *testing.T) {
 	getOnly := &manifest{Fetch: []fetchDecl{{Origin: declared.URL}}}
 	if r := fetchOp(getOnly, request{URL: declared.URL + "/data", HTTPMethod: "POST"}, true, &j); r.Refused == "" {
 		t.Error("methods did not default to GET only")
+	}
+}
+
+// Ruling 33: a declared path may be a pattern.
+func TestFilePatterns(t *testing.T) {
+	dir := inDir(t)
+	outside, _ := filepath.EvalSymlinks(t.TempDir())
+	for _, d := range []string{"reports/2026/q3", "reports-private", "data"} {
+		os.MkdirAll(filepath.Join(dir, d), 0o755)
+	}
+	for _, f := range []string{"reports/a.txt", "reports/a.md", "reports/2026/q3/b.txt", "reports-private/c.txt", "data/x.csv", "data/xy.csv"} {
+		os.WriteFile(filepath.Join(dir, f), []byte(f), 0o644)
+	}
+	os.WriteFile(filepath.Join(outside, "o.txt"), []byte("outside"), 0o644)
+	os.Symlink(outside, filepath.Join(dir, "reports", "link"))
+
+	m := &manifest{Files: []fileDecl{
+		{Path: "reports/**/*.txt", Access: "read"},
+		{Path: "data/?.csv", Access: "write"},
+	}}
+	var j bytes.Buffer
+	for path, want := range map[string]bool{
+		"reports/a.txt":         true,
+		"reports/2026/q3/b.txt": true,
+		"reports/a.md":          false, // the wrong ending
+		"reports-private/c.txt": false, // a sibling sharing a prefix
+		"reports/../data/x.csv": true,  // resolves to data/x.csv, which is declared
+		"data/x.csv":            true,
+		"data/xy.csv":           false, // ? is one character
+		"reports/link/o.txt":    false, // resolves outside
+		"/etc/hosts":            false,
+	} {
+		r := fileOp(m, request{Method: "read", Path: path}, true, &j)
+		if (r.Refused == "") != want {
+			t.Errorf("read %s: refused=%q, want allowed=%v", path, r.Refused, want)
+		}
+	}
+	if r := fileOp(m, request{Method: "write", Path: "reports/new.txt", Stdin: "x"}, true, &j); r.Refused == "" {
+		t.Error("a write was allowed under a read pattern")
+	}
+	if r := fileOp(m, request{Method: "write", Path: "data/z.csv", Stdin: "x"}, true, &j); r.Refused != "" {
+		t.Errorf("a write under a write pattern was refused: %s", r.Refused)
+	}
+	if declaredRoot(m, "data/z.csv") != "data/?.csv" {
+		t.Errorf("an approval would name %q", declaredRoot(m, "data/z.csv"))
+	}
+}
+
+// Ruling 34: one subdomain level may be a wildcard.
+func TestFetchSubdomainWildcard(t *testing.T) {
+	decls := []fetchDecl{{Origin: "https://*.atlassian.net"}, {Origin: "https://api.github.com:8443", Methods: []string{"GET", "POST"}}}
+	for raw, want := range map[string]bool{
+		"https://telara.atlassian.net/rest/api/3/issue": true,
+		"https://TELARA.atlassian.net/x":                true,
+		"https://atlassian.net/x":                       false, // no label
+		"https://a.b.atlassian.net/x":                   false, // two levels
+		"https://evilatlassian.net/x":                   false,
+		"https://telara.atlassian.net.evil.com/x":       false,
+		"http://telara.atlassian.net/x":                 false, // the scheme is exact
+		"https://telara.atlassian.net:8443/x":           false, // and so is the port
+		"https://api.github.com:8443/x":                 true,
+		"https://api.github.com/x":                      false,
+	} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fetchAllowed(decls, "GET", u); got != want {
+			t.Errorf("GET %s: allowed=%v, want %v", raw, got, want)
+		}
 	}
 }

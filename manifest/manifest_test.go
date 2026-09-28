@@ -12,7 +12,7 @@ execution: {entrypoint: main.py}
 tools:
   - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}
 commands:
-  - {command: kubectl, globals: ["--context minikube"], args: [get], effect: read, env: [KUBECONFIG]}
+  - {command: kubectl, globals: ["--context minikube"], args: [get, "*"], effect: read, env: [KUBECONFIG]}
 files:
   - {path: out, access: write}
 fetch:
@@ -59,23 +59,61 @@ func TestUnknownFieldsAreRefused(t *testing.T) {
 
 func TestRunProblems(t *testing.T) {
 	for name, c := range map[string]struct{ from, to, want string }{
-		"v2":                     {"primitives.telara.dev/v3", "primitives.telara.dev/v2", "apiVersion"},
-		"no entrypoint":          {"execution: {entrypoint: main.py}", "execution: {}", "entrypoint is missing"},
-		"entrypoint leaves":      {"entrypoint: main.py", "entrypoint: ../../etc/passwd", "inside the package"},
-		"absolute entrypoint":    {"entrypoint: main.py", "entrypoint: /bin/sh", "inside the package"},
-		"bad effect":             {"effect: read, optional", "effect: harmless, optional", "effect"},
-		"bad alias":              {"alias: threads", "alias: Threads-1", "alias"},
-		"capability not dotted":  {"capability: gmail.threads.search", "capability: search", "provider.resource.verb"},
-		"command is a path":      {"command: kubectl", "command: /usr/bin/kubectl", "program name"},
-		"bad access":             {"access: write", "access: append", "access"},
-		"origin with a path":     {"https://api.github.com", "https://api.github.com/repos", "path"},
-		"origin with a wildcard": {"https://api.github.com", "https://*.github.com", "fetch"},
-		"origin without scheme":  {"https://api.github.com", "api.github.com", "scheme"},
-		"unknown runtime":        {"execution: {entrypoint: main.py}", "execution: {entrypoint: main.py, runtime: docker}", "runtime"},
+		"v2":                                     {"primitives.telara.dev/v3", "primitives.telara.dev/v2", "apiVersion"},
+		"no entrypoint":                          {"execution: {entrypoint: main.py}", "execution: {}", "entrypoint is missing"},
+		"entrypoint leaves":                      {"entrypoint: main.py", "entrypoint: ../../etc/passwd", "inside the package"},
+		"absolute entrypoint":                    {"entrypoint: main.py", "entrypoint: /bin/sh", "inside the package"},
+		"bad effect":                             {"effect: read, optional", "effect: harmless, optional", "effect"},
+		"bad alias":                              {"alias: threads", "alias: Threads-1", "alias"},
+		"capability not dotted":                  {"capability: gmail.threads.search", "capability: search", "provider.resource.verb"},
+		"command is a path":                      {"command: kubectl", "command: /usr/bin/kubectl", "program name"},
+		"bad access":                             {"access: write", "access: append", "access"},
+		"origin with a path":                     {"https://api.github.com", "https://api.github.com/repos", "path"},
+		"origin wildcard over a public suffix":   {"https://api.github.com", "https://*.com", "public suffix"},
+		"origin wildcard over a two-part suffix": {"https://api.github.com", "https://*.co.uk", "public suffix"},
+		"origin that is only a wildcard":         {"https://api.github.com", "https://*", "fetch"},
+		"origin wildcard not in front":           {"https://api.github.com", "https://api.*.com", "first label"},
+		"origin with two wildcards":              {"https://api.github.com", "https://*.*.github.com", "first label"},
+		"command with no arguments declared":     {"args: [get, \"*\"], ", "", "declares no args"},
+		"environment that is everything":         {"env: [KUBECONFIG]", "env: [\"*\"]", "whole environment"},
+		"command that is a pattern":              {"command: kubectl", "command: \"kube*\"", "program name"},
+		"origin without scheme":                  {"https://api.github.com", "api.github.com", "scheme"},
+		"unknown runtime":                        {"execution: {entrypoint: main.py}", "execution: {entrypoint: main.py, runtime: docker}", "runtime"},
 	} {
 		m := parse(t, strings.Replace(short, c.from, c.to, 1))
 		if p := strings.Join(m.RunProblems(), "\n"); !strings.Contains(p, c.want) {
 			t.Errorf("%s: want a problem mentioning %q, got %q", name, c.want, p)
+		}
+	}
+}
+
+// Rulings 31 to 34: what a manifest may now declare.
+func TestWildcardsThatAreAllowed(t *testing.T) {
+	for name, c := range map[string]struct{ from, to string }{
+		"one subdomain level":        {"https://api.github.com", "https://*.atlassian.net"},
+		"a subdomain level and port": {"https://api.github.com", "https://*.internal.example.com:8443"},
+		"an environment pattern":     {"env: [KUBECONFIG]", "env: [\"AWS_*\", KUBECONFIG]"},
+		"a file pattern":             {"path: out", "path: \"reports/**/*.txt\""},
+		"an argument pattern":        {"args: [get, \"*\"]", "args: [get, pods, \"--namespace=app-*\", \"*\"]"},
+		"any arguments, said aloud":  {"args: [get, \"*\"]", "args: [\"*\"]"},
+	} {
+		s := strings.Replace(short, c.from, c.to, 1)
+		if s == short {
+			t.Fatalf("%s: the fixture does not contain %q", name, c.from)
+		}
+		m := parse(t, s)
+		if p := m.RunProblems(); len(p) != 0 {
+			t.Errorf("%s: refused: %v", name, p)
+		}
+		// And what may run must also pass the published schema's patterns.
+		full := m.Complete("dev.telara")
+		full.Metadata.Description = "d"
+		for i := range full.Capabilities {
+			full.Capabilities[i].Question = "q"
+			full.Capabilities[i].ID = CapabilityID("q", full.Capabilities[i].Args, full.Capabilities[i].Result)
+		}
+		if p := full.PublishProblems(); len(p) != 0 {
+			t.Errorf("%s: may run and may not be published: %v", name, p)
 		}
 	}
 }

@@ -1,6 +1,6 @@
 {
  "rule": "doc 34 section 11.3",
- "note": "Type compatibility is proposed, not ruled (TENG-3033).",
+ "note": "Rulings 22 and 30, doc 34 sections 13.15 and 13.16.",
  "arguments": [
   {
    "name": "identical",
@@ -322,7 +322,7 @@
    "satisfies": true
   },
   {
-   "name": "a connector with an empty schema accepts nothing we can be sure of",
+   "name": "a connector with an empty schema accepts anything",
    "contract": {
     "type": "object",
     "properties": {
@@ -343,10 +343,10 @@
    "connector": {
     "type": "object"
    },
-   "satisfies": false
+   "satisfies": true
   },
   {
-   "name": "no schema at all",
+   "name": "a connector with no schema at all accepts anything",
    "contract": {
     "type": "object",
     "properties": {
@@ -365,7 +365,7 @@
     ]
    },
    "connector": null,
-   "satisfies": false
+   "satisfies": true
   },
   {
    "name": "a contract that sends nothing satisfies a connector that requires nothing",
@@ -382,6 +382,31 @@
     }
    },
    "satisfies": true
+  },
+  {
+   "name": "a connector that says it takes no arguments takes none",
+   "contract": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "pageSize": {
+      "type": "integer"
+     },
+     "pageToken": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "connector": {
+    "type": "object",
+    "additionalProperties": false
+   },
+   "satisfies": false
   }
  ],
  "result_contract": {

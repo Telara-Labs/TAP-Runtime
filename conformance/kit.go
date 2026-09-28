@@ -264,7 +264,7 @@ func Run(runner []string, log io.Writer) []Lane {
 		})
 	lane("a program cannot run a command it did not declare", true, []map[string]any{yes},
 		func(w string) string {
-			return pkg(root, "undeclared-command", "main.sh", "commands:\n  - {command: true, effect: read}\n",
+			return pkg(root, "undeclared-command", "main.sh", "commands:\n  - {command: true, args: [\"*\"], effect: read}\n",
 				"touch "+filepath.Join(w, "touched.txt")+" || echo blocked\nsh -c 'echo x > "+filepath.Join(w, "shelled.txt")+"' || echo blocked\n")
 		},
 		func(w, out string, s *session) string {
@@ -288,7 +288,7 @@ func Run(runner []string, log io.Writer) []Lane {
 	lane("a flag before a subcommand must be declared, with its value", true, nil,
 		func(w string) string {
 			os.WriteFile(filepath.Join(w, "a.txt"), []byte("alpha\n"), 0o644)
-			return pkg(root, "globals", "main.sh", "commands:\n  - {command: grep, globals: [\"-c\"], args: [alpha], effect: read}\n",
+			return pkg(root, "globals", "main.sh", "commands:\n  - {command: grep, globals: [\"-c\"], args: [alpha, \"*\"], effect: read}\n",
 				"grep -c alpha a.txt && echo declared-ran\ngrep -r alpha . && echo undeclared-flag-ran\ngrep beta a.txt; echo status=$?\n")
 		},
 		func(w, out string, s *session) string {

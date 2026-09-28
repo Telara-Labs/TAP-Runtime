@@ -141,7 +141,7 @@ execution: {entrypoint: main.sh}
 files:
   - {path: out, access: write}
 commands:
-  - {command: touch, effect: write}
+  - {command: touch, args: ["*"], effect: write}
 `
 
 const writeScript = `echo first > out/a.txt && echo "a written" || echo "a refused"

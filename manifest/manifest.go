@@ -25,6 +25,8 @@ import (
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
+	"gitlab.com/telara-labs/tap-runtime/glob"
+	"golang.org/x/net/publicsuffix"
 	"gopkg.in/yaml.v3"
 )
 
@@ -135,6 +137,7 @@ var (
 	pathRe      = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._/-]{0,254}$`)
 	fullLabelRe = regexp.MustCompile(`^[a-z][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+/([a-z][a-z0-9_.-]{0,127})@[0-9]+$`)
 	shortLabel  = regexp.MustCompile(`^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$`)
+	envRe       = regexp.MustCompile(`^[A-Za-z_*?\[][A-Za-z0-9_*?\[\]!^-]*$`)
 	effects     = map[string]bool{"read": true, "write": true, "destructive": true, "financial": true, "identity-admin": true}
 )
 
@@ -219,8 +222,8 @@ func (m *Manifest) RunProblems() []string {
 		}
 	}
 	for i, c := range m.Commands {
-		if c.Command == "" || strings.ContainsAny(c.Command, "/ ") {
-			add("commands[%d].command %q must be a program name, not a path", i, c.Command)
+		if c.Command == "" || strings.ContainsAny(c.Command, "/ ") || glob.HasMeta(c.Command) {
+			add("commands[%d].command %q must be a program name, not a path or a pattern", i, c.Command)
 		}
 		if !effects[c.Effect] {
 			add("commands[%d] (%s) declares effect %q", i, c.Command, c.Effect)
@@ -228,6 +231,24 @@ func (m *Manifest) RunProblems() []string {
 		for _, g := range c.Globals {
 			if !strings.HasPrefix(g, "-") {
 				add("commands[%d] (%s) global %q must start with a flag", i, c.Command, g)
+			}
+		}
+		// Ruling 31: what a command may be given is declared, never left
+		// open by saying nothing. To allow anything, say so: args: ["*"].
+		if len(c.Args) == 0 {
+			add("commands[%d] (%s) declares no args; list the arguments it may be given, as patterns, or [\"*\"] for any", i, c.Command)
+		}
+		for _, a := range c.Args {
+			if a == "" {
+				add("commands[%d] (%s) has an empty argument pattern", i, c.Command)
+			}
+		}
+		for _, e := range c.Env {
+			if !envRe.MatchString(e) {
+				add("commands[%d] (%s) env %q must be a variable name or a pattern of one, such as AWS_*", i, c.Command, e)
+			}
+			if strings.Trim(e, "*?") == "" {
+				add("commands[%d] (%s) env %q would give the program the whole environment; name what it needs", i, c.Command, e)
 			}
 		}
 	}
@@ -240,17 +261,42 @@ func (m *Manifest) RunProblems() []string {
 		}
 	}
 	for i, f := range m.Fetch {
-		u, err := url.Parse(f.Origin)
+		// A wildcard label is not a valid host to the URL parser's taste in
+		// every position, so it is parsed with a stand-in and checked apart.
+		u, err := url.Parse(strings.Replace(f.Origin, "://*.", "://wildcard-label.", 1))
+		if err == nil && strings.Contains(f.Origin, "://*.") {
+			u.Host = strings.Replace(u.Host, "wildcard-label.", "*.", 1)
+		}
 		switch {
 		case err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http"):
 			add("fetch[%d] origin %q must be a scheme and a host, such as https://api.example.com", i, f.Origin)
 		case (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.User != nil:
 			add("fetch[%d] origin %q must not carry a path, a query or a user", i, f.Origin)
-		case strings.Contains(u.Host, "*"):
-			add("fetch[%d] origin %q must name one host; wildcards are not allowed", i, f.Origin)
+		default:
+			if why := wildcardProblem(u.Hostname()); why != "" {
+				add("fetch[%d] origin %q %s", i, f.Origin, why)
+			}
 		}
 	}
 	return p
+}
+
+// wildcardProblem says what is wrong with a host that uses a wildcard, or ""
+// (ruling 34). One subdomain level may be a wildcard: *.atlassian.net. Never
+// a bare *, never a wildcard anywhere but the first label, and never over a
+// public suffix: *.com and *.co.uk would match every site under them.
+func wildcardProblem(host string) string {
+	if !strings.Contains(host, "*") {
+		return ""
+	}
+	if !strings.HasPrefix(host, "*.") || strings.Contains(host[2:], "*") {
+		return "may use a wildcard only as its first label, as in https://*.example.com"
+	}
+	rest := host[2:]
+	if suffix, _ := publicsuffix.PublicSuffix(rest); suffix == rest || !strings.Contains(rest, ".") {
+		return "would match every site under " + rest + ", which is a public suffix"
+	}
+	return ""
 }
 
 // CapabilityID is the identity of a capability: sha256 over its contract with

@@ -3,7 +3,7 @@ kind: Primitive
 metadata: {publisher: dev.telara, name: deploy-check, version: 0.1.0}
 execution: {entrypoint: main.sh}
 commands:
-  - {command: git, globals: ["-C <any>"], args: [log], effect: read}
-  - {command: kubectl, globals: ["--context minikube", "-n <any>"], args: [get], effect: read}
-  - {command: kubectl, globals: ["--context minikube", "-n <any>"], args: [delete], effect: destructive}
-  - {command: tr, effect: read}
+  - {command: git, globals: ["-C <any>"], args: [log, "*"], effect: read}
+  - {command: kubectl, globals: ["--context minikube", "-n <any>"], args: [get, "*"], effect: read}
+  - {command: kubectl, globals: ["--context minikube", "-n <any>"], args: [delete, "*"], effect: destructive}
+  - {command: tr, args: ["*"], effect: read}

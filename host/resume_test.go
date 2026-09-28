@@ -21,7 +21,7 @@ execution: {entrypoint: main.sh}
 files:
   - {path: in, access: read}
 commands:
-  - {command: tee, globals: ["-a"], effect: write}
+  - {command: tee, globals: ["-a"], args: ["*"], effect: write}
 `
 
 // Each line is one real change to a real file, made by a real program.
