@@ -156,33 +156,50 @@ func (s *server) ask(method string, params any) (rpcMessage, bool) {
 	return m, ok
 }
 
-// elicit asks the person at the client to approve one action. Anything but
-// an explicit yes is a no: a decline, a cancel, an error, a closed
-// connection, or an accept that leaves the box unticked.
-func (s *server) elicit(a Ask) bool {
+// elicit asks the person at the client whether a primitive may make a kind
+// of change, and how many times. Anything but an explicit yes is a no: a
+// decline, a cancel, an error, a closed connection, or an accepted form with
+// the box left unticked.
+func (s *server) elicit(a Ask) Grant {
+	so := ""
+	if a.Done > 0 {
+		so = fmt.Sprintf("\n\nIt has made %d of these in this run and has reached the number you allowed.", a.Done)
+	}
 	m, ok := s.ask("elicitation/create", map[string]any{
-		"message": fmt.Sprintf("The primitive %q wants to make a %s change:\n\n%s\n\nNothing has been done yet.", a.Primitive, a.Effect, a.Action),
+		"message": fmt.Sprintf("The primitive %q wants to: %s.\n\nThis is a %s change. Waiting now:\n\n%s%s\n\nNothing further is done until you answer.",
+			a.Primitive, a.Kind, a.Effect, a.Example, so),
 		"requestedSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"approve": map[string]any{"type": "boolean", "title": "Allow this", "description": a.Action, "default": false},
+				"approve": map[string]any{"type": "boolean", "title": "Allow this", "description": a.Kind, "default": false},
+				"limit": map[string]any{"type": "integer", "title": "How many times", "minimum": 1, "maximum": 1000, "default": 1,
+					"description": "After this many you are asked again."},
 			},
 			"required": []string{"approve"},
 		},
 	})
 	if !ok || m.Error != nil {
-		return false
+		return Grant{}
 	}
 	var r struct {
 		Action  string `json:"action"`
 		Content struct {
 			Approve bool `json:"approve"`
+			Limit   int  `json:"limit"`
 		} `json:"content"`
 	}
-	if json.Unmarshal(m.Result, &r) != nil {
-		return false
+	if json.Unmarshal(m.Result, &r) != nil || r.Action != "accept" || !r.Content.Approve {
+		return Grant{}
 	}
-	return r.Action == "accept" && r.Content.Approve
+	// A person who ticks the box and names no number has agreed to one.
+	limit := r.Content.Limit
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	return Grant{OK: true, Limit: limit}
 }
 
 var runTool = map[string]any{

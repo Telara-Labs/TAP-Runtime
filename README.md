@@ -99,9 +99,10 @@ becomes an ordinary dependency again.
   the runner grants it nothing, not because the calls are absent.
 - What follows a declared subcommand is not bounded: `kubectl get` allows any
   resource and any later flag.
-- From the command line, approval is the `--approve` flag, which approves
-  everything. Run as an MCP server (`host serve`) it asks the person at the
-  client, once for each distinct action.
+- From the command line `--approve` agrees to everything, and `--limit N`
+  caps each kind of change at N. Run as an MCP server (`host serve`) the
+  runner asks the person at the client about each kind of change and how many
+  to allow, and asks again when that number is reached.
 - Bash sends one request at a time: the sandbox has one thread. Python and
   JavaScript can send several together with `tap.call_many` / `tap.callMany`.
 - Codex accepts several calls at once and runs them one after another.
