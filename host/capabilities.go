@@ -22,10 +22,6 @@ import (
 // path is a file, or a directory and everything under it. A relative path is
 // taken from the directory the runner was started in. access write includes
 // read.
-type fileDecl struct {
-	Path   string `yaml:"path"`
-	Access string `yaml:"access"`
-}
 
 // fetchDecl bounds the URLs a primitive may fetch.
 //
@@ -34,10 +30,6 @@ type fileDecl struct {
 //
 // origin is a scheme, a host and an optional port, and nothing else. methods
 // defaults to GET. GET and HEAD are reads; every other method is a write.
-type fetchDecl struct {
-	Origin  string   `yaml:"origin"`
-	Methods []string `yaml:"methods"`
-}
 
 const maxBody = 10 << 20
 
@@ -85,30 +77,6 @@ func fileAllowed(decls []fileDecl, real, want, cwd string) bool {
 		}
 	}
 	return false
-}
-
-func validateCapabilities(m *manifest) error {
-	for _, d := range m.Files {
-		if d.Path == "" {
-			return fmt.Errorf("a files entry has no path")
-		}
-		if d.Access != "read" && d.Access != "write" {
-			return fmt.Errorf("files entry %q declares access %q; it must be read or write", d.Path, d.Access)
-		}
-	}
-	for _, d := range m.Fetch {
-		u, err := url.Parse(d.Origin)
-		if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
-			return fmt.Errorf("fetch origin %q must be a scheme and a host, such as https://api.example.com", d.Origin)
-		}
-		if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.User != nil {
-			return fmt.Errorf("fetch origin %q must not carry a path, a query or a user", d.Origin)
-		}
-		if strings.Contains(u.Host, "*") {
-			return fmt.Errorf("fetch origin %q must name one host; wildcards are not allowed", d.Origin)
-		}
-	}
-	return nil
 }
 
 // fetchAllowed reports whether a declaration admits this method on this URL.

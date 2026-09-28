@@ -10,19 +10,8 @@ import (
 
 	"gitlab.com/telara-labs/tap-runtime/bind"
 	"gitlab.com/telara-labs/tap-runtime/bridge"
+	mf "gitlab.com/telara-labs/tap-runtime/manifest"
 )
-
-// toolDecl is one entry of the manifest's tools block.
-type toolDecl struct {
-	Alias      string `yaml:"alias"`
-	Capability string `yaml:"capability"`
-	Effect     string `yaml:"effect"`
-	Optional   bool   `yaml:"optional"`
-	Pin        *struct {
-		Server string `yaml:"server"`
-		Tool   string `yaml:"tool"`
-	} `yaml:"pin"`
-}
 
 // binding is what an alias resolved to, and what the receipt says about it.
 type binding struct {
@@ -77,7 +66,11 @@ func openBridge(client string) (bridge.Bridge, error) {
 }
 
 func validEffect(e string) bool {
-	return e == string(bind.Read) || e == string(bind.Write) || e == string(bind.Destructive)
+	switch e {
+	case "read", "write", "destructive", "financial", "identity-admin":
+		return true
+	}
+	return false
 }
 
 // admit resolves every declared tool before the guest is started. A required
@@ -94,7 +87,7 @@ func admit(decls []toolDecl, b bridge.Bridge) (*admission, error) {
 		case seen[d.Alias]:
 			return nil, fmt.Errorf("alias %q is declared twice", d.Alias)
 		case !validEffect(d.Effect):
-			return nil, fmt.Errorf("tool %q declares effect %q; it must be read, write or destructive", d.Alias, d.Effect)
+			return nil, fmt.Errorf("tool %q declares effect %q; it must be read, write, destructive, financial or identity-admin", d.Alias, d.Effect)
 		}
 		seen[d.Alias] = true
 	}
@@ -124,7 +117,7 @@ func admit(decls []toolDecl, b bridge.Bridge) (*admission, error) {
 			bd.Score = 1
 			bd.Gated = bd.tool.Annotated == bind.Unknown
 		} else {
-			c := bind.Resolve(d.Capability, bind.Effect(d.Effect), inv)
+			c := bind.Resolve(mf.CapabilityName(d.Capability), bind.Effect(d.Effect), inv)
 			if c.RunnerUp != nil {
 				bd.RunnerUp, bd.RunnerUpScore = c.RunnerUp.Server+" / "+c.RunnerUp.Name, c.RunnerUpScore
 			}
@@ -160,15 +153,7 @@ func admit(decls []toolDecl, b bridge.Bridge) (*admission, error) {
 	return a, nil
 }
 
-func rankOf(e bind.Effect) int {
-	switch e {
-	case bind.Write:
-		return 1
-	case bind.Destructive:
-		return 2
-	}
-	return 0
-}
+func rankOf(e bind.Effect) int { return bind.Rank(e) }
 
 // effective is the effect the gate uses: what was declared, raised to write
 // when the tool's own server said nothing about it (ruling 20).

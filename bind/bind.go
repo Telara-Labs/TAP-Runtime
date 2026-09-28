@@ -26,7 +26,19 @@ const (
 	Unknown     Effect = "unknown"
 )
 
-var rank = map[Effect]int{Read: 0, Write: 1, Destructive: 2}
+// Financial and IdentityAdmin are effect classes a primitive may declare. No
+// client annotates a tool with either, so for comparing against an
+// annotation they stand with Destructive.
+const (
+	Financial     Effect = "financial"
+	IdentityAdmin Effect = "identity-admin"
+)
+
+var rank = map[Effect]int{Read: 0, Write: 1, Destructive: 2, Financial: 2, IdentityAdmin: 2}
+
+// Rank orders effects by how much they can change. Unknown ranks lowest and
+// must never be compared as if it were a statement.
+func Rank(e Effect) int { return rank[e] }
 
 // Floor is the minimum score that binds. Chosen from measurement against two
 // clients' real inventories; see bind_test.go and doc 34 section 13.12.

@@ -114,9 +114,6 @@ func TestFetchIsBoundedByOriginAndMethod(t *testing.T) {
 	defer declared.Close()
 
 	m := &manifest{Fetch: []fetchDecl{{Origin: declared.URL, Methods: []string{"GET", "POST"}}}}
-	if err := validateCapabilities(m); err != nil {
-		t.Fatal(err)
-	}
 	var j bytes.Buffer
 	if r := fetchOp(m, request{URL: declared.URL + "/data", Headers: map[string]string{"X-Test": "h"}}, false, &j); r.Result != "data h" || r.Status != 200 {
 		t.Fatalf("a declared GET failed: %+v", r)
@@ -142,22 +139,5 @@ func TestFetchIsBoundedByOriginAndMethod(t *testing.T) {
 	getOnly := &manifest{Fetch: []fetchDecl{{Origin: declared.URL}}}
 	if r := fetchOp(getOnly, request{URL: declared.URL + "/data", HTTPMethod: "POST"}, true, &j); r.Refused == "" {
 		t.Error("methods did not default to GET only")
-	}
-}
-
-func TestCapabilityDeclarationsAreValidated(t *testing.T) {
-	bad := []manifest{
-		{Files: []fileDecl{{Path: "x", Access: "append"}}},
-		{Files: []fileDecl{{Access: "read"}}},
-		{Fetch: []fetchDecl{{Origin: "api.github.com"}}},
-		{Fetch: []fetchDecl{{Origin: "https://*.github.com"}}},
-		{Fetch: []fetchDecl{{Origin: "https://api.github.com/repos"}}},
-		{Fetch: []fetchDecl{{Origin: "ftp://example.com"}}},
-		{Fetch: []fetchDecl{{Origin: "https://user:pw@example.com"}}},
-	}
-	for i := range bad {
-		if err := validateCapabilities(&bad[i]); err == nil {
-			t.Errorf("case %d was accepted: %+v", i, bad[i])
-		}
 	}
 }

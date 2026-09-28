@@ -129,8 +129,8 @@ func (c *client) run(pkg string) string {
 
 const writeManifest = `apiVersion: primitives.telara.dev/v3
 kind: Primitive
-metadata: {publisher: test, name: writer, version: 0.1.0}
-entrypoint: main.sh
+metadata: {publisher: dev.test, name: writer, version: 0.1.0}
+execution: {entrypoint: main.sh}
 files:
   - {path: out, access: write}
 commands:
@@ -243,8 +243,8 @@ func TestServeRefusesToolsUnderAClientThatCannotDispatch(t *testing.T) {
 	c := startServer(t, true, accept)
 	pkg := writePackage(t, `apiVersion: primitives.telara.dev/v3
 kind: Primitive
-metadata: {publisher: test, name: needs-tools, version: 0.1.0}
-entrypoint: main.sh
+metadata: {publisher: dev.test, name: needs-tools, version: 0.1.0}
+execution: {entrypoint: main.sh}
 tools:
   - {alias: search, capability: gmail.threads.search, effect: read}
 `, "tap call search\n")

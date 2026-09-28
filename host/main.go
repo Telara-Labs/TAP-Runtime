@@ -28,22 +28,20 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
-	"gopkg.in/yaml.v3"
 
 	"gitlab.com/telara-labs/tap-runtime/bridge"
+	mf "gitlab.com/telara-labs/tap-runtime/manifest"
 )
 
-type manifest struct {
-	APIVersion string `yaml:"apiVersion"`
-	Metadata   struct {
-		Name string `yaml:"name"`
-	} `yaml:"metadata"`
-	Entrypoint string      `yaml:"entrypoint"`
-	Tools      []toolDecl  `yaml:"tools"`
-	Commands   []command   `yaml:"commands"`
-	Files      []fileDecl  `yaml:"files"`
-	Fetch      []fetchDecl `yaml:"fetch"`
-}
+// The manifest types live in package manifest. These names are how this
+// package has always referred to them.
+type (
+	manifest  = mf.Manifest
+	toolDecl  = mf.Tool
+	command   = mf.Command
+	fileDecl  = mf.File
+	fetchDecl = mf.Fetch
+)
 
 type request struct {
 	Method     string            `json:"method"`
@@ -110,6 +108,9 @@ type Result struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "manifest" {
+		os.Exit(manifestCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
 		if err := serve(os.Stdin, os.Stdout, os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "host  fatal:", err)
@@ -152,18 +153,20 @@ func main() {
 
 // Run admits a package, runs it in the sandbox and serves its requests.
 func Run(ctx context.Context, o Options) (*Result, error) {
-	raw, err := os.ReadFile(filepath.Join(o.Package, "primitive.yaml"))
+	loaded, err := mf.Load(o.Package)
 	if err != nil {
 		return nil, err
 	}
-	var m manifest
-	if err := yaml.Unmarshal(raw, &m); err != nil {
-		return nil, fmt.Errorf("primitive.yaml: %w", err)
+	if problems := loaded.RunProblems(); len(problems) > 0 {
+		return nil, fmt.Errorf("primitive.yaml cannot be run:\n  - %s", strings.Join(problems, "\n  - "))
 	}
-	if err := validateCapabilities(&m); err != nil {
-		return nil, err
+	m := *loaded
+	// Ruling 7 and 34 section 5.1: a subprocess is not contained. This
+	// runner runs the contained tier only.
+	if m.Runtime() != mf.RuntimeWasm {
+		return nil, fmt.Errorf("execution.runtime is %s; this runner runs %s only", m.Runtime(), mf.RuntimeWasm)
 	}
-	script, err := os.ReadFile(filepath.Join(o.Package, m.Entrypoint))
+	script, err := os.ReadFile(filepath.Join(o.Package, m.Execution.Entrypoint))
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +174,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	wasmBytes, in, sum, err := obtain(store, m.Entrypoint)
+	wasmBytes, in, sum, err := obtain(store, m.Execution.Entrypoint)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +184,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		journal = io.Discard
 	}
 
-	logf("package    %s  entrypoint %s (source, not compiled)", m.Metadata.Name, m.Entrypoint)
+	logf("package    %s  entrypoint %s (source, not compiled)", m.Metadata.Name, m.Execution.Entrypoint)
 	logf("interpreter %s (%d bytes) sha256:%s", in.File, len(wasmBytes), sum[:12])
 	for _, c := range m.Commands {
 		logf("declared   %-8s %-18s %s", c.Command, strings.Join(c.Args, " "), c.Effect)
