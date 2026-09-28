@@ -1,6 +1,0 @@
-{
-  "_comment": "Delete or rename this placeholder. Fixtures mirror the real tool call response shape — secrets redacted, values pinned to a stable/closed state, cardinality preserved (empty list, single page, multi-page, error). See references/schemas.md#fixtures and agents/fixture-generator.md.",
-  "fetch": {
-    "items": []
-  }
-}

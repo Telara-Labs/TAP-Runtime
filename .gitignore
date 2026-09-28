@@ -3,7 +3,6 @@ bin/
 *.wasm
 cache/
 journal.jsonl
-cli/tap
 
 # Local environment and secret material
 .env
