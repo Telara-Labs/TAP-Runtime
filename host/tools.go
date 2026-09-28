@@ -33,12 +33,14 @@ type binding struct {
 	// capability's contract at admission. ResultChecked says each answer is
 	// checked against the contract as it arrives. Schema is the digest of
 	// the input schema that was checked.
-	ContractChecked bool           `json:"contract_checked"`
-	ResultChecked   bool           `json:"result_checked"`
-	Schema          string         `json:"schema,omitempty"`
-	Candidates      []string       `json:"candidates,omitempty"`
-	tool            bind.Tool      `json:"-"`
-	result          map[string]any `json:"-"`
+	ContractChecked bool   `json:"contract_checked"`
+	ResultChecked   bool   `json:"result_checked"`
+	Schema          string `json:"schema,omitempty"`
+	// Candidates are tools whose names ranked ahead of the one bound and
+	// whose schemas did not satisfy the contract, each with why.
+	Candidates []string       `json:"passed_over,omitempty"`
+	tool       bind.Tool      `json:"-"`
+	result     map[string]any `json:"-"`
 }
 
 // admission is the outcome of resolving a manifest against a client.
@@ -145,40 +147,34 @@ func admit(decls []toolDecl, b bridge.Bridge, contracts ...mf.Capability) (*admi
 				}
 			}
 		} else if bySchema {
-			// 34 section 11.3: host compatible means exactly one tool whose
-			// live input schema satisfies the contract. The name is not
-			// matched against anything. More than one is refused and named
-			// (section 4.1.4), never scored.
-			var fit []bind.Tool
-			for _, t := range inv {
-				if t.Annotated != bind.Unknown && rankOf(t.Annotated) > rankOf(bind.Effect(d.Effect)) {
+			// Ruling 22: the name chooses, and the schema checks. Tools are
+			// taken in the order their names rank, and the first whose live
+			// input schema satisfies the contract binds. A tool whose name
+			// is closest and whose schema does not fit is passed over, and
+			// the receipt says so.
+			c, ranked := bind.Candidates(mf.CapabilityName(d.Capability), bind.Effect(d.Effect), inv)
+			if c.Bound == nil {
+				refusal = c.Refused
+			}
+			var passed []string
+			found := false
+			for _, cand := range ranked {
+				why := satisfy.Arguments(contract.Args, cand.Tool.Schema)
+				if len(why) > 0 {
+					passed = append(passed, fmt.Sprintf("%s / %s (%s)", cand.Tool.Server, cand.Tool.Name, why[0]))
 					continue
 				}
-				if len(satisfy.Arguments(contract.Args, t.Schema)) == 0 {
-					fit = append(fit, t)
-				}
+				bd.tool, bd.Score, bd.Gated = cand.Tool, cand.Score, cand.Tool.Annotated == bind.Unknown
+				bd.ContractChecked, bd.Schema = true, satisfy.Digest(cand.Tool.Schema)
+				found = true
+				break
 			}
-			sort.Slice(fit, func(i, j int) bool {
-				if fit[i].Server != fit[j].Server {
-					return fit[i].Server < fit[j].Server
-				}
-				return fit[i].Name < fit[j].Name
-			})
-			for _, t := range fit {
-				bd.Candidates = append(bd.Candidates, t.Server+" / "+t.Name)
+			bd.Candidates = passed
+			if !found && refusal == "" {
+				refusal = "no tool with a fitting name satisfies the contract: " + strings.Join(passed, "; ")
 			}
-			switch len(fit) {
-			case 0:
-				refusal = "no tool on this client satisfies the contract"
-			case 1:
-				bd.tool, bd.Score, bd.Gated = fit[0], 1, fit[0].Annotated == bind.Unknown
-				bd.ContractChecked, bd.Schema = true, satisfy.Digest(fit[0].Schema)
-			default:
-				shown := bd.Candidates
-				if len(shown) > 6 {
-					shown = append(append([]string{}, shown[:6]...), fmt.Sprintf("and %d more", len(bd.Candidates)-6))
-				}
-				refusal = fmt.Sprintf("%d tools satisfy the contract, and one must: %s. Pin the one meant, or make the contract say more", len(fit), strings.Join(shown, ", "))
+			if c.RunnerUp != nil {
+				bd.RunnerUp, bd.RunnerUpScore = c.RunnerUp.Server+" / "+c.RunnerUp.Name, c.RunnerUpScore
 			}
 		} else {
 			c := bind.Resolve(mf.CapabilityName(d.Capability), bind.Effect(d.Effect), inv)

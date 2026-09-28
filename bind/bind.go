@@ -133,19 +133,33 @@ func set(words []string) map[string]bool {
 	return m
 }
 
+// Candidate is one tool that could be meant, with how close its name is.
+type Candidate struct {
+	Tool  Tool
+	Score float64
+}
+
 // Resolve binds one capability against an inventory.
 //
 // A capability is written provider.resource.verb, for example
 // gmail.threads.search. Its first part is the provider and its last the verb.
 func Resolve(capability string, declared Effect, inventory []Tool) Choice {
+	c, _ := Candidates(capability, declared, inventory)
+	return c
+}
+
+// Candidates returns the choice Resolve makes, and with it every tool whose
+// name clears the floor, best first. A caller that can also check a tool's
+// schema walks the list and takes the first that passes (ruling 22).
+func Candidates(capability string, declared Effect, inventory []Tool) (Choice, []Candidate) {
 	parts := strings.Split(capability, ".")
 	if len(parts) < 2 {
-		return Choice{Refused: "capability " + capability + " is not written provider.resource.verb"}
+		return Choice{Refused: "capability " + capability + " is not written provider.resource.verb"}, nil
 	}
 	provider := Tokens(parts[0])
 	want := Tokens(strings.Join(parts[1:], "."))
 	if len(provider) == 0 || len(want) == 0 {
-		return Choice{Refused: "capability " + capability + " is not written provider.resource.verb"}
+		return Choice{Refused: "capability " + capability + " is not written provider.resource.verb"}, nil
 	}
 	verb := want[len(want)-1]
 	wantSet := set(want)
@@ -241,7 +255,7 @@ func Resolve(capability string, declared Effect, inventory []Tool) Choice {
 			t := cands[0].tool
 			c.RunnerUp, c.RunnerUpScore = &t, cands[0].score
 		}
-		return c
+		return c, nil
 	}
 	top := cands[0].tool
 	c := Choice{Bound: &top, Score: cands[0].score, Gated: top.Annotated == Unknown}
@@ -249,7 +263,13 @@ func Resolve(capability string, declared Effect, inventory []Tool) Choice {
 		r := cands[1].tool
 		c.RunnerUp, c.RunnerUpScore = &r, cands[1].score
 	}
-	return c
+	var ranked []Candidate
+	for _, x := range cands {
+		if x.score >= Floor {
+			ranked = append(ranked, Candidate{Tool: x.tool, Score: x.score})
+		}
+	}
+	return c, ranked
 }
 
 func contains(words []string, w string) bool {
