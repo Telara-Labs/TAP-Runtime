@@ -8,9 +8,11 @@ entrypoint: a source file (`main.sh`, `main.py`, `main.js`) or a compiled `.wasm
 Design: `telara-documentation/architecture/tap/34-the-baseline-primitive-is-a-program.md`
 section 13. Ticket: TENG-3031.
 
-**Status: tested on macOS arm64 and Linux (amd64, arm64). Not released.** Windows
-runs a subset under Wine in CI and has never run on Windows itself; macOS Intel
-has never run.
+**Status: tested on macOS arm64 and Linux (amd64, arm64). Not released.** On
+Windows (amd64) a subset runs in CI, on Windows itself: the packages that start
+no program, and one primitive in the sandbox, which reads and writes what it
+declared and is refused a write outside it. The rest of the suite drives Unix
+programs and has not run there. macOS Intel has never run.
 
 - Writing one: [docs/writing-a-primitive.md](docs/writing-a-primitive.md)
 - Installing into Claude Code or Codex: [docs/install.md](docs/install.md)

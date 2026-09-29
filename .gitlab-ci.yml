@@ -43,41 +43,7 @@ linux-arm64:
     - uname -m
     - *suite
 
-# Telara has no Windows runner, so the Windows build is run under Wine on a
-# Linux one. Wine implements the Windows API; it is not Windows. A pass here
-# says the Windows build starts, reads and writes files, and holds a primitive
-# to its declarations against Wine's implementation of those calls. It does
-# not say the same of Windows itself.
-#
-# The suite drives Unix programs (tee, cat, grep), so the packages that touch
-# no program are tested, the runner is built, and one primitive is run in the
-# sandbox.
-windows-amd64-wine:
-  stage: verify
-  image: golang:1.26-trixie
-  variables:
-    WINEDEBUG: "-all"
-    WINEPREFIX: "/tmp/wine"
-  artifacts:
-    when: always
-    paths: [windows.log]
-    expire_in: 1 week
-  script:
-    - apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends wine wine64 > /dev/null
-    - wine --version | tee windows.log
-    - mkdir -p win store work/in
-    - for p in bind journal satisfy; do GOOS=windows GOARCH=amd64 go test -c -o win/$p.test.exe ./$p; done
-    - for p in glob manifest; do (cd contract && GOOS=windows GOARCH=amd64 go test -c -o ../win/$p.test.exe ./$p); done
-    - GOOS=windows GOARCH=amd64 go build -o win/tap-runtime.exe ./host
-    - GOOS=wasip1 GOARCH=wasm go build -o store/sh.wasm ./guest-sh
-    - for p in bind journal satisfy contract/glob contract/manifest; do echo "== $p" | tee -a windows.log; (cd $p && wine "${CI_PROJECT_DIR}/win/$(basename $p).test.exe" -test.count=1 -test.v 2>&1 | tee -a "${CI_PROJECT_DIR}/windows.log" | tail -3; exit ${PIPESTATUS[0]}); done
-    - echo "read-on-windows" > work/in/x.txt
-    - cd work
-    - wine ../win/tap-runtime.exe --interpreters ../store --runs ../runs --approve ../pkg/windows-smoke 2>&1 | tee -a ../windows.log
-    - grep -q "written-on-windows" out/y.txt
-    - test ! -e ../escaped.txt
-
-# The same, on Windows itself: Telara's Windows runner on GCP
+# On Windows itself: Telara's Windows runner on GCP
 # (telara-cloud/ci-runners, "Windows runner"), whose image has git and Go
 # installed. A worker is made for the job and removed afterwards, so the
 # first minutes of the job are Windows starting.
