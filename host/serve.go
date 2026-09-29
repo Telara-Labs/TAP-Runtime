@@ -31,6 +31,7 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 	mcpHeaderFile := fs.String("mcp-header-file", "", "with --mcp-url: file of header lines to send, such as \"Authorization: Bearer ...\"")
 	retention := fs.Int("retention-days", 30, "remove the records of runs older than this many days; 0 keeps them for ever")
 	serverName := fs.String("name", "tap", "the name the client knows this server by, as given at install")
+	vscodeSocket := fs.String("vscode-socket", "", "the TAP extension's socket, given by the extension that starts this server in VS Code")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -43,7 +44,7 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 		defer f.Close()
 		journal = &lockedWriter{w: f}
 	}
-	s := &server{out: out, pending: map[int]chan rpcMessage{}, journal: journal, interpDir: *interpDir, cacheDir: *cacheDir, runsDir: *runsDir, retention: *retention, payloads: *otelPayloads, mcpURL: *mcpURL, mcpHeaderFile: *mcpHeaderFile}
+	s := &server{out: out, pending: map[int]chan rpcMessage{}, journal: journal, interpDir: *interpDir, cacheDir: *cacheDir, runsDir: *runsDir, retention: *retention, payloads: *otelPayloads, mcpURL: *mcpURL, mcpHeaderFile: *mcpHeaderFile, vscodeSocket: *vscodeSocket}
 	if dir, err := relayDir(); err == nil {
 		s.relay = newRelayHub(dir, *serverName)
 		defer s.relay.close()
@@ -116,6 +117,8 @@ type server struct {
 	// relay holds the runs that wait on a client which makes tool calls
 	// when a hook asks it to (relay.go).
 	relay *relayHub
+	// vscodeSocket reaches the TAP extension in VS Code (bridge/vscode.go).
+	vscodeSocket string
 }
 
 func (s *server) write(v any) {
@@ -297,6 +300,10 @@ func (s *server) handle(m rpcMessage) {
 			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, TelemetryPayloads: s.payloads, Client: clientFor(name),
 			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile,
 		}
+		if s.vscodeSocket != "" && s.mcpURL == "" {
+			o.VSCodeSocket = s.vscodeSocket
+			o.Approve = clientApprovesCalls(o.Approve)
+		}
 		if relayClient(o.Client) && s.relay != nil && s.mcpURL == "" {
 			s.startRelay(m.ID, o, name, version, canElicit)
 			return
@@ -347,16 +354,7 @@ func (s *server) startRelay(id *json.RawMessage, o Options, name, version string
 	// same confirmation as a call the model makes), so the client is the
 	// gate for those. Anything the client never sees, a host program, a file
 	// write or a web request, is still gated here.
-	inner := o.Approve
-	o.Approve = func(a Ask) Grant {
-		if strings.HasPrefix(a.Kind, "call ") {
-			return Grant{OK: true, Limit: Unlimited}
-		}
-		if inner == nil {
-			return Grant{}
-		}
-		return inner(a)
-	}
+	o.Approve = clientApprovesCalls(o.Approve)
 	go func() {
 		res, err := Run(context.Background(), o)
 		r.finish(res, err)
@@ -368,6 +366,22 @@ func (s *server) startRelay(id *json.RawMessage, o Options, name, version string
 		return
 	}
 	s.reply(id, map[string]any{"content": []any{map[string]any{"type": "text", "text": pendingText(r.id, *ev.call)}}})
+}
+
+// clientApprovesCalls leaves the approval of tool calls to the client, which
+// makes each of them itself and confirms it the way it confirms a call from
+// its own model. Every other kind of change is still asked of inner, or
+// refused when there is no one to ask.
+func clientApprovesCalls(inner Approver) Approver {
+	return func(a Ask) Grant {
+		if strings.HasPrefix(a.Kind, "call ") {
+			return Grant{OK: true, Limit: Unlimited}
+		}
+		if inner == nil {
+			return Grant{}
+		}
+		return inner(a)
+	}
 }
 
 // replyResult answers tap_result: how the relay run ended.
