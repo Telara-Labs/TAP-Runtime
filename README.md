@@ -147,3 +147,9 @@ the corpus was written by the runner's author.
 - Bash sends one request at a time: the sandbox has one thread. Python and
   JavaScript can send several together with `tap.call_many` / `tap.callMany`.
 - Codex accepts several calls at once and runs them one after another.
+
+## Licence
+
+MIT, in [LICENSE](LICENSE). `third_party/sh/` keeps its own BSD 3-clause
+licence. A release carries both, with the licences of everything compiled in,
+in `THIRD_PARTY_NOTICES.txt`.
