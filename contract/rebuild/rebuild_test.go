@@ -157,7 +157,7 @@ func TestVerdict(t *testing.T) {
 	y := strings.Replace(yaml, build, "touch "+marker+" && "+build, 1)
 	os.WriteFile(filepath.Join(dir, "primitive.yaml"), []byte(y), 0o644)
 
-	v, r, err := Verdict(dir, false)
+	v, r, err := Verdict(dir, nil)
 	if v != NotAttempted || err == nil || r == nil || r.Built {
 		t.Fatalf("a compiled program, no build allowed: %s %+v %v", v, r, err)
 	}
@@ -165,7 +165,7 @@ func TestVerdict(t *testing.T) {
 		t.Fatal("the author's build ran although building was not allowed")
 	}
 
-	if v, _, err := Verdict(dir, true); v != Reproduced || err != nil {
+	if v, _, err := Verdict(dir, Here{}); v != Reproduced || err != nil {
 		t.Fatalf("an honest program, built: %s %v", v, err)
 	}
 	if _, serr := os.Stat(marker); serr != nil {
@@ -173,18 +173,18 @@ func TestVerdict(t *testing.T) {
 	}
 
 	os.WriteFile(filepath.Join(dir, "src", "main.go"), []byte(strings.Replace(program, "%s", "changed", 1)), 0o644)
-	if v, _, err := Verdict(dir, true); v != NotReproduced || err == nil {
+	if v, _, err := Verdict(dir, Here{}); v != NotReproduced || err == nil {
 		t.Fatalf("a program that is not what its source builds to: %s %v", v, err)
 	}
 
 	src := t.TempDir()
 	os.WriteFile(filepath.Join(src, "primitive.yaml"), []byte("apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.test, name: s, version: 0.1.0}\nexecution: {entrypoint: main.sh}\n"), 0o644)
 	os.WriteFile(filepath.Join(src, "main.sh"), []byte("echo hi\n"), 0o644)
-	if v, _, err := Verdict(src, false); v != Reproduced || err != nil {
+	if v, _, err := Verdict(src, nil); v != Reproduced || err != nil {
 		t.Fatalf("a source entrypoint: %s %v", v, err)
 	}
 	os.Remove(filepath.Join(src, "main.sh"))
-	if v, _, err := Verdict(src, false); v != NotAttempted || err == nil {
+	if v, _, err := Verdict(src, nil); v != NotAttempted || err == nil {
 		t.Fatalf("an entrypoint that is not in the package: %s %v", v, err)
 	}
 }

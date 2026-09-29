@@ -16,7 +16,7 @@
 package rebuild
 
 import (
-	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -75,8 +75,40 @@ func copyTree(from, to string) error {
 	})
 }
 
-// Verify rebuilds the package's program from its source and compares.
-func Verify(dir string) (*Result, error) {
+// Builder runs a build command in a directory and returns what it printed.
+// The command is the author's. A Builder is where it runs, and so what it
+// can reach.
+type Builder interface {
+	Run(ctx context.Context, dir, command string) ([]byte, error)
+}
+
+// Here runs the build as a process of the caller's, with the caller's files
+// and network and without its environment. It is for an author checking
+// their own package, never for a package somebody else wrote.
+type Here struct{}
+
+func (Here) Run(ctx context.Context, dir, command string) ([]byte, error) {
+	home := filepath.Join(dir, ".home")
+	os.MkdirAll(home, 0o755)
+	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	cmd.Dir = dir
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "TMPDIR=" + os.TempDir(),
+		"GOWORK=off", "GOFLAGS=-mod=mod", "CGO_ENABLED=0"}
+	for _, keep := range []string{"GOMODCACHE", "GOPROXY", "GOCACHE"} {
+		if v, ok := os.LookupEnv(keep); ok {
+			cmd.Env = append(cmd.Env, keep+"="+v)
+		}
+	}
+	return cmd.CombinedOutput()
+}
+
+// Verify rebuilds the package's program from its source, as a process of the
+// caller's, and compares.
+func Verify(dir string) (*Result, error) { return VerifyWith(dir, Here{}) }
+
+// VerifyWith rebuilds the package's program from its source with b and
+// compares.
+func VerifyWith(dir string, b Builder) (*Result, error) {
 	m, err := manifest.Load(dir)
 	if err != nil {
 		return nil, err
@@ -114,22 +146,10 @@ func Verify(dir string) (*Result, error) {
 	if err := os.Remove(filepath.Join(work, entry)); err != nil {
 		return nil, err
 	}
-	home := filepath.Join(work, ".home")
-	os.MkdirAll(home, 0o755)
-	cmd := exec.Command("/bin/sh", "-c", m.Provenance.Build)
-	cmd.Dir = work
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "TMPDIR=" + os.TempDir(),
-		"GOWORK=off", "GOFLAGS=-mod=mod", "CGO_ENABLED=0"}
-	for _, keep := range []string{"GOMODCACHE", "GOPROXY", "GOCACHE"} {
-		if v, ok := os.LookupEnv(keep); ok {
-			cmd.Env = append(cmd.Env, keep+"="+v)
-		}
-	}
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
 	t0 := time.Now()
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("the build the manifest names failed: %w\n%s", err, tail(out.String()))
+	out, err := b.Run(context.Background(), work, m.Provenance.Build)
+	if err != nil {
+		return nil, fmt.Errorf("the build the manifest names failed: %w\n%s", err, tail(string(out)))
 	}
 	res.Built, res.Seconds = true, time.Since(t0).Seconds()
 	rebuilt, err := digest(filepath.Join(work, entry))
@@ -160,21 +180,22 @@ const (
 	NotAttempted  = "not_attempted"
 )
 
-// Verdict is Verify for a caller that may not be somewhere an author's build
-// can do no harm. With build false NOTHING THE AUTHOR WROTE IS RUN: a package
-// whose entrypoint is its own source is reproduced, because there is nothing
-// between what a person reads and what runs, and a compiled one is
-// not_attempted. With build true it is Verify.
+// Verdict is the release record's verdict. With no Builder NOTHING THE
+// AUTHOR WROTE IS RUN: a package whose entrypoint is its own source is
+// reproduced, because there is nothing between what a person reads and what
+// runs, and a compiled one is not_attempted. With a Builder a compiled one is
+// built with it, which is as safe as the Builder is: package buildbox is one
+// made for a caller that holds credentials.
 //
 // The error says why a verdict is not Reproduced, or why none could be
 // reached. A release that is not Reproduced is not distributable.
-func Verdict(dir string, build bool) (string, *Result, error) {
+func Verdict(dir string, b Builder) (string, *Result, error) {
 	m, err := manifest.Load(dir)
 	if err != nil {
 		return NotAttempted, nil, err
 	}
 	entry := m.Execution.Entrypoint
-	if filepath.Ext(entry) == ".wasm" && !build {
+	if filepath.Ext(entry) == ".wasm" && b == nil {
 		shipped, err := digest(filepath.Join(dir, entry))
 		if err != nil {
 			return NotAttempted, nil, err
@@ -182,7 +203,10 @@ func Verdict(dir string, build bool) (string, *Result, error) {
 		return NotAttempted, &Result{Entrypoint: entry, Shipped: shipped},
 			fmt.Errorf("%s is compiled, and this pipeline does not run an author's build; it was not checked against its source", entry)
 	}
-	res, err := Verify(dir)
+	if b == nil {
+		b = Here{} // a source entrypoint: nothing is built, and b is not used
+	}
+	res, err := VerifyWith(dir, b)
 	switch {
 	case err == nil:
 		return Reproduced, res, nil
