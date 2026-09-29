@@ -147,7 +147,7 @@ Run it with the TAP runner's `+"`tap_run`"+` tool, giving this folder as the pac
 Pass the arguments README.md lists, in order. The runner asks you to approve
 any change it would make.
 
-If no `+"`tap_run`"+` tool is available, connect the runner: `+"`tap-runtime install --client <client>`"+`.
+If no `+"`tap_run`"+` tool is available, connect the runner: `+"`tap install --client <client>`"+`.
 `, d.Name, descJSON, d.Name, dir)
 }
 
