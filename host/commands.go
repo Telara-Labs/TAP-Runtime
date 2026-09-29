@@ -42,6 +42,36 @@ var arbitraryCode = [][]string{
 	{"bash"}, {"sh"}, {"zsh"}, {"env"}, {"xargs"},
 	{"docker", "run"}, {"docker", "exec"},
 	{"kubectl", "exec"}, {"kubectl", "run"},
+	// Ruling 36.
+	{"python"}, {"python3"}, {"node"}, {"deno"}, {"ruby"}, {"perl"}, {"php"},
+	{"ssh"}, {"sudo"},
+}
+
+// arbitraryAnywhere lists arguments that make a program run other code
+// wherever they appear on its command line. find's -exec and its kin can
+// follow any number of paths and tests, so a prefix cannot catch them
+// (ruling 36).
+var arbitraryAnywhere = map[string][]string{
+	"find": {"-exec", "-execdir", "-ok", "-okdir"},
+}
+
+// runsArbitraryCode reports whether an invocation runs code the manifest
+// cannot describe.
+func runsArbitraryCode(name string, args []string) bool {
+	argv := append([]string{name}, args...)
+	for _, p := range arbitraryCode {
+		if hasPrefix(argv, p) {
+			return true
+		}
+	}
+	for _, flag := range arbitraryAnywhere[name] {
+		for _, a := range args {
+			if a == flag {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // baseEnv is what every host program is given. Everything else in the
@@ -133,7 +163,13 @@ func resolve(m *manifest, name string, args []string) (*command, string) {
 		if c.Command != name {
 			continue
 		}
-		rest, ok := stripGlobals(c.Globals, args)
+		// A declaration with globals names the only flags allowed before its
+		// arguments. One without is matched against the whole command line:
+		// its patterns say everything it allows, flags included.
+		rest, ok := args, true
+		if len(c.Globals) > 0 {
+			rest, ok = stripGlobals(c.Globals, args)
+		}
 		if !ok || !glob.Args(c.Args, rest) {
 			continue
 		}
@@ -146,11 +182,8 @@ func resolve(m *manifest, name string, args []string) (*command, string) {
 		return nil, ""
 	}
 	effect := best.Effect
-	argv := append([]string{name}, bestRest...)
-	for _, p := range arbitraryCode {
-		if hasPrefix(argv, p) {
-			effect = "destructive"
-		}
+	if runsArbitraryCode(name, bestRest) {
+		effect = "destructive"
 	}
 	return best, effect
 }

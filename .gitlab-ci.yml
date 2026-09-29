@@ -7,8 +7,8 @@ variables:
   GOFLAGS: "-mod=readonly"
 
 .suite: &suite
-  - test -z "$(gofmt -l bind bridge conformance glob host journal manifest rebuild release satisfy guest-sh)"
-  - go vet ./bind ./bridge ./conformance/... ./glob ./host ./journal ./manifest ./rebuild ./release ./satisfy ./guest-sh
+  - test -z "$(gofmt -l bind bridge canon conformance glob host journal manifest rebuild release satisfy guest-sh)"
+  - go vet ./bind ./bridge ./canon ./conformance/... ./glob ./host ./journal ./manifest ./rebuild ./release ./satisfy ./guest-sh
   - GOOS=wasip1 GOARCH=wasm go build -o /dev/null ./guest-sh
   - go test ./bind ./bridge ./conformance ./glob ./host ./journal ./manifest ./rebuild ./release ./satisfy -count=1
 

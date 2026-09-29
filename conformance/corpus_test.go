@@ -116,3 +116,23 @@ func TestManifestCorpus(t *testing.T) {
 		t.Fatal("the corpus is thinner than it was")
 	}
 }
+
+// The id of a capability must be what a host in any language computes. The
+// expected values were computed with an RFC 8785 encoder outside this
+// repository.
+func TestCapabilityIDCorpus(t *testing.T) {
+	var cases []struct {
+		Name, Question string
+		Args, Result   map[string]any
+		JCSID          string `json:"jcs_id"`
+	}
+	read(t, "capability-id.json", &cases)
+	if len(cases) < 3 {
+		t.Fatalf("only %d vectors", len(cases))
+	}
+	for _, c := range cases {
+		if got := manifest.CapabilityID(c.Question, c.Args, c.Result); got != c.JCSID {
+			t.Errorf("%s: %s, want %s", c.Name, got, c.JCSID)
+		}
+	}
+}

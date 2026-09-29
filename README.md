@@ -108,8 +108,9 @@ The kit tests a runner from outside, as an MCP server, with real packages and
 a real directory. `conformance/testdata/badrunner` does everything wrong on
 purpose, and a test asserts the kit fails it.
 
-The corpus was written by the author of this runner. Cases written by
-somebody who has not seen the code are still owed.
+`corpus/independent.json` holds 40 cases written from the specification by a
+session that did not write the runner and did not read its code. The rest of
+the corpus was written by the runner's author.
 
 ## Known limits
 
