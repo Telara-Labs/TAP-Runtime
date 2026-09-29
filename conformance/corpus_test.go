@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"gitlab.com/telara-labs/tap-runtime/bind"
-	"gitlab.com/telara-labs/tap-runtime/manifest"
+	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
 	"gitlab.com/telara-labs/tap-runtime/satisfy"
 )
 

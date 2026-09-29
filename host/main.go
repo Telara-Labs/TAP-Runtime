@@ -36,8 +36,8 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 
 	"gitlab.com/telara-labs/tap-runtime/bridge"
+	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
 	runlog "gitlab.com/telara-labs/tap-runtime/journal"
-	mf "gitlab.com/telara-labs/tap-runtime/manifest"
 )
 
 // The manifest types live in package manifest. These names are how this

@@ -27,7 +27,7 @@ Linux and Windows compile and have not been run.
     host manifest complete pkg/recent-mail         # the publishable form
 
 To run, `primitive.yaml` needs a name, an entrypoint and what the primitive
-uses. To publish it must satisfy `manifest/manifest.v3.schema.json` in full.
+uses. To publish it must satisfy `contract/manifest/manifest.v3.schema.json` in full.
 `complete` derives what it can and marks with `TODO:` what a person must
 write. A field the format does not have is an error, so a misspelt bound never
 reads as no bound.

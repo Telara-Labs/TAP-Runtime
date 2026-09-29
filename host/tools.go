@@ -13,7 +13,7 @@ import (
 
 	"gitlab.com/telara-labs/tap-runtime/bind"
 	"gitlab.com/telara-labs/tap-runtime/bridge"
-	mf "gitlab.com/telara-labs/tap-runtime/manifest"
+	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
 )
 
 // binding is what an alias resolved to, and what the receipt says about it.

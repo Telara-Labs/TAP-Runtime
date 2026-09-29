@@ -5,6 +5,8 @@ stages: [verify]
 variables:
   GOWORK: "off"
   GOFLAGS: "-mod=readonly"
+  GOPRIVATE: gitlab.com/telara-labs/*
+  GONOSUMDB: gitlab.com/telara-labs/*
 
 # Every job runs on Telara's own runners on GCP, never on GitLab.com's shared
 # ones (TENG-1863). Those runners are Linux.
@@ -18,12 +20,15 @@ default:
   before_script:
     - mkdir -p "${CI_PROJECT_DIR}/.tmp" "${CI_PROJECT_DIR}/.cache/go-build"
     - export TMPDIR="${CI_PROJECT_DIR}/.tmp" GOTMPDIR="${CI_PROJECT_DIR}/.tmp" GOCACHE="${CI_PROJECT_DIR}/.cache/go-build"
+    # The runner takes contract/ as a module, at a published version.
+    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf "https://gitlab.com/"
 
 .suite: &suite
-  - test -z "$(gofmt -l bind bridge canon conformance glob host journal manifest rebuild release satisfy guest-sh)"
-  - go vet ./bind ./bridge ./canon ./conformance/... ./glob ./host ./journal ./manifest ./rebuild ./release ./satisfy ./guest-sh
+  - test -z "$(gofmt -l bind bridge conformance contract host journal release satisfy guest-sh)"
+  - go vet ./bind ./bridge ./conformance/... ./host ./journal ./release ./satisfy ./guest-sh
+  - (cd contract && go vet ./... && go test ./... -count=1)
   - GOOS=wasip1 GOARCH=wasm go build -o /dev/null ./guest-sh
-  - go test ./bind ./bridge ./conformance ./glob ./host ./journal ./manifest ./rebuild ./release ./satisfy -count=1
+  - go test ./bind ./bridge ./conformance ./host ./journal ./release ./satisfy -count=1
 
 linux-amd64:
   stage: verify
@@ -61,10 +66,11 @@ windows-amd64-wine:
     - apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends wine wine64 > /dev/null
     - wine --version | tee windows.log
     - mkdir -p win store work/in
-    - for p in bind glob journal manifest satisfy; do GOOS=windows GOARCH=amd64 go test -c -o win/$p.test.exe ./$p; done
+    - for p in bind journal satisfy; do GOOS=windows GOARCH=amd64 go test -c -o win/$p.test.exe ./$p; done
+    - for p in glob manifest; do (cd contract && GOOS=windows GOARCH=amd64 go test -c -o ../win/$p.test.exe ./$p); done
     - GOOS=windows GOARCH=amd64 go build -o win/tap-runtime.exe ./host
     - GOOS=wasip1 GOARCH=wasm go build -o store/sh.wasm ./guest-sh
-    - for p in bind glob journal manifest satisfy; do echo "== $p" | tee -a windows.log; (cd $p && wine ../win/$p.test.exe -test.count=1 -test.v 2>&1 | tee -a ../windows.log | tail -3; exit ${PIPESTATUS[0]}); done
+    - for p in bind journal satisfy contract/glob contract/manifest; do echo "== $p" | tee -a windows.log; (cd $p && wine "${CI_PROJECT_DIR}/win/$(basename $p).test.exe" -test.count=1 -test.v 2>&1 | tee -a "${CI_PROJECT_DIR}/windows.log" | tail -3; exit ${PIPESTATUS[0]}); done
     - echo "read-on-windows" > work/in/x.txt
     - cd work
     - wine ../win/tap-runtime.exe --interpreters ../store --runs ../runs --approve ../pkg/windows-smoke 2>&1 | tee -a ../windows.log
@@ -87,7 +93,8 @@ windows-amd64:
     - choco install golang --version=1.26.1 -y --no-progress
     - $env:Path = "C:\Program Files\Go\bin;" + $env:Path
     - go version
-    - go test ./bind ./glob ./journal ./manifest ./satisfy -count=1
+    - go test ./bind ./journal ./satisfy -count=1
+    - cd contract; go test ./glob ./manifest -count=1; cd ..
     - go build -o tap-runtime.exe ./host
     - $env:GOOS = "wasip1"; $env:GOARCH = "wasm"; go build -o store/sh.wasm ./guest-sh; Remove-Item Env:GOOS; Remove-Item Env:GOARCH
     - New-Item -ItemType Directory -Force -Path work/in | Out-Null

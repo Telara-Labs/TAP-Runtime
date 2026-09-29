@@ -252,6 +252,7 @@ func Notices(repo string) ([]byte, error) {
 		Dir     string
 	}
 	seen := map[string]module{}
+	own := ""
 	for _, target := range []struct {
 		pkg string
 		env []string
@@ -266,10 +267,22 @@ func Notices(repo string) ([]byte, error) {
 		}
 		for _, line := range strings.Split(string(out), "\n") {
 			f := strings.Split(line, "\t")
-			if len(f) != 4 || f[3] == "true" {
+			if len(f) != 4 {
+				continue
+			}
+			if f[3] == "true" {
+				own = f[0]
 				continue
 			}
 			seen[f[0]] = module{Path: f[0], Version: f[1], Dir: f[2]}
+		}
+	}
+	// A module of this repository is this software, not software it
+	// includes: contract/ is compiled in as a module so that others can
+	// import it alone.
+	for p := range seen {
+		if own != "" && strings.HasPrefix(p, own+"/") {
+			delete(seen, p)
 		}
 	}
 	var paths []string
