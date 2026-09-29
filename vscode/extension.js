@@ -136,6 +136,10 @@ function activate(context) {
       });
   }));
 
+  // Where this window's socket is, for a test or a script that starts the
+  // runner itself.
+  context.subscriptions.push(vscode.commands.registerCommand("tapRuntime.socketPath", () => socketPath));
+
   context.subscriptions.push(vscode.commands.registerCommand("tapRuntime.listTools", () => {
     out.show(true);
     const tools = vscode.lm.tools;
