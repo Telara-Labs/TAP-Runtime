@@ -152,3 +152,43 @@ func tail(s string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// The rebuild verdicts of a release record (doc 35 section 3.12).
+const (
+	Reproduced    = "reproduced"
+	NotReproduced = "not_reproduced"
+	NotAttempted  = "not_attempted"
+)
+
+// Verdict is Verify for a caller that may not be somewhere an author's build
+// can do no harm. With build false NOTHING THE AUTHOR WROTE IS RUN: a package
+// whose entrypoint is its own source is reproduced, because there is nothing
+// between what a person reads and what runs, and a compiled one is
+// not_attempted. With build true it is Verify.
+//
+// The error says why a verdict is not Reproduced, or why none could be
+// reached. A release that is not Reproduced is not distributable.
+func Verdict(dir string, build bool) (string, *Result, error) {
+	m, err := manifest.Load(dir)
+	if err != nil {
+		return NotAttempted, nil, err
+	}
+	entry := m.Execution.Entrypoint
+	if filepath.Ext(entry) == ".wasm" && !build {
+		shipped, err := digest(filepath.Join(dir, entry))
+		if err != nil {
+			return NotAttempted, nil, err
+		}
+		return NotAttempted, &Result{Entrypoint: entry, Shipped: shipped},
+			fmt.Errorf("%s is compiled, and this pipeline does not run an author's build; it was not checked against its source", entry)
+	}
+	res, err := Verify(dir)
+	switch {
+	case err == nil:
+		return Reproduced, res, nil
+	case res != nil && res.Built && res.Rebuilt != res.Shipped:
+		return NotReproduced, res, err
+	default:
+		return NotAttempted, res, err
+	}
+}
