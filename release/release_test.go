@@ -31,7 +31,7 @@ func TestAReleaseIsReproducible(t *testing.T) {
 	if string(x) != string(y) || len(x) == 0 {
 		t.Fatalf("two builds of the same source differ:\n%s\n%s", x, y)
 	}
-	for _, want := range []string{"tap-runtime-0.0.0-test-", "sh-0.0.0-test.wasm", "THIRD_PARTY_NOTICES.txt"} {
+	for _, want := range []string{"tap-0.0.0-test-", "sh-0.0.0-test.wasm", "THIRD_PARTY_NOTICES.txt"} {
 		if !strings.Contains(string(x), want) {
 			t.Errorf("the checksums do not list %s:\n%s", want, x)
 		}
@@ -57,7 +57,7 @@ func TestVerify(t *testing.T) {
 	entries, _ := os.ReadDir(out)
 	var binary string
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "tap-runtime-") {
+		if strings.HasPrefix(e.Name(), "tap-") {
 			binary = filepath.Join(out, e.Name())
 		}
 	}
@@ -149,9 +149,9 @@ func TestInstallScriptThenABashPrimitive(t *testing.T) {
 	if out, err := install(t, dir, into); err != nil {
 		t.Fatalf("install.sh: %v\n%s", err, out)
 	}
-	bin := filepath.Join(into, "tap-runtime")
+	bin := filepath.Join(into, "tap")
 	out, err := exec.Command(bin, "version").Output()
-	if err != nil || strings.TrimSpace(string(out)) != "tap-runtime 0.0.0-test" {
+	if err != nil || strings.TrimSpace(string(out)) != "tap 0.0.0-test" {
 		t.Fatalf("the installed program says %q, %v", out, err)
 	}
 
@@ -181,7 +181,7 @@ func TestInstallScriptRefusesAnAlteredRunner(t *testing.T) {
 	dir, _ := serve(t)
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "tap-runtime-") {
+		if strings.HasPrefix(e.Name(), "tap-") {
 			raw, _ := os.ReadFile(filepath.Join(dir, e.Name()))
 			os.WriteFile(filepath.Join(dir, e.Name()), append(raw, 0), 0o755)
 		}
@@ -204,7 +204,7 @@ func TestInstallersPinEveryRunner(t *testing.T) {
 		t.Fatal(err)
 	}
 	sums, _ := os.ReadFile(filepath.Join(dir, "SHA256SUMS"))
-	for script, runner := range map[string]string{"install.sh": "tap-runtime-0.0.0-test-linux-amd64", "install.ps1": "tap-runtime-0.0.0-test-windows-amd64.exe"} {
+	for script, runner := range map[string]string{"install.sh": "tap-0.0.0-test-linux-amd64", "install.ps1": "tap-0.0.0-test-windows-amd64.exe"} {
 		text, err := os.ReadFile(filepath.Join(dir, script))
 		if err != nil {
 			t.Fatal(err)

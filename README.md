@@ -74,13 +74,25 @@ client can start a primitive, and the runner can ask the person there to
 approve a change. A client that cannot show an approval prompt is never asked,
 and every change under it is refused.
 
+## Find primitives in your own history
+
+The runner's program is `tap`. `tap discover` reads the session history that
+Claude Code, Codex and Cursor keep on this machine, groups the requests you
+make again and again, and drafts each recurring one as a primitive:
+
+    tap discover              # what it read, how it narrowed, the primitives
+    tap discover --rejected   # also what each check removed, and why
+    tap discover --review     # pick primitives to save for tap_run
+
+It reads local files only and sends nothing anywhere (`discover/`).
+
 ## Build, test, release
 
     export GOWORK=off
-    go build -o bin/tap-runtime ./host
+    go build -o bin/tap ./host
     go test ./...
-    ./bin/tap-runtime pkg/deploy-check-py
-    ./bin/tap-runtime install --client claude --print
+    ./bin/tap pkg/deploy-check-py
+    ./bin/tap install --client claude --print
 
     go run ./release build --version 0.1.0 --out dist --key release.key \
         --download-base https://github.com/OWNER/REPO/releases/download/v0.1.0
@@ -107,7 +119,7 @@ that does not match is refused. The list is `host/interpreters.go`.
 | JavaScript | QuickJS-ng 0.17.0 |
 | Bash | This repository's `guest-sh`, a file of each release. A runner built from source has no address for it: `GOOS=wasip1 GOARCH=wasm go build -o <store>/sh.wasm ./guest-sh` |
 
-`tap-runtime fetch` downloads every interpreter ahead of time, for a machine
+`tap fetch` downloads every interpreter ahead of time, for a machine
 or a sandbox that will have no network when a primitive runs.
 
 ## The patched shell library
@@ -126,7 +138,7 @@ becomes an ordinary dependency again.
 
 ## Conformance
 
-    go run ./conformance/cmd/tap-conformance -- ./bin/tap-runtime serve
+    go run ./conformance/cmd/tap-conformance -- ./bin/tap serve
 
 `conformance/corpus/` is data: binding, satisfaction and manifest cases with
 their required outcomes, for a runner written by anybody in any language.

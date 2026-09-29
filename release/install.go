@@ -47,7 +47,7 @@ func installers(dir, version, base string, runners map[string]string) (map[strin
 }
 
 const installSh = `#!/bin/sh
-# Installs tap-runtime @VERSION@ and registers it with Claude Code and Codex
+# Installs tap @VERSION@ (the TAP runner) and registers it with Claude Code and Codex
 # as an MCP server.
 #
 #   curl -fsSL @BASE@/install.sh | sh
@@ -96,9 +96,9 @@ else
 fi
 
 mkdir -p "$dir"
-tmp=$(mktemp "$dir/.tap-runtime.XXXXXX")
+tmp=$(mktemp "$dir/.tap.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
-file="tap-runtime-$version-$os-$arch"
+file="tap-$version-$os-$arch"
 echo "downloading $base/$file"
 curl -fsSL -o "$tmp" "$base/$file"
 got=$(digest "$tmp")
@@ -107,9 +107,9 @@ if [ "$got" != "$sum" ]; then
   exit 1
 fi
 chmod 755 "$tmp"
-mv -f "$tmp" "$dir/tap-runtime"
+mv -f "$tmp" "$dir/tap"
 trap - EXIT
-echo "installed $("$dir/tap-runtime" version) at $dir/tap-runtime"
+echo "installed $("$dir/tap" version) at $dir/tap"
 
 registered=0
 for c in claude codex; do
@@ -119,16 +119,22 @@ for c in claude codex; do
     if [ -n "$client" ]; then echo "install: $c is not on this machine" >&2; exit 1; fi
     continue
   fi
-  "$dir/tap-runtime" install --client "$c"
+  "$dir/tap" install --client "$c"
   registered=$((registered + 1))
 done
 if [ "$client" != none ] && [ "$registered" -eq 0 ]; then
   echo "Neither Claude Code nor Codex is on this machine. Install one, then run:"
-  echo "  $dir/tap-runtime install --client claude"
+  echo "  $dir/tap install --client claude"
+fi
+# The runner was called tap-runtime before. Registering above pointed the
+# clients at the new program, so the old one can go.
+if [ "$client" != none ] && [ -e "$dir/tap-runtime" ]; then
+  rm -f "$dir/tap-runtime"
+  echo "removed the old tap-runtime program from $dir; the runner is now called tap"
 fi
 `
 
-const installPs1 = `# Installs tap-runtime @VERSION@ and registers it with Claude Code and Codex
+const installPs1 = `# Installs tap @VERSION@ (the TAP runner) and registers it with Claude Code and Codex
 # as an MCP server.
 #
 #   irm @BASE@/install.ps1 | iex
@@ -139,13 +145,13 @@ const installPs1 = `# Installs tap-runtime @VERSION@ and registers it with Claud
 #   -Client claude|codex|none   register with one client, or with none.
 #                               Default: every one of the two that is installed.
 #   -Dir DIR                    where the program is put.
-#                               Default: %LOCALAPPDATA%\Programs\tap-runtime
+#                               Default: %LOCALAPPDATA%\Programs\tap
 #
 # The program is checked against the digest written below before it is put
 # anywhere. One that does not match is deleted and nothing is installed.
 param(
   [ValidateSet('', 'claude', 'codex', 'none')][string]$Client = '',
-  [string]$Dir = (Join-Path $env:LOCALAPPDATA 'Programs\tap-runtime')
+  [string]$Dir = (Join-Path $env:LOCALAPPDATA 'Programs\tap')
 )
 $ErrorActionPreference = 'Stop'
 $version = '@VERSION@'
@@ -160,8 +166,8 @@ if (-not $sum -and $arch -eq 'arm64') { $arch = 'amd64'; $sum = $sums[$arch] }
 if (-not $sum) { throw "this release has no program for Windows on $arch" }
 
 New-Item -ItemType Directory -Force -Path $Dir | Out-Null
-$tmp = Join-Path $Dir '.tap-runtime.download'
-$file = "tap-runtime-$version-windows-$arch.exe"
+$tmp = Join-Path $Dir '.tap.download'
+$file = "tap-$version-windows-$arch.exe"
 Write-Host "downloading $base/$file"
 Invoke-WebRequest -UseBasicParsing -Uri "$base/$file" -OutFile $tmp
 $got = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLower()
@@ -169,7 +175,7 @@ if ($got -ne $sum) {
   Remove-Item -Force $tmp
   throw "the download has sha256 $got and this release says $sum; nothing was installed"
 }
-$exe = Join-Path $Dir 'tap-runtime.exe'
+$exe = Join-Path $Dir 'tap.exe'
 Move-Item -Force $tmp $exe
 Write-Host "installed $(& $exe version) at $exe"
 
@@ -188,5 +194,15 @@ foreach ($c in 'claude', 'codex') {
 if ($Client -ne 'none' -and $registered -eq 0) {
   Write-Host 'Neither Claude Code nor Codex is on this machine. Install one, then run:'
   Write-Host "  $exe install --client claude"
+}
+# The runner was called tap-runtime before. Registering above pointed the
+# clients at the new program, so the old one can go.
+if ($Client -ne 'none') {
+  foreach ($old in (Join-Path $Dir 'tap-runtime.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\tap-runtime\tap-runtime.exe')) {
+    if (Test-Path $old) {
+      Remove-Item -Force $old
+      Write-Host "removed the old tap-runtime program at $old; the runner is now called tap"
+    }
+  }
 }
 `

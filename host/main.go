@@ -37,6 +37,7 @@ import (
 
 	"gitlab.com/telara-labs/tap-runtime/bridge"
 	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
+	"gitlab.com/telara-labs/tap-runtime/discover"
 	runlog "gitlab.com/telara-labs/tap-runtime/journal"
 )
 
@@ -178,8 +179,13 @@ type Result struct {
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Println("tap-runtime", version)
+		fmt.Println("tap", version)
 		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "discover" {
+		// Find recurring work in this machine's agent history and draft it as
+		// primitives. Local only; needs no Telara.
+		os.Exit(discover.Command(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "install" {
 		os.Exit(installCommand(os.Args[2:], os.Stdout, os.Stderr))
@@ -218,7 +224,7 @@ func main() {
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: host [--approve] [--resume RUN] <package-dir> [args...]\n       host serve\n       host install --client claude|codex|gemini\n       host hook gemini\n       host fetch\n       host manifest check|complete <package-dir>")
+		fmt.Fprintln(os.Stderr, "usage: tap [--approve] [--resume RUN] <package-dir> [args...]\n       tap serve\n       tap install --client claude|codex|gemini\n       tap discover [--review] [--rejected]\n       tap hook gemini\n       tap fetch\n       tap manifest check|complete <package-dir>\n       tap version")
 		os.Exit(2)
 	}
 	var journal io.Writer = io.Discard

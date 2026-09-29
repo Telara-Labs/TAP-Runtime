@@ -13,13 +13,13 @@ import (
 
 var version = "dev"
 
-// installCommand is `host install`: it registers this runner with a client
+// installCommand is `tap install`: it registers this runner with a client
 // as an MCP server, using the client's own command to do it, so the format
 // of the client's configuration is the client's business.
 //
-//	host install --client claude [--scope user] [--print]
-//	host install --client codex [--print]
-//	host install --client gemini [--print]
+//	tap install --client claude [--scope user] [--print]
+//	tap install --client codex [--print]
+//	tap install --client gemini [--print]
 //
 // It is the one setup step a person takes. With --print it changes nothing
 // and shows what it would run.
@@ -79,6 +79,13 @@ func installCommand(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s is not on this machine\n", argv[0])
 		return 1
 	}
+	// A client refuses to add a name it already has, and an entry left from
+	// an earlier install may point at an old path (the runner was called
+	// tap-runtime before). Remove it first; a failure only means there was
+	// none.
+	if rm := removeArgv(*client, *scope, *name); rm != nil {
+		_ = exec.Command(rm[0], rm[1:]...).Run()
+	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
@@ -86,6 +93,18 @@ func installCommand(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// removeArgv is the client's command to drop a registration, so installing
+// again replaces it instead of failing on the existing name.
+func removeArgv(client, scope, name string) []string {
+	switch client {
+	case "claude":
+		return []string{"claude", "mcp", "remove", "--scope", scope, name}
+	case "codex":
+		return []string{"codex", "mcp", "remove", name}
+	}
+	return nil
 }
 
 func geminiHookCommand(self string) string {

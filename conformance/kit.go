@@ -7,7 +7,7 @@
 // an MCP server, plays the client, hands it real packages and looks at what
 // it did to a real directory. It knows nothing of how the runner is built.
 //
-//	go run ./conformance/cmd/tap-conformance -- tap-runtime serve
+//	go run ./conformance/cmd/tap-conformance -- tap serve
 //
 // A runner that passes every lane has been shown to refuse what these
 // packages attempt. It has not been shown to be correct.

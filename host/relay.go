@@ -184,7 +184,7 @@ func (r *relayRun) ask(call relayCall) (string, error) {
 		}
 		return a.text, nil
 	case <-time.After(r.hub.expiry):
-		return "", fmt.Errorf("the client did not make the call %s within %s; is the tap hook installed? run: tap-runtime install --client %s", call.Name, r.hub.expiry, r.client)
+		return "", fmt.Errorf("the client did not make the call %s within %s; is the tap hook installed? run: tap install --client %s", call.Name, r.hub.expiry, r.client)
 	}
 }
 
@@ -307,7 +307,7 @@ func geminiToolName(server, tool string) string {
 func pendingText(run string, call relayCall) string {
 	b, _ := json.Marshal(map[string]any{"run": run, "call": call})
 	return relayPrefix + string(b) + "\n\nThis primitive is waiting for the client to make the tool call above. " +
-		"The tap hook makes it; if you are reading this, the hook is not installed. Run: tap-runtime install --client gemini"
+		"The tap hook makes it; if you are reading this, the hook is not installed. Run: tap install --client gemini"
 }
 
 // relayPending reads tap_run's answer back into the waiting run and call.

@@ -22,7 +22,7 @@ func buildInto(t *testing.T, dir, out, pkg string, env ...string) string {
 
 func TestThisRunnerPassesEveryLane(t *testing.T) {
 	dir := t.TempDir()
-	runner := buildInto(t, dir, "tap-runtime", "./host")
+	runner := buildInto(t, dir, "tap", "./host")
 	store := filepath.Join(dir, "store")
 	os.MkdirAll(store, 0o755)
 	buildInto(t, store, "sh.wasm", "./guest-sh", "GOOS=wasip1", "GOARCH=wasm")

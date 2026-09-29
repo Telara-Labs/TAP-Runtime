@@ -48,7 +48,7 @@ try {
   Step "tests: bind, journal, satisfy" { go test ./bind ./journal ./satisfy -count=1 }
   Push-Location contract
   try { Step "tests: contract glob, manifest" { go test ./glob ./manifest -count=1 } } finally { Pop-Location }
-  Step "build the runner" { go build -o tap-runtime.exe ./host }
+  Step "build the runner" { go build -o tap.exe ./host }
 
   $env:GOOS = "wasip1"; $env:GOARCH = "wasm"
   try { Step "build the shell interpreter" { go build -o store/sh.wasm ./guest-sh } }
@@ -58,7 +58,7 @@ try {
   Set-Content -Path work/in/x.txt -Value "read-on-windows"
   Push-Location work
   try {
-    Step "run a primitive in the sandbox" { ../tap-runtime.exe --interpreters ../store --runs ../runs --approve ../pkg/windows-smoke }
+    Step "run a primitive in the sandbox" { ../tap.exe --interpreters ../store --runs ../runs --approve ../pkg/windows-smoke }
     if (-not (Test-Path out/y.txt) -or ((Get-Content out/y.txt) -notmatch "written-on-windows")) {
       Say "FAILED: the approved write did not happen"; throw "the approved write did not happen"
     }

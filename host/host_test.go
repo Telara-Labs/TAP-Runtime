@@ -128,7 +128,7 @@ func TestADownloadRefusedByCodexSaysSo(t *testing.T) {
 	}
 	t.Setenv("CODEX_SANDBOX_NETWORK_DISABLED", "1")
 	_, _, _, err = obtain(t.TempDir(), "main.js")
-	if err == nil || !strings.Contains(err.Error(), "tap-runtime fetch") {
+	if err == nil || !strings.Contains(err.Error(), "tap fetch") {
 		t.Fatalf("inside Codex's shell the error should say what to do: %v", err)
 	}
 }

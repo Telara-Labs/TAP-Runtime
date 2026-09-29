@@ -7,7 +7,7 @@ A primitive is a small program that does one job with those tools. Copilot
 calls it as one tool, `tap_run`; the program makes its calls through VS Code,
 and only its short answer goes back to the model.
 
-- Needs the `tap-runtime` program: see the install guide in the TAP-Runtime
+- Needs the `tap` program (the TAP runner): see the install guide in the TAP-Runtime
   repository. The extension looks in `~/.local/bin`, then on PATH, or at the
   `tapRuntime.path` setting.
 - The extension registers the runner as the MCP server "TAP Runtime"; there is

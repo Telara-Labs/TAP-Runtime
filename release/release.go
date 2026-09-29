@@ -156,7 +156,7 @@ func Build(repo, out, version string, platforms []string, keyFile, base string) 
 		if !ok {
 			return fmt.Errorf("platform %q is not os/arch", p)
 		}
-		name := fmt.Sprintf("tap-runtime-%s-%s-%s", version, goos, goarch)
+		name := fmt.Sprintf("tap-%s-%s-%s", version, goos, goarch)
 		if goos == "windows" {
 			name += ".exe"
 		}
@@ -358,7 +358,7 @@ func Notices(repo string) ([]byte, error) {
 		return nil, fmt.Errorf("the repository has no licence file; the runner cannot be shipped without one")
 	}
 	b.Write(bytes.TrimSpace(self))
-	b.WriteString("\n\n" + strings.Repeat("=", 72) + "\n\ntap-runtime includes the following software.\n")
+	b.WriteString("\n\n" + strings.Repeat("=", 72) + "\n\ntap includes the following software.\n")
 	write := func(title, dir string) error {
 		text, name := licenceIn(dir)
 		if text == nil {
