@@ -25,6 +25,7 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 	interpDir := fs.String("interpreters", "", "interpreter store; default is the user cache directory")
 	cacheDir := fs.String("cache", "", "directory for the compiled-interpreter cache")
 	runsDir := fs.String("runs", "", "directory holding one record per run; default is the user cache directory")
+	otelPayloads := fs.Bool("otel-payloads", false, "with an OpenTelemetry endpoint set: also send what calls were given and what they touched")
 	retention := fs.Int("retention-days", 30, "remove the records of runs older than this many days; 0 keeps them for ever")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -38,7 +39,7 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 		defer f.Close()
 		journal = &lockedWriter{w: f}
 	}
-	s := &server{out: out, pending: map[int]chan rpcMessage{}, journal: journal, interpDir: *interpDir, cacheDir: *cacheDir, runsDir: *runsDir, retention: *retention}
+	s := &server{out: out, pending: map[int]chan rpcMessage{}, journal: journal, interpDir: *interpDir, cacheDir: *cacheDir, runsDir: *runsDir, retention: *retention, payloads: *otelPayloads}
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 	var wg sync.WaitGroup
@@ -96,6 +97,7 @@ type server struct {
 	cacheDir  string
 	runsDir   string
 	retention int
+	payloads  bool
 
 	clientName    string
 	clientVersion string
@@ -262,7 +264,7 @@ func (s *server) handle(m rpcMessage) {
 		}
 		res, err := Run(context.Background(), Options{
 			Package: p.Arguments.Package, Args: p.Arguments.Args, Journal: s.journal, Approve: approve,
-			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, Client: clientFor(name),
+			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, TelemetryPayloads: s.payloads, Client: clientFor(name),
 		})
 		if err != nil {
 			s.reply(m.ID, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "refused: " + err.Error()}}})

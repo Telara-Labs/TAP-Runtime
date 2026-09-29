@@ -131,6 +131,10 @@ type Options struct {
 	NoJournal bool
 	// Resume continues the run with this id instead of starting one.
 	Resume string
+	// TelemetryPayloads sends what calls were given and what they touched
+	// to the OpenTelemetry endpoint, when one is configured. Without it only
+	// events are sent.
+	TelemetryPayloads bool
 	// RetentionDays is how long the record of a run is kept. Records older
 	// than this are removed when a run starts. 0 keeps them for ever.
 	RetentionDays int
@@ -186,6 +190,7 @@ func main() {
 	runsDir := flag.String("runs", "", "directory holding one record per run; default is the user cache directory")
 	resume := flag.String("resume", "", "continue the run with this id")
 	noJournal := flag.Bool("no-record", false, "keep no record of the run; it cannot be resumed")
+	otelPayloads := flag.Bool("otel-payloads", false, "with an OpenTelemetry endpoint set: also send what calls were given and what they touched")
 	retention := flag.Int("retention-days", 30, "remove the records of runs older than this many days; 0 keeps them for ever")
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
 	flag.Parse()
@@ -208,7 +213,7 @@ func main() {
 		Package: flag.Arg(0), Args: flag.Args()[1:], Journal: journal,
 		Approve:   func(Ask) Grant { return grant },
 		InterpDir: *interpDir, CacheDir: *cacheDir, PyLib: *pyLib, Client: *client, ReceiptPath: *receiptPath,
-		RunsDir: *runsDir, Resume: *resume, NoJournal: *noJournal, RetentionDays: *retention,
+		RunsDir: *runsDir, Resume: *resume, NoJournal: *noJournal, RetentionDays: *retention, TelemetryPayloads: *otelPayloads,
 	})
 	must(err)
 	if res.Unknown > 0 {
@@ -358,6 +363,26 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				return nil, err
 			}
 		}
+	}
+
+	// Events of the run go to an OpenTelemetry endpoint when one is set
+	// (rulings 26 and 35). A collector that cannot be reached does not stop
+	// a run: the run is the point, and its record is on this machine.
+	runID, clientName := "", ""
+	if run != nil {
+		runID = run.Header.RunID
+	}
+	if adm != nil {
+		clientName = adm.Client + " " + adm.Version
+	}
+	tel, terr := startTelemetry(ctx, m.Metadata.Name, runID, clientName, o.TelemetryPayloads)
+	if terr != nil {
+		logf("telemetry  not started: %v", terr)
+	}
+	outcome := "failed"
+	if tel != nil {
+		journal = io.MultiWriter(journal, tel)
+		defer func() { tel.stop(outcome) }()
 	}
 
 	// The program is stopped by cancelling its context, which the engine
@@ -688,6 +713,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	wg.Wait()
 	if firstErr != nil {
+		outcome = "interrupted"
 		toGuestW.Close()
 		go io.Copy(io.Discard, fromGuestR)
 		stopGuest()
@@ -707,11 +733,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return nil, fmt.Errorf("the primitive ended without a result")
 	}
 	res.Exit, res.Stdout, res.Stderr = final.Exit, final.Stdout, final.Stderr
+	outcome = "completed"
+	if res.Unknown > 0 {
+		outcome = "completed_with_unknown"
+	}
 	if run != nil {
-		outcome := "completed"
-		if res.Unknown > 0 {
-			outcome = "completed_with_unknown"
-		}
 		if err := run.Finish(outcome, time.Now().UTC()); err != nil {
 			return nil, err
 		}
