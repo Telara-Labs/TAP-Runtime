@@ -78,3 +78,38 @@ func TestWidening(t *testing.T) {
 		})
 	}
 }
+
+// Found by the promotion gate's tests (TENG-3042): two manifests Widening
+// cannot read compared as "nothing widened".
+func TestAManifestThatCannotBeComparedWidens(t *testing.T) {
+	ok, err := Parse([]byte(approved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1, err := Parse([]byte("apiVersion: primitives.telara.dev/v1\nkind: Primitive\nmetadata: {publisher: dev.telara, name: p, version: 1.0.0}\nexecution: {entrypoint: main.py}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken, _ := Parse([]byte(strings.Replace(approved, "alias: search", "alias: Not-An-Alias", 1)))
+	for name, c := range map[string]struct {
+		approved, next *Manifest
+		want           string
+	}{
+		"two v1 manifests":            {v1, v1, "the approved version is apiVersion"},
+		"a v3 version after a v1 one": {v1, ok, "the approved version is apiVersion"},
+		"a v1 version after a v3 one": {ok, v1, "the new version is apiVersion"},
+		"nothing was approved":        {nil, ok, "the approved version has no manifest"},
+		"no new manifest":             {ok, nil, "the new version has no manifest"},
+		"a manifest that cannot run":  {ok, broken, "the new version has a manifest that could not run"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := strings.Join(Widening(c.approved, c.next), "\n")
+			if !strings.Contains(got, c.want) {
+				t.Fatalf("got %q, want it to say %q", got, c.want)
+			}
+		})
+	}
+	if w := Widening(ok, ok); len(w) != 0 {
+		t.Fatalf("control failed: a manifest compared with itself widened: %v", w)
+	}
+}

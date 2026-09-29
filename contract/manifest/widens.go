@@ -28,9 +28,34 @@ import (
 //
 // That definition was written to make the ruling buildable and had not been
 // reviewed by Luis when this was written.
+//
+// A manifest that cannot be compared widens. Widening reads v3 declarations,
+// and an older manifest has none of them to read: two v1 manifests would
+// compare as "nothing widened" and a version be promoted without a person.
+// So a missing manifest, one of another apiVersion, or one that could not
+// run is reported as a widening, never as nothing.
 func Widening(approved, next *Manifest) []string {
 	var out []string
 	add := func(f string, a ...any) { out = append(out, fmt.Sprintf(f, a...)) }
+
+	for _, side := range []struct {
+		name string
+		m    *Manifest
+	}{{"the approved version", approved}, {"the new version", next}} {
+		switch {
+		case side.m == nil:
+			add("%s has no manifest; it cannot be compared", side.name)
+		case side.m.APIVersion != APIVersion:
+			add("%s is apiVersion %q, not %s; its declarations cannot be compared", side.name, side.m.APIVersion, APIVersion)
+		default:
+			if p := side.m.RunProblems(); len(p) > 0 {
+				add("%s has a manifest that could not run (%s); it cannot be compared", side.name, p[0])
+			}
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
 
 	rank := map[string]int{"read": 0, "write": 1, "destructive": 2, "financial": 2, "identity-admin": 2}
 	was := map[string]int{}
