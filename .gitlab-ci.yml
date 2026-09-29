@@ -84,6 +84,10 @@ windows-amd64-wine:
 windows-amd64:
   stage: verify
   timeout: 40m
+  # The worker is a spot VM: it can be taken back while the job runs.
+  retry:
+    max: 2
+    when: runner_system_failure
   tags: [telara-windows]
   before_script: []
   artifacts:
