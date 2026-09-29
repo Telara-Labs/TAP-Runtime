@@ -137,8 +137,8 @@ own annotation says it does more than the declared effect (for example
 ```yaml
 commands:
   - {command: git,     globals: ["-C <any>"], args: [log, "*"], effect: read}
-  - {command: kubectl, globals: ["--context minikube", "-n <any>"], args: [get, "*"], effect: read}
-  - {command: kubectl, globals: ["--context minikube", "-n <any>"], args: [delete, "*"], effect: destructive}
+  - {command: kubectl, globals: ["--context staging", "-n <any>"], args: [get, "*"], effect: read}
+  - {command: kubectl, globals: ["--context staging", "-n <any>"], args: [delete, "*"], effect: destructive}
 ```
 
 `command` is a program name, never a path. `args` is required: `["*"]` allows
