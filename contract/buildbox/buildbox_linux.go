@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -151,25 +152,22 @@ func Init(args []string) error {
 	if err := bind(work, WorkDir, false); err != nil {
 		return err
 	}
-	// The build cache: what the image compiled ahead of time, read-only,
-	// under a layer in the package directory that takes what this build adds.
-	cache := filepath.Join(newroot, "gocache")
-	os.MkdirAll(cache, 0o755)
-	lower := filepath.Join(root, "gocache")
-	upper, scratch := filepath.Join(work, ".box", "upper"), filepath.Join(work, ".box", "scratch")
-	os.MkdirAll(upper, 0o755)
-	os.MkdirAll(scratch, 0o755)
-	overlay := fmt.Errorf("no cache in the toolchain")
-	if _, serr := os.Stat(lower); serr == nil {
-		overlay = syscall.Mount("overlay", cache, "overlay", 0,
-			"lowerdir="+lower+",upperdir="+upper+",workdir="+scratch+",userxattr")
+	// The build cache: a copy, in the package directory, of what the image
+	// compiled ahead of time. A copy and not a layer over it, because the
+	// layer's writable half cannot sit on a container's own filesystem, and
+	// not the original read-only, because the go command does not build
+	// from a cache it cannot write. It is on disk, not in memory.
+	cache := filepath.Join(work, ".box", "gocache")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		return err
 	}
-	if overlay != nil {
-		// No overlay here: an empty cache in the package directory. The
-		// build is slower and no less contained.
-		if err := syscall.Mount(upper, cache, "", syscall.MS_BIND, ""); err != nil {
-			return fmt.Errorf("binding the build cache: %w", err)
+	if lower := filepath.Join(root, "gocache"); exists(lower) {
+		if err := copyTree(lower, cache); err != nil {
+			return fmt.Errorf("copying the build cache: %w", err)
 		}
+	}
+	if err := bind(cache, "gocache", false); err != nil {
+		return err
 	}
 	for _, d := range []string{"tmp", "proc", "dev"} {
 		os.MkdirAll(filepath.Join(newroot, d), 0o755)
@@ -234,4 +232,36 @@ func Init(args []string) error {
 		return err
 	}
 	return step("starting the command", syscall.Exec(argv[0], argv, Env()))
+}
+
+func exists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+func copyTree(from, to string) error {
+	return filepath.WalkDir(from, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(from, p)
+		dst := filepath.Join(to, rel)
+		if d.IsDir() {
+			return os.MkdirAll(dst, 0o755)
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		in, err := os.Open(p)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			out.Close()
+			return err
+		}
+		return out.Close()
+	})
 }
