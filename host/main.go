@@ -767,11 +767,13 @@ class _Tap:
         while True:
             r = json.loads(_in.readline())
             if r.get("id") == want: return r
+    def _err(self, cls, code, text):
+        e = cls(text); e.code = code; return e
     def _value(self, r):
-        if r.get("refused"): raise PermissionError(r["refused"])
+        if r.get("refused"): raise self._err(PermissionError, "refused", r["refused"])
         if r.get("violation"):
-            e = ValueError(r.get("stderr")); e.landed = bool(r.get("landed")); raise e
-        if r.get("exit"): raise RuntimeError(r.get("stderr") or "tool call failed")
+            e = self._err(ValueError, "violation", r.get("stderr")); e.landed = bool(r.get("landed")); raise e
+        if r.get("exit"): raise self._err(RuntimeError, "failed", r.get("stderr") or "tool call failed")
         try: return json.loads(r.get("result") or "null")
         except ValueError: return r.get("result")
     def call(self, alias, arguments=None):
@@ -792,8 +794,8 @@ class _Tap:
         return out
     def _cap(self, o):
         r = self._ask(o)
-        if r.get("refused"): raise PermissionError(r["refused"])
-        if r.get("exit"): raise OSError(r.get("stderr") or "failed")
+        if r.get("refused"): raise self._err(PermissionError, "refused", r["refused"])
+        if r.get("exit"): raise self._err(OSError, "failed", r.get("stderr") or "failed")
         return r
     def read(self, path): return self._cap({"method": "read", "path": path}).get("result", "")
     def write(self, path, text): self._cap({"method": "write", "path": path, "stdin": text})
@@ -803,7 +805,12 @@ class _Tap:
     def tools(self):
         return self._ask({"method": "tools"}).get("tools") or []
     def exec(self, command, args=(), stdin=""):
-        return self._ask({"method": "exec", "command": command, "args": list(args), "stdin": stdin})
+        """A command that exits non-zero is an ordinary result and is
+        returned. A command the host refused to run did not exit at all, so
+        it raises."""
+        r = self._ask({"method": "exec", "command": command, "args": list(args), "stdin": stdin})
+        if r.get("refused"): raise self._err(PermissionError, "refused", r["refused"])
+        return r
 tap = _Tap()
 _buf, _err, _exit = io.StringIO(), io.StringIO(), 0
 sys.stdout, sys.stderr = _buf, _err
@@ -825,10 +832,13 @@ globalThis.console = { log: (...a) => { _buf += _line(a); }, error: (...a) => { 
 let _n = 0;
 const _send = (o) => { o.id = "r" + (++_n); std.out.puts(JSON.stringify(o) + "\n"); std.out.flush(); return o.id; };
 const _ask = (o) => { const want = _send(o); for (;;) { const r = JSON.parse(std.in.getline()); if (r.id === want) return r; } };
+// Every error carries code: "refused", "violation" or "failed", so a program
+// can tell them apart without reading the message.
+const _fail = (E, code, text) => { const e = new E(text); e.code = code; return e; };
 const _value = (r) => {
-  if (r.refused) throw new Error(r.refused);
-  if (r.violation) { const e = new TypeError(r.stderr); e.landed = !!r.landed; throw e; }
-  if (r.exit) throw new Error(r.stderr || "tool call failed");
+  if (r.refused) throw _fail(Error, "refused", r.refused);
+  if (r.violation) { const e = _fail(TypeError, "violation", r.stderr); e.landed = !!r.landed; throw e; }
+  if (r.exit) throw _fail(Error, "failed", r.stderr || "tool call failed");
   try { return JSON.parse(r.result ?? "null"); } catch (e) { return r.result; }
 };
 globalThis.tap = {
@@ -842,11 +852,12 @@ globalThis.tap = {
     return ids.map((i) => { try { return _value(got[i]); } catch (e) { return e; } });
   },
   tools() { return _ask({ method: "tools" }).tools ?? []; },
-  _cap(o) { const r = _ask(o); if (r.refused) throw new Error(r.refused); if (r.exit) throw new Error(r.stderr || "failed"); return r; },
+  _cap(o) { const r = _ask(o); if (r.refused) throw _fail(Error, "refused", r.refused); if (r.exit) throw _fail(Error, "failed", r.stderr || "failed"); return r; },
   read(path) { return this._cap({ method: "read", path }).result ?? ""; },
   write(path, text) { this._cap({ method: "write", path, stdin: text }); },
   fetch(url, method = "GET", body = "", headers = {}) { const r = this._cap({ method: "fetch", url, http_method: method, stdin: body, headers }); return { status: r.status, body: r.result ?? "" }; },
-  exec(command, args = [], stdin = "") { return _ask({ method: "exec", command, args, stdin }); },
+  // A non-zero exit is a result. A refusal is not an exit, so it throws.
+  exec(command, args = [], stdin = "") { const r = _ask({ method: "exec", command, args, stdin }); if (r.refused) throw _fail(Error, "refused", r.refused); return r; },
 };
 globalThis.std = std;
 try { (0, eval)(%s); } catch (e) { _err += String(e) + "\n"; _exit = 1; }
