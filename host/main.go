@@ -170,6 +170,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "install" {
 		os.Exit(installCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "fetch" {
+		os.Exit(fetchCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "manifest" {
 		os.Exit(manifestCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
@@ -195,7 +198,7 @@ func main() {
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: host [--approve] [--resume RUN] <package-dir> [args...]\n       host serve\n       host manifest check|complete <package-dir>")
+		fmt.Fprintln(os.Stderr, "usage: host [--approve] [--resume RUN] <package-dir> [args...]\n       host serve\n       host install --client claude|codex\n       host fetch\n       host manifest check|complete <package-dir>")
 		os.Exit(2)
 	}
 	var journal io.Writer = io.Discard
