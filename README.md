@@ -48,6 +48,17 @@ to the point it had reached, and the real clock after. One process holds a run
 at a time: a second is refused and told which process holds it. Records are
 removed after 30 days; `--retention-days 0` keeps them for ever.
 
+## Telemetry
+
+Off unless an endpoint is set. Configured by the standard OpenTelemetry
+variables, which are the only environment variables the runner reads for
+configuration: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`
+and the rest of that family. The protocol is OTLP over HTTP.
+
+It sends events: what ran, what was approved, how each ended. What a call was
+given and what it touched stay on the machine unless `--otel-payloads` is
+passed. A collector that cannot be reached does not stop a run.
+
 ## As an MCP server
 
     host serve
