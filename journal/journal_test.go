@@ -86,6 +86,7 @@ func TestLookupDoesNotDependOnOrder(t *testing.T) {
 func TestAChangedRequestIsNoticed(t *testing.T) {
 	root := t.TempDir()
 	j, _ := Create(root, header("run-000003"))
+	defer j.Close() // Windows does not remove a file that is open
 	must(t, j.Begin("r1", "call", Digest(map[string]any{"alias": "search", "q": "a"}), "read", time.Now()))
 	must(t, j.End("r1", "ran", []byte(`1`), time.Now()))
 	if _, _, err := j.Lookup("r1", Digest(map[string]any{"alias": "search", "q": "b"})); !errors.Is(err, ErrChanged) {
@@ -117,6 +118,7 @@ func TestALineCutShortIsIgnored(t *testing.T) {
 func TestAnAlteredResultIsRefused(t *testing.T) {
 	root := t.TempDir()
 	j, _ := Create(root, header("run-000005"))
+	defer j.Close() // Windows does not remove a file that is open
 	big := bytes.Repeat([]byte("y"), InlineLimit*2)
 	must(t, j.Begin("r1", "call", "d1", "read", time.Now()))
 	must(t, j.End("r1", "ran", big, time.Now()))
@@ -133,6 +135,7 @@ func TestAnAlteredResultIsRefused(t *testing.T) {
 func TestTheSameLargeResultIsStoredOnce(t *testing.T) {
 	root := t.TempDir()
 	j, _ := Create(root, header("run-000006"))
+	defer j.Close() // Windows does not remove a file that is open
 	big := bytes.Repeat([]byte("z"), InlineLimit*3)
 	for _, id := range []string{"r1", "r2", "r3"} {
 		must(t, j.Begin(id, "call", "d", "read", time.Now()))
