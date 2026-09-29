@@ -1,0 +1,296 @@
+{
+  "rule": "doc 34 sections 13.12-13.17",
+  "author": "written from the spec text by a session that did not write the runner, without reading glob/ or manifest/widens.go (TENG-3033: the corpus was not independent)",
+  "manifest": [
+    {
+      "name": "R31: a command must declare its arguments",
+      "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ncommands:\n  - {command: kubectl, effect: read}\n",
+      "may_run": false
+    },
+    {
+      "name": "R38: args [] declares a command that takes none",
+      "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ncommands:\n  - {command: kubectl, args: [], effect: read}\n",
+      "may_run": true
+    },
+    {
+      "name": "R31: args [\"*\"] allows anything",
+      "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ncommands:\n  - {command: git, args: [\"*\"], effect: read}\n",
+      "may_run": true
+    },
+    {
+      "name": "R32: an environment name may be a wildcard",
+      "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ncommands:\n  - {command: aws, args: [s3, ls, \"*\"], effect: read, env: [\"AWS_*\"]}\n",
+      "may_run": true
+    },
+    {
+      "name": "R33: a file path may be a glob",
+      "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\nfiles:\n  - {path: \"reports/*.csv\", access: read}\n",
+      "may_run": true
+    },
+    {
+      "name": "R33: ** spans a subtree",
+      "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\nfiles:\n  - {path: \"data/**\", access: read}\n",
+      "may_run": true
+    },
+    {
+      "name": "R34: one subdomain level may be a wildcard",
+      "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\nfetch:\n  - {origin: \"https://*.atlassian.net\"}\n",
+      "may_run": true
+    },
+    {
+      "name": "R34: never a bare wildcard origin",
+      "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\nfetch:\n  - {origin: \"https://*\"}\n",
+      "may_run": false
+    },
+    {
+      "name": "R34: never a public-suffix wildcard (*.com)",
+      "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\nfetch:\n  - {origin: \"https://*.com\"}\n",
+      "may_run": false
+    },
+    {
+      "name": "R34: never a public-suffix wildcard (*.co.uk)",
+      "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\nfetch:\n  - {origin: \"https://*.co.uk\"}\n",
+      "may_run": false
+    },
+    {
+      "name": "R34: only ONE subdomain level",
+      "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\nfetch:\n  - {origin: \"https://*.*.atlassian.net\"}\n",
+      "may_run": false
+    }
+  ],
+  "args": [
+    {
+      "name": "R31 spec example: allows get pods -n app",
+      "pattern": [
+        "get",
+        "pods",
+        "*"
+      ],
+      "args": [
+        "get",
+        "pods",
+        "-n",
+        "app"
+      ],
+      "match": true
+    },
+    {
+      "name": "R31 spec example: refuses get secrets",
+      "pattern": [
+        "get",
+        "pods",
+        "*"
+      ],
+      "args": [
+        "get",
+        "secrets"
+      ],
+      "match": false
+    },
+    {
+      "name": "R31: a final bare * matches zero remaining",
+      "pattern": [
+        "log",
+        "*"
+      ],
+      "args": [
+        "log"
+      ],
+      "match": true
+    },
+    {
+      "name": "R31: no trailing * means no extra args",
+      "pattern": [
+        "get"
+      ],
+      "args": [
+        "get",
+        "pods"
+      ],
+      "match": false
+    },
+    {
+      "name": "R31: a word glob matches one argument only",
+      "pattern": [
+        "get",
+        "p*"
+      ],
+      "args": [
+        "get",
+        "pods",
+        "extra"
+      ],
+      "match": false
+    },
+    {
+      "name": "R31: ? is one character",
+      "pattern": [
+        "get",
+        "pod?"
+      ],
+      "args": [
+        "get",
+        "pods"
+      ],
+      "match": true
+    },
+    {
+      "name": "R31: ? is exactly one character",
+      "pattern": [
+        "get",
+        "pod?"
+      ],
+      "args": [
+        "get",
+        "podss"
+      ],
+      "match": false
+    },
+    {
+      "name": "R31: [...] is a class",
+      "pattern": [
+        "get",
+        "[ps]ods"
+      ],
+      "args": [
+        "get",
+        "pods"
+      ],
+      "match": true
+    },
+    {
+      "name": "R38: [] allows no arguments",
+      "pattern": [],
+      "args": [],
+      "match": true
+    },
+    {
+      "name": "R38: [] refuses any argument",
+      "pattern": [],
+      "args": [
+        "x"
+      ],
+      "match": false
+    },
+    {
+      "name": "R31: [\"*\"] allows anything",
+      "pattern": [
+        "*"
+      ],
+      "args": [
+        "a",
+        "b",
+        "c"
+      ],
+      "match": true
+    }
+  ],
+  "hosts": [
+    {
+      "name": "R34: one level matches",
+      "pattern": "*.atlassian.net",
+      "host": "acme.atlassian.net",
+      "match": true
+    },
+    {
+      "name": "R34: two levels do not",
+      "pattern": "*.atlassian.net",
+      "host": "a.b.atlassian.net",
+      "match": false
+    },
+    {
+      "name": "R34: the bare domain does not",
+      "pattern": "*.atlassian.net",
+      "host": "atlassian.net",
+      "match": false
+    },
+    {
+      "name": "R34: exact host",
+      "pattern": "api.github.com",
+      "host": "api.github.com",
+      "match": true
+    }
+  ],
+  "paths": [
+    {
+      "name": "R33: * inside one segment",
+      "pattern": "reports/*.csv",
+      "path": "reports/a.csv",
+      "match": true
+    },
+    {
+      "name": "R33: * does not cross a segment",
+      "pattern": "reports/*.csv",
+      "path": "reports/sub/a.csv",
+      "match": false
+    },
+    {
+      "name": "R33: ** spans segments",
+      "pattern": "data/**",
+      "path": "data/x/y.txt",
+      "match": true
+    }
+  ],
+  "widening": [
+    {
+      "name": "R24: identical does not widen",
+      "approved": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: s, capability: gmail.threads.search, effect: read}\n",
+      "next": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: s, capability: gmail.threads.search, effect: read}\n",
+      "widens": false
+    },
+    {
+      "name": "R24: a new tool widens",
+      "approved": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: s, capability: gmail.threads.search, effect: read}\n",
+      "next": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: s, capability: gmail.threads.search, effect: read}\n  - {alias: w, capability: gmail.messages.send, effect: write}\n",
+      "widens": true
+    },
+    {
+      "name": "R24: a raised effect widens",
+      "approved": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: s, capability: gmail.threads.search, effect: read}\n",
+      "next": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: s, capability: gmail.threads.search, effect: write}\n",
+      "widens": true
+    },
+    {
+      "name": "R24: deleting a tool does not widen",
+      "approved": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: s, capability: gmail.threads.search, effect: read}\n  - {alias: w, capability: gmail.messages.send, effect: write}\n",
+      "next": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: s, capability: gmail.threads.search, effect: read}\n",
+      "widens": false
+    },
+    {
+      "name": "R24: a new command widens",
+      "approved": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: s, capability: gmail.threads.search, effect: read}\n",
+      "next": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: s, capability: gmail.threads.search, effect: read}\ncommands:\n  - {command: git, args: [log, \"*\"], effect: read}\n",
+      "widens": true
+    },
+    {
+      "name": "R24: editing a pattern widens even if it narrows",
+      "approved": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ncommands:\n  - {command: git, args: [\"*\"], effect: read}\n",
+      "next": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ncommands:\n  - {command: git, args: [log, \"*\"], effect: read}\n",
+      "widens": true
+    },
+    {
+      "name": "R24: deleting a command does not widen",
+      "approved": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ncommands:\n  - {command: git, args: [\"*\"], effect: read}\n",
+      "next": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\n",
+      "widens": false
+    },
+    {
+      "name": "R24: file read to write widens",
+      "approved": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\nfiles:\n  - {path: out, access: read}\n",
+      "next": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\nfiles:\n  - {path: out, access: write}\n",
+      "widens": true
+    },
+    {
+      "name": "R24: a new fetch method widens",
+      "approved": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+      "next": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\nfetch:\n  - {origin: \"https://api.github.com\", methods: [GET, POST]}\n",
+      "widens": true
+    },
+    {
+      "name": "R24: a new env name widens",
+      "approved": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ncommands:\n  - {command: aws, args: [\"*\"], effect: read}\n",
+      "next": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: indep, version: 0.1.0}\nexecution: {entrypoint: main.py}\ncommands:\n  - {command: aws, args: [\"*\"], effect: read, env: [AWS_PROFILE]}\n",
+      "widens": true
+    }
+  ]
+}

@@ -204,6 +204,20 @@ func TestCapabilityIDIgnoresKeyOrderAndNothingElse(t *testing.T) {
 	}
 }
 
+// The id must be what a publisher writing another language computes.
+func TestCapabilityIDIsRFC8785(t *testing.T) {
+	obj := map[string]any{"type": "object"}
+	for question, want := range map[string]string{
+		"threads matching a query":    "sha256:6a0103ea4d99042f35bf532dc09fa473ccefb33cf7964114a6b918f012c1b0fb",
+		"threads where a < b & c > d": "sha256:13a84a61ea60adefd2f2a2b38af4f644c4bfbe307c327f4f74a3e7e03c46669f",
+		"hilos en el buzón":           "sha256:30a9a061a067fa37017f23af0f68550404f07e391e718680f6beb7dce404e5f9",
+	} {
+		if got := CapabilityID(question, obj, obj); got != want {
+			t.Errorf("%q: %s, want %s", question, got, want)
+		}
+	}
+}
+
 func TestCapabilityName(t *testing.T) {
 	for in, want := range map[string]string{
 		"gmail.threads.search":                     "gmail.threads.search",

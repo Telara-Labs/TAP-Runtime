@@ -112,7 +112,7 @@
    "may_run": true
   },
   {
-   "name": "a command that declares no arguments",
+   "name": "a command that says nothing of its arguments",
    "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
    "may_run": false
   },
@@ -134,6 +134,11 @@
   {
    "name": "a file pattern",
    "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [get, \"*\"], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: \"reports/**/*.txt\", access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
+   "may_run": true
+  },
+  {
+   "name": "a command that takes no arguments, said aloud",
+   "manifest": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}\nexecution: {entrypoint: main.py}\ntools:\n  - {alias: threads, capability: gmail.threads.search, effect: read, optional: true}\ncommands:\n  - {command: kubectl, globals: [\"--context minikube\"], args: [], effect: read, env: [KUBECONFIG]}\nfiles:\n  - {path: out, access: write}\nfetch:\n  - {origin: \"https://api.github.com\"}\n",
    "may_run": true
   }
  ]

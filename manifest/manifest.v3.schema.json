@@ -577,12 +577,11 @@
         },
         "args": {
           "type": "array",
-          "minItems": 1,
           "items": {
             "type": "string",
             "minLength": 1
           },
-          "description": "The arguments the program may be given, as bash-style patterns. Each word is matched against one argument; * matches any run of characters, ? one, [...] one of a set. A final bare * matches whatever remains. To allow anything, declare [\"*\"]."
+          "description": "The arguments the program may be given, as bash-style patterns. Each word is matched against one argument; * matches any run of characters, ? one, [...] one of a set. A final bare * matches whatever remains. To allow anything, declare [\"*\"]. To allow no arguments, declare [] (ruling 38)."
         },
         "effect": {
           "$ref": "#/$defs/effectClass"

@@ -22,6 +22,9 @@ func testManifest() *manifest {
 		{Command: "docker", Args: any, Effect: "read"},
 		{Command: "docker", Args: []string{"ps", "*"}, Effect: "read"},
 		{Command: "date", Args: []string{}, Effect: "read"},
+		{Command: "find", Args: []string{"*"}, Effect: "read"},
+		{Command: "python3", Args: []string{"*"}, Effect: "read"},
+		{Command: "ssh", Args: []string{"*"}, Effect: "read"},
 	}}
 }
 
@@ -45,8 +48,16 @@ func TestResolve(t *testing.T) {
 		{"bash declared read is reclassified", "bash", []string{"-c", "echo"}, true, "destructive"},
 		{"docker run declared read is reclassified", "docker", []string{"run", "img"}, true, "destructive"},
 		{"docker ps stays as declared", "docker", []string{"ps"}, true, "read"},
+		// Ruling 36.
+		{"an interpreter declared read is reclassified", "python3", []string{"-c", "print(1)"}, true, "destructive"},
+		{"ssh declared read is reclassified", "ssh", []string{"host", "uptime"}, true, "destructive"},
+		{"find stays as declared", "find", []string{".", "-name", "*.go"}, true, "read"},
+		{"find -exec is reclassified, wherever it appears", "find", []string{".", "-name", "*.go", "-exec", "rm", "{}", ";"}, true, "destructive"},
+		{"find -execdir too", "find", []string{"/tmp", "-execdir", "sh", "-c", "x", ";"}, true, "destructive"},
+		// Ruling 38.
 		{"a pattern of no words allows no arguments", "date", nil, true, "read"},
 		{"and refuses any", "date", []string{"-u"}, false, ""},
+		{"with no globals declared, the patterns cover flags too", "docker", []string{"--context", "x", "ps"}, true, "read"},
 
 		{"global taking any value", "git", []string{"-C", "/tmp", "log", "--oneline"}, true, "read"},
 		{"global taking no value", "git", []string{"--no-pager", "log"}, true, "read"},

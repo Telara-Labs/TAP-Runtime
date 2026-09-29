@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
+	"gitlab.com/telara-labs/tap-runtime/canon"
 	"gitlab.com/telara-labs/tap-runtime/glob"
 	"golang.org/x/net/publicsuffix"
 	"gopkg.in/yaml.v3"
@@ -93,9 +94,10 @@ type Tool struct {
 type Command struct {
 	Command string   `yaml:"command" json:"command"`
 	Globals []string `yaml:"globals,omitempty" json:"globals,omitempty"`
-	Args    []string `yaml:"args,omitempty" json:"args,omitempty"`
-	Effect  string   `yaml:"effect" json:"effect"`
-	Env     []string `yaml:"env,omitempty" json:"env,omitempty"`
+	// Args is nil when the manifest says nothing, and empty when it says [].
+	Args   []string `yaml:"args" json:"args"`
+	Effect string   `yaml:"effect" json:"effect"`
+	Env    []string `yaml:"env,omitempty" json:"env,omitempty"`
 }
 
 type File struct {
@@ -234,9 +236,10 @@ func (m *Manifest) RunProblems() []string {
 			}
 		}
 		// Ruling 31: what a command may be given is declared, never left
-		// open by saying nothing. To allow anything, say so: args: ["*"].
-		if len(c.Args) == 0 {
-			add("commands[%d] (%s) declares no args; list the arguments it may be given, as patterns, or [\"*\"] for any", i, c.Command)
+		// open by saying nothing. Ruling 38: args: [] is a declaration, and
+		// means the command takes none. What is refused is saying nothing.
+		if c.Args == nil {
+			add("commands[%d] (%s) declares no args; list the arguments it may be given, as patterns: [\"*\"] for any, [] for none", i, c.Command)
 		}
 		for _, a := range c.Args {
 			if a == "" {
@@ -299,12 +302,18 @@ func wildcardProblem(host string) string {
 	return ""
 }
 
-// CapabilityID is the identity of a capability: sha256 over its contract with
-// keys in sorted order. Two publishers who write the same contract get the
-// same id. This is the rule of 34 section 11.1 as far as it is written; the
-// rest of normalisation is TENG-3033.
+// CapabilityID is the identity of a capability: sha256 over its contract in
+// canonical form, RFC 8785. Two publishers who write the same contract get
+// the same id, whatever language they write it in (34 section 11.1).
 func CapabilityID(question string, args, result map[string]any) string {
-	b, _ := json.Marshal(map[string]any{"args": args, "question": question, "result": result})
+	// RFC 8785, so that a publisher writing in any language computes the
+	// same id for the same contract. Go's own encoder escapes < > and &,
+	// which no other language's does.
+	b, err := canon.CanonicalValue(map[string]any{"args": args, "question": question, "result": result})
+	if err != nil {
+		// A contract that cannot be written canonically has no identity.
+		return ""
+	}
 	sum := sha256.Sum256(b)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
