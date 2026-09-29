@@ -78,13 +78,12 @@ windows-amd64-wine:
     - test ! -e ../escaped.txt
 
 # The same, on Windows itself: Telara's Windows runner on GCP
-# (telara-cloud/ci-runners/setup-windows-runner.sh), which has git and Go
-# installed. Manual, because that VM is stopped when Windows is not being
-# tested, and a job for a stopped runner waits for ever.
+# (telara-cloud/ci-runners, "Windows runner"), whose image has git and Go
+# installed. A worker is made for the job and removed afterwards, so the
+# first minutes of the job are Windows starting.
 windows-amd64:
   stage: verify
-  when: manual
-  allow_failure: true
+  timeout: 40m
   tags: [telara-windows]
   before_script: []
   artifacts:
