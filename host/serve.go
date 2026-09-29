@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -29,6 +30,7 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 	mcpURL := fs.String("mcp-url", "", "call this MCP server (streamable HTTP) directly instead of borrowing the client's connections")
 	mcpHeaderFile := fs.String("mcp-header-file", "", "with --mcp-url: file of header lines to send, such as \"Authorization: Bearer ...\"")
 	retention := fs.Int("retention-days", 30, "remove the records of runs older than this many days; 0 keeps them for ever")
+	serverName := fs.String("name", "tap", "the name the client knows this server by, as given at install")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -42,6 +44,10 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 		journal = &lockedWriter{w: f}
 	}
 	s := &server{out: out, pending: map[int]chan rpcMessage{}, journal: journal, interpDir: *interpDir, cacheDir: *cacheDir, runsDir: *runsDir, retention: *retention, payloads: *otelPayloads, mcpURL: *mcpURL, mcpHeaderFile: *mcpHeaderFile}
+	if dir, err := relayDir(); err == nil {
+		s.relay = newRelayHub(dir, *serverName)
+		defer s.relay.close()
+	}
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 	var wg sync.WaitGroup
@@ -106,6 +112,10 @@ type server struct {
 	clientName    string
 	clientVersion string
 	canElicit     bool
+
+	// relay holds the runs that wait on a client which makes tool calls
+	// when a hook asks it to (relay.go).
+	relay *relayHub
 }
 
 func (s *server) write(v any) {
@@ -246,54 +256,146 @@ func (s *server) handle(m rpcMessage) {
 	case "ping":
 		s.reply(m.ID, map[string]any{})
 	case "tools/list":
-		s.reply(m.ID, map[string]any{"tools": []any{runTool}})
+		tools := []any{runTool}
+		s.mu.Lock()
+		name := s.clientName
+		s.mu.Unlock()
+		if relayClient(clientFor(name)) {
+			tools = append(tools, resultTool)
+		}
+		s.reply(m.ID, map[string]any{"tools": tools})
 	case "tools/call":
 		var p struct {
 			Name      string `json:"name"`
 			Arguments struct {
 				Package string   `json:"package"`
 				Args    []string `json:"args"`
+				Run     string   `json:"run"`
 			} `json:"arguments"`
 		}
-		if json.Unmarshal(m.Params, &p) != nil || p.Name != "tap_run" || p.Arguments.Package == "" {
-			s.fail(m.ID, -32602, "tap_run needs a package")
+		if json.Unmarshal(m.Params, &p) != nil {
+			s.fail(m.ID, -32602, "the call could not be read")
 			return
 		}
 		s.mu.Lock()
-		name, canElicit := s.clientName, s.canElicit
+		name, version, canElicit := s.clientName, s.clientVersion, s.canElicit
 		s.mu.Unlock()
+		if p.Name == "tap_result" {
+			s.replyResult(m.ID, p.Arguments.Run, canElicit)
+			return
+		}
+		if p.Name != "tap_run" || p.Arguments.Package == "" {
+			s.fail(m.ID, -32602, "tap_run needs a package")
+			return
+		}
 		var approve Approver
 		if canElicit {
 			approve = s.elicit
 		}
-		res, err := Run(context.Background(), Options{
+		o := Options{
 			Package: p.Arguments.Package, Args: p.Arguments.Args, Journal: s.journal, Approve: approve,
 			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, TelemetryPayloads: s.payloads, Client: clientFor(name),
 			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile,
-		})
-		if err != nil {
-			s.reply(m.ID, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "refused: " + err.Error()}}})
+		}
+		if relayClient(o.Client) && s.relay != nil && s.mcpURL == "" {
+			s.startRelay(m.ID, o, name, version, canElicit)
 			return
 		}
-		text := res.Stdout
-		if res.Stderr != "" {
-			text += "\n[stderr]\n" + res.Stderr
-		}
-		text += fmt.Sprintf("\n[%d action(s) run, %d refused]", res.Ran, res.Refused)
-		if res.RunID != "" {
-			text += "\n[run " + res.RunID + "]"
-		}
-		if res.Unknown > 0 {
-			text += fmt.Sprintf("\n[%d change(s) have an unknown outcome and need a person to check]", res.Unknown)
-		}
-		if !canElicit && res.Refused > 0 {
-			text += "\n[this client cannot show an approval prompt, so every change was refused]"
-		}
-		s.reply(m.ID, map[string]any{"isError": res.Exit != 0, "content": []any{map[string]any{"type": "text", "text": text}}})
+		res, err := Run(context.Background(), o)
+		s.replyRun(m.ID, res, err, canElicit)
 	default:
 		s.fail(m.ID, -32601, "method not found")
 	}
 }
+
+// replyRun answers a tool call with how a run ended.
+func (s *server) replyRun(id *json.RawMessage, res *Result, err error, canElicit bool) {
+	if err != nil {
+		s.reply(id, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "refused: " + err.Error()}}})
+		return
+	}
+	text := res.Stdout
+	if res.Stderr != "" {
+		text += "\n[stderr]\n" + res.Stderr
+	}
+	text += fmt.Sprintf("\n[%d action(s) run, %d refused]", res.Ran, res.Refused)
+	if res.RunID != "" {
+		text += "\n[run " + res.RunID + "]"
+	}
+	if res.Unknown > 0 {
+		text += fmt.Sprintf("\n[%d change(s) have an unknown outcome and need a person to check]", res.Unknown)
+	}
+	if !canElicit && res.Refused > 0 {
+		text += "\n[this client cannot show an approval prompt, so every change was refused]"
+	}
+	s.reply(id, map[string]any{"isError": res.Exit != 0, "content": []any{map[string]any{"type": "text", "text": text}}})
+}
+
+// startRelay runs a primitive whose tool calls the client makes itself when
+// its hook asks (relay.go). tap_run answers as soon as the program first
+// asks for a tool, with that request; the hook takes it from there, and the
+// chain ends with tap_result. A program that asks for nothing ends here.
+func (s *server) startRelay(id *json.RawMessage, o Options, name, version string, canElicit bool) {
+	r, err := s.relay.start(o.Client)
+	if err != nil {
+		s.replyRun(id, nil, fmt.Errorf("the relay could not start: %w", err), canElicit)
+		return
+	}
+	o.relay, o.relayClient, o.relayVersion = r, name, version
+	// Every tool call of a relay run is made by the client itself, through
+	// its own validation and approval (Gemini sends a tail call through the
+	// same confirmation as a call the model makes), so the client is the
+	// gate for those. Anything the client never sees, a host program, a file
+	// write or a web request, is still gated here.
+	inner := o.Approve
+	o.Approve = func(a Ask) Grant {
+		if strings.HasPrefix(a.Kind, "call ") {
+			return Grant{OK: true, Limit: Unlimited}
+		}
+		if inner == nil {
+			return Grant{}
+		}
+		return inner(a)
+	}
+	go func() {
+		res, err := Run(context.Background(), o)
+		r.finish(res, err)
+	}()
+	ev := <-r.events
+	if ev.done {
+		s.relay.forget(r.id)
+		s.replyRun(id, r.result, r.err, canElicit)
+		return
+	}
+	s.reply(id, map[string]any{"content": []any{map[string]any{"type": "text", "text": pendingText(r.id, *ev.call)}}})
+}
+
+// replyResult answers tap_result: how the relay run ended.
+func (s *server) replyResult(id *json.RawMessage, run string, canElicit bool) {
+	r := s.relay.get(run)
+	if r == nil {
+		s.reply(id, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "no run " + run + " is known here"}}})
+		return
+	}
+	<-r.finished
+	s.relay.forget(run)
+	s.replyRun(id, r.result, r.err, canElicit)
+}
+
+var resultTool = map[string]any{
+	"name":        "tap_result",
+	"description": "The answer of a TAP primitive that ran through this client. The tap hook calls it at the end of a run; you do not need to.",
+	"inputSchema": map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"run": map[string]any{"type": "string", "description": "The run's id."}},
+		"required":   []string{"run"},
+	},
+	"annotations": map[string]any{"readOnlyHint": true},
+}
+
+// relayClient reports whether a client lends its connections through a hook
+// that asks it to make calls, rather than through a call-back API.
+func relayClient(client string) bool { return client == "gemini" }
 
 // clientFor maps the name a client gives in the MCP handshake to the bridge
 // that can borrow its connections. An unknown name is passed through, and
@@ -304,6 +406,8 @@ func clientFor(name string) string {
 		return "claude"
 	case "codex-mcp-client":
 		return "codex"
+	case "gemini-cli-mcp-client":
+		return "gemini"
 	}
 	if name == "" {
 		return "unknown"
