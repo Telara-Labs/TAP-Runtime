@@ -24,7 +24,7 @@
         "tapRuntime.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the tap-runtime program. Empty looks in ~/.local/bin, then on PATH."
+          "description": "Path to the tap program (the TAP runner). Empty looks in ~/.local/bin, then on PATH."
         }
       }
     }

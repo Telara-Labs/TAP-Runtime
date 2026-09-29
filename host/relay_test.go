@@ -45,7 +45,7 @@ func TestAddGeminiKeepsSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	os.WriteFile(path, []byte(`{"mcpServers":{"telara":{"httpUrl":"https://example.com/mcp"}},"hooks":{"AfterTool":[{"matcher":"write_file","hooks":[{"name":"lint","type":"command","command":"lint.sh"}]}]},"theme":"dark"}`), 0o600)
 	for i := 0; i < 2; i++ {
-		if err := addGemini(path, "tap", "/opt/tap runtime/tap-runtime"); err != nil {
+		if err := addGemini(path, "tap", "/opt/tap dir/tap"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -64,7 +64,7 @@ func TestAddGeminiKeepsSettings(t *testing.T) {
 	if s.Theme != "dark" || s.MCP["telara"] == nil {
 		t.Errorf("settings that were there are gone:\n%s", raw)
 	}
-	if s.MCP["tap"]["command"] != "/opt/tap runtime/tap-runtime" {
+	if s.MCP["tap"]["command"] != "/opt/tap dir/tap" {
 		t.Errorf("the MCP entry is wrong: %v", s.MCP["tap"])
 	}
 	var taps, lint int
@@ -73,7 +73,7 @@ func TestAddGeminiKeepsSettings(t *testing.T) {
 			switch h["name"] {
 			case "tap":
 				taps++
-				if h["command"] != `'/opt/tap runtime/tap-runtime' hook gemini` {
+				if h["command"] != `'/opt/tap dir/tap' hook gemini` {
 					t.Errorf("the hook command is not quoted: %v", h["command"])
 				}
 			case "lint":

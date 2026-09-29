@@ -7,12 +7,12 @@ import (
 )
 
 func TestInstallArgv(t *testing.T) {
-	got, err := installArgv("claude", "user", "tap", "/opt/tap-runtime")
-	if err != nil || strings.Join(got, " ") != "claude mcp add --scope user tap -- /opt/tap-runtime serve" {
+	got, err := installArgv("claude", "user", "tap", "/opt/tap/tap")
+	if err != nil || strings.Join(got, " ") != "claude mcp add --scope user tap -- /opt/tap/tap serve" {
 		t.Fatalf("%v %v", got, err)
 	}
-	got, err = installArgv("codex", "user", "tap", "/opt/tap-runtime")
-	if err != nil || strings.Join(got, " ") != "codex mcp add tap -- /opt/tap-runtime serve" {
+	got, err = installArgv("codex", "user", "tap", "/opt/tap/tap")
+	if err != nil || strings.Join(got, " ") != "codex mcp add tap -- /opt/tap/tap serve" {
 		t.Fatalf("%v %v", got, err)
 	}
 	for _, bad := range [][2]string{{"", "user"}, {"cursor", "user"}, {"claude", "everywhere"}} {
@@ -29,5 +29,17 @@ func TestInstallPrintChangesNothing(t *testing.T) {
 	}
 	if !strings.HasPrefix(out.String(), "claude mcp add --scope user tap -- ") || !strings.HasSuffix(strings.TrimSpace(out.String()), " serve") {
 		t.Fatalf("printed %q", out.String())
+	}
+}
+
+func TestInstallReplacesAnEarlierRegistration(t *testing.T) {
+	if got := strings.Join(removeArgv("claude", "user", "tap"), " "); got != "claude mcp remove --scope user tap" {
+		t.Fatalf("claude remove = %q", got)
+	}
+	if got := strings.Join(removeArgv("codex", "user", "tap"), " "); got != "codex mcp remove tap" {
+		t.Fatalf("codex remove = %q", got)
+	}
+	if removeArgv("gemini", "user", "tap") != nil {
+		t.Fatal("gemini's settings entry is rewritten in place; there is nothing to remove")
 	}
 }

@@ -146,7 +146,7 @@ func noNetworkHint() string {
 	if os.Getenv("CODEX_SANDBOX_NETWORK_DISABLED") == "" {
 		return ""
 	}
-	return "\nThis program was started from Codex's shell, which Codex gives no network. Run the primitive with the tap_run tool instead, or run `tap-runtime fetch` once in a terminal of your own so that nothing has to be downloaded here."
+	return "\nThis program was started from Codex's shell, which Codex gives no network. Run the primitive with the tap_run tool instead, or run `tap fetch` once in a terminal of your own so that nothing has to be downloaded here."
 }
 
 // fetchCommand is `host fetch`: it puts every interpreter this runner can

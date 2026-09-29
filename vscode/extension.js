@@ -26,15 +26,20 @@ function cacheDir() {
   return path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "tap-runtime", "vscode");
 }
 
-// The runner, from the setting, then ~/.local/bin, then PATH.
+// The runner, from the setting, then its install folder, then PATH. It is
+// called tap; an install from before the rename is still found as
+// tap-runtime.
 function runtimePath() {
   const set = vscode.workspace.getConfiguration("tapRuntime").get("path");
   if (set) return set;
-  const exe = process.platform === "win32" ? "tap-runtime.exe" : "tap-runtime";
-  const local = process.platform === "win32"
-    ? path.join(process.env.LOCALAPPDATA || "", "Programs", "tap-runtime", exe)
-    : path.join(os.homedir(), ".local", "bin", exe);
-  return fs.existsSync(local) ? local : exe;
+  const win = process.platform === "win32";
+  const candidates = win
+    ? [path.join(process.env.LOCALAPPDATA || "", "Programs", "tap", "tap.exe"),
+       path.join(process.env.LOCALAPPDATA || "", "Programs", "tap-runtime", "tap-runtime.exe")]
+    : [path.join(os.homedir(), ".local", "bin", "tap"),
+       path.join(os.homedir(), ".local", "bin", "tap-runtime")];
+  for (const c of candidates) if (fs.existsSync(c)) return c;
+  return win ? "tap.exe" : "tap";
 }
 
 // A tool result is a list of parts. Text parts are joined; a data part whose
@@ -127,7 +132,7 @@ function activate(context) {
     if (!pick || !pick.length) return;
     const pkg = pick[0].fsPath;
     out.show(true);
-    out.appendLine(`> tap-runtime ${pkg}`);
+    out.appendLine(`> tap ${pkg}`);
     execFile(runtimePath(), ["--vscode-socket", socketPath, "--no-record", pkg], { cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || os.homedir(), maxBuffer: 16 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (stderr) out.appendLine(stderr.trimEnd());

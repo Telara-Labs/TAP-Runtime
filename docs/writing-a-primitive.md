@@ -28,7 +28,7 @@ print("hello")
 ```
 
 ```
-tap-runtime hello/
+tap hello/
 ```
 
 `pkg/hello-sh`, `pkg/hello-py` and `pkg/hello-ts` are this, in each language.
@@ -45,7 +45,7 @@ They use nothing, so they run on any machine.
 | `.wasm` | the runner directly | a compiled program for `wasip1`, which speaks the request protocol itself |
 
 The runner downloads each interpreter the first time it is needed and checks
-it against a pinned sha256. `tap-runtime fetch` downloads them all ahead of time.
+it against a pinned sha256. `tap fetch` downloads them all ahead of time.
 
 ## What a program can do
 
@@ -171,9 +171,9 @@ person first.
 ### Checking a manifest
 
 ```
-tap-runtime manifest check pkg/hello-py              # may it run?
-tap-runtime manifest check --publish pkg/hello-py    # may it be published?
-tap-runtime manifest complete pkg/hello-py           # the full form, with TODO: where a person must write
+tap manifest check pkg/hello-py              # may it run?
+tap manifest check --publish pkg/hello-py    # may it be published?
+tap manifest complete pkg/hello-py           # the full form, with TODO: where a person must write
 ```
 
 The full format is `contract/manifest/manifest.v3.schema.json`. Running needs
@@ -182,9 +182,9 @@ only what is above. Publishing to a registry needs the full form.
 ## Running
 
 ```
-tap-runtime pkg/hello-py                   # changes are refused
-tap-runtime --approve pkg/deploy-check-py  # changes are allowed, all of them
-tap-runtime --approve --limit 3 pkg/x      # at most 3 changes of each kind
+tap pkg/hello-py                   # changes are refused
+tap --approve pkg/deploy-check-py  # changes are allowed, all of them
+tap --approve --limit 3 pkg/x      # at most 3 changes of each kind
 ```
 
 Through Claude Code or Codex, the runner is the MCP tool `tap_run`, and each
