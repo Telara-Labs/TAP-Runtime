@@ -42,7 +42,12 @@ var tested = map[string][]string{
 }
 
 // Tested reports whether this runner was run against the client version.
+// The MCP bridge is tested against the protocol, not a product: the version it
+// reports is the server's, so any is admitted without a warning.
 func Tested(name, version string) bool {
+	if name == "mcp" {
+		return true
+	}
 	for _, v := range tested[name] {
 		if v == version {
 			return true

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -76,6 +77,47 @@ func openBridge(client string) (bridge.Bridge, error) {
 	}
 	// Ruling 13: a client that lists its tools and cannot dispatch them.
 	return nil, fmt.Errorf("client %q cannot lend its connections: it gives no way to call a tool on the caller's behalf", client)
+}
+
+// openMCP opens the MCP bridge. The header comes from a file, never a flag:
+// a process's arguments are readable by anyone who can list processes.
+func openMCP(url, headerFile string) (bridge.Bridge, error) {
+	h := http.Header{}
+	if headerFile != "" {
+		raw, err := os.ReadFile(headerFile)
+		if err != nil {
+			return nil, fmt.Errorf("--mcp-header-file: %w", err)
+		}
+		h, err = parseHeaderLines(string(raw))
+		if err != nil {
+			return nil, fmt.Errorf("--mcp-header-file: %w", err)
+		}
+	}
+	b, err := bridge.NewMCP(url, h)
+	if err != nil {
+		return nil, fmt.Errorf("MCP server %s: %w", url, err)
+	}
+	return b, nil
+}
+
+// parseHeaderLines reads "Name: value" lines. Blank lines and lines starting
+// with # are skipped; any other line without a colon is refused rather than
+// silently dropped, since a dropped Authorization reads as an auth failure.
+func parseHeaderLines(s string) (http.Header, error) {
+	h := http.Header{}
+	for i, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		name, value, ok := strings.Cut(line, ":")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" || strings.ContainsAny(name, " \t") {
+			return nil, fmt.Errorf("line %d is not a header line", i+1)
+		}
+		h.Add(name, strings.TrimSpace(value))
+	}
+	return h, nil
 }
 
 func validEffect(e string) bool {

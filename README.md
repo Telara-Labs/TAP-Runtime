@@ -8,12 +8,8 @@ entrypoint: a source file (`main.sh`, `main.py`, `main.js`) or a compiled `.wasm
 Design: `telara-documentation/architecture/tap/34-the-baseline-primitive-is-a-program.md`
 section 13. Ticket: TENG-3031.
 
-**Status: tested on macOS arm64 and Linux (amd64, arm64). Not released.** Windows
-runs a subset under Wine in CI and has never run on Windows itself; macOS Intel
-has never run.
-
-- Writing one: [docs/writing-a-primitive.md](docs/writing-a-primitive.md)
-- Installing into Claude Code or Codex: [docs/install.md](docs/install.md)
+**Status: built and tested on macOS arm64. Not released.** Cross-builds for
+Linux and Windows compile and have not been run.
 
 ## What it does
 
@@ -80,18 +76,12 @@ and every change under it is refused.
     ./bin/tap-runtime pkg/deploy-check-py
     ./bin/tap-runtime install --client claude --print
 
-    go run ./release build --version 0.1.0 --out dist --key release.key \
-        --download-base https://github.com/OWNER/REPO/releases/download/v0.1.0
+    go run ./release build --version 0.1.0 --out dist --key release.key
     go run ./release verify --dir dist --pub release.pub
 
 A release holds the runner for five platforms, the bash-compatible
-interpreter, `install.sh` and `install.ps1`, their checksums, the signature
-and its public key, and the licence notices of everything compiled in. It is
-reproducible: the same source and toolchain give the same bytes.
-
-`--download-base` is where the files will be served from. The runner is built
-knowing the address and digest of its interpreter, and each install script
-carries the digest of every runner. Without it the build is for checking only.
+interpreter, their checksums and the licence notices of everything compiled
+in. It is reproducible: the same source and toolchain give the same bytes.
 
 ## Interpreters are downloaded, not bundled
 
@@ -103,10 +93,7 @@ that does not match is refused. The list is `host/interpreters.go`.
 |---|---|
 | Python | CPython 3.12.0, vmware-labs/webassembly-language-runtimes |
 | JavaScript | QuickJS-ng 0.17.0 |
-| Bash | This repository's `guest-sh`, a file of each release. A runner built from source has no address for it: `GOOS=wasip1 GOARCH=wasm go build -o <store>/sh.wasm ./guest-sh` |
-
-`tap-runtime fetch` downloads every interpreter ahead of time, for a machine
-or a sandbox that will have no network when a primitive runs.
+| Bash | This repository's `guest-sh`. Nobody publishes one, so until this repository cuts releases it is built locally: `GOOS=wasip1 GOARCH=wasm go build -o <store>/sh.wasm ./guest-sh` |
 
 ## The patched shell library
 
