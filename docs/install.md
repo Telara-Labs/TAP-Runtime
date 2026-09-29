@@ -71,6 +71,19 @@ Gemini does not tell other programs which tools it has, so on Gemini a
 primitive must pin each tool it uses: `pin: {server: <server>, tool: <tool>}`,
 with the server's name as it appears in Gemini's settings.
 
+## VS Code (GitHub Copilot)
+
+Install the TAP Runtime extension from `vscode/` in this repository. It
+registers the runner with VS Code as the MCP server "TAP Runtime", so there is
+nothing to add to `mcp.json`, and it lets the runner call the tools VS Code
+already has: every MCP server connected for Copilot, and the editor's own
+tools. VS Code makes each call with its own connection and shows its own
+confirmation where a tool asks for one. Tools bind by name and schema, as on
+Claude Code and Codex.
+
+The extension finds `tap-runtime` in `~/.local/bin`, on PATH, or at the
+`tapRuntime.path` setting. macOS and Linux only for now.
+
 ## Checking a release yourself
 
 Each release holds `SHA256SUMS`, its signature `SHA256SUMS.sig`, and the

@@ -135,6 +135,9 @@ type Options struct {
 	relay        *relayRun
 	relayClient  string
 	relayVersion string
+	// VSCodeSocket reaches the TAP extension in VS Code, which calls the
+	// editor's tools for the runner (bridge/vscode.go).
+	VSCodeSocket string
 
 	// RunsDir holds one directory per run. Empty means the user cache
 	// directory. NoJournal runs without a record, and so without resume.
@@ -205,6 +208,7 @@ func main() {
 	client := flag.String("client", "", "client whose connections to borrow: claude or codex; detected when empty")
 	mcpURL := flag.String("mcp-url", "", "call this MCP server (streamable HTTP) directly instead of borrowing a client's connections")
 	mcpHeaderFile := flag.String("mcp-header-file", "", "with --mcp-url: file of header lines to send, such as \"Authorization: Bearer ...\"")
+	vscodeSocket := flag.String("vscode-socket", "", "call VS Code's tools through the TAP extension listening on this socket")
 	receiptPath := flag.String("receipt", "", "write the admission record as JSON")
 	runsDir := flag.String("runs", "", "directory holding one record per run; default is the user cache directory")
 	resume := flag.String("resume", "", "continue the run with this id")
@@ -228,11 +232,16 @@ func main() {
 	if *limit > 0 {
 		grant.Limit = *limit
 	}
+	askFn := Approver(func(Ask) Grant { return grant })
+	if *vscodeSocket != "" {
+		// VS Code makes every tool call and confirms it itself.
+		askFn = clientApprovesCalls(askFn)
+	}
 	res, err := Run(context.Background(), Options{
 		Package: flag.Arg(0), Args: flag.Args()[1:], Journal: journal,
-		Approve:   func(Ask) Grant { return grant },
+		Approve:   askFn,
 		InterpDir: *interpDir, CacheDir: *cacheDir, PyLib: *pyLib, Client: *client, ReceiptPath: *receiptPath,
-		MCPURL: *mcpURL, MCPHeaderFile: *mcpHeaderFile,
+		MCPURL: *mcpURL, MCPHeaderFile: *mcpHeaderFile, VSCodeSocket: *vscodeSocket,
 		RunsDir: *runsDir, Resume: *resume, NoJournal: *noJournal, RetentionDays: *retention, TelemetryPayloads: *otelPayloads,
 	})
 	must(err)
@@ -349,6 +358,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				}
 			}
 			br = newRelayBridge(o.relay, o.relayClient, o.relayVersion, m.Tools)
+		}
+		if br == nil && o.VSCodeSocket != "" {
+			br, err = bridge.NewVSCode(o.VSCodeSocket)
+			if err != nil {
+				return nil, err
+			}
+			defer br.Close()
 		}
 		if br == nil && o.MCPURL != "" {
 			br, err = openMCP(o.MCPURL, o.MCPHeaderFile)
