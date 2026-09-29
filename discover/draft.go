@@ -1,0 +1,848 @@
+package discover
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
+	"gopkg.in/yaml.v3"
+)
+
+// A draft turns a routine the finder qualified into a TAP package: a
+// primitive.yaml, the main.sh that replays the steps, and a README. Every
+// part is read off the recorded occurrences: what varied between runs is an
+// input, what never varied is written in. Nothing is guessed. A step whose
+// content was decided afresh each run (the body of an edit) is written as a
+// human step rather than invented, and every effect is "write" (the runner
+// asks for approval) unless the user marks the step read-only.
+
+// DefaultPublisher names a draft that has not been given a namespace yet.
+const DefaultPublisher = "local.draft"
+
+// Step kinds.
+const (
+	KindCommand = "command" // a host program, declared in commands[]
+	KindTool    = "tool"    // an MCP tool, declared in tools[] and capabilities[]
+	KindBrowser = "browser" // awaited calls in a browser script, one tool call
+	KindFetch   = "fetch"   // a page fetch, declared in fetch[]
+	KindHuman   = "human"   // content decided per run: written as a marked stop
+	KindSkipped = "skipped" // the agent's own bookkeeping: nothing to replay
+)
+
+// DraftStep is one step as the review shows it.
+type DraftStep struct {
+	N      int    `json:"n"`
+	Kind   string `json:"kind"`
+	Label  string `json:"label"`
+	Line   string `json:"line"`
+	Effect string `json:"effect,omitempty"`
+	Note   string `json:"note,omitempty"`
+}
+
+// DraftInput is one argument of the drafted primitive: $Position in main.sh.
+type DraftInput struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	// Raw inputs are passed as JSON (a number, a boolean), not as a string.
+	Raw      bool   `json:"raw,omitempty"`
+	Example  string `json:"example"`
+	Position int    `json:"position"`
+	From     string `json:"from"`
+}
+
+// Draft is a drafted package and what the review needs to show it.
+type Draft struct {
+	Name      string            `json:"name"`
+	Publisher string            `json:"publisher"`
+	Inputs    []DraftInput      `json:"inputs"`
+	Steps     []DraftStep       `json:"steps"`
+	Files     map[string][]byte `json:"-"`
+	// Problems is what manifest.PublishProblems reports; empty means the
+	// package passes the same checks the registry runs before accepting it.
+	Problems   []string `json:"problems"`
+	HumanSteps int      `json:"human_steps"`
+	// FixedSteps counts steps that pin something: a subcommand, an MCP tool,
+	// a constant argument or browser object. None means every command and
+	// argument varied: exploration, not a procedure.
+	FixedSteps int `json:"fixed_steps"`
+	// FixedShare is how much of the routine is fixed: each replayed step's
+	// tool or command plus every argument that never changed, over that plus
+	// the inputs. A procedure is mostly fixed; an investigation, where the
+	// agent chose most values as it went, is mostly inputs.
+	FixedShare float64 `json:"fixed_share"`
+	values     []map[int]string
+}
+
+// inputValues is input n's value in each drafted run (by run index).
+func (d *Draft) inputValues(n int) map[int]string {
+	if n < 0 || n >= len(d.values) {
+		return nil
+	}
+	return d.values[n]
+}
+
+// DraftOptions are the review's answers.
+type DraftOptions struct {
+	Publisher string
+	// ReadOnly lists step numbers (1-based) the user confirmed change nothing.
+	ReadOnly map[int]bool
+}
+
+// Draft builds the package for Candidates[idx].
+func (r *Report) Draft(idx int, opt DraftOptions) (*Draft, error) {
+	if idx < 0 || idx >= len(r.Candidates) || r.corpus == nil {
+		return nil, errors.New("no such candidate in this run")
+	}
+	c := r.Candidates[idx]
+	if len(c.items) == 0 {
+		return nil, errors.New("this candidate cannot be drafted")
+	}
+	var occ [][]Step
+	sessions := make([]int, 0, len(c.sessionSet))
+	for s := range c.sessionSet {
+		sessions = append(sessions, s)
+	}
+	sort.Ints(sessions)
+	for _, s := range sessions {
+		idxs := matchAt(r.seqs[s], c.items, r.window)
+		if idxs == nil {
+			continue
+		}
+		steps := make([]Step, len(idxs))
+		for i, j := range idxs {
+			steps[i] = r.corpus[s].Steps[j]
+		}
+		occ = append(occ, steps)
+	}
+	if len(occ) == 0 {
+		return nil, errors.New("no occurrence of this candidate could be read back")
+	}
+	return buildDraft(c, occ, opt), nil
+}
+
+// slotPlan is one argument position of one step: a fixed value, or an input.
+type slotPlan struct {
+	slot  Slot
+	fixed bool
+	input int // index into inputs when not fixed
+}
+
+type drafter struct {
+	opt      DraftOptions
+	occ      [][]Step
+	inputs   []DraftInput
+	vectors  []map[int]string // per input: occurrence -> value
+	names    map[string]bool
+	mf       manifest.Manifest
+	cmds     map[string]bool
+	files    map[string]bool
+	origins  map[string]bool
+	tools    map[string]bool
+	lines    []string
+	steps    []DraftStep
+	humanCnt int
+	fixedCnt int
+	fixedArg int // arguments that had the same value in every run
+}
+
+func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
+	if opt.Publisher == "" {
+		opt.Publisher = DefaultPublisher
+	}
+	d := &drafter{opt: opt, occ: occ, names: map[string]bool{}, cmds: map[string]bool{}, files: map[string]bool{}, origins: map[string]bool{}, tools: map[string]bool{}}
+	for i := 0; i < len(c.items); {
+		label := c.Steps[i].Label
+		if strings.HasPrefix(label, "js:") {
+			// Consecutive browser calls were one script: they stay one call.
+			j := i
+			for j < len(c.items) && strings.HasPrefix(c.Steps[j].Label, "js:") {
+				j++
+			}
+			d.browser(i, j)
+			i = j
+			continue
+		}
+		d.step(i, label)
+		i++
+	}
+
+	name := draftName(c)
+	desc := fmt.Sprintf("Recurring routine found by telara tap discover in %d sessions over %d weeks (%s). Steps: %s.",
+		c.Sessions, c.Weeks, clientList(c.ByClient), labelsOf(c))
+	props := map[string]any{}
+	var required []string
+	for _, in := range d.inputs {
+		props[in.Name] = map[string]any{
+			"type":        "string",
+			"description": fmt.Sprintf("Argument %d ($%d): %s, from %s.", in.Position, in.Position, in.Type, in.From),
+			"examples":    []any{in.Example},
+		}
+		required = append(required, in.Name)
+	}
+	in := map[string]any{"type": "object", "properties": props}
+	if len(required) > 0 {
+		in["required"] = required
+	}
+	d.mf.APIVersion, d.mf.Kind = manifest.APIVersion, "Primitive"
+	d.mf.Metadata = manifest.Metadata{Publisher: opt.Publisher, Name: name, Version: "0.1.0", Description: desc,
+		OutputDescription: "What the steps print, in order."}
+	d.mf.Interface = &manifest.Interface{InputSchema: in, OutputSchema: map[string]any{"type": "object"}}
+	d.mf.Execution = manifest.Execution{Runtime: manifest.RuntimeWasm, Entrypoint: "main.sh"}
+	d.mf.Provenance = &manifest.Provenance{Source: "main.sh", Toolchain: "interpreter obtained by the runner, pinned by sha256", Build: "none: the entrypoint is the source"}
+
+	yml, _ := yaml.Marshal(&d.mf)
+	var problems []string
+	if m, err := manifest.Parse(yml); err != nil {
+		problems = []string{err.Error()}
+	} else {
+		problems = m.PublishProblems()
+	}
+
+	var sh strings.Builder
+	fmt.Fprintf(&sh, "# %s\n# Drafted by telara tap discover. Review every line before running or publishing.\n", desc)
+	for _, in := range d.inputs {
+		fmt.Fprintf(&sh, "# $%d  %s (%s), e.g. %s\n", in.Position, in.Name, in.Type, oneLine(in.Example, 60))
+	}
+	sh.WriteString("set -e\n")
+	for _, l := range d.lines {
+		sh.WriteString(l)
+		sh.WriteByte('\n')
+	}
+
+	return &Draft{
+		Name: name, Publisher: opt.Publisher, Inputs: d.inputs, Steps: d.steps,
+		Problems: problems, HumanSteps: d.humanCnt, FixedSteps: d.fixedCnt, FixedShare: fixedShare(d), values: d.vectors,
+		Files: map[string][]byte{
+			"primitive.yaml": yml,
+			"main.sh":        []byte(sh.String()),
+			"README.md":      []byte(draftReadme(name, desc, d)),
+		},
+	}
+}
+
+func (d *drafter) effect(n int) string {
+	if d.opt.ReadOnly[n] {
+		return "read"
+	}
+	return "write"
+}
+
+// derived reports a slot computed from another (a URL's host, a path's base
+// name). Derived slots help spot what is fixed; they are never arguments.
+func derived(key string) bool {
+	return strings.Contains(key, ".") && !strings.HasPrefix(key, "-")
+}
+
+// plan decides, for step i, which arguments are fixed and which are inputs.
+// It uses the occurrences with the most common skeleton and argument keys,
+// and compares values key by key, so arguments given in a different order
+// still line up.
+func (d *drafter) plan(i int, stepName string) []slotPlan {
+	sig := func(st Step) string {
+		var ks []string
+		for _, sl := range st.Slots {
+			if !derived(sl.Key) {
+				ks = append(ks, sl.Key)
+			}
+		}
+		sort.Strings(ks)
+		return st.Skeleton + "#" + strings.Join(ks, ",")
+	}
+	count := map[string]int{}
+	for _, o := range d.occ {
+		count[sig(o[i])]++
+	}
+	modal, best := "", -1
+	for k, v := range count {
+		if v > best || (v == best && k < modal) {
+			modal, best = k, v
+		}
+	}
+	var reps []int
+	for j, o := range d.occ {
+		if sig(o[i]) == modal {
+			reps = append(reps, j)
+		}
+	}
+	valueOf := func(st Step, key string) string {
+		for _, sl := range st.Slots {
+			if sl.Key == key {
+				return sl.Value
+			}
+		}
+		return ""
+	}
+	first := d.occ[reps[0]][i]
+	var plans []slotPlan
+	for _, sl := range first.Slots {
+		if derived(sl.Key) {
+			continue
+		}
+		p := slotPlan{slot: sl}
+		if sl.Sub {
+			p.fixed = true
+			plans = append(plans, p)
+			continue
+		}
+		vec := map[int]string{}
+		same := true
+		for _, j := range reps {
+			v := valueOf(d.occ[j][i], sl.Key)
+			vec[j] = v
+			if v != sl.Value {
+				same = false
+			}
+		}
+		switch {
+		case same && len(reps) > 1:
+			p.fixed = true
+			d.fixedArg++
+		case sl.Key == "recv":
+			// A JS variable the author named differently each run is not an
+			// input anyone would pass; the browser step names it itself.
+			p.input = -1
+		default:
+			p.input = d.input(stepName, sl, vec)
+		}
+		plans = append(plans, p)
+	}
+	return plans
+}
+
+// input returns the input for a varying slot, reusing an earlier input that
+// held the same value in every occurrence both appear in (a path passed to
+// gofmt and then to go test is one input, not two).
+func (d *drafter) input(stepName string, sl Slot, vec map[int]string) int {
+	for n, other := range d.vectors {
+		common, agree := 0, true
+		for j, v := range vec {
+			if w, ok := other[j]; ok {
+				common++
+				if v != w {
+					agree = false
+					break
+				}
+			}
+		}
+		if agree && common >= 2 {
+			return n
+		}
+	}
+	base := stepName
+	key := strings.SplitN(sl.Key, "#", 2)[0]
+	switch {
+	case strings.HasSuffix(key, "="):
+		base += "_" + strings.TrimLeft(strings.TrimSuffix(key, "="), "-")
+	case len(key) > 1 && key[0] == 'p' && isDigits(key[1:]):
+		base += "_arg" + key[1:]
+	case key == "recv":
+		base += "_object"
+	default:
+		base += "_" + strings.TrimLeft(key, "-")
+	}
+	name := sanitizeName(base)
+	for k := 2; d.names[name]; k++ {
+		name = fmt.Sprintf("%s_%d", sanitizeName(base), k)
+	}
+	d.names[name] = true
+	d.inputs = append(d.inputs, DraftInput{Name: name, Type: sl.Type, Raw: sl.Raw, Example: sl.Value, Position: len(d.inputs) + 1, From: stepName})
+	d.vectors = append(d.vectors, vec)
+	return len(d.inputs) - 1
+}
+
+func (d *drafter) step(i int, label string) {
+	n := len(d.steps) + 1
+	switch {
+	case strings.HasPrefix(label, "sh:"):
+		d.command(i, n, label)
+	case strings.HasPrefix(label, "mcp:"):
+		d.tool(i, n, strings.TrimPrefix(label, "mcp:"), label)
+	case strings.HasPrefix(label, "patch:"):
+		d.human(i, n, label, "file")
+	default:
+		d.builtin(i, n, label)
+	}
+}
+
+func (d *drafter) command(i, n int, label string) {
+	fields := strings.Fields(strings.TrimPrefix(label, "sh:"))
+	prog := fields[0]
+	stepName := strings.Join(fields, "_")
+	plans := d.plan(i, stepName)
+	words := []string{prog}
+	var globals []string
+	subSeen, sub := false, ""
+	for k, p := range plans {
+		switch {
+		case p.slot.Sub:
+			subSeen, sub = true, p.slot.Value
+			words = append(words, p.slot.Value)
+		case p.fixed:
+			words = append(words, shellQuote(p.slot.Value))
+		default:
+			words = append(words, fmt.Sprintf(`"$%d"`, d.inputs[p.input].Position))
+		}
+		// Flags before the subcommand are the program's global flags; the
+		// word keyed "<flag>=" after one is its value.
+		if !subSeen && len(fields) > 1 && p.slot.Type == SlotFlag {
+			g := p.slot.Value
+			if k+1 < len(plans) && plans[k+1].slot.Key == p.slot.Key+"=" {
+				if plans[k+1].fixed {
+					g += " " + plans[k+1].slot.Value
+				} else {
+					g += " <any>"
+				}
+			}
+			globals = append(globals, g)
+		}
+	}
+	args := []string{"*"}
+	if sub != "" {
+		args = []string{sub, "*"}
+	}
+	eff := d.effect(n)
+	key := prog + "\x00" + strings.Join(globals, "\x00") + "\x00" + strings.Join(args, "\x00") + "\x00" + eff
+	if !d.cmds[key] {
+		d.cmds[key] = true
+		d.mf.Commands = append(d.mf.Commands, manifest.Command{Command: prog, Globals: globals, Args: args, Effect: eff})
+	}
+	line := strings.Join(words, " ")
+	d.lines = append(d.lines, fmt.Sprintf("# %d. %s", n, label), line)
+	fixed := len(fields) > 1
+	for _, p := range plans {
+		if p.fixed && !p.slot.Sub && p.slot.Type != SlotFlag && p.slot.Type != SlotNumber {
+			fixed = true
+		}
+	}
+	if fixed {
+		d.fixedCnt++
+	}
+	d.steps = append(d.steps, DraftStep{N: n, Kind: KindCommand, Label: label, Line: line, Effect: eff})
+}
+
+var nonAlias = regexp.MustCompile(`[^a-z0-9_]+`)
+
+// jsIdentifier matches an argument that is only a variable (url1, row.href):
+// a value the recorded script computed, not one written into the call.
+var jsIdentifier = regexp.MustCompile(`^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$`)
+
+func (d *drafter) tool(i, n int, tool, label string) {
+	alias := strings.Trim(nonAlias.ReplaceAllString(strings.ToLower(tool), "_"), "_")
+	plans := d.plan(i, alias)
+	props := map[string]any{}
+	var keys, jqArgs, fields []string
+	for _, p := range plans {
+		keys = append(keys, p.slot.Key)
+		props[p.slot.Key] = argSchema(p.slot)
+		ref := jqKey(p.slot.Key)
+		if p.fixed {
+			fields = append(fields, fmt.Sprintf("%s: %s", ref, jsonLiteral(p.slot)))
+			continue
+		}
+		in := d.inputs[p.input]
+		v := fmt.Sprintf("a%d", in.Position)
+		if in.Raw {
+			jqArgs = append(jqArgs, fmt.Sprintf(`--argjson %s "$%d"`, v, in.Position))
+		} else {
+			jqArgs = append(jqArgs, fmt.Sprintf(`--arg %s "$%d"`, v, in.Position))
+		}
+		fields = append(fields, fmt.Sprintf("%s: $%s", ref, v))
+	}
+	sort.Strings(keys)
+	args := map[string]any{"type": "object", "properties": props, "required": anySlice(keys)}
+	result := map[string]any{"type": "object"}
+	question := fmt.Sprintf("Run %s with %s, as the recorded sessions did.", tool, orNone(keys))
+	capLabel := d.opt.Publisher + "/" + capName(tool) + "@1"
+	eff := d.effect(n)
+	if !d.tools[alias] {
+		d.tools[alias] = true
+		d.mf.Capabilities = append(d.mf.Capabilities, manifest.Capability{Label: capLabel, ID: manifest.CapabilityID(question, args, result), Question: question, Args: args, Result: result})
+		d.mf.Tools = append(d.mf.Tools, manifest.Tool{Alias: alias, Capability: capLabel, Effect: eff})
+	}
+	line := fmt.Sprintf(`tap call %s "$(%s)"`, alias, jqCall(jqArgs, "{"+strings.Join(fields, ", ")+"}"))
+	d.lines = append(d.lines, fmt.Sprintf("# %d. %s", n, label), line)
+	d.fixedCnt++ // an MCP tool names one action in one system
+	d.steps = append(d.steps, DraftStep{N: n, Kind: KindTool, Label: label, Line: line, Effect: eff})
+}
+
+// browser writes steps i..j-1 (awaited calls of one script) as one call to
+// the browser tool, rebuilding the script with this run's inputs.
+func (d *drafter) browser(i, j int) {
+	n := len(d.steps) + 1
+	var parts, jqArgs, labels []string
+	varyingObject, browserFixed := false, false
+	var scriptVars []string
+	for k := i; k < j; k++ {
+		method := strings.TrimPrefix(d.occ[0][k].Label, "js:")
+		labels = append(labels, method)
+		recv, arg := "tab", ""
+		for _, p := range d.plan(k, strings.ReplaceAll(method, ".", "_")) {
+			switch {
+			case p.slot.Key == "recv" && p.fixed:
+				recv = p.slot.Value
+			case p.slot.Key == "recv":
+				varyingObject = true
+			case p.slot.Key != "0":
+			case p.fixed && p.slot.Raw:
+				browserFixed = true
+				if jsIdentifier.MatchString(p.slot.Value) {
+					scriptVars = append(scriptVars, p.slot.Value)
+				}
+				arg = `" + ` + strconv.Quote(p.slot.Value) + ` + "`
+			case p.fixed:
+				browserFixed = true
+				arg = `" + (` + strconv.Quote(p.slot.Value) + `|tojson) + "`
+			default:
+				in := d.inputs[p.input]
+				jqArgs = append(jqArgs, fmt.Sprintf(`--arg a%d "$%d"`, in.Position, in.Position))
+				if p.slot.Raw {
+					if jsIdentifier.MatchString(p.slot.Value) {
+						scriptVars = append(scriptVars, p.slot.Value)
+					}
+					arg = fmt.Sprintf(`" + $a%d + "`, in.Position)
+				} else {
+					arg = fmt.Sprintf(`" + ($a%d|tojson) + "`, in.Position)
+				}
+			}
+		}
+		parts = append(parts, fmt.Sprintf("await %s.%s(%s);", recv, method, arg))
+	}
+	question := "Run a browser script in the user's open browser session and return what it reports."
+	args := map[string]any{"type": "object", "properties": map[string]any{"code": map[string]any{"type": "string"}}, "required": []any{"code"}}
+	result := map[string]any{"type": "object"}
+	capLabel := d.opt.Publisher + "/browser.script@1"
+	eff := d.effect(n)
+	if !d.tools["browser"] {
+		d.tools["browser"] = true
+		d.mf.Capabilities = append(d.mf.Capabilities, manifest.Capability{Label: capLabel, ID: manifest.CapabilityID(question, args, result), Question: question, Args: args, Result: result})
+		d.mf.Tools = append(d.mf.Tools, manifest.Tool{Alias: "browser", Capability: capLabel, Effect: eff})
+	}
+	code := strings.Join(parts, `\n`)
+	line := fmt.Sprintf(`tap call browser "$(%s)"`, jqCall(jqArgs, `{code: ("`+code+`")}`))
+	var notes []string
+	if varyingObject {
+		notes = append(notes, "Some calls were made on a variable the author named differently each run; the draft calls it tab. Open or select that tab first.")
+	}
+	if len(scriptVars) > 0 {
+		// goto(url1): the value was a variable the original script computed
+		// before the call. Extracting the call cannot recover it.
+		notes = append(notes, "Uses values the original script computed before these calls ("+strings.Join(scriptVars, ", ")+"); this step needs the rest of that script before it can run.")
+		d.humanCnt++
+	}
+	note := strings.Join(notes, " ")
+	label := "browser: " + strings.Join(labels, " → ")
+	d.lines = append(d.lines, fmt.Sprintf("# %d. %s", n, label))
+	if note != "" {
+		d.lines = append(d.lines, "# "+note)
+	}
+	d.lines = append(d.lines, line)
+	if browserFixed {
+		d.fixedCnt++
+	}
+	d.steps = append(d.steps, DraftStep{N: n, Kind: KindBrowser, Label: label, Line: line, Effect: eff, Note: note})
+}
+
+func (d *drafter) human(i, n int, label, fileKey string) {
+	target := ""
+	for _, p := range d.plan(i, "edit") {
+		if p.slot.Key == fileKey && p.fixed {
+			target = p.slot.Value
+		}
+	}
+	note := "The change was different every run, so it is not replayed. Make it by hand, or give it to the agent as this step."
+	line := fmt.Sprintf(`echo "HUMAN STEP %d: %s%s" >&2`, n, label, map[bool]string{true: " " + target, false: ""}[target != ""])
+	if target != "" && !d.files[target] {
+		d.files[target] = true
+		d.mf.Files = append(d.mf.Files, manifest.File{Path: target, Access: "write"})
+	}
+	d.humanCnt++
+	d.lines = append(d.lines, fmt.Sprintf("# %d. %s", n, label), "# "+note, line)
+	d.steps = append(d.steps, DraftStep{N: n, Kind: KindHuman, Label: label, Line: line, Note: note})
+}
+
+// Agent-builtin tools have no TAP equivalent to bind. Reading a file and
+// fetching a page have one-line replays; editing is judgement (a human
+// step); the rest is the agent's own bookkeeping.
+// replayable reports whether a primitive can run a step with this label
+// itself: a host command, an MCP tool, a browser call, a file read or a page
+// fetch. Edits decided per run and the agent's bookkeeping cannot.
+func replayable(label string) bool {
+	for _, p := range []string{"sh:", "mcp:", "js:"} {
+		if strings.HasPrefix(label, p) {
+			return true
+		}
+	}
+	return readTools[label] || fetchTools[label]
+}
+
+var (
+	readTools  = map[string]bool{"Read": true, "read_file": true, "read_file_v2": true}
+	editTools  = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "edit_file": true, "edit_file_v2": true, "search_replace": true, "apply_patch": true}
+	fetchTools = map[string]bool{"WebFetch": true}
+)
+
+func (d *drafter) builtin(i, n int, label string) {
+	switch {
+	case readTools[label]:
+		for _, p := range d.plan(i, "read") {
+			if p.slot.Type != SlotPath {
+				continue
+			}
+			arg := shellQuote(p.slot.Value)
+			if !p.fixed {
+				arg = fmt.Sprintf(`"$%d"`, d.inputs[p.input].Position)
+			}
+			key := "cat\x00\x00*\x00read"
+			if !d.cmds[key] {
+				d.cmds[key] = true
+				d.mf.Commands = append(d.mf.Commands, manifest.Command{Command: "cat", Args: []string{"*"}, Effect: d.effect(n)})
+			}
+			line := "cat " + arg
+			d.lines = append(d.lines, fmt.Sprintf("# %d. %s (read a file)", n, label), line)
+			if p.fixed {
+				d.fixedCnt++
+			}
+			d.steps = append(d.steps, DraftStep{N: n, Kind: KindCommand, Label: label, Line: line, Effect: d.effect(n)})
+			return
+		}
+	case editTools[label]:
+		key := "file_path"
+		if label == "edit_file_v2" {
+			key = "relativeWorkspacePath"
+		}
+		d.human(i, n, label, key)
+		return
+	case fetchTools[label]:
+		for _, p := range d.plan(i, "fetch") {
+			if p.slot.Key != "url" {
+				continue
+			}
+			u, err := url.Parse(p.slot.Value)
+			if err != nil || u.Host == "" {
+				break
+			}
+			origin := u.Scheme + "://" + u.Host
+			if !d.origins[origin] {
+				d.origins[origin] = true
+				d.mf.Fetch = append(d.mf.Fetch, manifest.Fetch{Origin: origin})
+			}
+			arg := shellQuote(p.slot.Value)
+			if !p.fixed {
+				arg = fmt.Sprintf(`"$%d"`, d.inputs[p.input].Position)
+			}
+			line := "tap fetch " + arg
+			note := ""
+			if !p.fixed {
+				note = "Only " + origin + " is declared; a URL on another site will be refused."
+			}
+			d.lines = append(d.lines, fmt.Sprintf("# %d. %s", n, label), line)
+			d.steps = append(d.steps, DraftStep{N: n, Kind: KindFetch, Label: label, Line: line, Effect: "read", Note: note})
+			return
+		}
+	}
+	note := "The agent's own bookkeeping (planning, searching its tools, typing into a terminal it opened): nothing to replay."
+	d.lines = append(d.lines, fmt.Sprintf("# %d. %s: not replayed. %s", n, label, note))
+	d.steps = append(d.steps, DraftStep{N: n, Kind: KindSkipped, Label: label, Note: note})
+}
+
+func draftReadme(name, desc string, d *drafter) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n%s\n\nDrafted by `telara tap discover` from recorded sessions on this machine. Review it before you run or publish it.\n\n", name, desc)
+	b.WriteString("## Inputs\n\n")
+	if len(d.inputs) == 0 {
+		b.WriteString("None: every value was the same in every recorded run.\n")
+	}
+	for _, in := range d.inputs {
+		fmt.Fprintf(&b, "- `$%d` **%s** (%s), from %s. Example: `%s`\n", in.Position, in.Name, in.Type, in.From, oneLine(in.Example, 80))
+	}
+	b.WriteString("\n## Steps\n\n")
+	for _, s := range d.steps {
+		eff := ""
+		if s.Effect != "" {
+			eff = " (" + s.Effect + ")"
+		}
+		fmt.Fprintf(&b, "%d. **%s** %s%s\n", s.N, s.Kind, s.Label, eff)
+		if s.Line != "" {
+			fmt.Fprintf(&b, "   ```\n   %s\n   ```\n", s.Line)
+		}
+		if s.Note != "" {
+			fmt.Fprintf(&b, "   %s\n", s.Note)
+		}
+	}
+	if d.humanCnt > 0 {
+		fmt.Fprintf(&b, "\n%d step(s) are human steps: the content differed every run, so the draft stops there instead of guessing.\n", d.humanCnt)
+	}
+	b.WriteString("\nEffects are `write` (the runner asks before each) unless a step was marked read-only in review.\n")
+	return b.String()
+}
+
+var nameWord = regexp.MustCompile(`[a-z0-9]+`)
+
+// draftName joins the steps' words (git add commit push), keeping the first
+// time each appears, into a manifest name.
+func draftName(c Candidate) string {
+	seen := map[string]bool{}
+	var words []string
+	for _, s := range c.Steps {
+		l := strings.ToLower(s.Label)
+		for _, p := range []string{"sh:", "mcp:", "js:", "patch:", "telara_"} {
+			l = strings.ReplaceAll(l, p, "")
+		}
+		for _, w := range nameWord.FindAllString(l, -1) {
+			if !seen[w] {
+				seen[w] = true
+				words = append(words, w)
+			}
+		}
+	}
+	name := strings.Join(words, "-")
+	if len(name) > 48 {
+		name = strings.TrimRight(name[:48], "-")
+	}
+	if name == "" || name[0] < 'a' || name[0] > 'z' {
+		name = "routine-" + name
+	}
+	return name
+}
+
+func clientList(m map[string]int) string {
+	var out []string
+	for k, v := range m {
+		out = append(out, fmt.Sprintf("%s %d", k, v))
+	}
+	sort.Strings(out)
+	return strings.Join(out, ", ")
+}
+
+// argSchema is the JSON schema of one recorded tool argument: its recorded
+// JSON type, so the contract asks for what the tool was actually sent.
+func argSchema(sl Slot) map[string]any {
+	if !sl.Raw {
+		return map[string]any{"type": "string"}
+	}
+	var v any
+	if json.Unmarshal([]byte(sl.Value), &v) == nil {
+		switch v.(type) {
+		case float64:
+			return map[string]any{"type": "number"}
+		case bool:
+			return map[string]any{"type": "boolean"}
+		case []any:
+			return map[string]any{"type": "array"}
+		case map[string]any:
+			return map[string]any{"type": "object"}
+		}
+	}
+	return map[string]any{}
+}
+
+// jsonLiteral writes a fixed argument as the JSON it was recorded as.
+func jsonLiteral(sl Slot) string {
+	if sl.Raw && json.Valid([]byte(sl.Value)) {
+		return sl.Value
+	}
+	return strconv.Quote(sl.Value)
+}
+
+var jqIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func jqKey(k string) string {
+	if jqIdent.MatchString(k) {
+		return k
+	}
+	return strconv.Quote(k)
+}
+
+var capChars = regexp.MustCompile(`[^a-z0-9_.-]+`)
+
+func capName(tool string) string {
+	n := strings.Trim(capChars.ReplaceAllString(strings.ToLower(tool), "_"), "_.-")
+	if n == "" || n[0] < 'a' || n[0] > 'z' {
+		n = "t" + n
+	}
+	return n
+}
+
+var safeShell = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
+
+func shellQuote(s string) string {
+	if safeShell.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+var nonName = regexp.MustCompile(`[^a-z0-9_]+`)
+
+func sanitizeName(s string) string {
+	n := strings.Trim(nonName.ReplaceAllString(strings.ToLower(s), "_"), "_")
+	if n == "" || n[0] < 'a' || n[0] > 'z' {
+		n = "in_" + n
+	}
+	return n
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func oneLine(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > n {
+		return s[:n] + "…"
+	}
+	return s
+}
+
+func orNone(keys []string) string {
+	if len(keys) == 0 {
+		return "no arguments"
+	}
+	return strings.Join(keys, ", ")
+}
+
+func anySlice(ss []string) []any {
+	out := make([]any, len(ss))
+	for i, s := range ss {
+		out[i] = s
+	}
+	return out
+}
+
+// jqCall is the jq command that builds a JSON argument, quoted for bash:
+// the program goes in single quotes, so a single quote inside it (common in
+// a CSS selector or a message) is closed, escaped and reopened.
+func jqCall(args []string, program string) string {
+	cmd := "jq -nc"
+	if len(args) > 0 {
+		cmd += " " + strings.Join(args, " ")
+	}
+	return cmd + " '" + strings.ReplaceAll(program, "'", `'\''`) + "'"
+}
+
+func fixedShare(d *drafter) float64 {
+	fixed := d.fixedArg
+	for _, s := range d.steps {
+		if s.Kind != KindSkipped && s.Kind != KindHuman {
+			fixed++
+		}
+	}
+	if fixed+len(d.inputs) == 0 {
+		return 0
+	}
+	return float64(fixed) / float64(fixed+len(d.inputs))
+}
