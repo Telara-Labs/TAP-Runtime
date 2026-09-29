@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"gitlab.com/telara-labs/tap-runtime/glob"
+	"gitlab.com/telara-labs/tap-runtime/contract/glob"
 	"io"
 	"os"
 	"os/exec"
