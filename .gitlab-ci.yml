@@ -77,21 +77,22 @@ windows-amd64-wine:
     - grep -q "written-on-windows" out/y.txt
     - test ! -e ../escaped.txt
 
-# The same, on Windows itself. Manual, because it needs a Windows runner and
-# Telara has none: playing it uses a GitLab.com shared runner.
+# The same, on Windows itself: Telara's Windows runner on GCP
+# (telara-cloud/ci-runners/setup-windows-runner.sh), which has git and Go
+# installed. Manual, because that VM is stopped when Windows is not being
+# tested, and a job for a stopped runner waits for ever.
 windows-amd64:
   stage: verify
   when: manual
   allow_failure: true
-  tags: [saas-windows-medium-amd64]
+  tags: [telara-windows]
+  before_script: []
   artifacts:
     when: always
     paths: [windows.log]
     expire_in: 1 week
   script:
     - Start-Transcript -Path windows.log
-    - choco install golang --version=1.26.1 -y --no-progress
-    - $env:Path = "C:\Program Files\Go\bin;" + $env:Path
     - go version
     - go test ./bind ./journal ./satisfy -count=1
     - cd contract; go test ./glob ./manifest -count=1; cd ..
