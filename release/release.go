@@ -2,12 +2,19 @@
 // the bash-compatible interpreter, their checksums, and the licence notices
 // of everything compiled in.
 //
-//	go run ./release build  --version 0.1.0 --out dist [--key release.key]
+//	go run ./release build  --version 0.1.0 --out dist [--key release.key] [--download-base URL]
 //	go run ./release verify --dir dist [--pub release.pub]
 //	go run ./release keygen --out release
 //
 // A build is reproducible: the same source and the same toolchain give the
 // same bytes, so a published checksum can be checked by building again.
+//
+// --download-base is the address the files of this release will be served
+// from, such as https://github.com/OWNER/REPO/releases/download/v0.1.0. With
+// it the runner is built knowing where its bash-compatible interpreter is and
+// what its digest must be, and the release holds install.sh and install.ps1,
+// each carrying the digest of every runner. Without it the build is for
+// checking only: nothing in it knows where it will be published.
 //
 // Signing uses an ed25519 key read from a file the caller names. Where that
 // key lives, and who may use it, is not decided here.
@@ -21,9 +28,11 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -44,12 +53,13 @@ func main() {
 		out := fs.String("out", "dist", "directory to write")
 		key := fs.String("key", "", "ed25519 private key file; the checksums are signed when given")
 		only := fs.String("only", "", "build one platform, such as linux/amd64")
+		base := fs.String("download-base", "", "address the files of this release will be served from")
 		fs.Parse(os.Args[2:])
 		platforms := Platforms
 		if *only != "" {
 			platforms = []string{*only}
 		}
-		err = Build(".", *out, *version, platforms, *key)
+		err = Build(".", *out, *version, platforms, *key, *base)
 	case "verify":
 		fs := flag.NewFlagSet("verify", flag.ExitOnError)
 		dir := fs.String("dir", "dist", "directory to check")
@@ -84,15 +94,33 @@ func run(dir string, env []string, name string, args ...string) ([]byte, error) 
 	return out.Bytes(), nil
 }
 
-// flags make the output depend on the source and the toolchain only.
-func flags(version string) []string {
-	return []string{"-trimpath", "-buildvcs=false", "-ldflags", "-s -w -buildid= -X main.version=" + version}
+// flags make the output depend on the source and the toolchain only. set
+// holds the variables the build stamps, as name=value.
+func flags(set ...string) []string {
+	ld := "-s -w -buildid="
+	for _, v := range set {
+		ld += " -X main." + v
+	}
+	return []string{"-trimpath", "-buildvcs=false", "-ldflags", ld}
 }
 
-// Build writes a release into out.
-func Build(repo, out, version string, platforms []string, keyFile string) error {
-	if version == "" {
-		return fmt.Errorf("a version is needed")
+var versionRe = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`)
+
+// Build writes a release into out. base is where its files will be served
+// from; it may be empty.
+func Build(repo, out, version string, platforms []string, keyFile, base string) error {
+	// The version and the address are written into a linker flag and into
+	// two scripts, so neither may hold a space or a quote.
+	if !versionRe.MatchString(version) {
+		return fmt.Errorf("version %q must be written like 0.1.0 or 0.1.0-rc.1", version)
+	}
+	base = strings.TrimRight(base, "/")
+	if base != "" {
+		// Plain http is taken from this machine only, which is how the
+		// tests serve a release to the install script.
+		if u, err := url.Parse(base); err != nil || u.Scheme != "https" && u.Hostname() != "127.0.0.1" || u.Host == "" || strings.ContainsAny(base, " '\"`$\\") {
+			return fmt.Errorf("--download-base %q must be an https address", base)
+		}
 	}
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return err
@@ -101,8 +129,28 @@ func Build(repo, out, version string, platforms []string, keyFile string) error 
 	if err != nil {
 		return err
 	}
-	base := []string{"CGO_ENABLED=0", "GOWORK=off", "GOFLAGS=-mod=readonly"}
+	env := []string{"CGO_ENABLED=0", "GOWORK=off", "GOFLAGS=-mod=readonly"}
 	var files []string
+
+	// The interpreter nobody else publishes. It is built first, because a
+	// runner that will fetch it is built knowing its digest.
+	sh := fmt.Sprintf("sh-%s.wasm", version)
+	args := append(append([]string{"build"}, flags("version="+version)...), "-o", filepath.Join(abs, sh), "./guest-sh")
+	if _, err := run(repo, append(env, "GOOS=wasip1", "GOARCH=wasm"), "go", args...); err != nil {
+		return err
+	}
+	files = append(files, sh)
+	stamp := []string{"version=" + version}
+	if base != "" {
+		raw, err := os.ReadFile(filepath.Join(abs, sh))
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(raw)
+		stamp = append(stamp, "shURL="+base+"/"+sh, "shSHA256="+hex.EncodeToString(sum[:]))
+	}
+
+	runners := map[string]string{} // platform to file
 	for _, p := range platforms {
 		goos, goarch, ok := strings.Cut(p, "/")
 		if !ok {
@@ -112,19 +160,25 @@ func Build(repo, out, version string, platforms []string, keyFile string) error 
 		if goos == "windows" {
 			name += ".exe"
 		}
-		args := append(append([]string{"build"}, flags(version)...), "-o", filepath.Join(abs, name), "./host")
-		if _, err := run(repo, append(base, "GOOS="+goos, "GOARCH="+goarch), "go", args...); err != nil {
+		args := append(append([]string{"build"}, flags(stamp...)...), "-o", filepath.Join(abs, name), "./host")
+		if _, err := run(repo, append(env, "GOOS="+goos, "GOARCH="+goarch), "go", args...); err != nil {
 			return err
 		}
 		files = append(files, name)
+		runners[p] = name
 	}
-	// The interpreter nobody else publishes.
-	sh := fmt.Sprintf("sh-%s.wasm", version)
-	args := append(append([]string{"build"}, flags(version)...), "-o", filepath.Join(abs, sh), "./guest-sh")
-	if _, err := run(repo, append(base, "GOOS=wasip1", "GOARCH=wasm"), "go", args...); err != nil {
-		return err
+	if base != "" {
+		scripts, err := installers(abs, version, base, runners)
+		if err != nil {
+			return err
+		}
+		for name, text := range scripts {
+			if err := os.WriteFile(filepath.Join(abs, name), text, 0o755); err != nil {
+				return err
+			}
+			files = append(files, name)
+		}
 	}
-	files = append(files, sh)
 
 	notices, err := Notices(repo)
 	if err != nil {
@@ -149,6 +203,13 @@ func Build(repo, out, version string, platforms []string, keyFile string) error 
 		}
 		sig := ed25519.Sign(ed25519.PrivateKey(key), sums)
 		if err := os.WriteFile(filepath.Join(abs, "SHA256SUMS.sig"), []byte(hex.EncodeToString(sig)+"\n"), 0o644); err != nil {
+			return err
+		}
+		// The public half goes with the release so that a reader can see
+		// which key signed it. It proves nothing by being there: whoever
+		// checks a signature takes the key from somewhere they already trust.
+		pub := ed25519.PrivateKey(key).Public().(ed25519.PublicKey)
+		if err := os.WriteFile(filepath.Join(abs, "SHA256SUMS.pub"), []byte(hex.EncodeToString(pub)+"\n"), 0o644); err != nil {
 			return err
 		}
 	}
@@ -211,7 +272,7 @@ func Verify(dir, pubFile string) error {
 		return err
 	}
 	for _, e := range entries {
-		if n := e.Name(); !listed[n] && n != "SHA256SUMS" && n != "SHA256SUMS.sig" {
+		if n := e.Name(); !listed[n] && n != "SHA256SUMS" && n != "SHA256SUMS.sig" && n != "SHA256SUMS.pub" {
 			return fmt.Errorf("%s is in the release and not in its checksums", n)
 		}
 	}
