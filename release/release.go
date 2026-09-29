@@ -352,7 +352,13 @@ func Notices(repo string) ([]byte, error) {
 	}
 	sort.Strings(paths)
 	var b bytes.Buffer
-	b.WriteString("tap-runtime includes the following software.\n")
+	// The runner's own licence first: a copy of the program carries it.
+	self, _ := licenceIn(repo)
+	if self == nil {
+		return nil, fmt.Errorf("the repository has no licence file; the runner cannot be shipped without one")
+	}
+	b.Write(bytes.TrimSpace(self))
+	b.WriteString("\n\n" + strings.Repeat("=", 72) + "\n\ntap-runtime includes the following software.\n")
 	write := func(title, dir string) error {
 		text, name := licenceIn(dir)
 		if text == nil {

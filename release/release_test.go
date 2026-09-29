@@ -98,6 +98,9 @@ func TestNoticesCoverWhatIsCompiledIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.HasPrefix(string(n), "MIT License\n\nCopyright (c) 2026 Telara Inc.") {
+		t.Errorf("the notices do not open with the runner's own licence:\n%.200s", n)
+	}
 	for _, want := range []string{"github.com/tetratelabs/wazero", "github.com/itchyny/gojq", "github.com/evanw/esbuild",
 		"github.com/santhosh-tekuri/jsonschema", "gopkg.in/yaml.v3", "mvdan.cc/sh/v3 v3.14.1, modified"} {
 		if !strings.Contains(string(n), want) {
