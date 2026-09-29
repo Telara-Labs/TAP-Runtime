@@ -130,6 +130,11 @@ type Options struct {
 	MCPURL        string
 	MCPHeaderFile string
 	ReceiptPath   string
+	// relay, when set, borrows the connections of a client that makes tool
+	// calls when a hook asks it to (relay.go). relayClient names that client.
+	relay        *relayRun
+	relayClient  string
+	relayVersion string
 
 	// RunsDir holds one directory per run. Empty means the user cache
 	// directory. NoJournal runs without a record, and so without resume.
@@ -176,6 +181,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "install" {
 		os.Exit(installCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "hook" {
+		os.Exit(hookCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "fetch" {
 		os.Exit(fetchCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
@@ -206,7 +214,7 @@ func main() {
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: host [--approve] [--resume RUN] <package-dir> [args...]\n       host serve\n       host install --client claude|codex\n       host fetch\n       host manifest check|complete <package-dir>")
+		fmt.Fprintln(os.Stderr, "usage: host [--approve] [--resume RUN] <package-dir> [args...]\n       host serve\n       host install --client claude|codex|gemini\n       host hook gemini\n       host fetch\n       host manifest check|complete <package-dir>")
 		os.Exit(2)
 	}
 	var journal io.Writer = io.Discard
@@ -332,6 +340,16 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	var adm *admission
 	br := o.Bridge
 	if len(m.Tools) > 0 {
+		if br == nil && o.relay != nil {
+			// The client does not say which tools it has, so a tool binds
+			// only where the primitive names it.
+			for _, d := range m.Tools {
+				if d.Pin == nil && !d.Optional {
+					return nil, fmt.Errorf("tool %q: %s does not tell the runner which tools it has, so each tool must be pinned, as pin: {server: <server>, tool: <tool>}", d.Alias, o.relayClient)
+				}
+			}
+			br = newRelayBridge(o.relay, o.relayClient, o.relayVersion, m.Tools)
+		}
 		if br == nil && o.MCPURL != "" {
 			br, err = openMCP(o.MCPURL, o.MCPHeaderFile)
 			if err != nil {

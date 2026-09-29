@@ -52,6 +52,25 @@ tap-runtime install --client codex
 tap-runtime install --client claude --print  # show the command, change nothing
 ```
 
+## Gemini CLI
+
+```
+tap-runtime install --client gemini
+```
+
+Gemini CLI has no way for a program to call its tools, but its hooks can ask
+it to make a call. So the runner registers two things in
+`~/.gemini/settings.json`: itself as the MCP server `tap`, and an `AfterTool`
+hook. When the model calls `tap_run`, the hook has Gemini make each tool call
+the primitive asks for, with Gemini's own connection and its own approval,
+carries each result to the runner, and ends with `tap_result`. The model sees
+only the primitive's output. A copy of the settings file as it was is kept
+beside it as `settings.json.tap-backup`.
+
+Gemini does not tell other programs which tools it has, so on Gemini a
+primitive must pin each tool it uses: `pin: {server: <server>, tool: <tool>}`,
+with the server's name as it appears in Gemini's settings.
+
 ## Checking a release yourself
 
 Each release holds `SHA256SUMS`, its signature `SHA256SUMS.sig`, and the
