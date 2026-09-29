@@ -114,16 +114,22 @@ const Unlimited = -1
 
 // Options is everything a run is given.
 type Options struct {
-	Package     string
-	Args        []string
-	Approve     Approver
-	Journal     io.Writer
-	InterpDir   string
-	CacheDir    string
-	PyLib       string
-	Client      string        // claude, codex, or empty to detect
-	Bridge      bridge.Bridge // set by the server, which already knows the client
-	ReceiptPath string
+	Package   string
+	Args      []string
+	Approve   Approver
+	Journal   io.Writer
+	InterpDir string
+	CacheDir  string
+	PyLib     string
+	Client    string        // claude, codex, or empty to detect
+	Bridge    bridge.Bridge // set by the server, which already knows the client
+	// MCPURL, when set, has the runner call that MCP server directly instead
+	// of borrowing a client's connections: the way a service that runs
+	// primitives itself hands them its gateway. MCPHeaderFile holds the header
+	// lines sent with every request, such as its Authorization.
+	MCPURL        string
+	MCPHeaderFile string
+	ReceiptPath   string
 
 	// RunsDir holds one directory per run. Empty means the user cache
 	// directory. NoJournal runs without a record, and so without resume.
@@ -170,9 +176,6 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "install" {
 		os.Exit(installCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
-	if len(os.Args) > 1 && os.Args[1] == "fetch" {
-		os.Exit(fetchCommand(os.Args[2:], os.Stdout, os.Stderr))
-	}
 	if len(os.Args) > 1 && os.Args[1] == "manifest" {
 		os.Exit(manifestCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
@@ -189,6 +192,8 @@ func main() {
 	interpDir := flag.String("interpreters", "", "interpreter store; default is the user cache directory")
 	cacheDir := flag.String("cache", "", "directory for the compiled-interpreter cache")
 	client := flag.String("client", "", "client whose connections to borrow: claude or codex; detected when empty")
+	mcpURL := flag.String("mcp-url", "", "call this MCP server (streamable HTTP) directly instead of borrowing a client's connections")
+	mcpHeaderFile := flag.String("mcp-header-file", "", "with --mcp-url: file of header lines to send, such as \"Authorization: Bearer ...\"")
 	receiptPath := flag.String("receipt", "", "write the admission record as JSON")
 	runsDir := flag.String("runs", "", "directory holding one record per run; default is the user cache directory")
 	resume := flag.String("resume", "", "continue the run with this id")
@@ -198,7 +203,7 @@ func main() {
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: host [--approve] [--resume RUN] <package-dir> [args...]\n       host serve\n       host install --client claude|codex\n       host fetch\n       host manifest check|complete <package-dir>")
+		fmt.Fprintln(os.Stderr, "usage: host [--approve] [--resume RUN] <package-dir> [args...]\n       host serve\n       host manifest check|complete <package-dir>")
 		os.Exit(2)
 	}
 	var journal io.Writer = io.Discard
@@ -216,6 +221,7 @@ func main() {
 		Package: flag.Arg(0), Args: flag.Args()[1:], Journal: journal,
 		Approve:   func(Ask) Grant { return grant },
 		InterpDir: *interpDir, CacheDir: *cacheDir, PyLib: *pyLib, Client: *client, ReceiptPath: *receiptPath,
+		MCPURL: *mcpURL, MCPHeaderFile: *mcpHeaderFile,
 		RunsDir: *runsDir, Resume: *resume, NoJournal: *noJournal, RetentionDays: *retention, TelemetryPayloads: *otelPayloads,
 	})
 	must(err)
@@ -323,6 +329,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	var adm *admission
 	br := o.Bridge
 	if len(m.Tools) > 0 {
+		if br == nil && o.MCPURL != "" {
+			br, err = openMCP(o.MCPURL, o.MCPHeaderFile)
+			if err != nil {
+				return nil, err
+			}
+			defer br.Close()
+		}
 		if br == nil {
 			c := o.Client
 			if c == "" {
