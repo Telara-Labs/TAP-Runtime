@@ -10,6 +10,14 @@ variables:
 # ones (TENG-1863). Those runners are Linux.
 default:
   tags: [telara-amd64]
+  retry:
+    max: 2
+    when: runner_system_failure
+  # As the other Telara repositories do on these runners: temporary files and
+  # the build cache live in the project directory.
+  before_script:
+    - mkdir -p "${CI_PROJECT_DIR}/.tmp" "${CI_PROJECT_DIR}/.cache/go-build"
+    - export TMPDIR="${CI_PROJECT_DIR}/.tmp" GOTMPDIR="${CI_PROJECT_DIR}/.tmp" GOCACHE="${CI_PROJECT_DIR}/.cache/go-build"
 
 .suite: &suite
   - test -z "$(gofmt -l bind bridge canon conformance glob host journal manifest rebuild release satisfy guest-sh)"
