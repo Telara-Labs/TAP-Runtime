@@ -91,15 +91,4 @@ windows-amd64:
     paths: [windows.log]
     expire_in: 1 week
   script:
-    - Start-Transcript -Path windows.log
-    - go version
-    - go test ./bind ./journal ./satisfy -count=1
-    - cd contract; go test ./glob ./manifest -count=1; cd ..
-    - go build -o tap-runtime.exe ./host
-    - $env:GOOS = "wasip1"; $env:GOARCH = "wasm"; go build -o store/sh.wasm ./guest-sh; Remove-Item Env:GOOS; Remove-Item Env:GOARCH
-    - New-Item -ItemType Directory -Force -Path work/in | Out-Null
-    - Set-Content -Path work/in/x.txt -Value "read-on-windows"
-    - cd work
-    - ../tap-runtime.exe --interpreters ../store --runs ../runs --approve ../pkg/windows-smoke
-    - if ((Get-Content out/y.txt) -notmatch "written-on-windows") { throw "the approved write did not happen" }
-    - if (Test-Path ../escaped.txt) { throw "a write left the declared directory" }
+    - powershell -NoProfile -ExecutionPolicy Bypass -File ci/windows.ps1
