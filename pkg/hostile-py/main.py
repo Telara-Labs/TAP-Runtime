@@ -20,4 +20,4 @@ def spawn():
     return subprocess.run(["ls"], capture_output=True).stdout
 attempt("spawn process", spawn)
 attempt("os.system", lambda: os.system("ls"))
-attempt("undeclared command", lambda: tap.exec("curl", ["https://example.com"]).get("refused") and (_ for _ in ()).throw(PermissionError("refused by host")))
+attempt("undeclared command", lambda: tap.exec("curl", ["https://example.com"]))
