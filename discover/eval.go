@@ -102,16 +102,24 @@ func NewCorpus(ss []Session) *Corpus {
 				firstByCall[ck] = k
 			}
 		}
+		// Only the task-defining message (the session's first substantive
+		// request) ties sessions: a templated or re-sent task. Follow-ups
+		// such as "do you still have more to do?" are typed into unrelated
+		// sessions and must not chain them, nor must injected wrappers
+		// ("# AGENTS.md instructions ...", "<...>", "[Request interrupted").
 		for _, t := range s.Requests {
 			t = strings.Join(strings.Fields(strings.ToLower(t)), " ")
-			if len(t) < 12 {
-				continue // "yes", "continue": shared by everyone, not a lineage
+			if t == "" || strings.ContainsAny(t[:1], "#<[") {
+				continue
 			}
-			if o, ok := firstByText[t]; ok {
-				union(o, k)
-			} else {
-				firstByText[t] = k
+			if len(t) >= 40 {
+				if o, ok := firstByText[t]; ok {
+					union(o, k)
+				} else {
+					firstByText[t] = k
+				}
 			}
+			break
 		}
 	}
 	cp := make([]Session, len(ss))
