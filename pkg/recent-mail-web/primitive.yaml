@@ -1,0 +1,13 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata:
+  publisher: dev.telara
+  name: recent-mail-web
+  version: 0.1.0
+  description: Counts inbox threads and sender domains over the last N days. Prints numbers and domains only, never mail content.
+execution: {entrypoint: main.js}
+tools:
+  # Named, because a web page declares its connector tools when it is
+  # published. "claude.ai Gmail" is the connector's name in Claude Code; in
+  # claude.ai it is "Gmail", and the web build takes care of that.
+  - {alias: threads, capability: gmail.threads.search, effect: read, pin: {server: claude.ai Gmail, tool: search_threads}}
