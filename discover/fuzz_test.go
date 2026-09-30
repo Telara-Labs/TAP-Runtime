@@ -32,3 +32,23 @@ func FuzzJSToolCalls(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, s string) { _ = jsToolCalls(s) })
 }
+
+func FuzzWordSpans(f *testing.F) {
+	for _, s := range []string{
+		`cd "dir x" && go test ./... 2>&1 | tail -20`,
+		"python3 - <<'PY'\nprint(1)\nPY\nls",
+		`echo $(date) 'a' "b\"c" \x`,
+		"a <<X",
+		`'unterminated`,
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		for _, w := range wordSpans(s) {
+			if w.s < 0 || w.e > len(s) || w.s > w.e {
+				t.Fatalf("span %+v out of range for %q", w, s)
+			}
+		}
+		_ = shapeOf(s, wordSpans(s))
+	})
+}

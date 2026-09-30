@@ -217,3 +217,167 @@ func simpleCommands(line string) [][]word {
 	}
 	return out
 }
+
+// isCompound reports a command line that is more than one plain command: two
+// or more commands (a pipeline, a chain, a sequence, a cd before the work), a
+// redirect, a heredoc, or a command substitution. Its meaning depends on the
+// whole line, so it is replayed as recorded.
+func isCompound(line string) bool {
+	if strings.Contains(line, "<<") || strings.Contains(line, "$(") || strings.Contains(line, "`") {
+		return true
+	}
+	cmds := splitShell(line)
+	if len(cmds) > 1 {
+		return true
+	}
+	for _, ws := range cmds {
+		for _, w := range ws {
+			if !w.Quoted && redirectRe.MatchString(w.Text) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// span is one word of a command line at its exact byte position, quotes
+// included. body marks a heredoc body.
+type span struct {
+	s, e   int
+	text   string
+	quoted bool
+	body   bool
+}
+
+// wordSpans cuts a command line into words at their positions, the same way
+// splitShell reads it: quotes and $(...) stay inside their word, and each
+// heredoc body is one span.
+func wordSpans(line string) []span {
+	var out []span
+	start, quoted, inWord := 0, false, false
+	var text strings.Builder
+	var heredoc []string
+	end := func(i int) {
+		if inWord {
+			out = append(out, span{s: start, e: i, text: text.String(), quoted: quoted})
+		}
+		text.Reset()
+		quoted, inWord = false, false
+	}
+	begin := func(i int) {
+		if !inWord {
+			start, inWord = i, true
+		}
+	}
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case c == '\'' || c == '"' || c == '`':
+			begin(i)
+			j := i + 1
+			for j < len(line) && line[j] != c {
+				if line[j] == '\\' && c != '\'' {
+					j++
+				}
+				j++
+			}
+			if j >= len(line) {
+				j = len(line) - 1
+			}
+			text.WriteString(line[i+1 : max(i+1, j)])
+			quoted = true
+			i = j
+		case c == '$' && i+1 < len(line) && line[i+1] == '(':
+			begin(i)
+			depth, j := 0, i+1
+			for ; j < len(line); j++ {
+				if line[j] == '(' {
+					depth++
+				} else if line[j] == ')' {
+					if depth--; depth == 0 {
+						break
+					}
+				}
+			}
+			if j >= len(line) {
+				j = len(line) - 1
+			}
+			text.WriteString(line[i : j+1])
+			i = j
+		case c == '\\' && i+1 < len(line):
+			begin(i)
+			text.WriteByte(line[i+1])
+			i++
+		case c == '<' && i+1 < len(line) && line[i+1] == '<':
+			end(i)
+			j := i + 2
+			if j < len(line) && line[j] == '-' {
+				j++
+			}
+			for j < len(line) && line[j] == ' ' {
+				j++
+			}
+			k := j
+			for k < len(line) && !strings.ContainsRune(" \t\n;|&)", rune(line[k])) {
+				k++
+			}
+			if d := strings.Trim(line[j:k], `'"`); d != "" {
+				heredoc = append(heredoc, d)
+			}
+			i = k - 1
+		case c == '\n':
+			end(i)
+			for len(heredoc) > 0 && i+1 <= len(line) {
+				d := heredoc[0]
+				heredoc = heredoc[1:]
+				bodyStart := i + 1
+				bodyEnd, lineEnd := heredocEndBytes(line, bodyStart, d)
+				out = append(out, span{s: bodyStart, e: bodyEnd, text: line[bodyStart:bodyEnd], body: true})
+				// Continue after the line that ends the body.
+				i = lineEnd
+			}
+		case strings.IndexByte(" \t;|&(){}", c) >= 0:
+			end(i)
+		default:
+			begin(i)
+			text.WriteByte(c)
+		}
+	}
+	end(len(line))
+	return out
+}
+
+// heredocEndBytes finds the line holding exactly d at or after from: it
+// returns where the body ends (that line's start) and where the line itself
+// ends (its newline, or len(line)). With no such line the body runs to the
+// end.
+func heredocEndBytes(line string, from int, d string) (bodyEnd, lineEnd int) {
+	start := from
+	for j := from; j <= len(line); j++ {
+		if j == len(line) || line[j] == '\n' {
+			if strings.TrimSpace(line[start:j]) == d {
+				return start, j
+			}
+			start = j + 1
+		}
+	}
+	return len(line), len(line)
+}
+
+// shapeOf is the line with every word replaced by a marker: two lines with
+// the same shape differ only in their words.
+func shapeOf(line string, ws []span) string {
+	var b strings.Builder
+	last := 0
+	for _, w := range ws {
+		b.WriteString(line[last:w.s])
+		if w.body {
+			b.WriteString("\x00B")
+		} else {
+			b.WriteString("\x00")
+		}
+		last = w.e
+	}
+	b.WriteString(line[last:])
+	return b.String()
+}

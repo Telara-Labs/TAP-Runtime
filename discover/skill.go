@@ -2,6 +2,7 @@ package discover
 
 import (
 	"math"
+	"math/bits"
 	"sort"
 )
 
@@ -57,7 +58,7 @@ func skillProcedures(corpus []normSession, seqs [][]int, ps []pattern, names []s
 	// Sessions that load a skill differ from the rest in client and in
 	// length (automation runs are long), and a long session contains more of
 	// everything. So the comparison is stratified: sessions are grouped by
-	// client and by length decile within that client, and the pattern's count
+	// client and by length (doubling bins) within that client, and the pattern's count
 	// in the skill's sessions is compared with what its rate in each stratum
 	// predicts (Cochran-Mantel-Haenszel, one-sided, continuity-corrected).
 	stratum := make([]int, len(corpus))
@@ -71,14 +72,14 @@ func skillProcedures(corpus []normSession, seqs [][]int, ps []pattern, names []s
 			clients = append(clients, c)
 		}
 		sort.Strings(clients)
-		next := 0
-		for _, c := range clients {
-			idx := byClient[c]
-			sort.SliceStable(idx, func(a, b int) bool { return len(seqs[idx[a]]) < len(seqs[idx[b]]) })
-			for r, i := range idx {
-				stratum[i] = next + r*10/len(idx)
+		// Length is binned by doubling (1, 2-3, 4-7, 8-15, ...): coarse enough
+		// that a skill's own few extra steps do not put its sessions in a
+		// stratum of their own, fine enough to separate a short manual
+		// session from a long automation run.
+		for ci, c := range clients {
+			for _, i := range byClient[c] {
+				stratum[i] = ci*64 + bits.Len(uint(len(seqs[i])))
 			}
-			next += 10
 		}
 	}
 	nStratum := map[int]int{}

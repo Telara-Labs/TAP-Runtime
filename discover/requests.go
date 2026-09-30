@@ -19,7 +19,7 @@ import (
 //  2. replays         every step is a command, tool call, browser call, read
 //     or fetch: no edit decided per run, no value computed by
 //     the rest of a script
-//  3. same way        most requests of the group ran the whole template
+//  3. same way        most requests of the group ran the same sequence of its steps
 //  4. worth it        it recurs over more than one week, and where token use
 //     was recorded, a primitive saves turns
 //  5. not covered     the requests did not already load a skill for it
@@ -262,71 +262,78 @@ func weightedJaccard(a, b map[int]float64) float64 {
 // ran, in their usual order), finds each request's run of it, drafts it and
 // runs the checks.
 func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []string, o Options) (Routine, bool) {
-	// Template: replayable labels present in at least half the requests,
-	// ordered by their median relative position.
+	// The steps that belong to the routine: replayable labels at least half
+	// its requests ran.
 	present := map[string]int{}
-	positions := map[string][]float64{}
 	for _, i := range g {
 		s := corpus[inst[i].session]
 		seen := map[string]bool{}
-		for k, si := range inst[i].steps {
-			l := s.Steps[si].Label
-			if !replayable(l) || seen[l] {
-				continue
+		for _, si := range inst[i].steps {
+			if l := s.Steps[si].Label; replayable(l) && !seen[l] {
+				seen[l] = true
+				present[l]++
 			}
-			seen[l] = true
-			present[l]++
-			positions[l] = append(positions[l], float64(k)/float64(len(inst[i].steps)))
+		}
+	}
+	inSet := map[string]bool{}
+	for l, n := range present {
+		if 2*n >= len(g) {
+			inSet[l] = true
+		}
+	}
+	if len(inSet) < 2 {
+		return Routine{}, false
+	}
+	// Each request's run of those steps, in the order it made them, repeats
+	// included. The draft follows the sequence most requests actually ran;
+	// it never reorders or combines steps from different runs.
+	type run struct {
+		inst  int
+		steps []Step
+	}
+	bySeq := map[string][]run{}
+	for _, i := range g {
+		s := corpus[inst[i].session]
+		var r run
+		r.inst = i
+		has := map[string]bool{}
+		var labels []string
+		for _, si := range inst[i].steps {
+			if st := s.Steps[si]; inSet[st.Label] {
+				r.steps = append(r.steps, st)
+				labels = append(labels, st.Label)
+				has[st.Label] = true
+			}
+		}
+		if len(has) < len(inSet) || len(r.steps) > 24 {
+			continue
+		}
+		key := strings.Join(labels, "\x1f")
+		bySeq[key] = append(bySeq[key], r)
+	}
+	modal := ""
+	for k, rs := range bySeq {
+		if len(rs) > len(bySeq[modal]) || (len(rs) == len(bySeq[modal]) && k < modal) {
+			modal = k
 		}
 	}
 	var tmpl []string
-	for l, n := range present {
-		if 2*n >= len(g) {
-			tmpl = append(tmpl, l)
-		}
+	if modal != "" {
+		tmpl = strings.Split(modal, "\x1f")
 	}
-	if len(tmpl) < 2 {
-		return Routine{}, false
-	}
-	median := func(xs []float64) float64 {
-		sort.Float64s(xs)
-		return xs[len(xs)/2]
-	}
-	sort.Slice(tmpl, func(a, b int) bool {
-		ma, mb := median(positions[tmpl[a]]), median(positions[tmpl[b]])
-		if ma != mb {
-			return ma < mb
-		}
-		return tmpl[a] < tmpl[b]
-	})
-	if len(tmpl) > 12 {
-		tmpl = tmpl[:12]
-	}
-
-	// Each request's run of the template: the first step with each template
-	// label, taken in template order. A request counts when it ran every
-	// template step, in whatever order it ran them.
 	var occ [][]Step
 	var occReq []int // index into inst
-	for _, i := range g {
-		s := corpus[inst[i].session]
-		first := map[string]Step{}
-		for _, si := range inst[i].steps {
-			l := s.Steps[si].Label
-			if _, ok := first[l]; !ok {
-				first[l] = s.Steps[si]
-			}
+	for _, r := range bySeq[modal] {
+		occ = append(occ, r.steps)
+		occReq = append(occReq, r.inst)
+	}
+	if len(tmpl) < 2 {
+		// No sequence of these steps recurred: the requests share steps but
+		// not a procedure. Report the step set for the reader.
+		for l := range inSet {
+			tmpl = append(tmpl, l)
 		}
-		run := make([]Step, 0, len(tmpl))
-		for _, l := range tmpl {
-			if st, ok := first[l]; ok {
-				run = append(run, st)
-			}
-		}
-		if len(run) == len(tmpl) {
-			occ = append(occ, run)
-			occReq = append(occReq, i)
-		}
+		sort.Strings(tmpl)
 	}
 
 	c := Candidate{ByClient: map[string]int{}, Sessions: 0, sessionSet: map[int]bool{}}
@@ -400,7 +407,7 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 
 	// A group whose template no request ran in full cannot be drafted.
 	if len(occ) < 2 {
-		rt.Failed, rt.Why = CheckSameWay, fmt.Sprintf("only %d of %d requests ran the whole template", len(occ), len(g))
+		rt.Failed, rt.Why = CheckSameWay, fmt.Sprintf("only %d of %d requests ran the same sequence of its steps", len(occ), len(g))
 		return rt, true
 	}
 	c.items = make([]int, len(tmpl))
@@ -445,7 +452,7 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	case d.FixedSteps == 0:
 		rt.Failed, rt.Why = CheckReplays, "no step fixes anything (no subcommand, tool or constant value): exploration, not a procedure"
 	case rt.Consistency < 0.5:
-		rt.Failed, rt.Why = CheckSameWay, fmt.Sprintf("only %.0f%% of its requests ran the whole template", 100*rt.Consistency)
+		rt.Failed, rt.Why = CheckSameWay, fmt.Sprintf("only %.0f%% of its requests ran the same sequence of its steps", 100*rt.Consistency)
 	case c.Weeks < 2:
 		rt.Failed, rt.Why = CheckWorth, "all its requests fell in one week"
 	case c.Measured > 0 && c.SavedTotal.Total() == 0:

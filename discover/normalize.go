@@ -55,6 +55,15 @@ type Step struct {
 	Turns int
 	// Request is the user message this step answered (normSession.Requests).
 	Request int
+	// Call is the index of the call this step came from in its session. A
+	// shell call can hold several steps (a pipeline, a && chain).
+	Call int
+	// Raw is the whole recorded command line of a shell call, and Compound
+	// says it was more than one plain command: a pipeline, a chain, a
+	// redirect, a heredoc, a command substitution or a cd first. Such a call
+	// is replayed as its recorded line, never as separate commands.
+	Raw      string
+	Compound bool
 }
 
 type normSession struct {
@@ -142,7 +151,7 @@ func normalize(sessions []Session) []normSession {
 	out := make([]normSession, 0, len(sessions))
 	for _, s := range sessions {
 		ns := normSession{Client: s.Client, ID: s.ID, Start: s.Start, Skills: map[string]bool{}, Requests: s.Requests, RequestSkills: map[int]map[string]bool{}}
-		for _, c := range s.Calls {
+		for ci, c := range s.Calls {
 			if sk := skillOf(c); sk != "" {
 				ns.Skills[sk] = true
 				if ns.RequestSkills[c.Request] == nil {
@@ -156,12 +165,16 @@ func normalize(sessions []Session) []normSession {
 				// A call opened into several steps shares its turn among them.
 				steps[i].Tokens = c.Tokens.scale(1 / float64(len(steps)))
 				steps[i].Turn, steps[i].Measured, steps[i].Turns = c.Turn, c.Measured, 1
-				steps[i].Request = c.Request
+				steps[i].Request, steps[i].Call = c.Request, ci
+				if c.Tool == "shell" {
+					steps[i].Raw, steps[i].Compound = c.Command, isCompound(c.Command)
+				}
 			}
 			for _, st := range steps {
-				if n := len(ns.Steps); n > 0 && ns.Steps[n-1].Label == st.Label && ns.Steps[n-1].Request == st.Request {
-					// A retry or continuation of the same step counts once,
-					// and so does what it cost.
+				if n := len(ns.Steps); n > 0 && ns.Steps[n-1].Label == st.Label && ns.Steps[n-1].Request == st.Request && sameArgs(ns.Steps[n-1], st) {
+					// A retry (the same call with the same arguments) counts
+					// once, and so does what it cost. Two calls with the same
+					// label but different arguments are two steps.
 					ns.Steps[n-1].Tokens = ns.Steps[n-1].Tokens.add(st.Tokens)
 					if st.Turn != ns.Steps[n-1].Turn {
 						ns.Steps[n-1].Turns++
@@ -287,4 +300,17 @@ func stamp(steps []Step, c Call) []Step {
 		steps[i].Time = c.Time
 	}
 	return steps
+}
+
+// sameArgs reports two steps with the same arguments: a retry.
+func sameArgs(a, b Step) bool {
+	if a.Skeleton != b.Skeleton || len(a.Slots) != len(b.Slots) {
+		return false
+	}
+	for i := range a.Slots {
+		if a.Slots[i].Key != b.Slots[i].Key || a.Slots[i].Value != b.Slots[i].Value {
+			return false
+		}
+	}
+	return true
 }

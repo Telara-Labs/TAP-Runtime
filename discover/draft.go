@@ -177,6 +177,17 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 			i = j
 			continue
 		}
+		if strings.HasPrefix(label, "sh:") && d.occ[0][i].Compound {
+			// One recorded command line (a pipeline, a chain, a heredoc)
+			// that holds this step and possibly the next ones.
+			j := i + 1
+			for j < len(c.items) && sameCall(d.occ, i, j) {
+				j++
+			}
+			d.compound(i, j)
+			i = j
+			continue
+		}
 		d.step(i, label)
 		i++
 	}
@@ -895,3 +906,131 @@ func (d *Draft) Artifacts() (map[string][]byte, error) {
 	}
 	return d.Files, nil
 }
+
+// sameCall reports that steps i and j came from the same recorded call in
+// every occurrence.
+func sameCall(occ [][]Step, i, j int) bool {
+	for _, o := range occ {
+		if o[j].Raw == "" || o[j].Call != o[i].Call {
+			return false
+		}
+	}
+	return true
+}
+
+func slotValue(st Step, key string) string {
+	for _, sl := range st.Slots {
+		if sl.Key == key {
+			return sl.Value
+		}
+	}
+	return ""
+}
+
+// compound drafts steps i..j-1, which every run made as one command line,
+// as that line. Each run's line is cut into words at their exact positions;
+// runs whose lines have the same structure (the same text between the same
+// number of words) are compared word by word, and a word that differs
+// becomes an input: a cd target, a redirect target and an environment value
+// included. A heredoc body that differs cannot be an input. If fewer than
+// half the runs share one structure, or a body differs, the step is written
+// as needing authoring rather than guessed.
+func (d *drafter) compound(i, j int) {
+	n := len(d.steps) + 1
+	var labels []string
+	for k := i; k < j; k++ {
+		labels = append(labels, d.occ[0][k].Label)
+	}
+	label := strings.Join(labels, " + ")
+	human := func(why string) {
+		note := "Recorded as one command line, but " + why + ". Write this step by hand."
+		line := fmt.Sprintf(`echo "HUMAN STEP %d: %s" >&2`, n, label)
+		d.humanCnt++
+		d.lines = append(d.lines, fmt.Sprintf("# %d. %s", n, label), "# "+note, line)
+		d.steps = append(d.steps, DraftStep{N: n, Kind: KindHuman, Label: label, Line: line, Note: note})
+	}
+	type cut struct {
+		raw   string
+		words []span
+	}
+	byShape := map[string][]int{}
+	cuts := make([]cut, len(d.occ))
+	for o := range d.occ {
+		raw := d.occ[o][i].Raw
+		ws := wordSpans(raw)
+		cuts[o] = cut{raw, ws}
+		byShape[shapeOf(raw, ws)] = append(byShape[shapeOf(raw, ws)], o)
+	}
+	best := ""
+	for k, os := range byShape {
+		if len(os) > len(byShape[best]) || (len(os) == len(byShape[best]) && k < best) {
+			best = k
+		}
+	}
+	reps := byShape[best]
+	if 2*len(reps) < len(d.occ) {
+		human(fmt.Sprintf("only %d of %d runs share its structure", len(reps), len(d.occ)))
+		return
+	}
+	first := cuts[reps[0]]
+	prog := strings.ReplaceAll(strings.TrimPrefix(labels[0], "sh:"), " ", "_")
+	var out strings.Builder
+	last := 0
+	for p, w := range first.words {
+		vec := map[int]string{}
+		same := true
+		sensitive := false
+		for _, o := range reps {
+			v := cuts[o].words[p].text
+			vec[o] = v
+			if v != w.text {
+				same = false
+			}
+			if secretShape(v) != "" {
+				sensitive = true
+			}
+		}
+		if p > 0 && sensitiveName.MatchString(strings.TrimSuffix(first.words[p-1].text, "=")) {
+			sensitive = true
+		}
+		if same && !sensitive {
+			continue
+		}
+		if w.body {
+			human("its heredoc body differs between runs")
+			return
+		}
+		name := prog + "_arg" + itoa(p)
+		if p > 0 && strings.HasPrefix(first.words[p-1].text, "-") {
+			name = prog + "_" + strings.TrimLeft(first.words[p-1].text, "-")
+		}
+		in := d.input(name, Slot{Key: "w" + itoa(p), Type: typeOf(word{Text: w.text, Quoted: w.quoted}), Value: w.text}, vec, sensitive)
+		out.WriteString(first.raw[last:w.s])
+		fmt.Fprintf(&out, `"${%d}"`, d.inputs[in].Position)
+		last = w.e
+	}
+	out.WriteString(first.raw[last:])
+	line := out.String()
+
+	eff := d.effect(n)
+	for _, ws := range simpleCommands(line) {
+		prog := ws[0].Text
+		if !manifestCommand.MatchString(prog) {
+			continue
+		}
+		key := prog + "\x00\x00*\x00" + eff
+		if !d.cmds[key] {
+			d.cmds[key] = true
+			d.mf.Commands = append(d.mf.Commands, manifest.Command{Command: prog, Args: []string{"*"}, Effect: eff})
+		}
+	}
+	note := ""
+	if len(reps) < len(d.occ) {
+		note = fmt.Sprintf("%d of %d runs used a command line of exactly this structure.", len(reps), len(d.occ))
+	}
+	d.fixedCnt++
+	d.lines = append(d.lines, fmt.Sprintf("# %d. %s (one recorded command line)", n, label), line)
+	d.steps = append(d.steps, DraftStep{N: n, Kind: KindCommand, Label: label, Line: line, Effect: eff, Note: note})
+}
+
+var manifestCommand = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._+-]{0,63}$`)
