@@ -40,9 +40,7 @@ func jsSteps(code string) []Step {
 			st.Slots = append(st.Slots, argSlots("0", v)...)
 		default:
 			src := strings.TrimSpace(string(rs[:scanJSValue(rs, 0)]))
-			if len(src) > 2000 {
-				src = src[:2000]
-			}
+			src = truncateUTF8(src, 2000)
 			st.Slots = append(st.Slots, Slot{Key: "0", Type: SlotText, Value: src, Raw: true})
 		}
 		out = append(out, st)
@@ -72,9 +70,7 @@ func patchSteps(input string) []Step {
 // its own: the site is usually the fixed part (the same page family every
 // time) and the path the parameter. A path also yields its base name.
 func argSlots(key, v string) []Slot {
-	if len(v) > 200 {
-		v = v[:200]
-	}
+	v = truncateUTF8(v, 200)
 	tp := typeOf(word{Text: v, Quoted: strings.ContainsAny(v, " \n")})
 	out := []Slot{{Key: key, Type: tp, Value: v}}
 	switch tp {

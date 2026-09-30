@@ -873,7 +873,7 @@ func isDigits(s string) bool {
 func oneLine(s string, n int) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if len(s) > n {
-		return s[:n] + "…"
+		return truncateUTF8(s, n) + "…"
 	}
 	return s
 }

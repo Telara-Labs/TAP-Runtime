@@ -73,17 +73,17 @@ type Candidate struct {
 	Steps         []StepTemplate `json:"steps"`
 	Sessions      int            `json:"sessions"`
 	ByClient      map[string]int `json:"by_client"`
-	NullMean      float64        `json:"null_mean"`
-	P             float64        `json:"p"`
-	Q             float64        `json:"q"`
-	OrderQ        float64        `json:"order_q"`
-	NecessityQ    float64        `json:"necessity_q"`
-	Qualified     bool           `json:"qualified"`
-	Ordered       bool           `json:"ordered"`
-	Stability     float64        `json:"stability"`
-	Specificity   float64        `json:"specificity"`
-	CallsSaved    int            `json:"calls_saved"`
-	Score         float64        `json:"score"`
+	NullMean      float64        `json:"null_mean,omitempty"`
+	P             float64        `json:"p,omitempty"`
+	Q             float64        `json:"q,omitempty"`
+	OrderQ        float64        `json:"order_q,omitempty"`
+	NecessityQ    float64        `json:"necessity_q,omitempty"`
+	Qualified     bool           `json:"qualified,omitempty"`
+	Ordered       bool           `json:"ordered,omitempty"`
+	Stability     float64        `json:"stability,omitempty"`
+	Specificity   float64        `json:"specificity,omitempty"`
+	CallsSaved    int            `json:"calls_saved,omitempty"`
+	Score         float64        `json:"score,omitempty"`
 	Weeks         int            `json:"weeks"`
 	FirstSeen     time.Time      `json:"first_seen"`
 	LastSeen      time.Time      `json:"last_seen"`
@@ -101,14 +101,14 @@ type Candidate struct {
 	Measured    int   `json:"measured_runs"`
 	// Family is the rank (index) of the qualified candidate this one is a
 	// variant of; a representative is its own family.
-	Family     int `json:"family"`
+	Family     int `json:"family,omitempty"`
 	sessionSet map[int]bool
 	items      []int
 }
 
 type SkillMatch struct {
 	Pattern   string  `json:"pattern"`
-	Qualified bool    `json:"qualified"`
+	Qualified bool    `json:"qualified,omitempty"`
 	Precision float64 `json:"precision"`
 	Recall    float64 `json:"recall"`
 	F1        float64 `json:"f1"`
@@ -132,7 +132,7 @@ type Report struct {
 	Truncated      bool          `json:"truncated"`
 	MinSupportUsed int           `json:"min_support"`
 	Tested         int           `json:"tested"`
-	Qualified      int           `json:"qualified"`
+	Qualified      int           `json:"qualified,omitempty"`
 	Families       int           `json:"families"`
 	Candidates     []Candidate   `json:"candidates"`
 	Recall         []SkillRecall `json:"recall"`
@@ -588,12 +588,12 @@ func templateOf(label string, occ [][]Step, i int) StepTemplate {
 func fmtSlot(label, key, v string) string {
 	if strings.HasPrefix(label, "sh:") {
 		if len(v) > 60 {
-			v = v[:60] + "…"
+			v = truncateUTF8(v, 60) + "…"
 		}
 		return v
 	}
 	if len(v) > 40 {
-		v = v[:40] + "…"
+		v = truncateUTF8(v, 40) + "…"
 	}
 	return key + "=" + v
 }

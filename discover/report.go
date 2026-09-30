@@ -147,15 +147,27 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 			fmt.Fprintf(w, "  - %d removed by \"%s\"\n", n, ck)
 		}
 	}
+	if f.Merged > 0 {
+		fmt.Fprintf(w, "  - %d merged into another routine with the same kind and steps\n", f.Merged)
+	}
 	fmt.Fprintf(w, "Consolidated to %d primitives ready to save, and %d more that need authoring before they can run.\n", f.Primitives, f.NeedsAuthoring)
+	var kinds []string
+	for _, k := range []string{"user", "automated", "scheduled", "bookkeeping"} {
+		if n := f.ByKind[k]; n > 0 {
+			kinds = append(kinds, fmt.Sprintf("%d %s", n, k))
+		}
+	}
+	if len(kinds) > 0 {
+		fmt.Fprintf(w, "The primitives by who the work is for: %s.\n", strings.Join(kinds, ", "))
+	}
 	fmt.Fprintln(w, "Savings are estimates from the recorded token use, mostly cached input; no primitive run was measured.")
 	fmt.Fprintln(w)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "#\tCOVERS\tREQUESTS\tSESSIONS\tWEEKS\tSAVED/RUN\tSAVED TOTAL\tSTEPS\tINPUTS\tEXAMPLE REQUEST")
+	fmt.Fprintln(tw, "#\tKIND\tCOVERS\tREQUESTS\tSESSIONS\tWEEKS\tSAVED/RUN\tSAVED TOTAL\tSTEPS\tINPUTS\tEXAMPLE REQUEST")
 	shown := 0
 	for _, rt := range r.Routines {
-		if rt.Decision != "primitive" || (top > 0 && shown >= top) {
+		if rt.Decision != "primitive" || rt.MergedInto != "" || (top > 0 && shown >= top) {
 			continue
 		}
 		shown++
@@ -164,7 +176,7 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 			saved, per = humanTokens(rt.SavedTotal.Total()), humanTokens(rt.SavedPerRun.Total())
 		}
 		fixed := rt.Coverage
-		fmt.Fprintf(tw, "%d\t%.0f%%\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%s\n", shown, 100*fixed, rt.Requests, rt.Sessions, rt.Weeks, per, saved,
+		fmt.Fprintf(tw, "%d\t%s\t%.0f%%\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%s\n", shown, rt.Kind, 100*fixed, rt.Requests, rt.Sessions, rt.Weeks, per, saved,
 			oneLine(labelsOf(rt.Candidate), 70), len(rt.Inputs), oneLine(rt.Example, 60))
 	}
 	tw.Flush()
@@ -172,7 +184,7 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 		fmt.Fprintln(w, "\nNeed authoring (they recur and replay, but part must be written by hand):")
 		n := 0
 		for _, rt := range r.Routines {
-			if rt.Decision != "needs_authoring" || (top > 0 && n >= top) {
+			if rt.Decision != "needs_authoring" || rt.MergedInto != "" || (top > 0 && n >= top) {
 				continue
 			}
 			n++
@@ -198,7 +210,7 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 func (r *Report) Primitives() []*Routine {
 	var out []*Routine
 	for i := range r.Routines {
-		if r.Routines[i].Decision == "primitive" {
+		if r.Routines[i].Decision == "primitive" && r.Routines[i].MergedInto == "" {
 			out = append(out, &r.Routines[i])
 		}
 	}
