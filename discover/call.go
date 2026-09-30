@@ -56,6 +56,9 @@ type Call struct {
 	// bytes before it on its line, a NUL, then the character after it ("" at
 	// the end of a line). A draft uses it to pull the value back out.
 	OutCtx []string
+	// Output is the start of the result as the client recorded it (at most
+	// 600 bytes), kept for reviewing a task's evidence on this machine.
+	Output string `json:",omitempty"`
 }
 
 // Outcome of a call, as the client recorded it.

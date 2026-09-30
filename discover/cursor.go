@@ -236,6 +236,7 @@ func (c *cursorConv) orderOf(bubble string) (int, bool) {
 func cursorCall(row cursorRow) Call {
 	c := Call{Client: "cursor", Time: cursorTime(row.Created)}
 	c.OutIDs, c.OutCtx = outputRefs(row.Result)
+	c.Output = truncateUTF8(row.Result, 600)
 	switch row.Status {
 	case "completed":
 		c.Outcome = OutcomeOK
