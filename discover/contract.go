@@ -592,6 +592,11 @@ func decide(rt *Routine, d *Draft, loops []string, unresolvedRead, unresolvedWri
 	case rt.Consistency < 0.5:
 		rt.Suitability = SuitInsufficient
 		reason("inconsistent_order")
+	case ephemeralConstant(d):
+		// Fixed to a temporary directory (a test scratchpad): it cannot be
+		// rerun anywhere else.
+		rt.Suitability = SuitInsufficient
+		reason("ephemeral_constant")
 	case !hasParam(c) && rt.Coverage < 0.5:
 		// Nothing to parameterize and a small part of what the requests
 		// did: the constant opening of varying work (open the browser,
@@ -690,4 +695,29 @@ func composedFromRequest(v, text string) bool {
 		}
 	}
 	return in > 0
+}
+
+// ephemeralPath matches an agent session's own scratch locations, which do
+// not exist outside that session: a client's per-session temp directory or
+// a scratchpad. An ordinary /tmp file (a log a procedure writes) is fine.
+var ephemeralPath = regexp.MustCompile(`(/private)?/tmp/claude-|/var/folders/|/scratchpad/`)
+
+// ephemeralConstant reports a value the same in every drafted run that
+// points into a temporary location.
+func ephemeralConstant(d *Draft) bool {
+	if d == nil || len(d.firstRun) == 0 {
+		return false
+	}
+	varying := map[string]bool{}
+	for _, in := range d.Inputs {
+		varying[in.Example] = true
+	}
+	for _, st := range d.firstRun {
+		for _, sl := range st.Slots {
+			if ephemeralPath.MatchString(sl.Value) && !varying[Redact(sl.Value)] {
+				return true
+			}
+		}
+	}
+	return false
 }

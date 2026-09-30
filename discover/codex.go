@@ -173,7 +173,7 @@ func readCodexFile(path string) (s Session, err error) {
 		case strings.HasSuffix(p.Type, "_call_output"):
 			text := codexOutputText(p.Output)
 			for _, ci := range byCallID[p.CallID] {
-				s.Calls[ci].Outcome = exitOutcome(text)
+				s.Calls[ci].Outcome = resultOutcome(text)
 				s.Calls[ci].OutIDs, s.Calls[ci].OutCtx, s.Calls[ci].OutPaths = outputRefsPaths(text)
 				s.Calls[ci].Output = truncateUTF8(text, 600)
 				s.Calls[ci].OutTokens = outputTokens(text)
