@@ -161,6 +161,7 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 		fmt.Fprintf(w, "The primitives by who the work is for: %s.\n", strings.Join(kinds, ", "))
 	}
 	fmt.Fprintln(w, "Savings are estimates from the recorded token use, mostly cached input; no primitive run was measured.")
+	fmt.Fprintln(w, "No draft has been executed: validate one on fresh inputs before relying on it.")
 	fmt.Fprintln(w)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)

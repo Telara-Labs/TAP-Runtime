@@ -97,6 +97,10 @@ type Routine struct {
 	// Statistics is "not_run": recurrence here is 3+ requests in 2+
 	// sessions, not a significance test.
 	Statistics string `json:"statistics"`
+	// Validation is "not_run": discovery never executes a draft. A primitive
+	// is validated by running it on held-out inputs with independent
+	// checks; recurrence and passing the publish checks are not that.
+	Validation string `json:"validation"`
 	// MergedInto is the id of the routine this one duplicated (same kind,
 	// same set of steps); a merged routine is not counted again.
 	MergedInto string `json:"merged_into,omitempty"`
@@ -578,13 +582,14 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	// Request routines are not significance-tested: none of the pattern
 	// statistics apply, and none is claimed.
 	rt.Candidate = c
-	rt.Statistics = "not_run"
+	rt.Statistics, rt.Validation = "not_run", "not_run"
 
 	// A group whose template no request ran in full cannot be drafted.
 	rt.Loops = loops
 	if len(occ) < 2 {
 		rt.Failed, rt.Why = CheckSameWay, fmt.Sprintf("only %d of %d requests ran the same sequence of its steps and succeeded", len(occ), len(g))
 		rt.Decision = "removed"
+		rt.Statistics, rt.Validation = "not_run", "not_run"
 		rt.Kind = routineKind(corpus, inst, g, tmpl)
 		sum := sha256.Sum256([]byte(rt.Kind + "\x00" + strings.Join(tmpl, "\x1f")))
 		rt.ID = hex.EncodeToString(sum[:6])
