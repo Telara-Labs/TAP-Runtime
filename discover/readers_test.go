@@ -269,6 +269,8 @@ func TestCodexToolNameShapes(t *testing.T) {
 		{"mcp__telara", "_telara_task_list", "mcp:telara_task_list"},
 		{"mcp__codex_apps__gmail", "_search_emails", "mcp:gmail_search_emails"},
 		{"", "mcp__telara__telara_task_create", "mcp:telara_task_create"},
+		{"", "mcp__codex_apps__telara_telara_task_list", "mcp:telara_task_list"},
+		{"", "mcp__codex_apps__gmail_search_emails", "mcp:gmail_search_emails"},
 	} {
 		if got := codexCall(Session{}, time.Time{}, c.ns, c.name, nil).Tool; got != c.want {
 			t.Errorf("%q + %q = %q, want %q", c.ns, c.name, got, c.want)
