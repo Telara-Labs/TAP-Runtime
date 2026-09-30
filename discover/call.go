@@ -389,3 +389,16 @@ func outputTokens(text string) []string {
 	}
 	return out
 }
+
+// refusedRe matches a result saying the call never ran: the user or the
+// client cancelled or rejected it.
+var refusedRe = regexp.MustCompile(`(?i)user cancelled (mcp )?tool call|tool call was cancelled|the user doesn't want to proceed with this tool use|the tool use was rejected`)
+
+// resultOutcome reads a tool result's outcome from its text: failed when it
+// names a non-zero exit code or says the call was cancelled or rejected.
+func resultOutcome(text string) Outcome {
+	if refusedRe.MatchString(truncateUTF8(text, 4096)) {
+		return OutcomeFailed
+	}
+	return exitOutcome(text)
+}
