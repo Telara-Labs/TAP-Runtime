@@ -63,11 +63,11 @@ func ReadAuthoring(pkg string) (*Authoring, error) {
 	if !skillName.MatchString(a.Name) {
 		problems = append(problems, fmt.Sprintf("name %q is not a usable folder name", a.Name))
 	}
-	if a.Selection != SelectedTask && a.Selection != DiscoverCandidate {
-		problems = append(problems, "selection is neither selected_task nor discover_candidate")
+	if a.Selection != SelectedTask && a.Selection != DiscoverCandidate && a.Selection != DiscoverOpportunity {
+		problems = append(problems, "selection is not selected_task, discover_candidate or discover_opportunity")
 	}
-	if a.Selection == DiscoverCandidate && a.Candidate == "" {
-		problems = append(problems, "a discover_candidate package must name its candidate")
+	if (a.Selection == DiscoverCandidate || a.Selection == DiscoverOpportunity) && a.Candidate == "" {
+		problems = append(problems, "a package from discover must name its candidate or opportunity")
 	}
 	if len(a.Sources) == 0 || a.BriefDigest == "" {
 		problems = append(problems, "sources and brief_digest are required")
