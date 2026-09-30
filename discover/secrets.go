@@ -58,6 +58,9 @@ var secretShapes = []struct {
 // (max_output_tokens) do not match.
 var sensitiveName = regexp.MustCompile(`(?i)^-{0,2}(authorization|auth|cookie|set-cookie|x-api-key|api[_-]?key|apikey|secret|client[_-]?secret|password|passwd|pwd|pass|private[_-]?key|private[_-]?token|access[_-]?token|refresh[_-]?token|auth[_-]?token|id[_-]?token|session[_-]?token|bearer|token|credentials?|[a-z0-9_-]*[_-](token|secret|password|passwd|api[_-]?key))=?$`)
 
+// userFlagPrograms take -u / --user as user:password.
+var userFlagPrograms = map[string]bool{"curl": true, "wget": true, "http": true, "https": true, "xh": true}
+
 // secretShape names the credential shape v contains, or "".
 func secretShape(v string) string {
 	for _, s := range secretShapes {
@@ -71,8 +74,10 @@ func secretShape(v string) string {
 // sensitiveSlot reports whether a recorded argument must never be written:
 // its name says it carries a credential, a flag before it does (-H with an
 // Authorization header is caught by shape), or its value has a credential's
-// shape. curl's -u user:password is a credential by position.
-func sensitiveSlot(sl Slot) bool {
+// shape. -u user:password is a credential by position, but only for the
+// programs where -u means a user (curl, wget, http); date -u and sort -u do
+// not.
+func sensitiveSlot(label string, sl Slot) bool {
 	if sl.Sub || sl.Type == SlotFlag {
 		return false
 	}
@@ -80,7 +85,7 @@ func sensitiveSlot(sl Slot) bool {
 	if sensitiveName.MatchString(strings.TrimSuffix(name, "=")) {
 		return true
 	}
-	if (name == "-u=" || name == "--user=") && strings.Contains(sl.Value, ":") {
+	if (name == "-u=" || name == "--user=") && userFlagPrograms[strings.SplitN(strings.TrimPrefix(label, "sh:"), " ", 2)[0]] && strings.Contains(sl.Value, ":") {
 		return true
 	}
 	return secretShape(sl.Value) != ""

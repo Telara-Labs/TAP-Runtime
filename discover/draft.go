@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
 	"gopkg.in/yaml.v3"
@@ -59,9 +61,17 @@ type DraftInput struct {
 	Sensitive bool `json:"sensitive,omitempty"`
 	// DerivedFrom is the step (1-based) whose output held this value in most
 	// runs: the program must take it from there, not from the caller.
-	DerivedFrom int    `json:"derived_from,omitempty"`
-	Position    int    `json:"position"`
-	From        string `json:"from"`
+	DerivedFrom int `json:"derived_from,omitempty"`
+	// Extract, when set, is how the program takes this value from step
+	// DerivedFrom's output: a grep pattern for the text before it and the
+	// value itself. The caller does not supply it and it has no Position.
+	Extract string `json:"extract,omitempty"`
+	// Position is the argument number the caller passes it as ($1, $2...);
+	// 0 for an extracted value.
+	Position int    `json:"position"`
+	From     string `json:"from"`
+	// strip is what Extract's match starts with, removed to leave the value.
+	strip string
 }
 
 // Draft is a drafted package and what the review needs to show it.
@@ -80,8 +90,10 @@ type Draft struct {
 	Problems   []string `json:"problems"`
 	HumanSteps int      `json:"human_steps"`
 	// Derived counts inputs an earlier step's output supplied in the
-	// recorded runs; extracting them needs authoring.
-	Derived int `json:"derived"`
+	// recorded runs that the draft could not extract itself: they need
+	// authoring. Extracted counts those it takes from that output.
+	Derived   int `json:"derived"`
+	Extracted int `json:"extracted"`
 	// FixedSteps counts steps that pin something: a subcommand, an MCP tool,
 	// a constant argument or browser object. None means every command and
 	// argument varied: exploration, not a procedure.
@@ -167,7 +179,13 @@ type drafter struct {
 	// posStep maps a pattern position to the draft step that replays it.
 	posStep    map[int]int
 	derivedCnt int
+	extracted  int
 }
+
+// ref is a placeholder for input k in a generated line. finish replaces it
+// with the argument ("${3}") or, for a value taken from an earlier step's
+// output, that shell variable.
+func (d *drafter) ref(k int) string { return "\x01" + itoa(k) + "\x01" }
 
 func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 	if opt.Publisher == "" {
@@ -204,12 +222,16 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 		i++
 	}
 
+	d.finish()
 	name := draftName(c)
 	desc := fmt.Sprintf("Recurring routine found by tap discover in %d sessions over %d weeks (%s). Steps: %s.",
 		c.Sessions, c.Weeks, clientList(c.ByClient), labelsOf(c))
 	props := map[string]any{}
 	var required []string
 	for _, in := range d.inputs {
+		if in.Extract != "" {
+			continue
+		}
 		props[in.Name] = map[string]any{
 			"type":        "string",
 			"description": fmt.Sprintf("Argument %d ($%d): %s, from %s.", in.Position, in.Position, in.Type, in.From),
@@ -240,6 +262,8 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 	for _, in := range d.inputs {
 		if in.Sensitive {
 			fmt.Fprintf(&sh, "# $%d  %s: a credential; supply it from your own configuration (no recorded value is kept)\n", in.Position, in.Name)
+		} else if in.Extract != "" {
+			fmt.Fprintf(&sh, "# %s (%s): taken from step %d's output\n", in.Name, in.Type, in.DerivedFrom)
 		} else if in.DerivedFrom > 0 {
 			fmt.Fprintf(&sh, "# $%d  %s (%s): in the recorded runs this came from step %d's output; take it from there (authoring needed)\n", in.Position, in.Name, in.Type, in.DerivedFrom)
 		} else {
@@ -260,7 +284,7 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 	return &Draft{
 		Blocked: scanArtifacts(files),
 		Name:    name, Publisher: opt.Publisher, Inputs: d.inputs, Steps: d.steps,
-		Problems: problems, HumanSteps: d.humanCnt, Derived: d.derivedCnt, FixedSteps: d.fixedCnt, FixedShare: fixedShare(d), values: d.vectors,
+		Problems: problems, HumanSteps: d.humanCnt, Derived: d.derivedCnt, Extracted: d.extracted, FixedSteps: d.fixedCnt, FixedShare: fixedShare(d), values: d.vectors,
 		Files: files,
 	}
 }
@@ -343,11 +367,21 @@ func (d *drafter) plan(i int, stepName string) []slotPlan {
 		sensitive := false
 		for _, j := range reps {
 			for _, other := range d.occ[j][i].Slots {
-				if other.Key == sl.Key && sensitiveSlot(other) {
+				if other.Key == sl.Key && sensitiveSlot(d.occ[j][i].Label, other) {
 					sensitive = true
+				}
+				// A tool argument some run sent as JSON (an object, an
+				// array, a boolean) is JSON, even where another client
+				// recorded it as text.
+				if other.Key == sl.Key && other.Raw && !sl.Raw && json.Valid([]byte(other.Value)) {
+					sl.Raw, sl.Value = true, other.Value
 				}
 			}
 		}
+		if t, ok := argSchema(sl)["type"].(string); ok && sl.Raw {
+			sl.Type = t
+		}
+		p.slot = sl
 		switch {
 		case sensitive:
 			p.input = d.input(stepName, sl, vec, true, i)
@@ -405,11 +439,16 @@ func (d *drafter) input(stepName string, sl Slot, vec map[int]string, sensitive 
 		name = fmt.Sprintf("%s_%d", sanitizeName(base), k)
 	}
 	d.names[name] = true
-	in := DraftInput{Name: name, Type: sl.Type, Raw: sl.Raw, Example: Redact(sl.Value), Position: len(d.inputs) + 1, From: stepName}
+	in := DraftInput{Name: name, Type: sl.Type, Raw: sl.Raw, Example: Redact(sl.Value), From: stepName}
 	if !sensitive {
 		if h := d.derivedFrom(pos, vec); h >= 0 {
 			in.DerivedFrom = d.posStep[h]
-			d.derivedCnt++
+			if pat, strip, ok := d.extraction(h, vec); ok && d.capturable(in.DerivedFrom) {
+				in.Extract, in.strip = pat, strip
+				d.extracted++
+			} else {
+				d.derivedCnt++
+			}
 		}
 	}
 	if sensitive {
@@ -450,7 +489,7 @@ func (d *drafter) command(i, n int, label string) {
 		case p.fixed:
 			words = append(words, shellQuote(p.slot.Value))
 		default:
-			words = append(words, fmt.Sprintf(`"$%d"`, d.inputs[p.input].Position))
+			words = append(words, `"`+d.ref(p.input)+`"`)
 		}
 		// Flags before the subcommand are the program's global flags; the
 		// word keyed "<flag>=" after one is its value.
@@ -510,11 +549,11 @@ func (d *drafter) tool(i, n int, tool, label string) {
 			continue
 		}
 		in := d.inputs[p.input]
-		v := fmt.Sprintf("a%d", in.Position)
+		v := "a" + itoa(p.input+1)
 		if in.Raw {
-			jqArgs = append(jqArgs, fmt.Sprintf(`--argjson %s "$%d"`, v, in.Position))
+			jqArgs = append(jqArgs, fmt.Sprintf(`--argjson %s "%s"`, v, d.ref(p.input)))
 		} else {
-			jqArgs = append(jqArgs, fmt.Sprintf(`--arg %s "$%d"`, v, in.Position))
+			jqArgs = append(jqArgs, fmt.Sprintf(`--arg %s "%s"`, v, d.ref(p.input)))
 		}
 		fields = append(fields, fmt.Sprintf("%s: $%s", ref, v))
 	}
@@ -563,15 +602,15 @@ func (d *drafter) browser(i, j int) {
 				browserFixed = true
 				arg = `" + (` + strconv.Quote(p.slot.Value) + `|tojson) + "`
 			default:
-				in := d.inputs[p.input]
-				jqArgs = append(jqArgs, fmt.Sprintf(`--arg a%d "$%d"`, in.Position, in.Position))
+				v := "a" + itoa(p.input+1)
+				jqArgs = append(jqArgs, fmt.Sprintf(`--arg %s "%s"`, v, d.ref(p.input)))
 				if p.slot.Raw {
 					if jsIdentifier.MatchString(p.slot.Value) {
 						scriptVars = append(scriptVars, p.slot.Value)
 					}
-					arg = fmt.Sprintf(`" + $a%d + "`, in.Position)
+					arg = `" + $` + v + ` + "`
 				} else {
-					arg = fmt.Sprintf(`" + ($a%d|tojson) + "`, in.Position)
+					arg = `" + ($` + v + `|tojson) + "`
 				}
 			}
 		}
@@ -660,7 +699,7 @@ func (d *drafter) builtin(i, n int, label string) {
 			}
 			arg := shellQuote(p.slot.Value)
 			if !p.fixed {
-				arg = fmt.Sprintf(`"$%d"`, d.inputs[p.input].Position)
+				arg = `"` + d.ref(p.input) + `"`
 			}
 			key := "cat\x00\x00*\x00read"
 			if !d.cmds[key] {
@@ -698,7 +737,7 @@ func (d *drafter) builtin(i, n int, label string) {
 			}
 			arg := shellQuote(p.slot.Value)
 			if !p.fixed {
-				arg = fmt.Sprintf(`"$%d"`, d.inputs[p.input].Position)
+				arg = `"` + d.ref(p.input) + `"`
 			}
 			line := "tap fetch " + arg
 			note := ""
@@ -725,6 +764,8 @@ func draftReadme(name, desc string, d *drafter) string {
 	for _, in := range d.inputs {
 		if in.Sensitive {
 			fmt.Fprintf(&b, "- `$%d` **%s**: a credential, from %s. Supply it from your own configuration; its recorded value was not kept.\n", in.Position, in.Name, in.From)
+		} else if in.Extract != "" {
+			fmt.Fprintf(&b, "- **%s** (%s), from %s: not an argument. In every recorded run step %d's output held it after the same text, so the program takes it from there (`grep -o '%s'`).\n", in.Name, in.Type, in.From, in.DerivedFrom, in.Extract)
 		} else if in.DerivedFrom > 0 {
 			fmt.Fprintf(&b, "- `$%d` **%s** (%s), from %s: in the recorded runs step %d's output supplied it. Take it from there; the caller should not have to.\n", in.Position, in.Name, in.Type, in.From, in.DerivedFrom)
 		} else {
@@ -994,6 +1035,16 @@ func (d *drafter) compound(i, j int) {
 		human(fmt.Sprintf("only %d of %d runs share its structure", len(reps), len(d.occ)))
 		return
 	}
+	// A line is the routine's only when separate sessions wrote it: runs that
+	// agree only within one session are one piece of work repeated there.
+	sessions := map[string]bool{}
+	for _, o := range reps {
+		sessions[d.occ[o][i].Session] = true
+	}
+	if len(sessions) < 2 {
+		human(fmt.Sprintf("the %d runs that share its structure all come from one session", len(reps)))
+		return
+	}
 	first := cuts[reps[0]]
 	prog := strings.ReplaceAll(strings.TrimPrefix(labels[0], "sh:"), " ", "_")
 	var out strings.Builder
@@ -1028,7 +1079,7 @@ func (d *drafter) compound(i, j int) {
 		}
 		in := d.input(name, Slot{Key: "w" + itoa(p), Type: typeOf(word{Text: w.text, Quoted: w.quoted}), Value: w.text}, vec, sensitive, i)
 		out.WriteString(first.raw[last:w.s])
-		fmt.Fprintf(&out, `"${%d}"`, d.inputs[in].Position)
+		out.WriteString(`"` + d.ref(in) + `"`)
 		last = w.e
 	}
 	out.WriteString(first.raw[last:])
@@ -1087,4 +1138,151 @@ func (d *drafter) derivedFrom(pos int, vec map[int]string) int {
 		return -1
 	}
 	return best
+}
+
+// extraction finds how to take a value back out of step h's output: the text
+// just before it, common to every run where step h's output held it, and the
+// character that ended it. It returns a grep -o pattern matching that text
+// and the value, and the text to strip from the match.
+func (d *drafter) extraction(h int, vec map[int]string) (pattern, strip string, ok bool) {
+	var befores []string
+	after, first := "", true
+	for j, v := range vec {
+		if v == "" || j >= len(d.occ) || h >= len(d.occ[j]) {
+			continue
+		}
+		st := d.occ[j][h]
+		for k, id := range st.OutIDs {
+			if id != v || k >= len(st.OutCtx) {
+				continue
+			}
+			b, a, _ := strings.Cut(st.OutCtx[k], "\x00")
+			if !first && a != after {
+				return "", "", false
+			}
+			after, first = a, false
+			befores = append(befores, b)
+			break
+		}
+	}
+	if len(befores) < 2 {
+		return "", "", false
+	}
+	common := befores[0]
+	for _, b := range befores[1:] {
+		n := 0
+		for n < len(common) && n < len(b) && common[len(common)-1-n] == b[len(b)-1-n] {
+			n++
+		}
+		common = common[len(common)-n:]
+	}
+	for len(common) > 0 && !utf8.RuneStart(common[0]) {
+		common = common[1:]
+	}
+	// The anchor must say something ("Task ID: `", "\"id\":\"") and fit in
+	// a single-quoted shell word; the value must end at a delimiter. Text
+	// with a backslash was recorded escaped (a JSON-encoded result) and will
+	// not read the same in the live output.
+	if len(strings.TrimSpace(common)) < 3 || strings.ContainsAny(common+after, "'\n\\") {
+		return "", "", false
+	}
+	if after != "" {
+		if r, _ := utf8.DecodeRuneInString(after); unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return "", "", false
+		}
+	}
+	class := "[^[:space:]]*"
+	if after != "" {
+		class = "[^" + after + "[:space:]]*"
+		if after == "]" {
+			class = "[^][:space:]]*"
+		}
+	}
+	return breQuote(common) + class, common, true
+}
+
+// breQuote escapes s for a basic regular expression.
+func breQuote(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if strings.ContainsRune(`\.*[]^$`, r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// capturable reports whether draft step n runs something whose output a later
+// step can read: a command, a tool call, a browser script or a fetch.
+func (d *drafter) capturable(n int) bool {
+	if n < 1 || n > len(d.steps) {
+		return false
+	}
+	switch d.steps[n-1].Kind {
+	case KindCommand, KindTool, KindBrowser, KindFetch:
+		return true
+	}
+	return false
+}
+
+// finish numbers the caller's arguments, resolves every input placeholder,
+// and makes each step whose output supplies a later value keep that output
+// and take the value from it.
+func (d *drafter) finish() {
+	pos := 0
+	refs := make([]string, len(d.inputs))
+	byStep := map[int][]int{}
+	for k := range d.inputs {
+		in := &d.inputs[k]
+		if in.Extract != "" {
+			refs[k] = "${" + in.Name + "}"
+			byStep[in.DerivedFrom] = append(byStep[in.DerivedFrom], k)
+			continue
+		}
+		pos++
+		in.Position = pos
+		refs[k] = "${" + itoa(pos) + "}"
+	}
+	resolve := func(l string) string {
+		if !strings.Contains(l, "\x01") {
+			return l
+		}
+		parts := strings.Split(l, "\x01")
+		for i := 1; i < len(parts); i += 2 {
+			if k, err := strconv.Atoi(parts[i]); err == nil && k < len(refs) {
+				parts[i] = refs[k]
+			}
+		}
+		return strings.Join(parts, "")
+	}
+	for i := range d.steps {
+		d.steps[i].Line = resolve(d.steps[i].Line)
+	}
+	var out []string
+	step := 0
+	for _, l := range d.lines {
+		l = resolve(l)
+		if strings.HasPrefix(l, "# ") {
+			if n, err := strconv.Atoi(strings.SplitN(l[2:], ".", 2)[0]); err == nil {
+				step = n
+			}
+		}
+		ks := byStep[step]
+		if len(ks) == 0 || step < 1 || l != d.steps[step-1].Line {
+			out = append(out, l)
+			continue
+		}
+		v := "out" + itoa(step)
+		out = append(out, v+"=$("+l+")", `printf '%s\n' "$`+v+`"`)
+		for _, k := range ks {
+			in := d.inputs[k]
+			out = append(out,
+				fmt.Sprintf(`%s=$(printf '%%s\n' "$%s" | grep -o -e '%s' | head -n 1)`, in.Name, v, in.Extract),
+				fmt.Sprintf(`%s=${%s#%s}`, in.Name, in.Name, shellQuote(in.strip)),
+				fmt.Sprintf(`[ -n "$%s" ] || { echo "step %d's output held no %s" >&2; exit 1; }`, in.Name, step, in.Name))
+		}
+		delete(byStep, step)
+	}
+	d.lines = out
 }

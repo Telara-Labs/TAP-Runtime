@@ -159,7 +159,7 @@ func readCodexFile(path string) (s Session, err error) {
 			text := codexOutputText(p.Output)
 			for _, ci := range byCallID[p.CallID] {
 				s.Calls[ci].Outcome = exitOutcome(text)
-				s.Calls[ci].OutIDs = outputIDs(text)
+				s.Calls[ci].OutIDs, s.Calls[ci].OutCtx = outputRefs(text)
 			}
 		case p.Type == "function_call":
 			var args map[string]json.RawMessage

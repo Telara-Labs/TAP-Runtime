@@ -143,7 +143,10 @@ type reqInstance struct {
 	request int
 	steps   []int // indexes into the session's steps
 	labels  map[int]float64
-	text    string
+	// keys are labels' keys in order, so sums over them come out the same
+	// every run (a float sum in map order can land either side of 0.5).
+	keys []int
+	text string
 }
 
 // requestRoutines runs the request-level pass over a normalized corpus.
@@ -195,7 +198,9 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 		for x := range inst[i].labels {
 			// Smoothed, so a step every request runs still weighs something.
 			inst[i].labels[x] = math.Log(1 + float64(len(inst))/float64(df[x]))
+			inst[i].keys = append(inst[i].keys, x)
 		}
+		sort.Ints(inst[i].keys)
 	}
 
 	groups := groupRequests(inst)
@@ -258,24 +263,26 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 
 // groupRequests puts each request in the group whose first request it is
 // most like, when they share at least half their weighted steps (weighted
-// Jaccard); otherwise it starts a group. Requests are taken in corpus order,
-// so the result does not depend on scheduling.
+// Jaccard); otherwise it starts a group. Requests are taken in corpus order
+// and a tie goes to the earlier group, so the result is the same every run.
 func groupRequests(inst []reqInstance) [][]int {
 	var leaders []int
 	var groups [][]int
 	byLabel := map[int][]int{} // label -> groups whose leader has it
-	for i, in := range inst {
-		best, bestSim := -1, 0.5
-		seen := map[int]bool{}
-		for x := range in.labels {
-			for _, g := range byLabel[x] {
-				if seen[g] {
-					continue
-				}
-				seen[g] = true
-				if sim := weightedJaccard(in.labels, inst[leaders[g]].labels); sim >= bestSim {
-					best, bestSim = g, sim
-				}
+	for i := range inst {
+		in := &inst[i]
+		var cands []int
+		for _, x := range in.keys {
+			cands = append(cands, byLabel[x]...)
+		}
+		sort.Ints(cands)
+		best, bestSim := -1, 0.0
+		for k, g := range cands {
+			if k > 0 && cands[k-1] == g {
+				continue
+			}
+			if sim := weightedJaccard(in, &inst[leaders[g]]); sim >= 0.5 && (best < 0 || sim > bestSim) {
+				best, bestSim = g, sim
 			}
 		}
 		if best >= 0 {
@@ -285,26 +292,31 @@ func groupRequests(inst []reqInstance) [][]int {
 		g := len(groups)
 		leaders = append(leaders, i)
 		groups = append(groups, []int{i})
-		for x := range in.labels {
+		for _, x := range in.keys {
 			byLabel[x] = append(byLabel[x], g)
 		}
 	}
 	return groups
 }
 
-func weightedJaccard(a, b map[int]float64) float64 {
+// weightedJaccard sums in key order, so equal inputs give equal bits.
+func weightedJaccard(a, b *reqInstance) float64 {
 	var inter, union float64
-	for x, w := range a {
-		if v, ok := b[x]; ok {
+	i, j := 0, 0
+	for i < len(a.keys) || j < len(b.keys) {
+		switch {
+		case j == len(b.keys) || (i < len(a.keys) && a.keys[i] < b.keys[j]):
+			union += a.labels[a.keys[i]]
+			i++
+		case i == len(a.keys) || b.keys[j] < a.keys[i]:
+			union += b.labels[b.keys[j]]
+			j++
+		default:
+			w, v := a.labels[a.keys[i]], b.labels[b.keys[j]]
 			inter += math.Min(w, v)
 			union += math.Max(w, v)
-		} else {
-			union += w
-		}
-	}
-	for x, v := range b {
-		if _, ok := a[x]; !ok {
-			union += v
+			i++
+			j++
 		}
 	}
 	if union == 0 {
