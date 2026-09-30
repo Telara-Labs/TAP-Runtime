@@ -133,8 +133,14 @@ func runDraftDir(t *testing.T, d *Draft, outputs map[string]string, args ...stri
 	bin := filepath.Join(dir, "bin")
 	os.MkdirAll(bin, 0o755)
 	logf := filepath.Join(dir, "calls.log")
-	fake := "#!/bin/bash\n[ \"$1\" = call ] || exit 2\nprintf '%s %s\\n' \"$2\" \"$3\" >> " + logf + "\nf=" + dir + "/out.$2\n[ -f \"$f\" ] && cat \"$f\"\nexit 0\n"
+	// tap: logs each call; "tap call" takes one argument, a JSON object,
+	// as the guest's does (guest-sh/main.go), and fails otherwise.
+	fake := "#!/bin/bash\n[ \"$1\" = call ] || exit 2\nif [ $# -ge 3 ]; then printf '%s' \"$3\" | " + realJQ(t) + " -e 'type == \"object\"' >/dev/null 2>&1 || { echo 'tap call: arguments are not a JSON object' >&2; exit 2; }; fi\nprintf '%s %s\\n' \"$2\" \"$3\" >> " + logf + "\nf=" + dir + "/out.$2\n[ -f \"$f\" ] && cat \"$f\"\nexit 0\n"
 	os.WriteFile(filepath.Join(bin, "tap"), []byte(fake), 0o755)
+	// jq: the guest's jq accepts only -r and one filter, reading stdin
+	// (guest-sh/main.go runJQ). A draft must not rely on more.
+	shim := "#!/bin/bash\nfilter=.\nraw=\nfor a in \"$@\"; do case \"$a\" in -r) raw=-r;; -*) echo \"jq: unsupported flag $a\" >&2; exit 2;; *) filter=\"$a\";; esac; done\nexec " + realJQ(t) + " -c $raw \"$filter\"\n"
+	os.WriteFile(filepath.Join(bin, "jq"), []byte(shim), 0o755)
 	for alias, out := range outputs {
 		os.WriteFile(filepath.Join(dir, "out."+alias), []byte(out), 0o644)
 	}
@@ -335,9 +341,13 @@ func TestC06ExplicitListLoopIsAUsefulProcedure(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "y z.txt"), []byte("y"), 0o644)
 	script := filepath.Join(dir, "main.sh")
 	os.WriteFile(script, r.Draft().Files["main.sh"], 0o755)
+	bin := filepath.Join(dir, "bin")
+	os.MkdirAll(bin, 0o755)
+	os.WriteFile(filepath.Join(bin, "jq"), []byte("#!/bin/bash\nfilter=.\nraw=\nfor a in \"$@\"; do case \"$a\" in -r) raw=-r;; -*) echo \"jq: unsupported flag $a\" >&2; exit 2;; *) filter=\"$a\";; esac; done\nexec "+realJQ(t)+" -c $raw \"$filter\"\n"), 0o755)
 	run := func(arg string) (string, error) {
 		cmd := exec.Command("bash", script, arg)
 		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
 		b, err := cmd.CombinedOutput()
 		return string(b), err
 	}
@@ -922,4 +932,14 @@ func TestProceduresRankAboveInvestigations(t *testing.T) {
 	if useful < 0 || (investigation >= 0 && investigation < useful) {
 		t.Fatalf("useful at %d, investigation at %d:\n%s", useful, investigation, dump(rep))
 	}
+}
+
+// realJQ is the host's jq, used by the stand-ins above.
+func realJQ(t *testing.T) string {
+	t.Helper()
+	p, err := exec.LookPath("jq")
+	if err != nil {
+		t.Skip("jq not available")
+	}
+	return p
 }

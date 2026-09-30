@@ -105,3 +105,65 @@ func TestR3FragmentedGroupsStillShareTheirGoal(t *testing.T) {
 		t.Fatalf("every request ran transition then comment; none recommended:\n%s", dump(rep))
 	}
 }
+
+// R5: the guest runtime's wc and head read only standard input; a draft
+// that passes them a file would print a count of nothing. Such a draft is
+// not structurally complete.
+func TestR5GuestBuiltinsThatIgnoreFilesBlockTheDraft(t *testing.T) {
+	ss := eps("wc", 9, func(i int) string {
+		var fs []string
+		for f := 0; f < 2+i%3; f++ {
+			fs = append(fs, fmt.Sprintf("logs/r%d-%d.txt", i, f))
+		}
+		return "count lines in " + strings.Join(fs, " ")
+	}, func(i int) []Call {
+		var cs []Call
+		for f := 0; f < 2+i%3; f++ {
+			cs = append(cs, sh(fmt.Sprintf("wc -l logs/r%d-%d.txt", i, f)))
+		}
+		return cs
+	})
+	r := runOn(t, ss).Routines[0]
+	if r.Suitability != SuitUseful || r.DraftStatus == DraftComplete || !strings.Contains(strings.Join(r.Blockers, " "), "guest_builtin_ignores_files") {
+		t.Fatalf("suit %q draft %q blockers %v", r.Suitability, r.DraftStatus, r.Blockers)
+	}
+}
+
+// R6: a file the program reads must be declared for the host to allow it;
+// a fixed path is declared, a varying one blocks the draft.
+func TestR6FileReadsAreDeclaredOrBlocked(t *testing.T) {
+	fixed := eps("rf", 6, func(i int) string { return fmt.Sprintf("summarize release %d", i) }, func(i int) []Call {
+		return []Call{{Tool: "Read", Args: map[string]string{"file_path": "docs/RELEASES.md"}}, sh(fmt.Sprintf("git log --oneline v%d..HEAD", i))}
+	})
+	d := runOn(t, fixed).Routines[0].Draft()
+	if !strings.Contains(string(d.Files["primitive.yaml"]), "path: docs/RELEASES.md") {
+		t.Fatalf("a fixed read must be declared:\n%s", d.Files["primitive.yaml"])
+	}
+	varying := eps("rv", 6, func(i int) string { return fmt.Sprintf("summarize notes/day%d.md", i) }, func(i int) []Call {
+		return []Call{{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("notes/day%d.md", i)}}, sh("git status --short")}
+	})
+	r := runOn(t, varying).Routines[0]
+	if r.DraftStatus == DraftComplete || !strings.Contains(strings.Join(r.Blockers, " "), "file_access_undeclared") {
+		t.Fatalf("draft %q blockers %v", r.DraftStatus, r.Blockers)
+	}
+}
+
+// R7: the runner binds a capability written provider.resource.verb and
+// refuses anything else at admission, even when publish checks pass.
+func TestR7CapabilityLabelsAreProviderResourceVerb(t *testing.T) {
+	for tool, want := range map[string]string{
+		"gmail_search_emails":     "gmail.emails.search",
+		"records_create":          "records.records.create",
+		"telara_jira_add_comment": "telara.jira_comment.add",
+		"ci_list_build_steps":     "ci.build_steps.list",
+		"tap_run":                 "tap.tap.run",
+		"weird":                   "weird.weird.run",
+	} {
+		if got := capName(tool); got != want {
+			t.Errorf("%s: %s, want %s", tool, got, want)
+		}
+		if parts := strings.Split(capName(tool), "."); len(parts) != 3 {
+			t.Errorf("%s: %s is not provider.resource.verb", tool, capName(tool))
+		}
+	}
+}
