@@ -39,10 +39,11 @@ func TestLineageJoinsCopiesAndTemplatedPrompts(t *testing.T) {
 	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	orig := Session{Client: "claude-code", ID: "orig", Start: t0, Requests: []string{"fix the flaky gateway test"}, Calls: []Call{{ID: "toolu_1", Tool: "shell", Command: "go test ./..."}}}
 	resumed := Session{Client: "claude-code", ID: "resumed", Start: t0, Requests: []string{"something else entirely here"}, Calls: []Call{{ID: "toolu_1", Tool: "shell", Command: "go test ./..."}, {ID: "toolu_2", Tool: "shell", Command: "git diff"}}}
-	auto1 := Session{Client: "codex", ID: "x", Start: t0, Requests: []string{"Automation: hourly monitor run"}, Calls: []Call{{Tool: "shell", Command: "ls"}}}
-	auto2 := Session{Client: "codex", ID: "y", Start: t0, Requests: []string{"automation:  hourly monitor run"}, Calls: []Call{{Tool: "shell", Command: "ls"}}}
-	other := Session{Client: "codex", ID: "z", Start: t0, Requests: []string{"yes"}, Calls: []Call{{Tool: "shell", Command: "ls"}}}
-	other2 := Session{Client: "codex", ID: "w", Start: t0, Requests: []string{"yes"}, Calls: []Call{{Tool: "shell", Command: "ls"}}}
+	auto1 := Session{Client: "codex", ID: "x", Start: t0, Requests: []string{"Automation: hourly monitor run for the linkedin queue"}, Calls: []Call{{Tool: "shell", Command: "ls"}}}
+	auto2 := Session{Client: "codex", ID: "y", Start: t0, Requests: []string{"automation:  hourly monitor run for the  linkedin queue"}, Calls: []Call{{Tool: "shell", Command: "ls"}}}
+	// Shared follow-ups and injected wrappers do not tie unrelated tasks.
+	other := Session{Client: "codex", ID: "z", Start: t0, Requests: []string{"# AGENTS.md instructions for /repo <instructions> rules", "rename the billing dashboard tiles to match the design", "do you still have more to do? please continue"}, Calls: []Call{{Tool: "shell", Command: "ls"}}}
+	other2 := Session{Client: "codex", ID: "w", Start: t0, Requests: []string{"# AGENTS.md instructions for /repo <instructions> rules", "investigate why the export indexer retries forever", "do you still have more to do? please continue"}, Calls: []Call{{Tool: "shell", Command: "ls"}}}
 	c := NewCorpus([]Session{orig, resumed, auto1, auto2, other, other2})
 	ln := map[string]string{}
 	for _, e := range c.Episodes() {
