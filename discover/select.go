@@ -47,6 +47,7 @@ const (
 	RouteStatedTemplate = "stated_template"
 	RouteRerunCheck     = "rerun_check"
 	RouteParamLoop      = "parametric_loop"
+	RouteNamedObject    = "named_object"
 )
 
 // Thresholds, fixed before the lineage-separated holdout was labeled.
@@ -60,6 +61,7 @@ const (
 	editMaxShare        = 0.30
 	minWorkSteps        = 2
 	loopMinItems        = 2
+	singlePassMaxSteps  = 15
 )
 
 var (
@@ -203,6 +205,31 @@ func judgeOpportunity(o *Opportunity, text string, steps []Step, shell []string,
 	case most < rerunMinRuns && loopItems < loopMinItems:
 		reason("no_rerun_program")
 		reason("no_parametric_loop")
+		// Route 4: one short pass over an object the request names: the
+		// request is short, a step acts on a named object, and a later step
+		// depends on an earlier one. The navigation and edit gates apply to
+		// the window from the first such step to the last dependent step.
+		named, win, wNav, wEdit, dependent := namedObject(text, steps)
+		switch {
+		case named == 0:
+			reason("no_named_object_touched")
+		case !dependent:
+			reason("named_object_without_dependent_steps")
+		case work > singlePassMaxSteps:
+			// The whole request must be one short pass. Judging only the
+			// window was tried on the diagnostic sets and added a false
+			// positive and no true one.
+			reason("single_pass_too_long:" + strconv.Itoa(work))
+		case float64(wNav) >= navMaxShare*float64(win):
+			reason("navigation_share:" + strconv.FormatFloat(float64(wNav)/float64(win), 'f', 2, 64))
+		case float64(wEdit) >= editMaxShare*float64(win):
+			reason("edit_share:" + strconv.FormatFloat(float64(wEdit)/float64(win), 'f', 2, 64))
+		default:
+			o.Reasons = nil
+			o.Recommended, o.Route = true, RouteNamedObject
+			reason("named_objects_touched:" + strconv.Itoa(named))
+			reason("window_steps:" + strconv.Itoa(win))
+		}
 	case navShare >= navMaxShare:
 		reason("navigation_share:" + strconv.FormatFloat(navShare, 'f', 2, 64))
 	case editShare >= editMaxShare:
@@ -402,4 +429,80 @@ func longNumbers(vs []string) bool {
 		}
 	}
 	return true
+}
+
+// objectRe finds what a request names that a procedure could take as an
+// input: an issue key, a URL, a long number, a path or a file name.
+var objectRe = regexp.MustCompile(`\b[A-Z][A-Z0-9]+-\d+\b|https?://[^\s)>"'` + "`" + `]+|\b\d{5,}\b|(?:~|\.{0,2})/[\w.@-]+(?:/[\w.@-]+)+|\b[\w-]+\.(?:md|json|jsonl|csv|yaml|yml|go|py|ts|sh|txt|log|pdf|html)\b`)
+
+// namedObject counts the objects the request names that some step acts on,
+// and finds the window from the first such step to the last step that used
+// a value an earlier step in the window produced. It returns the count, the
+// window's work steps, how many of them navigate and edit, and whether any
+// dependency was found.
+func namedObject(text string, steps []Step) (named, win, nav, edits int, dependent bool) {
+	seen := map[string]bool{}
+	first := -1
+	for _, m := range objectRe.FindAllString(text, -1) {
+		m = strings.TrimRight(m, ".,;:")
+		if len(m) < 4 || seen[m] {
+			continue
+		}
+		seen[m] = true
+		if i := firstTouch(m, steps); i >= 0 {
+			named++
+			if first < 0 || i < first {
+				first = i
+			}
+		}
+	}
+	if named == 0 {
+		return
+	}
+	last := -1
+	for j := first + 1; j < len(steps); j++ {
+		for _, sl := range steps[j].Slots {
+			if sl.Sub || sl.Type == SlotFlag || len(sl.Value) < 4 {
+				continue
+			}
+			for i := first; i < j; i++ {
+				if steps[i].Call != steps[j].Call && inResult(sl.Value, steps[i]) {
+					last = j
+				}
+			}
+		}
+	}
+	if last < 0 {
+		return
+	}
+	dependent = true
+	calls := map[int]bool{}
+	for _, st := range steps[first : last+1] {
+		if calls[st.Call] || bookkeepingTools[st.Label] {
+			continue
+		}
+		calls[st.Call] = true
+		win++
+		switch {
+		case editTools[st.Label] || strings.HasPrefix(st.Label, "patch:"):
+			edits++
+		case strings.HasPrefix(st.Label, "sh:") && viewingCall(st.Call, steps):
+			nav++
+		case strings.HasPrefix(st.Label, "sh:") || strings.HasPrefix(st.Label, "mcp:") || strings.HasPrefix(st.Label, "js:"):
+		default:
+			nav++
+		}
+	}
+	return
+}
+
+// firstTouch is the index of the first step whose command or arguments name
+// the object, or -1.
+func firstTouch(obj string, steps []Step) int {
+	for i := range steps {
+		if touches(obj, steps[i:i+1]) {
+			return i
+		}
+	}
+	return -1
 }

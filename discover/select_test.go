@@ -131,3 +131,28 @@ func TestSelectionRefusesHarnessAndSingleCalls(t *testing.T) {
 		}
 	}
 }
+
+// A short request naming an object, whose calls act on it with a later step
+// using an earlier result, is a single-pass procedure. The same request with
+// no dependency between its steps, or naming nothing the calls touch, is not.
+func TestNamedObjectNeedsATouchedObjectAndADependency(t *testing.T) {
+	close := selSession("close", "close TENG-4321 with a note that it shipped",
+		Call{Tool: "mcp:jira_list_transitions", Args: map[string]string{"issue_key": "TENG-4321"}, Output: `{"transitions":[{"id":"31","name":"Done"}],"done_id":"trn-31-done"}`},
+		Call{Tool: "mcp:jira_add_comment", Args: map[string]string{"issue_key": "TENG-4321", "body": "shipped"}},
+		Call{Tool: "mcp:jira_transition_issue", Args: map[string]string{"issue_key": "TENG-4321", "transition_id": "trn-31-done"}})
+	if o := judged(t, []Session{close}, "close"); !o.Recommended || o.Route != RouteNamedObject {
+		t.Errorf("want named_object, got %+v", o)
+	}
+	unrelated := selSession("unrelated", "close TENG-4321 with a note that it shipped",
+		Call{Tool: "mcp:jira_add_comment", Args: map[string]string{"issue_key": "TENG-4321", "body": "shipped"}},
+		Call{Tool: "mcp:jira_get_issue", Args: map[string]string{"issue_key": "TENG-4321"}})
+	if o := judged(t, []Session{unrelated}, "unrelated"); o.Recommended {
+		t.Errorf("no step depends on another: not a procedure, got %+v", o)
+	}
+	nothing := selSession("nothing", "why is it slow today",
+		Call{Tool: "mcp:metrics_query", Args: map[string]string{"query": "p95 latency"}, Output: "series-abc123"},
+		Call{Tool: "mcp:metrics_series", Args: map[string]string{"id": "series-abc123"}})
+	if o := judged(t, []Session{nothing}, "nothing"); o.Recommended {
+		t.Errorf("the request names nothing the calls act on, got %+v", o)
+	}
+}

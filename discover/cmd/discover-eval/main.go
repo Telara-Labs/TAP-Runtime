@@ -317,10 +317,19 @@ func holdout(args []string) error {
 	seed := fs.Int64("seed", 1, "sampling seed")
 	n := fs.Int("n", 150, "episodes to draw")
 	dir := fs.String("dir", "holdout", "directory for sample.json and the episode packets")
+	dropChanged := fs.Bool("drop-changed", false, "leave out sessions that changed since the freeze, and list them, instead of failing")
 	fs.Parse(args)
 	rs, _, err := frozenReaders(*manifest)
 	if err != nil {
 		return err
+	}
+	var dropped []string
+	if *dropChanged {
+		for i, r := range rs {
+			fr := r.(discover.FrozenReader)
+			fr.DropChanged, fr.Dropped = true, &dropped
+			rs[i] = fr
+		}
 	}
 	ss, err := readAll(rs)
 	if err != nil {
@@ -357,8 +366,8 @@ func holdout(args []string) error {
 			return err
 		}
 	}
-	fmt.Printf("drew %d holdout episodes (excluded %d earlier episodes' lineages and templates): %v\n", len(eps), len(ex), clients)
-	return writeJSON(filepath.Join(*dir, "sample.json"), map[string]any{"seed": *seed, "manifest": *manifest, "exclude": *exclude, "episodes": eps, "clients": clients})
+	fmt.Printf("drew %d holdout episodes (excluded %d earlier episodes' lineages and templates; dropped %d changed sessions %v): %v\n", len(eps), len(ex), len(dropped), dropped, clients)
+	return writeJSON(filepath.Join(*dir, "sample.json"), map[string]any{"seed": *seed, "manifest": *manifest, "exclude": *exclude, "dropped": dropped, "episodes": eps, "clients": clients})
 }
 
 // opportunities runs the selection pass over a frozen corpus and writes one
