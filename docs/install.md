@@ -54,6 +54,10 @@ tap install --client claude --print  # show the command, change nothing
 
 ## Gemini CLI
 
+**Experimental.** Built and tested against a stand-in for Gemini CLI, never
+against Gemini CLI itself: Google no longer admits individual accounts to it
+("please migrate to the Antigravity suite"), so the test could not run.
+
 ```
 tap install --client gemini
 ```
@@ -73,8 +77,11 @@ with the server's name as it appears in Gemini's settings.
 
 ## VS Code (GitHub Copilot)
 
-Install the TAP Runtime extension from `vscode/` in this repository. It
-registers the runner with VS Code as the MCP server "TAP Runtime", so there is
+**Preview.** The extension ships with each release as
+`tap-vscode-<version>.vsix`. Install it from VS Code's Extensions view, under
+"Install from VSIX...".
+
+It registers the runner with VS Code as the MCP server "TAP Runtime", so there is
 nothing to add to `mcp.json`, and it lets the runner call the tools VS Code
 already has: every MCP server connected for Copilot, and the editor's own
 tools. VS Code makes each call with its own connection and shows its own
@@ -83,6 +90,10 @@ Claude Code and Codex.
 
 The extension finds `tap` in `~/.local/bin`, on PATH, or at the
 `tapRuntime.path` setting. macOS and Linux only for now.
+
+## claude.ai, in the browser
+
+**Preview.** See [web.md](web.md).
 
 ## Checking a release yourself
 

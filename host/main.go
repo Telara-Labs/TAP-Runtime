@@ -227,7 +227,7 @@ func main() {
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: tap [--approve] [--resume RUN] <package-dir> [args...]\n       tap serve\n       tap install --client claude|codex|gemini\n       tap discover [--review] [--rejected]\n       tap hook gemini\n       tap fetch\n       tap manifest check|complete <package-dir>\n       tap version")
+		fmt.Fprintln(os.Stderr, "usage: tap [--approve] [--resume RUN] <package-dir> [args...]\n       tap serve\n       tap install --client claude|codex|gemini\n       tap discover [--review] [--rejected]\n       tap hook gemini\n       tap web build --out FILE <package-dir>...\n       tap fetch\n       tap manifest check|complete <package-dir>\n       tap version")
 		os.Exit(2)
 	}
 	var journal io.Writer = io.Discard

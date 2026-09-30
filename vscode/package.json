@@ -1,8 +1,8 @@
 {
-  "name": "tap-runtime",
+  "name": "tap-vscode",
   "displayName": "TAP Runtime",
   "description": "Runs TAP primitives in VS Code with the tools the editor already has connected, so Copilot can call a primitive as one tool.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "telara-labs",
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/Telara-Labs/TAP-Runtime" },

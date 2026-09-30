@@ -2,7 +2,7 @@
 // the bash-compatible interpreter, their checksums, and the licence notices
 // of everything compiled in.
 //
-//	go run ./release build  --version 0.1.0 --out dist [--key release.key] [--download-base URL]
+//	go run ./release build  --version 0.1.0 --out dist [--key release.key] [--download-base URL] [--extra FILE]...
 //	go run ./release verify --dir dist [--pub release.pub]
 //	go run ./release keygen --out release
 //
@@ -54,12 +54,17 @@ func main() {
 		key := fs.String("key", "", "ed25519 private key file; the checksums are signed when given")
 		only := fs.String("only", "", "build one platform, such as linux/amd64")
 		base := fs.String("download-base", "", "address the files of this release will be served from")
+		var extra []string
+		fs.Func("extra", "a file built elsewhere to ship with the release, such as the VS Code extension; may be repeated", func(s string) error {
+			extra = append(extra, s)
+			return nil
+		})
 		fs.Parse(os.Args[2:])
 		platforms := Platforms
 		if *only != "" {
 			platforms = []string{*only}
 		}
-		err = Build(".", *out, *version, platforms, *key, *base)
+		err = Build(".", *out, *version, platforms, *key, *base, extra...)
 	case "verify":
 		fs := flag.NewFlagSet("verify", flag.ExitOnError)
 		dir := fs.String("dir", "dist", "directory to check")
@@ -108,7 +113,10 @@ var versionRe = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`)
 
 // Build writes a release into out. base is where its files will be served
 // from; it may be empty.
-func Build(repo, out, version string, platforms []string, keyFile, base string) error {
+// extra names files built elsewhere that ship with the release. They are
+// copied in and listed in the checksums like everything else; the release is
+// reproducible only as far as they are.
+func Build(repo, out, version string, platforms []string, keyFile, base string, extra ...string) error {
 	// The version and the address are written into a linker flag and into
 	// two scripts, so neither may hold a space or a quote.
 	if !versionRe.MatchString(version) {
@@ -188,6 +196,22 @@ func Build(repo, out, version string, platforms []string, keyFile, base string) 
 		return err
 	}
 	files = append(files, "THIRD_PARTY_NOTICES.txt")
+	for _, e := range extra {
+		raw, err := os.ReadFile(e)
+		if err != nil {
+			return fmt.Errorf("--extra: %w", err)
+		}
+		name := filepath.Base(e)
+		for _, f := range files {
+			if f == name {
+				return fmt.Errorf("--extra %s has the name of a file the release already holds", name)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(abs, name), raw, 0o644); err != nil {
+			return err
+		}
+		files = append(files, name)
+	}
 
 	sums, err := checksums(abs, files)
 	if err != nil {

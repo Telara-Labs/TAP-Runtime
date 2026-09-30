@@ -231,3 +231,26 @@ func TestBuildRefusesWhatItCannotWriteSafely(t *testing.T) {
 		}
 	}
 }
+
+// A file built elsewhere ships with the release and is covered by its
+// checksums like the rest.
+func TestExtraFilesAreListed(t *testing.T) {
+	extra := filepath.Join(t.TempDir(), "tap-vscode-0.0.0.vsix")
+	os.WriteFile(extra, []byte("an extension"), 0o644)
+	out := t.TempDir()
+	if err := Build(repo, out, "0.0.0-test", []string{host}, "", "", extra); err != nil {
+		t.Fatal(err)
+	}
+	sums, _ := os.ReadFile(filepath.Join(out, "SHA256SUMS"))
+	if !strings.Contains(string(sums), "  tap-vscode-0.0.0.vsix\n") {
+		t.Fatalf("the extra file is not in the checksums:\n%s", sums)
+	}
+	if err := Verify(out, ""); err != nil {
+		t.Fatal(err)
+	}
+	clash := filepath.Join(t.TempDir(), "THIRD_PARTY_NOTICES.txt")
+	os.WriteFile(clash, []byte("x"), 0o644)
+	if err := Build(repo, t.TempDir(), "0.0.0-test", []string{host}, "", "", clash); err == nil {
+		t.Error("an extra file replaced one of the release's own")
+	}
+}
