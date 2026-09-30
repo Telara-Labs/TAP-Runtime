@@ -141,6 +141,10 @@ type Report struct {
 	// many requests recurred as routines, and which passed every check.
 	Funnel   Funnel    `json:"funnel"`
 	Routines []Routine `json:"routines"`
+	// Opportunities are the requests the selection pass (select.go)
+	// recommends from the whole history, whether or not they recurred.
+	// Each is an unassessed proposal for an authoring agent.
+	Opportunities []Opportunity `json:"opportunities,omitempty"`
 
 	// Kept in memory so a candidate can be drafted from its real
 	// occurrences; never written out.
@@ -197,6 +201,11 @@ func Run(o Options) (*Report, error) {
 		return a.ID < b.ID
 	})
 	dropCopiedCalls(raw)
+	for _, op := range SelectOpportunities(raw) {
+		if op.Recommended {
+			rep.Opportunities = append(rep.Opportunities, op)
+		}
+	}
 	sessions := normalize(raw)
 
 	// Identical step sequences are one piece of work run twice (a replayed

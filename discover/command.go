@@ -45,6 +45,7 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	review := fs.Bool("review", false, "list the primitives and pick which to save")
 	rejected := fs.Bool("rejected", false, "also list what each check removed, and why")
 	patterns := fs.Bool("patterns", false, "also run the pattern search (slower)")
+	nOps := fs.Int("opportunities", 0, "also list this many surfaced opportunities with their task references")
 	saveClient := fs.String("save-client", "claude-code", "where saved primitives go: claude-code or codex")
 	saveProject := fs.Bool("save-project", false, "save into this project's skills directory instead of your home")
 	fs.IntVar(&d.Window, "window", d.Window, "most steps allowed between two steps of a pattern")
@@ -98,6 +99,7 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 0
 	}
 	WriteFunnel(out, rep, *top, *rejected)
+	WriteOpportunities(out, rep, *nOps)
 	if *patterns {
 		fmt.Fprintln(out)
 		WriteText(out, rep, *top)

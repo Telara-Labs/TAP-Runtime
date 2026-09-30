@@ -36,8 +36,9 @@ const BriefStatus = "unassessed_proposal"
 
 // Selection kinds.
 const (
-	SelectedTask      = "selected_task"
-	DiscoverCandidate = "discover_candidate"
+	SelectedTask        = "selected_task"
+	DiscoverCandidate   = "discover_candidate"
+	DiscoverOpportunity = "discover_opportunity"
 )
 
 // Brief is what the agent authoring a package starts from.
@@ -50,7 +51,9 @@ type Brief struct {
 	Ref       string          `json:"ref"`
 	Source    SourceRef       `json:"source"`
 	Candidate *BriefCandidate `json:"candidate,omitempty"`
-	Evidence  BriefEvidence   `json:"evidence"`
+	// Opportunity is the selection pass's claim, when the task came from it.
+	Opportunity *Opportunity  `json:"opportunity,omitempty"`
+	Evidence    BriefEvidence `json:"evidence"`
 	// Missing lists the contract fields nothing has established yet. Every
 	// field is missing for a selected task.
 	Missing  []string      `json:"missing"`
@@ -276,20 +279,34 @@ func briefCommand(args []string, home string, out, errOut io.Writer) int {
 	fs.SetOutput(errOut)
 	task := fs.String("task", "", "the selected task, as client/session/request")
 	candidate := fs.String("candidate", "", "a routine id from a discover report")
+	opportunity := fs.String("opportunity", "", "an opportunity id from a discover report")
 	report := fs.String("report", "", "with --candidate: the report written by `tap discover --out`")
 	source := fs.Int("source", 0, "with --candidate: which of its source requests to brief from")
 	dir := fs.String("out", "", "directory to write brief.json and BRIEF.md into (private)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if *dir == "" || (*task == "") == (*candidate == "") || (*candidate != "" && *report == "") {
-		fmt.Fprintln(errOut, "discover brief: give --out and exactly one of --task or --candidate with --report")
+	given := 0
+	for _, v := range []string{*task, *candidate, *opportunity} {
+		if v != "" {
+			given++
+		}
+	}
+	if *dir == "" || given != 1 || (*task == "" && *report == "") {
+		fmt.Fprintln(errOut, "discover brief: give --out and exactly one of --task, or --candidate or --opportunity with --report")
 		return 2
 	}
 	var cand *BriefCandidate
+	var opp *Opportunity
 	var ref SourceRef
 	var err error
-	if *candidate != "" {
+	if *opportunity != "" {
+		if opp, err = OpportunityFrom(*report, *opportunity); err != nil {
+			fmt.Fprintln(errOut, "discover brief:", err)
+			return 1
+		}
+		ref = SourceRef{Client: opp.Client, Session: opp.Session, Request: opp.Request}
+	} else if *candidate != "" {
 		if cand, err = CandidateFrom(*report, *candidate); err != nil {
 			fmt.Fprintln(errOut, "discover brief:", err)
 			return 1
@@ -312,6 +329,11 @@ func briefCommand(args []string, home string, out, errOut io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(errOut, "discover brief:", err)
 		return 1
+	}
+	if opp != nil {
+		// The route and reasons are the selection pass's evidence, carried
+		// as its claim; every contract field stays for the agent to establish.
+		b.Selection, b.Opportunity = DiscoverOpportunity, opp
 	}
 	digest, err := b.Write(*dir)
 	if err != nil {
@@ -355,6 +377,9 @@ func (b *Brief) markdown() string {
 			fmt.Fprintf(&w, " (%s: %s)", c.Failed, c.Why)
 		}
 		fmt.Fprintf(&w, "; role %s; suitability %s; %d source requests.\n\n", c.SourceRole, c.Suitability, len(c.Sources))
+	}
+	if o := b.Opportunity; o != nil {
+		fmt.Fprintf(&w, "## What Discover's selection pass said (a proposal, not a finding)\n\nOpportunity %s, route %s: %s.\n\n", o.ID, o.Route, strings.Join(o.Reasons, "; "))
 	}
 	fmt.Fprintf(&w, "## Contract fields not yet established\n\n%s\n\n", strings.Join(b.Missing, ", "))
 	w.WriteString("## The request\n\n")
@@ -402,4 +427,25 @@ func (b *Brief) markdown() string {
    validated only for the exact digest the receipts passed.
 `)
 	return w.String()
+}
+
+// OpportunityFrom finds opportunity id in a report written by
+// `tap discover --out`.
+func OpportunityFrom(reportPath, id string) (*Opportunity, error) {
+	raw, err := os.ReadFile(reportPath)
+	if err != nil {
+		return nil, err
+	}
+	var rep struct {
+		Opportunities []Opportunity `json:"opportunities"`
+	}
+	if err := json.Unmarshal(raw, &rep); err != nil {
+		return nil, fmt.Errorf("%s is not a discover report: %w", reportPath, err)
+	}
+	for i := range rep.Opportunities {
+		if rep.Opportunities[i].ID == id {
+			return &rep.Opportunities[i], nil
+		}
+	}
+	return nil, fmt.Errorf("opportunity %s is not in %s", id, reportPath)
 }

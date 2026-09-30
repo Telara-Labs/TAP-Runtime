@@ -387,3 +387,32 @@ func TestOracleIsFoundFromARelativeCasesPathAndMustReport(t *testing.T) {
 		t.Errorf("an oracle that never ran must be an error, got %v", err)
 	}
 }
+
+// An opportunity the selection pass surfaced reaches the author path: the
+// brief carries the pass's route and reasons as its claim, and every
+// contract field stays for the agent to establish.
+func TestBriefFromASurfacedOpportunity(t *testing.T) {
+	home := homeWithClaudeSession(t)
+	report := filepath.Join(t.TempDir(), "report.json")
+	op := Opportunity{ID: EpisodeID("claude-code", "s1", 0), Client: "claude-code", Session: "s1", Request: 0,
+		Recommended: true, Route: RouteParamLoop, Reasons: []string{"loop:sh:git log:3"}, Task: "claude-code/s1/0"}
+	b, _ := json.Marshal(map[string]any{"opportunities": []Opportunity{op}})
+	os.WriteFile(report, b, 0o644)
+	out := filepath.Join(t.TempDir(), "brief")
+	var so, se bytes.Buffer
+	if code := briefCommand([]string{"--opportunity", op.ID, "--report", report, "--out", out}, home, &so, &se); code != 0 {
+		t.Fatalf("exit %d: %s", code, se.String())
+	}
+	var got Brief
+	raw, _ := os.ReadFile(filepath.Join(out, "brief.json"))
+	json.Unmarshal(raw, &got)
+	if got.Selection != DiscoverOpportunity || got.Status != BriefStatus || got.Opportunity == nil || got.Opportunity.Route != RouteParamLoop {
+		t.Errorf("brief does not carry the opportunity as a proposal: %+v", got)
+	}
+	if len(got.Missing) != len(contractFields) {
+		t.Errorf("an opportunity establishes no contract field, missing %v", got.Missing)
+	}
+	if code := briefCommand([]string{"--opportunity", "ep_nope", "--report", report, "--out", out}, home, &so, &se); code == 0 {
+		t.Error("an unknown opportunity must be refused")
+	}
+}

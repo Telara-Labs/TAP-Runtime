@@ -258,3 +258,21 @@ func (r *Report) Primitives() []*Routine {
 	}
 	return out
 }
+
+// WriteOpportunities says how many requests the selection pass surfaced,
+// by route, and lists up to n with the reference an authoring brief takes.
+func WriteOpportunities(w io.Writer, r *Report, n int) {
+	by := map[string]int{}
+	for _, o := range r.Opportunities {
+		by[o.Route]++
+	}
+	fmt.Fprintf(w, "\nSurfaced %d opportunities from the whole history by mechanical evidence (%d stated template, %d re-run check, %d parametric loop).\n",
+		len(r.Opportunities), by[RouteStatedTemplate], by[RouteRerunCheck], by[RouteParamLoop])
+	fmt.Fprintln(w, "Each is an unassessed proposal, not a verified procedure. Brief one for an authoring agent with `tap discover brief --opportunity <id> --report <file>`.")
+	for i, o := range r.Opportunities {
+		if i == n {
+			break
+		}
+		fmt.Fprintf(w, "  %s  %-16s %s  (%s)\n", o.ID, o.Route, o.Task, strings.Join(o.Reasons, "; "))
+	}
+}
