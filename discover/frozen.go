@@ -89,6 +89,12 @@ func BuildManifest(ss []Session, cutoff time.Time) Manifest {
 type FrozenReader struct {
 	Inner    Reader
 	Manifest Manifest
+	// DropChanged leaves out a session that changed or disappeared since
+	// the freeze, instead of failing, and lists it in Dropped. A live
+	// client store keeps appending to and deleting sessions; an evaluation
+	// that uses this must report what was dropped.
+	DropChanged bool
+	Dropped     *[]string
 }
 
 func (f FrozenReader) Client() string { return f.Inner.Client() }
@@ -125,6 +131,15 @@ func (f FrozenReader) Read(since time.Time) ([]Session, error) {
 	}
 	for id := range want {
 		changed = append(changed, id+" (missing)")
+	}
+	if len(changed) > 0 && f.DropChanged {
+		sort.Strings(changed)
+		if f.Dropped != nil {
+			for _, id := range changed {
+				*f.Dropped = append(*f.Dropped, f.Inner.Client()+"/"+id)
+			}
+		}
+		return out, nil
 	}
 	if len(changed) > 0 {
 		sort.Strings(changed)

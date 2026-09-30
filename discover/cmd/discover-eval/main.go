@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/discover"
@@ -34,6 +35,10 @@ func main() {
 		err = sample(os.Args[2:])
 	case "show":
 		err = show(os.Args[2:])
+	case "opportunities":
+		err = opportunities(os.Args[2:])
+	case "holdout":
+		err = holdout(os.Args[2:])
 	case "episodes":
 		err = episodes(os.Args[2:])
 	default:
@@ -301,4 +306,92 @@ func episodes(args []string) error {
 	}
 	fmt.Println("episode claims:", n)
 	return writeJSON(*out, claims)
+}
+
+// holdout draws a lineage-separated holdout: uniform over ordinary history,
+// leaving out every lineage and template of the episodes in -exclude.
+func holdout(args []string) error {
+	fs := flag.NewFlagSet("holdout", flag.ExitOnError)
+	manifest := fs.String("manifest", "manifest.json", "frozen corpus")
+	exclude := fs.String("exclude", "", "comma-separated sample.json files whose lineages are excluded")
+	seed := fs.Int64("seed", 1, "sampling seed")
+	n := fs.Int("n", 150, "episodes to draw")
+	dir := fs.String("dir", "holdout", "directory for sample.json and the episode packets")
+	fs.Parse(args)
+	rs, _, err := frozenReaders(*manifest)
+	if err != nil {
+		return err
+	}
+	ss, err := readAll(rs)
+	if err != nil {
+		return err
+	}
+	var ex []discover.EpisodeKey
+	for _, f := range strings.Split(*exclude, ",") {
+		if f == "" {
+			continue
+		}
+		var smp struct {
+			Episodes []discover.Episode `json:"episodes"`
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(b, &smp); err != nil {
+			return err
+		}
+		for _, e := range smp.Episodes {
+			ex = append(ex, discover.EpisodeKey{Client: e.Client, Session: e.Session, Request: e.Request})
+		}
+	}
+	c := discover.NewCorpus(ss)
+	eps := discover.SampleHoldout(c, discover.HoldoutOptions{Seed: *seed, N: *n, Exclude: ex})
+	if err := os.MkdirAll(filepath.Join(*dir, "packets"), 0o700); err != nil {
+		return err
+	}
+	clients := map[string]int{}
+	for _, e := range eps {
+		clients[e.Client]++
+		if err := os.WriteFile(filepath.Join(*dir, "packets", e.ID+".md"), []byte(c.RenderEpisode(e)), 0o600); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("drew %d holdout episodes (excluded %d earlier episodes' lineages and templates): %v\n", len(eps), len(ex), clients)
+	return writeJSON(filepath.Join(*dir, "sample.json"), map[string]any{"seed": *seed, "manifest": *manifest, "exclude": *exclude, "episodes": eps, "clients": clients})
+}
+
+// opportunities runs the selection pass over a frozen corpus and writes one
+// judgment per request that made calls.
+func opportunities(args []string) error {
+	fs := flag.NewFlagSet("opportunities", flag.ExitOnError)
+	manifest := fs.String("manifest", "manifest.json", "frozen corpus")
+	out := fs.String("out", "opportunities.json", "judgments to write")
+	dropChanged := fs.Bool("drop-changed", false, "leave out sessions that changed since the freeze, and list them, instead of failing")
+	fs.Parse(args)
+	rs, _, err := frozenReaders(*manifest)
+	if err != nil {
+		return err
+	}
+	var dropped []string
+	if *dropChanged {
+		for i, r := range rs {
+			fr := r.(discover.FrozenReader)
+			fr.DropChanged, fr.Dropped = true, &dropped
+			rs[i] = fr
+		}
+	}
+	ss, err := readAll(rs)
+	if err != nil {
+		return err
+	}
+	ops := discover.SelectOpportunities(ss)
+	n := map[string]int{}
+	for _, o := range ops {
+		if o.Recommended {
+			n[o.Route]++
+		}
+	}
+	fmt.Printf("judged %d requests; recommended %v; dropped %d changed session(s): %v\n", len(ops), n, len(dropped), dropped)
+	return writeJSON(*out, map[string]any{"manifest": *manifest, "dropped": dropped, "opportunities": ops})
 }

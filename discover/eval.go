@@ -360,3 +360,78 @@ func (c *Corpus) RenderEpisode(e Episode) string {
 func indent(s string) string {
 	return "    " + strings.ReplaceAll(s, "\n", "\n    ")
 }
+
+// HoldoutOptions sets a lineage-separated holdout draw (plan v3 section 0).
+type HoldoutOptions struct {
+	Seed int64
+	N    int
+	// Exclude names episodes of earlier samples. Their sessions, every
+	// session sharing their lineage, and every session whose first request
+	// has the same text up to digits (a templated prompt whose run stamp
+	// changes) are left out of the draw.
+	Exclude []EpisodeKey
+}
+
+// templateKey is a session's first substantive request with digits and
+// spacing normalized, so a scheduled prompt that differs only in its run
+// stamp is one template.
+func templateKey(s Session) string {
+	for _, t := range s.Requests {
+		t = strings.Join(strings.Fields(strings.ToLower(t)), " ")
+		if t == "" || strings.ContainsAny(t[:1], "#<[") {
+			continue
+		}
+		var b strings.Builder
+		for _, r := range t {
+			if r >= '0' && r <= '9' {
+				r = '0'
+			}
+			b.WriteRune(r)
+		}
+		return b.String()
+	}
+	return ""
+}
+
+// SampleHoldout draws n episodes uniformly from the sessions no excluded
+// episode's lineage or template reaches, at most one per session. It never
+// consults any program decision, so recall on it measures what the
+// program misses among ordinary history.
+func SampleHoldout(c *Corpus, o HoldoutOptions) []Episode {
+	exLineage := map[string]bool{}
+	exTemplate := map[string]bool{}
+	for _, k := range o.Exclude {
+		exLineage[c.lineage[k.Client+"/"+k.Session]] = true
+		if s, ok := c.Session(k.Client, k.Session); ok {
+			if t := templateKey(s); t != "" {
+				exTemplate[t] = true
+			}
+		}
+	}
+	var pool []Episode
+	for _, e := range c.Episodes() {
+		s, _ := c.Session(e.Client, e.Session)
+		if exLineage[e.Lineage] || exTemplate[templateKey(s)] {
+			continue
+		}
+		pool = append(pool, e)
+	}
+	rng := rand.New(rand.NewSource(o.Seed))
+	used := map[string]bool{}
+	var out []Episode
+	for _, i := range rng.Perm(len(pool)) {
+		if len(out) == o.N {
+			break
+		}
+		e := pool[i]
+		k := e.Client + "/" + e.Session
+		if used[k] {
+			continue
+		}
+		used[k] = true
+		e.Stratum = "holdout_uniform"
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
