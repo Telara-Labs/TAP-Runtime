@@ -1,0 +1,233 @@
+<title>TAP Worker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: status strip, the installed primitives, then the job log newest first. */
+:root {
+  --bg: #f3f4f1; --panel: #fbfbf9; --fg: #1d211f; --muted: #5d655f; --line: #d9ddd6;
+  --accent: #2f6f5e; --accent-fg: #ffffff; --ok: #2f6f5e; --warn: #9a6a12; --bad: #a33a2b; --code-bg: #eceee9;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151816; --panel: #1c201e; --fg: #e6e9e4; --muted: #9aa39c; --line: #2f3531;
+  --accent: #6fb8a2; --accent-fg: #0f1512; --ok: #6fb8a2; --warn: #d9a441; --bad: #e07a68; --code-bg: #232826; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151816; --panel: #1c201e; --fg: #e6e9e4; --muted: #9aa39c; --line: #2f3531;
+  --accent: #6fb8a2; --accent-fg: #0f1512; --ok: #6fb8a2; --warn: #d9a441; --bad: #e07a68; --code-bg: #232826; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--sans); padding-inline: 16px; padding-block: 28px 48px; }
+.wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 20px; }
+h1 { font-size: 1.5rem; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+header p { margin: 6px 0 0; color: var(--muted); max-width: 70ch; }
+.status { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill { font: 500 12.5px/1 var(--mono); border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; color: var(--muted); background: var(--panel); }
+.pill[data-s="ok"] { color: var(--ok); border-color: var(--ok); }
+.pill[data-s="bad"] { color: var(--bad); border-color: var(--bad); }
+.pill[data-s="warn"] { color: var(--warn); border-color: var(--warn); }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 18px; min-width: 0; }
+h2 { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; }
+pre { font: 13px/1.5 var(--mono); background: var(--code-bg); border: 1px solid var(--line); border-radius: 4px; padding: 12px; margin: 0; overflow-x: auto; white-space: pre-wrap; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th, td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 500; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tablewrap { overflow-x: auto; }
+.chip { font: 500 12px var(--mono); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.chip[data-s="done"] { color: var(--ok); border-color: var(--ok); }
+.chip[data-s="failed"] { color: var(--bad); border-color: var(--bad); }
+.chip[data-s="running"] { color: var(--warn); border-color: var(--warn); }
+.empty { color: var(--muted); }
+.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+button { font: 600 14px var(--sans); background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 4px; padding: 9px 16px; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code { font-family: var(--mono); font-size: 13px; }
+footer { color: var(--muted); font-size: 13px; max-width: 74ch; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>TAP Worker</h1>
+    <p>Keep this page open while you chat. When your chat asks for a primitive, this page runs it here with your own connectors and hands back only the result. The raw data never reaches the chat.</p>
+  </header>
+
+  <div class="status" aria-live="polite">
+    <span class="pill" id="st-wasm">sandbox: checking</span>
+    <span class="pill" id="st-mcp">connectors: checking</span>
+    <span class="pill" id="st-db">job list: checking</span>
+    <span class="pill" id="st-loop">worker: not started</span>
+  </div>
+
+  <section>
+    <h2>Installed primitives</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Name</th><th>Version</th><th>What it does</th><th>Uses</th></tr></thead>
+      <tbody id="prims"></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Jobs</h2>
+    <div class="row" style="margin-bottom:12px">
+      <button id="start" type="button">Allow connectors and start</button>
+      <span class="empty" id="loopnote">Once started, the page runs each job the moment your chat adds it.</span>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Job</th><th>Primitive</th><th>State</th><th>Connector data read</th><th>Sent back</th><th>Time</th></tr></thead>
+      <tbody id="jobs"><tr><td colspan="6" class="empty">No jobs yet.</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>How a chat uses this page</h2>
+    <pre id="howto"></pre>
+  </section>
+
+  <footer>Built by the TAP runner @VERSION@. The interpreter is QuickJS 0.17.0, checked against its pinned sha256 before it starts. A primitive here can call only the connector tools it declares. Host programs, files, web requests and changes are refused: a web page has no machine, and this page has no approval step yet. A job carries a primitive name and arguments, never code.</footer>
+</div>
+
+<script type="module">
+const QJS_B64 = "@QJS_B64@";
+const PRELUDE = @PRELUDE@;
+const QJS_SHA256 = "@QJS_SHA256@";
+@TAPWEB@
+
+// The primitives this page was built with (tap web build). A job
+// names one of these and gives its arguments; the page never runs code that
+// came from the job list.
+const PRIMITIVES = @PRIMITIVES@;
+const RUNNER = "@VERSION@";
+const SERVERS = [...new Set(Object.values(PRIMITIVES).flatMap((p) => Object.values(p.bindings).map((b) => b.server)))];
+
+const $ = (id) => document.getElementById(id);
+const setPill = (id, s, text) => { $(id).dataset.s = s; $(id).textContent = text; };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+$("prims").innerHTML = Object.entries(PRIMITIVES).map(([n, p]) =>
+  `<tr><td><code>${esc(n)}</code></td><td class="num">${esc(p.version)}</td><td>${esc(p.description || "")}</td><td>${[...new Set(Object.values(p.bindings).map((b) => b.server + " / " + b.tool))].map(esc).join("<br>") || "nothing"}</td></tr>`).join("")
+  || `<tr><td colspan="4" class="empty">This page was built with no primitives.</td></tr>`;
+
+$("howto").textContent = `Your chat adds a job to this page's own job list, and reads the answer
+from the same place.
+
+1. Claude writes a document to the collection "jobs", for example id "a1":
+     {"primitive": "<name>", "args": ["7"], "state": "queued"}
+2. This page runs it with your connectors and updates the same document:
+     {"state": "done", "result": "<what the program printed>", "exit": 0,
+      "connector_calls": 3, "connector_bytes_read": 74214, "result_bytes": 161}
+3. Claude reads jobs/a1. Only the result enters the chat.`;
+
+let module = null, mcp = null, running = false;
+const jobs = [];
+const seen = new Set();
+
+function renderJobs() {
+  if (!jobs.length) return;
+  $("jobs").innerHTML = jobs.slice().reverse().map((j) =>
+    `<tr><td><code>${esc(j.id)}</code></td><td><code>${esc(j.primitive || "?")}</code></td><td><span class="chip" data-s="${j.state}">${j.state}</span>${j.error ? `<br><span class="empty">${esc(j.error)}</span>` : ""}</td>` +
+    `<td class="num">${j.inBytes != null ? j.inBytes.toLocaleString() + " B" : ""}</td><td class="num">${j.outBytes != null ? j.outBytes.toLocaleString() + " B" : ""}</td><td class="num">${j.ms != null ? (j.ms / 1000).toFixed(1) + " s" : ""}</td></tr>`).join("");
+}
+
+async function prepare() {
+  try {
+    const raw = Uint8Array.from(atob(QJS_B64), (c) => c.charCodeAt(0));
+    const sum = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", raw)), (b) => b.toString(16).padStart(2, "0")).join("");
+    if (sum !== QJS_SHA256) throw new Error("the interpreter does not match its pinned sha256");
+    module = await WebAssembly.compile(raw);
+    setPill("st-wasm", "ok", "sandbox: QuickJS ready");
+  } catch (e) { setPill("st-wasm", "bad", "sandbox: blocked"); }
+  try { mcp = window.claude ? await window.claude.use("mcp") : null; } catch { mcp = null; }
+  if (mcp) setPill("st-mcp", "ok", "connectors: available");
+  else setPill("st-mcp", "warn", "connectors: not in this view");
+  try { db = window.claude ? await window.claude.use("db") : null; } catch { db = null; }
+  if (db) setPill("st-db", "ok", "job list: ready");
+  else setPill("st-db", "warn", "job list: not in this view");
+}
+
+let db = null;
+
+async function handleJob(id, spec) {
+  const job = { id, state: "running", primitive: spec.primitive };
+  jobs.push(job); renderJobs();
+  const ref = db.collection("jobs").doc(id);
+  const t0 = performance.now();
+  let update;
+  try {
+    await ref.update({ state: "running" });
+    const p = PRIMITIVES[spec.primitive];
+    if (!p) throw new Error(`no installed primitive is called ${spec.primitive}`);
+    const args = Array.isArray(spec.args) ? spec.args.map(String) : [];
+    let inBytes = 0;
+    const r = await runPrimitive({
+      module, prelude: PRELUDE, script: p.program, args, bindings: p.bindings,
+      callTool: async (server, tool, a) => { const res = await mcp.callTool(server, tool, a, { cache: false }); inBytes += JSON.stringify(res.payload ?? res).length; return res; },
+    });
+    const result = (r.stdout || "").trimEnd();
+    job.inBytes = inBytes; job.outBytes = result.length; job.state = r.exit ? "failed" : "done";
+    if (r.exit) job.error = (r.stderr || "the primitive failed").trim();
+    update = { state: job.state, result, exit: r.exit, connector_calls: r.calls, refused: r.refused, connector_bytes_read: inBytes, result_bytes: job.outBytes, runner: RUNNER };
+    if (r.stderr) update.stderr = r.stderr.trimEnd();
+  } catch (e) {
+    job.state = "failed"; job.error = e.message || String(e);
+    update = { state: "failed", error: job.error };
+  }
+  job.ms = performance.now() - t0;
+  update.ms = Math.round(job.ms);
+  try { await ref.update(update); }
+  catch (e) { job.state = "failed"; job.error = "the result could not be written back: " + (e.message || e); }
+  renderJobs();
+}
+
+async function start(ask) {
+  if (running || !module || !db || (SERVERS.length && !mcp)) return;
+  if (ask) {
+    try {
+      const permissions = await window.claude.use("permissions");
+      if (permissions && SERVERS.length) await permissions.request(SERVERS.map((n) => "mcp:" + n));
+    } catch {}
+  }
+  running = true;
+  $("start").hidden = true;
+  setPill("st-loop", "ok", "worker: running");
+  $("loopnote").textContent = "Running. Leave this page open and ask your chat to run a primitive.";
+  const take = (docs) => {
+    for (const d of docs) {
+      const spec = d.data() || {};
+      if (spec.state !== "queued" || seen.has(d.id)) continue;
+      seen.add(d.id);
+      handleJob(d.id, spec);
+    }
+  };
+  // Live updates when the page is in front. A page in a background tab can
+  // lose them without an error, so the list is also read on a timer and
+  // whenever the page comes back into view.
+  const subscribe = () => db.collection("jobs").onSnapshot((snap) => take(snap.docs),
+    (e) => { setPill("st-loop", "warn", "worker: reading on a timer"); });
+  let stop = subscribe();
+  const check = async () => {
+    try { take((await db.collection("jobs").where("state", "==", "queued").get()).docs); setPill("st-loop", "ok", "worker: running"); }
+    catch (e) { setPill("st-loop", "bad", "worker: " + (e.code || "error")); $("loopnote").textContent = e.message || String(e); }
+  };
+  setInterval(check, 5000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    try { stop(); } catch {}
+    stop = subscribe();
+    check();
+  });
+}
+
+$("start").addEventListener("click", () => start(true));
+
+// Where every connector is already allowed for this page, start without a click, so
+// the page works the moment it is opened beside a chat.
+async function autostart() {
+  await prepare();
+  try {
+    const permissions = await window.claude.use("permissions");
+    const states = permissions ? await Promise.all(SERVERS.map((n) => permissions.state("mcp:" + n).catch(() => "unavailable"))) : ["unavailable"];
+    if (states.every((x) => x === "granted")) start(false);
+  } catch {}
+}
+
+autostart();
+</script>

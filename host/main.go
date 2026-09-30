@@ -190,6 +190,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "install" {
 		os.Exit(installCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "web" {
+		os.Exit(webCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "hook" {
 		os.Exit(hookCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
