@@ -437,14 +437,19 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if adm != nil {
 		clientName = adm.Client + " " + adm.Version
 	}
-	tel, terr := startTelemetry(ctx, m.Metadata.Name, runID, clientName, o.TelemetryPayloads)
+	markerRef, artifactDigest := readRegistryMarker(o.Package)
+	tel, terr := startTelemetry(ctx, runIdentity{
+		Publisher: m.Metadata.Publisher, Name: m.Metadata.Name, Version: m.Metadata.Version,
+		PackageDigest: pkgDigest, ArtifactDigest: artifactDigest, Ref: markerRef,
+	}, runID, clientName, o.TelemetryPayloads)
 	if terr != nil {
 		logf("telemetry  not started: %v", terr)
 	}
 	outcome := "failed"
+	var telRes *Result
 	if tel != nil {
 		journal = io.MultiWriter(journal, tel)
-		defer func() { tel.stop(outcome) }()
+		defer func() { tel.stop(outcome, telRes) }()
 	}
 
 	// The program is stopped by cancelling its context, which the engine
@@ -635,6 +640,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 
 	res := &Result{Admission: adm}
+	telRes = res
 	if run != nil {
 		res.RunID = run.Header.RunID
 	}

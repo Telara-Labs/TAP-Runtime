@@ -129,6 +129,19 @@ func TestEventsAreExportedAndPayloadsAreNot(t *testing.T) {
 	if !strings.Contains(run["tap.primitive"], "observed") || !strings.Contains(run["tap.run_id"], res.RunID) || !strings.Contains(run["tap.outcome"], "completed") {
 		t.Errorf("the run's span says %v", run)
 	}
+	// What ran, for a registry to attribute the run to a release, and what
+	// the program did (TENG-3042).
+	for k, want := range map[string]string{
+		"tap.publisher": "dev.test", "tap.version": "0.1.0", "tap.exit": "0",
+		"tap.ran": "2", "tap.refused": "1", "tap.package_digest": "",
+	} {
+		if !strings.Contains(run[k], want) {
+			t.Errorf("tap.run %s = %q, want it to contain %q", k, run[k], want)
+		}
+	}
+	if run["tap.package_digest"] == "" {
+		t.Errorf("tap.run carries no package digest: %v", run)
+	}
 	// Two commands ran, one of them after being held for approval, and one
 	// was refused: four events. One kind of change was approved.
 	if n := len(c.spans["tap.exec"]); n != 4 {
@@ -171,7 +184,7 @@ func TestNothingIsExportedUnlessAnEndpointIsSet(t *testing.T) {
 	for _, v := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"} {
 		t.Setenv(v, "")
 	}
-	tel, err := startTelemetry(context.Background(), "p", "r", "c", false)
+	tel, err := startTelemetry(context.Background(), runIdentity{Name: "p"}, "r", "c", false)
 	if tel != nil || err != nil {
 		t.Fatalf("the exporter started with no endpoint: %v %v", tel, err)
 	}
@@ -206,8 +219,31 @@ func TestACollectorThatCannotBeReachedDoesNotStopARun(t *testing.T) {
 func TestAProtocolThisRunnerDoesNotSpeakIsSaidAndNotGuessed(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:1")
 	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
-	tel, err := startTelemetry(context.Background(), "p", "r", "c", false)
+	tel, err := startTelemetry(context.Background(), runIdentity{Name: "p"}, "r", "c", false)
 	if tel != nil || err == nil || !strings.Contains(err.Error(), "http/protobuf") {
 		t.Fatalf("%v %v", tel, err)
+	}
+}
+
+// A package the telara CLI pulled carries the registry's ref and artifact
+// digest beside it, and the run reports them (TENG-3042).
+func TestARegistryPulledRunReportsItsArtifactDigest(t *testing.T) {
+	inDir(t)
+	os.MkdirAll("out", 0o755)
+	c, srv := newCollector(t)
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", srv.URL)
+	pkg := writePackage(t, telemetryManifest, telemetryScript)
+	if err := os.WriteFile(filepath.Join(pkg, ".telara-primitive.json"),
+		[]byte(`{"ref":"dev.test/observed@0.1.0","artifact_digest":"sha256:abc123"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), Options{
+		Package: pkg, Approve: yes, Journal: io.Discard, InterpDir: interpreterStore(t), RunsDir: t.TempDir(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	run := c.spans["tap.run"][0]
+	if !strings.Contains(run["tap.artifact_digest"], "sha256:abc123") || !strings.Contains(run["tap.ref"], "dev.test/observed@0.1.0") {
+		t.Fatalf("the run's span does not name the pulled release: %v", run)
 	}
 }
