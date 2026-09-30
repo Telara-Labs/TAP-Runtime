@@ -50,10 +50,15 @@ type DraftInput struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
 	// Raw inputs are passed as JSON (a number, a boolean), not as a string.
-	Raw      bool   `json:"raw,omitempty"`
-	Example  string `json:"example"`
-	Position int    `json:"position"`
-	From     string `json:"from"`
+	Raw bool `json:"raw,omitempty"`
+	// Example is one recorded value, redacted, for the person reviewing on
+	// this machine. It is never written into a generated file.
+	Example string `json:"-"`
+	// Sensitive inputs are credentials: the caller supplies them from its
+	// own configuration and no recorded value is kept.
+	Sensitive bool   `json:"sensitive,omitempty"`
+	Position  int    `json:"position"`
+	From      string `json:"from"`
 }
 
 // Draft is a drafted package and what the review needs to show it.
@@ -63,6 +68,10 @@ type Draft struct {
 	Inputs    []DraftInput      `json:"inputs"`
 	Steps     []DraftStep       `json:"steps"`
 	Files     map[string][]byte `json:"-"`
+	// Blocked lists every place a generated file still looks like it holds a
+	// credential. While it is non-empty the draft cannot be saved, packaged
+	// or published.
+	Blocked []string `json:"blocked,omitempty"`
 	// Problems is what manifest.PublishProblems reports; empty means the
 	// package passes the same checks the registry runs before accepting it.
 	Problems   []string `json:"problems"`
@@ -173,7 +182,7 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 	}
 
 	name := draftName(c)
-	desc := fmt.Sprintf("Recurring routine found by telara tap discover in %d sessions over %d weeks (%s). Steps: %s.",
+	desc := fmt.Sprintf("Recurring routine found by tap discover in %d sessions over %d weeks (%s). Steps: %s.",
 		c.Sessions, c.Weeks, clientList(c.ByClient), labelsOf(c))
 	props := map[string]any{}
 	var required []string
@@ -181,7 +190,6 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 		props[in.Name] = map[string]any{
 			"type":        "string",
 			"description": fmt.Sprintf("Argument %d ($%d): %s, from %s.", in.Position, in.Position, in.Type, in.From),
-			"examples":    []any{in.Example},
 		}
 		required = append(required, in.Name)
 	}
@@ -207,7 +215,11 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 	var sh strings.Builder
 	fmt.Fprintf(&sh, "# %s\n# Drafted by telara tap discover. Review every line before running or publishing.\n", desc)
 	for _, in := range d.inputs {
-		fmt.Fprintf(&sh, "# $%d  %s (%s), e.g. %s\n", in.Position, in.Name, in.Type, oneLine(in.Example, 60))
+		if in.Sensitive {
+			fmt.Fprintf(&sh, "# $%d  %s: a credential; supply it from your own configuration (no recorded value is kept)\n", in.Position, in.Name)
+		} else {
+			fmt.Fprintf(&sh, "# $%d  %s (%s)\n", in.Position, in.Name, in.Type)
+		}
 	}
 	sh.WriteString("set -e\n")
 	for _, l := range d.lines {
@@ -215,14 +227,16 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 		sh.WriteByte('\n')
 	}
 
+	files := map[string][]byte{
+		"primitive.yaml": yml,
+		"main.sh":        []byte(sh.String()),
+		"README.md":      []byte(draftReadme(name, desc, d)),
+	}
 	return &Draft{
-		Name: name, Publisher: opt.Publisher, Inputs: d.inputs, Steps: d.steps,
+		Blocked: scanArtifacts(files),
+		Name:    name, Publisher: opt.Publisher, Inputs: d.inputs, Steps: d.steps,
 		Problems: problems, HumanSteps: d.humanCnt, FixedSteps: d.fixedCnt, FixedShare: fixedShare(d), values: d.vectors,
-		Files: map[string][]byte{
-			"primitive.yaml": yml,
-			"main.sh":        []byte(sh.String()),
-			"README.md":      []byte(draftReadme(name, desc, d)),
-		},
+		Files: files,
 	}
 }
 
@@ -299,7 +313,19 @@ func (d *drafter) plan(i int, stepName string) []slotPlan {
 				same = false
 			}
 		}
+		// A value that looks like a credential in any recorded run is never
+		// written, however constant: it becomes a credential input.
+		sensitive := false
+		for _, j := range reps {
+			for _, other := range d.occ[j][i].Slots {
+				if other.Key == sl.Key && sensitiveSlot(other) {
+					sensitive = true
+				}
+			}
+		}
 		switch {
+		case sensitive:
+			p.input = d.input(stepName, sl, vec, true)
 		case same && len(reps) > 1:
 			p.fixed = true
 			d.fixedArg++
@@ -308,7 +334,7 @@ func (d *drafter) plan(i int, stepName string) []slotPlan {
 			// input anyone would pass; the browser step names it itself.
 			p.input = -1
 		default:
-			p.input = d.input(stepName, sl, vec)
+			p.input = d.input(stepName, sl, vec, false)
 		}
 		plans = append(plans, p)
 	}
@@ -318,8 +344,11 @@ func (d *drafter) plan(i int, stepName string) []slotPlan {
 // input returns the input for a varying slot, reusing an earlier input that
 // held the same value in every occurrence both appear in (a path passed to
 // gofmt and then to go test is one input, not two).
-func (d *drafter) input(stepName string, sl Slot, vec map[int]string) int {
+func (d *drafter) input(stepName string, sl Slot, vec map[int]string, sensitive bool) int {
 	for n, other := range d.vectors {
+		if d.inputs[n].Sensitive != sensitive {
+			continue
+		}
 		common, agree := 0, true
 		for j, v := range vec {
 			if w, ok := other[j]; ok {
@@ -351,7 +380,11 @@ func (d *drafter) input(stepName string, sl Slot, vec map[int]string) int {
 		name = fmt.Sprintf("%s_%d", sanitizeName(base), k)
 	}
 	d.names[name] = true
-	d.inputs = append(d.inputs, DraftInput{Name: name, Type: sl.Type, Raw: sl.Raw, Example: sl.Value, Position: len(d.inputs) + 1, From: stepName})
+	in := DraftInput{Name: name, Type: sl.Type, Raw: sl.Raw, Example: Redact(sl.Value), Position: len(d.inputs) + 1, From: stepName}
+	if sensitive {
+		in.Sensitive, in.Type, in.Example = true, SlotSecret, ""
+	}
+	d.inputs = append(d.inputs, in)
 	d.vectors = append(d.vectors, vec)
 	return len(d.inputs) - 1
 }
@@ -659,7 +692,11 @@ func draftReadme(name, desc string, d *drafter) string {
 		b.WriteString("None: every value was the same in every recorded run.\n")
 	}
 	for _, in := range d.inputs {
-		fmt.Fprintf(&b, "- `$%d` **%s** (%s), from %s. Example: `%s`\n", in.Position, in.Name, in.Type, in.From, oneLine(in.Example, 80))
+		if in.Sensitive {
+			fmt.Fprintf(&b, "- `$%d` **%s**: a credential, from %s. Supply it from your own configuration; its recorded value was not kept.\n", in.Position, in.Name, in.From)
+		} else {
+			fmt.Fprintf(&b, "- `$%d` **%s** (%s), from %s.\n", in.Position, in.Name, in.Type, in.From)
+		}
 	}
 	b.WriteString("\n## Steps\n\n")
 	for _, s := range d.steps {
@@ -845,4 +882,16 @@ func fixedShare(d *drafter) float64 {
 		return 0
 	}
 	return float64(fixed) / float64(fixed+len(d.inputs))
+}
+
+// ErrBlocked is returned when a draft still holds something credential-shaped.
+var ErrBlocked = errors.New("the draft still contains credential-shaped values; it cannot be saved or published until they are removed")
+
+// Artifacts returns the draft's files, or ErrBlocked. Everything that writes
+// or sends a draft goes through it.
+func (d *Draft) Artifacts() (map[string][]byte, error) {
+	if len(d.Blocked) > 0 {
+		return nil, fmt.Errorf("%w: %s", ErrBlocked, strings.Join(d.Blocked, "; "))
+	}
+	return d.Files, nil
 }

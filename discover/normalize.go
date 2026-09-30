@@ -19,6 +19,8 @@ const (
 	SlotID     = "id"
 	SlotPath   = "path"
 	SlotWord   = "word"
+	// SlotSecret is a credential: never written, supplied by the caller.
+	SlotSecret = "secret"
 )
 
 // Slot is one argument of a step.

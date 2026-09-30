@@ -14,17 +14,21 @@ import (
 // `telara tap pull` use, and its digest. Entries are sorted and carry a fixed
 // time, so the same draft always has the same digest.
 func (d *Draft) Package() ([]byte, string, error) {
+	files, err := d.Artifacts()
+	if err != nil {
+		return nil, "", err
+	}
 	var buf bytes.Buffer
 	gz, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
 	gz.ModTime = time.Unix(0, 0)
 	tw := tar.NewWriter(gz)
-	names := make([]string, 0, len(d.Files))
-	for n := range d.Files {
+	names := make([]string, 0, len(files))
+	for n := range files {
 		names = append(names, n)
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		body := d.Files[n]
+		body := files[n]
 		mode := int64(0o644)
 		if n == "main.sh" {
 			mode = 0o755

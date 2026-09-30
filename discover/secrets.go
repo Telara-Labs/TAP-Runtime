@@ -1,0 +1,111 @@
+package discover
+
+import (
+	"regexp"
+	"sort"
+	"strings"
+)
+
+// Session history holds credentials: a bearer header typed into curl, a
+// private token in a GitLab call, a password in a database URL, a key in a
+// tool's arguments. Nothing recorded may leave in a draft. Three layers keep
+// it out:
+//
+//  1. A value found sensitive, by where it sits (an Authorization header, a
+//     --token flag, a "password" argument) or by its shape (a bearer token, a
+//     JWT, a cloud key, a private key, a URL with a password), is never
+//     written: it becomes an input the caller supplies from its own
+//     configuration, marked sensitive, with no recorded default.
+//  2. Recorded values are never written as examples.
+//  3. Every generated file is scanned before it can be saved, packaged or
+//     published; any finding blocks all three. Text shown or written by the
+//     report (request text, templates) is redacted with the same patterns.
+
+// secretShapes are value patterns that are credentials wherever they appear.
+var secretShapes = []struct {
+	name string
+	re   *regexp.Regexp
+}{
+	{"bearer token", regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{12,}`)},
+	{"basic auth", regexp.MustCompile(`(?i)\bbasic\s+[A-Za-z0-9+/]{12,}={0,2}`)},
+	{"private token header", regexp.MustCompile(`(?i)\b(private|job|deploy)-token\s*[:=]\s*[^\s'"]{8,}`)},
+	// Authorization: <scheme> <token> is caught by the bearer and basic
+	// shapes; a raw token after it must itself look like one (a variable
+	// reference such as $GITLAB_TOKEN is not a credential).
+	{"credential header", regexp.MustCompile(`(?i)\b(x-api-key|api-key|x-auth-token|cookie|x-vault-token)\s*:\s*[^\s'"$]{6,}`)},
+	{"authorization header", regexp.MustCompile(`(?i)\bauthorization\s*:\s*[A-Za-z0-9._~+/=-]{20,}`)},
+	{"JWT", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)},
+	{"AWS access key", regexp.MustCompile(`\b(AKIA|ASIA)[0-9A-Z]{16}\b`)},
+	{"AWS secret", regexp.MustCompile(`(?i)aws_secret_access_key\s*[=:]\s*[^\s'"]{16,}`)},
+	{"GitHub token", regexp.MustCompile(`\b(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})`)},
+	{"GitLab token", regexp.MustCompile(`\bgl(pat|dt|rt|cbt|ptt|oas|soat|ffct)-[A-Za-z0-9_-]{16,}`)},
+	{"Slack token", regexp.MustCompile(`\bxox[abprsoe]-[A-Za-z0-9-]{10,}`)},
+	{"Stripe key", regexp.MustCompile(`\b(sk|rk)_(live|test)_[A-Za-z0-9]{16,}`)},
+	{"model provider key", regexp.MustCompile(`\bsk-(ant-|proj-)?[A-Za-z0-9_-]{20,}`)},
+	{"Google key", regexp.MustCompile(`\b(AIza[0-9A-Za-z_-]{35}|ya29\.[0-9A-Za-z_-]{20,})`)},
+	{"Telara key", regexp.MustCompile(`\btlr[a-z]{0,3}_[A-Za-z0-9]{16,}`)},
+	{"private key", regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)},
+	{"password in URL", regexp.MustCompile(`\b[a-z][a-z0-9+.-]*://[^/\s:@'"]+:[^/\s@'"]+@`)},
+	{"signed URL", regexp.MustCompile(`(?i)[?&](x-amz-signature|x-amz-credential|x-amz-security-token|x-goog-signature|x-goog-credential|signature|sig|access_token|id_token|refresh_token|api_key|apikey|client_secret)=[^&\s'"]{8,}`)},
+	// NAME=value where the name ends in a credential word. "tokens" (a
+	// count) does not end in "token".
+	{"assigned secret", regexp.MustCompile(`(?i)\b[A-Za-z0-9_]*(password|passwd|secret|api_?key|token|private_?key)\s*[=:]\s*['"]?[^\s'"$]{8,}`)},
+	{"secret in JSON", regexp.MustCompile(`(?i)"[A-Za-z0-9_-]*(password|passwd|secret|token|api_?key|authorization|cookie|private_?key|credential)[A-Za-z0-9_-]*"\s*:\s*"[^"$]{6,}"`)},
+}
+
+// sensitiveName matches argument, flag and header names that carry
+// credentials. Names that merely end in "key" (issue_key) or count tokens
+// (max_output_tokens) do not match.
+var sensitiveName = regexp.MustCompile(`(?i)^-{0,2}(authorization|auth|cookie|set-cookie|x-api-key|api[_-]?key|apikey|secret|client[_-]?secret|password|passwd|pwd|pass|private[_-]?key|private[_-]?token|access[_-]?token|refresh[_-]?token|auth[_-]?token|id[_-]?token|session[_-]?token|bearer|token|credentials?|[a-z0-9_-]*[_-](token|secret|password|passwd|api[_-]?key))=?$`)
+
+// secretShape names the credential shape v contains, or "".
+func secretShape(v string) string {
+	for _, s := range secretShapes {
+		if s.re.MatchString(v) {
+			return s.name
+		}
+	}
+	return ""
+}
+
+// sensitiveSlot reports whether a recorded argument must never be written:
+// its name says it carries a credential, a flag before it does (-H with an
+// Authorization header is caught by shape), or its value has a credential's
+// shape. curl's -u user:password is a credential by position.
+func sensitiveSlot(sl Slot) bool {
+	if sl.Sub || sl.Type == SlotFlag {
+		return false
+	}
+	name := strings.SplitN(sl.Key, "#", 2)[0]
+	if sensitiveName.MatchString(strings.TrimSuffix(name, "=")) {
+		return true
+	}
+	if (name == "-u=" || name == "--user=") && strings.Contains(sl.Value, ":") {
+		return true
+	}
+	return secretShape(sl.Value) != ""
+}
+
+// Redact replaces every credential-shaped part of s with <redacted>. It is
+// applied to all text the report prints or writes.
+func Redact(s string) string {
+	for _, sh := range secretShapes {
+		s = sh.re.ReplaceAllString(s, "<redacted "+sh.name+">")
+	}
+	return s
+}
+
+// scanArtifacts returns one finding per file line that still looks like a
+// credential. It never returns the credential itself.
+func scanArtifacts(files map[string][]byte) []string {
+	var out []string
+	for name, body := range files {
+		for i, line := range strings.Split(string(body), "\n") {
+			if sh := secretShape(line); sh != "" {
+				out = append(out, name+" line "+itoa(i+1)+": "+sh)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
