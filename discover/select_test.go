@@ -156,3 +156,38 @@ func TestNamedObjectNeedsATouchedObjectAndADependency(t *testing.T) {
 		t.Errorf("the request names nothing the calls act on, got %+v", o)
 	}
 }
+
+// Grouping puts requests with the same contract together and ranks the
+// group seen in more sessions first; it never changes what is recommended.
+func TestGroupOpportunitiesByContractRanksBySessions(t *testing.T) {
+	var ss []Session
+	for i := 0; i < 3; i++ {
+		ss = append(ss, selSession(fmt.Sprintf("run%d", i), fmt.Sprintf(statedPrompt, i),
+			Call{Tool: "shell", Command: fmt.Sprintf("jq -r '.[] | .status' /work/tracker/queue.json # %d", i)},
+			Call{Tool: "shell", Command: "tail -n 1 /work/tracker/log.jsonl"}))
+	}
+	ss = append(ss, selSession("ids", "tail the failed jobs",
+		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "a"},
+		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "b"}))
+	ops := SelectOpportunities(ss)
+	n := 0
+	for _, o := range ops {
+		if o.Recommended {
+			n++
+			if o.Contract == "" {
+				t.Errorf("a recommended opportunity needs a contract: %+v", o)
+			}
+		}
+	}
+	gs := GroupOpportunities(ops)
+	if len(gs) != 2 || gs[0].Route != RouteStatedTemplate || gs[0].Sessions != 3 || gs[0].Requests != 3 || gs[1].Sessions != 1 {
+		t.Fatalf("want the 3-session template group first, then the loop: %+v", gs)
+	}
+	members := 0
+	for _, g := range gs {
+		members += len(g.Members)
+	}
+	if members != n {
+		t.Errorf("groups hold %d members, %d were recommended", members, n)
+	}
+}

@@ -1,10 +1,13 @@
 package discover
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Opportunity selection (TENG-3054, plan v3 section 0). The routine pass
@@ -40,6 +43,10 @@ type Opportunity struct {
 	Reasons     []string `json:"reasons"`
 	// Task is the reference `tap discover brief --task` takes.
 	Task string `json:"task"`
+	// Contract is what the procedure is, as far as the evidence shows:
+	// the grouping key. Start is when the request began.
+	Contract string    `json:"contract,omitempty"`
+	Start    time.Time `json:"start,omitempty"`
 }
 
 // Selection routes.
@@ -123,6 +130,9 @@ func SelectOpportunities(ss []Session) []Opportunity {
 				}
 			}
 			judgeOpportunity(&o, text, byReq[r], shell, len(sessionsByText[textKey(text)]))
+			if st := byReq[r]; len(st) > 0 {
+				o.Start = st[0].Time
+			}
 			out = append(out, o)
 		}
 	}
@@ -181,6 +191,7 @@ func judgeOpportunity(o *Opportunity, text string, steps []Step, shell []string,
 			reason("template_anchors_untouched")
 		default:
 			o.Recommended, o.Route = true, RouteStatedTemplate
+			o.Contract = "template " + templateTitle(text)
 			reason("template_sessions:" + strconv.Itoa(textSessions))
 			reason("step_lines:" + strconv.Itoa(lines))
 			reason("anchors_touched:" + strconv.Itoa(touched) + "/" + strconv.Itoa(len(anchors)))
@@ -196,11 +207,13 @@ func judgeOpportunity(o *Opportunity, text string, steps []Step, shell []string,
 			runs[programKey(cmd)]++
 		}
 	}
-	most := 0
-	for _, n := range runs {
-		most = max(most, n)
+	most, prog := 0, ""
+	for k, n := range runs {
+		if n > most || (n == most && k < prog) {
+			most, prog = n, k
+		}
 	}
-	loopLabel, loopItems := parametricLoop(steps)
+	loopLabel, loopItems, loopArg := parametricLoop(steps)
 	switch {
 	case most < rerunMinRuns && loopItems < loopMinItems:
 		reason("no_rerun_program")
@@ -209,7 +222,7 @@ func judgeOpportunity(o *Opportunity, text string, steps []Step, shell []string,
 		// request is short, a step acts on a named object, and a later step
 		// depends on an earlier one. The navigation and edit gates apply to
 		// the window from the first such step to the last dependent step.
-		named, win, wNav, wEdit, dependent := namedObject(text, steps)
+		named, win, wNav, wEdit, dependent, seq := namedObject(text, steps)
 		switch {
 		case named == 0:
 			reason("no_named_object_touched")
@@ -229,6 +242,7 @@ func judgeOpportunity(o *Opportunity, text string, steps []Step, shell []string,
 			o.Recommended, o.Route = true, RouteNamedObject
 			reason("named_objects_touched:" + strconv.Itoa(named))
 			reason("window_steps:" + strconv.Itoa(win))
+			o.Contract = "single pass " + strings.Join(seq, " > ")
 		}
 	case navShare >= navMaxShare:
 		reason("navigation_share:" + strconv.FormatFloat(navShare, 'f', 2, 64))
@@ -237,9 +251,11 @@ func judgeOpportunity(o *Opportunity, text string, steps []Step, shell []string,
 	case most >= rerunMinRuns:
 		o.Recommended, o.Route = true, RouteRerunCheck
 		reason("program_runs:" + strconv.Itoa(most))
+		o.Contract = "program " + shortHash(prog) + ": " + oneLine(prog, 60)
 	default:
 		o.Recommended, o.Route = true, RouteParamLoop
 		reason("loop:" + loopLabel + ":" + strconv.Itoa(loopItems))
+		o.Contract = "loop " + loopLabel + " over " + loopArg
 	}
 }
 
@@ -248,7 +264,7 @@ func judgeOpportunity(o *Opportunity, text string, steps []Step, shell []string,
 // the previous item: the same step applied to a list, which a caller could
 // give, rather than a search that picks its next target from what it just
 // read. It returns the step and its item count.
-func parametricLoop(steps []Step) (string, int) {
+func parametricLoop(steps []Step) (string, int, string) {
 	byLabel := map[string][]int{}
 	var order []string
 	for i, st := range steps {
@@ -266,7 +282,7 @@ func parametricLoop(steps []Step) (string, int) {
 		}
 		byLabel[st.Label] = append(byLabel[st.Label], i)
 	}
-	best, bestN := "", 0
+	best, bestN, bestArg := "", 0, ""
 	for _, l := range order {
 		idx := byLabel[l]
 		if len(idx) < loopMinItems {
@@ -330,10 +346,10 @@ func parametricLoop(steps []Step) (string, int) {
 			}
 		}
 		if ok && len(idx) > bestN {
-			best, bestN = l, len(idx)
+			best, bestN, bestArg = l, len(idx), key+" ("+types[key]+") "+itemShape(types[key], vals[key])
 		}
 	}
-	return best, bestN
+	return best, bestN, bestArg
 }
 
 // stateAnchors are the paths, file names and quoted commands a request
@@ -440,7 +456,7 @@ var objectRe = regexp.MustCompile(`\b[A-Z][A-Z0-9]+-\d+\b|https?://[^\s)>"'` + "
 // a value an earlier step in the window produced. It returns the count, the
 // window's work steps, how many of them navigate and edit, and whether any
 // dependency was found.
-func namedObject(text string, steps []Step) (named, win, nav, edits int, dependent bool) {
+func namedObject(text string, steps []Step) (named, win, nav, edits int, dependent bool, seq []string) {
 	seen := map[string]bool{}
 	first := -1
 	for _, m := range objectRe.FindAllString(text, -1) {
@@ -483,6 +499,9 @@ func namedObject(text string, steps []Step) (named, win, nav, edits int, depende
 		}
 		calls[st.Call] = true
 		win++
+		if len(seq) == 0 || seq[len(seq)-1] != st.Label {
+			seq = append(seq, st.Label)
+		}
 		switch {
 		case editTools[st.Label] || strings.HasPrefix(st.Label, "patch:"):
 			edits++
@@ -505,4 +524,129 @@ func firstTouch(obj string, steps []Step) int {
 		}
 	}
 	return -1
+}
+
+func shortHash(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:4])
+}
+
+// OpportunityGroup is every recommended request with the same contract.
+type OpportunityGroup struct {
+	Contract string    `json:"contract"`
+	Route    string    `json:"route"`
+	Requests int       `json:"requests"`
+	Sessions int       `json:"sessions"`
+	First    time.Time `json:"first"`
+	Last     time.Time `json:"last"`
+	// Example is the most recent member: the one to brief.
+	Example Opportunity `json:"example"`
+	Members []string    `json:"members"`
+}
+
+// GroupOpportunities groups recommended requests by contract and ranks the
+// groups: most distinct sessions first, then most requests, then the most
+// recently seen. Grouping and ranking change what a person reads, not which
+// requests are recommended.
+func GroupOpportunities(ops []Opportunity) []OpportunityGroup {
+	by := map[string]*OpportunityGroup{}
+	sess := map[string]map[string]bool{}
+	var order []string
+	for _, o := range ops {
+		if !o.Recommended {
+			continue
+		}
+		k := o.Route + "\x00" + o.Contract
+		g := by[k]
+		if g == nil {
+			g = &OpportunityGroup{Contract: o.Contract, Route: o.Route, First: o.Start, Last: o.Start, Example: o}
+			by[k] = g
+			sess[k] = map[string]bool{}
+			order = append(order, k)
+		}
+		g.Requests++
+		g.Members = append(g.Members, o.ID)
+		sess[k][o.Client+"/"+o.Session] = true
+		if o.Start.Before(g.First) {
+			g.First = o.Start
+		}
+		if !o.Start.Before(g.Last) {
+			g.Last, g.Example = o.Start, o
+		}
+	}
+	out := make([]OpportunityGroup, 0, len(order))
+	for _, k := range order {
+		g := by[k]
+		g.Sessions = len(sess[k])
+		sort.Strings(g.Members)
+		out = append(out, *g)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		switch {
+		case a.Sessions != b.Sessions:
+			return a.Sessions > b.Sessions
+		case a.Requests != b.Requests:
+			return a.Requests > b.Requests
+		case !a.Last.Equal(b.Last):
+			return a.Last.After(b.Last)
+		}
+		return a.Contract < b.Contract
+	})
+	return out
+}
+
+// templateTitle is a stated prompt's first line, digits aside: the name a
+// scheduled prompt keeps while its body is edited, so its versions group
+// together. A prompt whose first line is too short to name it falls back to
+// a hash of its whole text.
+func templateTitle(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		k := textKey(line)
+		if len(k) >= 12 {
+			return oneLine(k, 80)
+		}
+		if strings.TrimSpace(line) != "" {
+			break
+		}
+	}
+	return shortHash(textKey(text))
+}
+
+// itemShape says what a loop's items are, so loops of one step over
+// different things do not group together: the hosts of URLs, the parent
+// directory of paths.
+func itemShape(typ string, vs []string) string {
+	set := map[string]bool{}
+	for _, v := range vs {
+		switch typ {
+		case SlotURL:
+			h := v
+			if i := strings.Index(h, "://"); i >= 0 {
+				h = h[i+3:]
+			}
+			if i := strings.IndexAny(h, "/?#"); i >= 0 {
+				h = h[:i]
+			}
+			set[h] = true
+		case SlotPath:
+			d := v
+			if i := strings.LastIndex(strings.TrimRight(d, "/"), "/"); i >= 0 {
+				d = d[:i]
+			}
+			if i := strings.LastIndex(d, "/"); i >= 0 {
+				d = d[i+1:]
+			}
+			set[d+"/"] = true
+		}
+	}
+	var out []string
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	if len(out) > 3 {
+		out = append(out[:3], "…")
+	}
+	return strings.Join(out, ",")
 }

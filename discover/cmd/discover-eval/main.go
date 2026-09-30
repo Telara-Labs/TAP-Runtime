@@ -37,6 +37,8 @@ func main() {
 		err = show(os.Args[2:])
 	case "opportunities":
 		err = opportunities(os.Args[2:])
+	case "packets":
+		err = packets(os.Args[2:])
 	case "holdout":
 		err = holdout(os.Args[2:])
 	case "episodes":
@@ -402,5 +404,52 @@ func opportunities(args []string) error {
 		}
 	}
 	fmt.Printf("judged %d requests; recommended %v; dropped %d changed session(s): %v\n", len(ops), n, len(dropped), dropped)
-	return writeJSON(*out, map[string]any{"manifest": *manifest, "dropped": dropped, "opportunities": ops})
+	return writeJSON(*out, map[string]any{"manifest": *manifest, "dropped": dropped, "opportunities": ops, "groups": discover.GroupOpportunities(ops)})
+}
+
+// packets renders the labeler view of the named episodes, for reviewing a
+// group of opportunities by its members.
+func packets(args []string) error {
+	fs := flag.NewFlagSet("packets", flag.ExitOnError)
+	manifest := fs.String("manifest", "manifest.json", "frozen corpus")
+	ids := fs.String("ids", "", "file with one episode id per line")
+	dir := fs.String("dir", "packets", "directory for the rendered packets")
+	fs.Parse(args)
+	rs, _, err := frozenReaders(*manifest)
+	if err != nil {
+		return err
+	}
+	var dropped []string
+	for i, r := range rs {
+		fr := r.(discover.FrozenReader)
+		fr.DropChanged, fr.Dropped = true, &dropped
+		rs[i] = fr
+	}
+	ss, err := readAll(rs)
+	if err != nil {
+		return err
+	}
+	b, err := os.ReadFile(*ids)
+	if err != nil {
+		return err
+	}
+	want := map[string]bool{}
+	for _, l := range strings.Fields(string(b)) {
+		want[l] = true
+	}
+	c := discover.NewCorpus(ss)
+	if err := os.MkdirAll(*dir, 0o700); err != nil {
+		return err
+	}
+	n := 0
+	for _, e := range c.Episodes() {
+		if want[e.ID] {
+			if err := os.WriteFile(filepath.Join(*dir, e.ID+".md"), []byte(c.RenderEpisode(e)), 0o600); err != nil {
+				return err
+			}
+			n++
+		}
+	}
+	fmt.Printf("rendered %d of %d packets (dropped changed sessions: %v)\n", n, len(want), dropped)
+	return nil
 }

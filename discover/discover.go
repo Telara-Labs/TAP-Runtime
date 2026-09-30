@@ -145,6 +145,8 @@ type Report struct {
 	// recommends from the whole history, whether or not they recurred.
 	// Each is an unassessed proposal for an authoring agent.
 	Opportunities []Opportunity `json:"opportunities,omitempty"`
+	// OpportunityGroups are the opportunities grouped by contract, ranked.
+	OpportunityGroups []OpportunityGroup `json:"opportunity_groups,omitempty"`
 
 	// Kept in memory so a candidate can be drafted from its real
 	// occurrences; never written out.
@@ -206,6 +208,7 @@ func Run(o Options) (*Report, error) {
 			rep.Opportunities = append(rep.Opportunities, op)
 		}
 	}
+	rep.OpportunityGroups = GroupOpportunities(rep.Opportunities)
 	sessions := normalize(raw)
 
 	// Identical step sequences are one piece of work run twice (a replayed
