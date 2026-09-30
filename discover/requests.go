@@ -97,8 +97,10 @@ type Routine struct {
 	// MergedInto is the id of the routine this one duplicated (same kind,
 	// same set of steps); a merged routine is not counted again.
 	MergedInto string `json:"merged_into,omitempty"`
-	Failed     string `json:"failed,omitempty"`
-	Why        string `json:"why,omitempty"`
+	// Loops lists steps most runs made several times with different values.
+	Loops  []string `json:"loops,omitempty"`
+	Failed string   `json:"failed,omitempty"`
+	Why    string   `json:"why,omitempty"`
 	// Runs counts the requests that ran its sequence; FailedRuns those where
 	// a step failed (not evidence); UnknownRuns those whose client recorded
 	// no result.
@@ -330,48 +332,90 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	if len(inSet) < 2 {
 		return Routine{}, false
 	}
-	// Each request's run of those steps, in the order it made them, repeats
-	// included. The draft follows the sequence most requests actually ran;
-	// it never reorders or combines steps from different runs.
+	// Each request's run of those steps in recorded order. Two readings:
+	// the exact sequence with repeats, and the order in which each step
+	// first appeared. If one exact sequence is shared by at least half the
+	// requests it is used as recorded. Otherwise the first-appearance order
+	// most requests share is used (a real order, never rearranged), and a
+	// step that most of those requests ran several times with different
+	// values is flagged as a loop to be written by hand.
 	type run struct {
+		inst    int
+		all     []Step
+		first   []Step
+		repeats map[string]bool
+	}
+	byFull := map[string][]run{}
+	byFirst := map[string][]run{}
+	for _, i := range g {
+		s := corpus[inst[i].session]
+		r := run{inst: i, repeats: map[string]bool{}}
+		seen := map[string]bool{}
+		var all, first []string
+		for _, si := range inst[i].steps {
+			st := s.Steps[si]
+			if !inSet[st.Label] {
+				continue
+			}
+			r.all = append(r.all, st)
+			all = append(all, st.Label)
+			if seen[st.Label] {
+				r.repeats[st.Label] = true
+				continue
+			}
+			seen[st.Label] = true
+			r.first = append(r.first, st)
+			first = append(first, st.Label)
+		}
+		if len(seen) < len(inSet) {
+			continue
+		}
+		if len(r.all) <= 24 {
+			byFull[strings.Join(all, "\x1f")] = append(byFull[strings.Join(all, "\x1f")], r)
+		}
+		byFirst[strings.Join(first, "\x1f")] = append(byFirst[strings.Join(first, "\x1f")], r)
+	}
+	modalOf := func(m map[string][]run) string {
+		best := ""
+		for k, rs := range m {
+			if len(rs) > len(m[best]) || (len(rs) == len(m[best]) && k < best) {
+				best = k
+			}
+		}
+		return best
+	}
+	type chosenRun struct {
 		inst  int
 		steps []Step
 	}
-	bySeq := map[string][]run{}
-	for _, i := range g {
-		s := corpus[inst[i].session]
-		var r run
-		r.inst = i
-		has := map[string]bool{}
-		var labels []string
-		for _, si := range inst[i].steps {
-			if st := s.Steps[si]; inSet[st.Label] {
-				r.steps = append(r.steps, st)
-				labels = append(labels, st.Label)
-				has[st.Label] = true
+	var chosen []chosenRun
+	var tmpl []string
+	var loops []string
+	if full := modalOf(byFull); full != "" && 2*len(byFull[full]) >= len(g) {
+		tmpl = strings.Split(full, "\x1f")
+		for _, r := range byFull[full] {
+			chosen = append(chosen, chosenRun{r.inst, r.all})
+		}
+	} else if first := modalOf(byFirst); first != "" {
+		tmpl = strings.Split(first, "\x1f")
+		rep := map[string]int{}
+		for _, r := range byFirst[first] {
+			chosen = append(chosen, chosenRun{r.inst, r.first})
+			for l := range r.repeats {
+				rep[l]++
 			}
 		}
-		if len(has) < len(inSet) || len(r.steps) > 24 {
-			continue
+		for _, l := range tmpl {
+			if 2*rep[l] >= len(byFirst[first]) {
+				loops = append(loops, l)
+			}
 		}
-		key := strings.Join(labels, "\x1f")
-		bySeq[key] = append(bySeq[key], r)
-	}
-	modal := ""
-	for k, rs := range bySeq {
-		if len(rs) > len(bySeq[modal]) || (len(rs) == len(bySeq[modal]) && k < modal) {
-			modal = k
-		}
-	}
-	var tmpl []string
-	if modal != "" {
-		tmpl = strings.Split(modal, "\x1f")
 	}
 	// A run where a step failed is not evidence the procedure works.
 	var occ [][]Step
 	var occReq []int // index into inst
 	seqRuns, failedRuns, unknownRuns := 0, 0, 0
-	for _, r := range bySeq[modal] {
+	for _, r := range chosen {
 		seqRuns++
 		failed, unknown := false, false
 		for _, st := range r.steps {
@@ -473,8 +517,13 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	rt.Statistics = "not_run"
 
 	// A group whose template no request ran in full cannot be drafted.
+	rt.Loops = loops
 	if len(occ) < 2 {
-		rt.Failed, rt.Why = CheckSameWay, fmt.Sprintf("only %d of %d requests ran the same sequence of its steps", len(occ), len(g))
+		rt.Failed, rt.Why = CheckSameWay, fmt.Sprintf("only %d of %d requests ran the same sequence of its steps and succeeded", len(occ), len(g))
+		rt.Decision = "removed"
+		rt.Kind = routineKind(corpus, inst, g, tmpl)
+		sum := sha256.Sum256([]byte(rt.Kind + "\x00" + strings.Join(tmpl, "\x1f")))
+		rt.ID = hex.EncodeToString(sum[:6])
 		return rt, true
 	}
 	c.items = make([]int, len(tmpl))
@@ -532,9 +581,12 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	switch {
 	case rt.Failed != "":
 		rt.Decision = "removed"
-	case d.HumanSteps > 0 || d.Derived > 0:
+	case d.HumanSteps > 0 || d.Derived > 0 || len(loops) > 0:
 		rt.Decision = "needs_authoring"
 		var why []string
+		if len(loops) > 0 {
+			why = append(why, "runs "+strings.Join(loops, ", ")+" several times with different values: write the loop")
+		}
 		if d.HumanSteps > 0 {
 			why = append(why, fmt.Sprintf("%d step(s) decided per run", d.HumanSteps))
 		}

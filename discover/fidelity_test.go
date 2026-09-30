@@ -144,3 +144,52 @@ func TestAValueFromAnEarlierOutputIsDerived(t *testing.T) {
 		t.Fatalf("decision %q; README:\n%s", r.Decision, d.Files["README.md"])
 	}
 }
+
+func TestAStepRepeatedWithDifferentValuesIsALoop(t *testing.T) {
+	ss := requestSessions(9, func(i int) string { return "compare the configs" }, func(i int) []Call {
+		var cs []Call
+		for f := 0; f < 2+i%3; f++ { // 2, 3 or 4 files per run
+			cs = append(cs, Call{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("config/%d-%d.yaml", i, f)}})
+		}
+		return append(cs, sh("git diff --stat"))
+	})
+	r := firstRoutine(t, ss)
+	if labelsOf(r.Candidate) != "Read → sh:git diff" || len(r.Loops) != 1 || r.Loops[0] != "Read" {
+		t.Fatalf("labels %s loops %v", labelsOf(r.Candidate), r.Loops)
+	}
+	if r.Decision != "needs_authoring" || !strings.Contains(r.Why, "write the loop") {
+		t.Fatalf("decision %q why %q", r.Decision, r.Why)
+	}
+}
+
+func TestFunnelCountsMatchDecisions(t *testing.T) {
+	o := DefaultOptions()
+	o.Readers = []Reader{fakeReader{sessions: append(requestCorpus(), credCorpus()...)}}
+	rep, err := Run(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prims, authoring, removed := 0, 0, 0
+	for _, r := range rep.Routines {
+		if r.MergedInto != "" {
+			continue
+		}
+		switch r.Decision {
+		case "primitive":
+			prims++
+		case "needs_authoring":
+			authoring++
+		case "removed":
+			removed++
+		default:
+			t.Fatalf("routine without a decision: %s", labelsOf(r.Candidate))
+		}
+	}
+	sumRemoved := 0
+	for _, n := range rep.Funnel.Removed {
+		sumRemoved += n
+	}
+	if prims != rep.Funnel.Primitives || authoring != rep.Funnel.NeedsAuthoring || removed != sumRemoved || len(rep.Primitives()) != prims {
+		t.Fatalf("funnel %+v vs %d/%d/%d", rep.Funnel, prims, authoring, removed)
+	}
+}
