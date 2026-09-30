@@ -1,5 +1,6 @@
 {"timestamp":"2026-09-27T10:00:00Z","type":"session_meta","payload":{"id":"c1","cwd":"/x"}}
 {"timestamp":"2026-09-27T10:00:01Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"git status --short\",\"workdir\":\"/x\"}","call_id":"a"}}
+{"timestamp":"2026-09-27T10:00:01Z","type":"response_item","payload":{"type":"function_call_output","call_id":"a","output":"Exit code: 1\nfatal: not a git repository TENG-1234"}}
 {"timestamp":"2026-09-27T10:00:02Z","type":"response_item","payload":{"type":"local_shell_call","action":{"command":["go","test","./..."]}}}
 {"timestamp":"2026-09-27T10:00:03Z","type":"response_item","payload":{"type":"custom_tool_call","name":"exec","input":"const r = await tools.exec_command({cmd:\"git diff --stat HEAD\",workdir:\"/x\",yield_time_ms:1000}); const t = await tools.mcp__telara__telara_task_checkpoint({task_id:'abc', milestone:`done ${n}`}); text(r.output);"}}
 {"timestamp":"2026-09-27T10:00:04Z","type":"response_item","payload":{"type":"function_call","namespace":"mcp__codex_apps__gmail","name":"_search_emails","arguments":"{\"query\":\"from:x\",\"max_results\":10}"}}
