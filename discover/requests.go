@@ -350,7 +350,7 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 		sort.Float64s(covs)
 		rt.Coverage = covs[len(covs)/2]
 	}
-	rt.Example = oneLine(inst[g[0]].text, 140)
+	rt.Example = oneLine(Redact(inst[g[0]].text), 140)
 	weeks := map[string]bool{}
 	var times []time.Time
 	for _, i := range g {

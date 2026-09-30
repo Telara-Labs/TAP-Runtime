@@ -581,7 +581,7 @@ func templateOf(label string, occ [][]Step, i int) StepTemplate {
 		}
 		collapsed = append(collapsed, pt)
 	}
-	st.Template = strings.Join(collapsed, " ")
+	st.Template = Redact(strings.Join(collapsed, " "))
 	return st
 }
 

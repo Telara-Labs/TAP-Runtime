@@ -87,12 +87,19 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 		if p.Measured > 0 {
 			fmt.Fprintf(out, ", saves %s tokens per run", humanTokens(p.SavedPerRun.Total()))
 		}
-		fmt.Fprintf(out, ")\n   asked as: %s\n", oneLine(p.Example, 120))
+		fmt.Fprintf(out, ")\n   asked as: %s\n", oneLine(Redact(p.Example), 120))
 		for _, s := range d.Steps {
-			fmt.Fprintf(out, "   %d. [%s] %s\n", s.N, s.Kind, oneLine(s.Line, 130))
+			fmt.Fprintf(out, "   %d. [%s] %s\n", s.N, s.Kind, oneLine(Redact(s.Line), 130))
 		}
 		for _, in := range d.Inputs {
-			fmt.Fprintf(out, "   input $%d %s (%s), e.g. %s\n", in.Position, in.Name, in.Type, oneLine(in.Example, 60))
+			if in.Sensitive {
+				fmt.Fprintf(out, "   input $%d %s: a credential, supplied by the caller (recorded value not kept)\n", in.Position, in.Name)
+			} else {
+				fmt.Fprintf(out, "   input $%d %s (%s), e.g. %s\n", in.Position, in.Name, in.Type, oneLine(Redact(in.Example), 60))
+			}
+		}
+		if len(d.Blocked) > 0 {
+			fmt.Fprintf(out, "   BLOCKED: still credential-shaped (%s); it cannot be saved or published\n", strings.Join(d.Blocked, "; "))
 		}
 		if len(d.Problems) > 0 {
 			fmt.Fprintf(out, "   publish checks: %d problem(s): %s\n", len(d.Problems), oneLine(d.Problems[0], 100))
@@ -145,6 +152,10 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 	}
 	for _, i := range chosen {
 		d := prims[i].DraftAs(publisher, nil)
+		if _, err := d.Artifacts(); err != nil {
+			fmt.Fprintf(out, "%d. %s not published: %v\n", i+1, d.Name, err)
+			continue
+		}
 		if len(d.Problems) > 0 {
 			fmt.Fprintf(out, "%d. %s not published: %s\n", i+1, d.Name, strings.Join(d.Problems, "; "))
 			continue
