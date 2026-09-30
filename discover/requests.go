@@ -16,7 +16,7 @@ import (
 // primitives. The unit is one request: a user message and every call the
 // agent made to answer it. Requests are grouped by the replayable steps they
 // ran, a group's template is the steps most of its requests share, and a
-// group becomes a primitive only if it passes five checks, in order:
+// group becomes a primitive only if it passes four checks, in order:
 //
 //  1. whole request   it is the work for a request, not a window cut from one
 //  2. replays         every step is a command, tool call, browser call, read
@@ -25,7 +25,8 @@ import (
 //  3. same way        most requests of the group ran the same sequence of its steps
 //  4. worth it        it recurs over more than one week, and where token use
 //     was recorded, a primitive saves turns
-//  5. not covered     the requests did not already load a skill for it
+//
+// A skill the requests already load is reported (covered_by), not removed.
 //
 // The funnel counts what each check removed; nothing is dropped silently.
 
@@ -34,7 +35,6 @@ const (
 	CheckReplays = "replays"
 	CheckSameWay = "same way"
 	CheckWorth   = "worth it"
-	CheckCovered = "not covered"
 )
 
 // CheckOrder is the order the checks run in (whole request is by construction).
@@ -42,7 +42,10 @@ const (
 // supplies its inputs, so a value the agent chose (the files to commit, the
 // package to test) is a normal input. Whether each input's values appeared
 // in the request is still reported per input.
-var CheckOrder = []string{CheckReplays, CheckSameWay, CheckWorth, CheckCovered}
+// A skill the requests already loaded is not a reason to remove a routine:
+// the skill is the baseline a primitive would be measured against. It is
+// reported as CoveredBy.
+var CheckOrder = []string{CheckReplays, CheckSameWay, CheckWorth}
 
 // Funnel is what the request-level run found at each stage.
 type Funnel struct {
@@ -636,8 +639,6 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 		rt.Failed, rt.Why = CheckWorth, "all its requests fell in one week"
 	case c.Measured > 0 && c.SavedPerRun.Total() == 0:
 		rt.Failed, rt.Why = CheckWorth, "a typical run was already a single turn"
-	case rt.CoveredBy != "":
-		rt.Failed, rt.Why = CheckCovered, "its requests already load the "+rt.CoveredBy+" skill"
 	}
 	switch {
 	case rt.Failed != "":

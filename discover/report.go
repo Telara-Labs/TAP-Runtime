@@ -164,7 +164,7 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 	fmt.Fprintln(w)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "#\tKIND\tCOVERS\tREQUESTS\tSESSIONS\tWEEKS\tSAVED/RUN\tSAVED TOTAL\tSTEPS\tINPUTS\tEXAMPLE REQUEST")
+	fmt.Fprintln(tw, "#\tKIND\tSKILL\tCOVERS\tREQUESTS\tSESSIONS\tWEEKS\tSAVED/RUN\tSAVED TOTAL\tSTEPS\tINPUTS\tEXAMPLE REQUEST")
 	shown := 0
 	for _, rt := range r.Routines {
 		if rt.Decision != "primitive" || rt.MergedInto != "" || (top > 0 && shown >= top) {
@@ -176,7 +176,11 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 			saved, per = humanTokens(rt.SavedTotal.Total()), humanTokens(rt.SavedPerRun.Total())
 		}
 		fixed := rt.Coverage
-		fmt.Fprintf(tw, "%d\t%s\t%.0f%%\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%s\n", shown, rt.Kind, 100*fixed, rt.Requests, rt.Sessions, rt.Weeks, per, saved,
+		skill := "-"
+		if rt.CoveredBy != "" {
+			skill = rt.CoveredBy
+		}
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%.0f%%\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%s\n", shown, rt.Kind, skill, 100*fixed, rt.Requests, rt.Sessions, rt.Weeks, per, saved,
 			oneLine(labelsOf(rt.Candidate), 70), len(rt.Inputs), oneLine(rt.Example, 60))
 	}
 	tw.Flush()

@@ -202,9 +202,18 @@ func codexCall(s Session, t time.Time, namespace, name string, args map[string]j
 	// Codex writes a tool as namespace "mcp__server__" + name "tool", as
 	// "mcp__server" + "tool", or as "mcp__server__app" + "_tool". All three
 	// must join into mcp__server__...tool.
+	// Codex writes an MCP tool as namespace + name in several shapes:
+	// "mcp__server__" + "tool", "mcp__server" + "tool" or + "_tool" (a
+	// server-only namespace), and "mcp__server__app" + "_tool" (an app
+	// inside a server, whose tool is app_tool).
 	full := namespace + name
-	if namespace != "" && !strings.HasSuffix(namespace, "__") && !strings.HasPrefix(name, "_") {
-		full = namespace + "__" + name
+	if ns := strings.TrimSuffix(namespace, "__"); strings.HasPrefix(ns, "mcp__") {
+		parts := strings.Split(strings.TrimPrefix(ns, "mcp__"), "__")
+		tool := strings.TrimPrefix(name, "_")
+		if len(parts) > 1 && strings.HasPrefix(name, "_") {
+			tool = parts[len(parts)-1] + name
+		}
+		full = "mcp__" + parts[0] + "__" + tool
 	}
 	switch {
 	case name == "exec_command" || name == "shell":

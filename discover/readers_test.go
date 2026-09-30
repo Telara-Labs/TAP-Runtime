@@ -261,3 +261,17 @@ func TestOutcomesAreRead(t *testing.T) {
 		t.Fatalf("cursor: %+v", c)
 	}
 }
+
+func TestCodexToolNameShapes(t *testing.T) {
+	for _, c := range []struct{ ns, name, want string }{
+		{"mcp__node_repl__", "js", "mcp:js"},
+		{"mcp__node_repl", "js", "mcp:js"},
+		{"mcp__telara", "_telara_task_list", "mcp:telara_task_list"},
+		{"mcp__codex_apps__gmail", "_search_emails", "mcp:gmail_search_emails"},
+		{"", "mcp__telara__telara_task_create", "mcp:telara_task_create"},
+	} {
+		if got := codexCall(Session{}, time.Time{}, c.ns, c.name, nil).Tool; got != c.want {
+			t.Errorf("%q + %q = %q, want %q", c.ns, c.name, got, c.want)
+		}
+	}
+}
