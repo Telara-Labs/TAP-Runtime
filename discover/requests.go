@@ -342,6 +342,19 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	for k := range covering {
 		covering[k] = k
 	}
+	// firstOrder is request k's order of first appearance of the steps in set.
+	firstOrder := func(k int, set map[string]bool) string {
+		s := corpus[inst[g[k]].session]
+		seen := map[string]bool{}
+		var labels []string
+		for _, si := range inst[g[k]].steps {
+			if l := s.Steps[si].Label; set[l] && !seen[l] {
+				seen[l] = true
+				labels = append(labels, l)
+			}
+		}
+		return strings.Join(labels, "\x1f")
+	}
 	for _, l := range byPresence {
 		if 2*present[l] < len(g) {
 			break
@@ -352,7 +365,27 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 				next = append(next, k)
 			}
 		}
-		if 2*len(next) >= len(g) {
+		if 2*len(next) < len(g) {
+			continue
+		}
+		// Kept only if half the requests also ran the kept steps in one
+		// order: a procedure recurs in an order, not just as a set.
+		trial := map[string]bool{l: true}
+		for x := range inSet {
+			trial[x] = true
+		}
+		orders := map[string][]int{}
+		for _, k := range next {
+			o := firstOrder(k, trial)
+			orders[o] = append(orders[o], k)
+		}
+		var best []int
+		for _, ks := range orders {
+			if len(ks) > len(best) {
+				best = ks
+			}
+		}
+		if 2*len(best) >= len(g) {
 			inSet[l] = true
 			covering = next
 		}
