@@ -54,6 +54,11 @@ type savedMarker struct {
 	// Validation is "not_run": saving is not validating. A validation
 	// result names the exact digest it passed for.
 	Validation string `json:"validation"`
+	// Origin, Receipts and Cases are set for a package a host agent
+	// authored (save.go); a saved draft leaves them out.
+	Origin   string `json:"origin,omitempty"`
+	Receipts string `json:"receipts,omitempty"`
+	Cases    int    `json:"cases,omitempty"`
 }
 
 // ErrNotSaved reports a folder of the draft's name that is not a saved
@@ -76,15 +81,23 @@ func (d *Draft) Save(root string) (path string, unchanged bool, err error) {
 	if err != nil {
 		return "", false, err
 	}
-	dest := filepath.Join(root, d.Name)
+	m := savedMarker{Name: d.Publisher + "/" + d.Name, Digest: digest, Validation: ValidationNotRun}
+	return install(root, d.Name, pkg, m, savedSkillMD(d, filepath.Join(root, d.Name)))
+}
+
+// install unpacks pkg into root/name with its SKILL.md and marker. A folder
+// already holding the same marker is left as it is; one holding another
+// saved primitive is replaced whole; any other folder is never touched.
+func install(root, name string, pkg []byte, m savedMarker, skillMD string) (path string, unchanged bool, err error) {
+	dest := filepath.Join(root, name)
 	overwrite := false
 	if _, err := os.Stat(dest); err == nil {
-		var m savedMarker
+		var have savedMarker
 		b, rerr := os.ReadFile(filepath.Join(dest, SavedMarker))
-		if rerr != nil || json.Unmarshal(b, &m) != nil {
+		if rerr != nil || json.Unmarshal(b, &have) != nil {
 			return "", false, &ErrNotSaved{Path: dest}
 		}
-		if m.Digest == digest {
+		if have == m {
 			return dest, true, nil
 		}
 		overwrite = true
@@ -94,7 +107,7 @@ func (d *Draft) Save(root string) (path string, unchanged bool, err error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return "", false, err
 	}
-	stage, err := os.MkdirTemp(root, "."+d.Name+".saving-")
+	stage, err := os.MkdirTemp(root, "."+name+".saving-")
 	if err != nil {
 		return "", false, err
 	}
@@ -102,10 +115,10 @@ func (d *Draft) Save(root string) (path string, unchanged bool, err error) {
 	if err := unpack(pkg, stage); err != nil {
 		return "", false, err
 	}
-	if err := os.WriteFile(filepath.Join(stage, "SKILL.md"), []byte(savedSkillMD(d, dest)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(stage, "SKILL.md"), []byte(skillMD), 0o644); err != nil {
 		return "", false, err
 	}
-	marker, _ := json.MarshalIndent(savedMarker{Name: d.Publisher + "/" + d.Name, Digest: digest, Validation: ValidationNotRun}, "", "  ")
+	marker, _ := json.MarshalIndent(m, "", "  ")
 	if err := os.WriteFile(filepath.Join(stage, SavedMarker), append(marker, '\n'), 0o644); err != nil {
 		return "", false, err
 	}

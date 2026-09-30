@@ -17,6 +17,23 @@ import (
 // save. It needs no account and sends nothing anywhere. args exclude the
 // command name. It returns the process exit code.
 func Command(args []string, in io.Reader, out, errOut io.Writer) int {
+	// The author path (author.go, validate.go, save.go).
+	if len(args) > 0 {
+		switch args[0] {
+		case "brief", "save":
+			home, err := os.UserHomeDir()
+			if err != nil {
+				fmt.Fprintln(errOut, "discover:", err)
+				return 1
+			}
+			if args[0] == "brief" {
+				return briefCommand(args[1:], home, out, errOut)
+			}
+			return saveCommand(args[1:], home, out, errOut)
+		case "validate":
+			return validateCommand(args[1:], out, errOut)
+		}
+	}
 	d := DefaultOptions()
 	fs := flag.NewFlagSet("discover", flag.ContinueOnError)
 	fs.SetOutput(errOut)
