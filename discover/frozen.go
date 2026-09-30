@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"sort"
 	"time"
 )
@@ -35,8 +37,13 @@ type Manifest struct {
 // ErrCorpusChanged is returned when a frozen session is missing or differs.
 var ErrCorpusChanged = errors.New("frozen corpus changed")
 
-// SessionDigest is the sha256 of a session's JSON encoding.
+// SessionDigest identifies a session's input: the digest of what its reader
+// read (SourceDigest) when there is one, so a parser change never reads as
+// changed input; otherwise the sha256 of the session's JSON encoding.
 func SessionDigest(s Session) string {
+	if s.SourceDigest != "" {
+		return s.SourceDigest
+	}
 	b, _ := json.Marshal(s)
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
@@ -131,4 +138,18 @@ func firstN(s []string, n int) []string {
 		return s[:n]
 	}
 	return s
+}
+
+// fileDigest is the sha256 of a file's bytes, "" if it cannot be read.
+func fileDigest(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }

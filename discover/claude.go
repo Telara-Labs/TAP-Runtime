@@ -32,6 +32,7 @@ func (r ClaudeCode) Read(since time.Time) ([]Session, error) {
 		if err != nil || len(s.Calls) == 0 || s.Start.Before(since) {
 			continue
 		}
+		s.SourceDigest = fileDigest(f)
 		out = append(out, s)
 	}
 	return out, nil
@@ -117,8 +118,9 @@ func readClaudeFile(path string) (s Session, err error) {
 						s.Calls[ci].Outcome = OutcomeFailed
 					}
 					text := claudeUserText(r.Content)
-					s.Calls[ci].OutIDs, s.Calls[ci].OutCtx = outputRefs(text)
+					s.Calls[ci].OutIDs, s.Calls[ci].OutCtx, s.Calls[ci].OutPaths = outputRefsPaths(text)
 					s.Calls[ci].Output = truncateUTF8(text, 600)
+					s.Calls[ci].OutTokens = outputTokens(text)
 				}
 			}
 			continue

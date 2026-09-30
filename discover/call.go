@@ -11,6 +11,8 @@
 package discover
 
 import (
+	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -56,6 +58,14 @@ type Call struct {
 	// bytes before it on its line, a NUL, then the character after it ("" at
 	// the end of a line). A draft uses it to pull the value back out.
 	OutCtx []string
+	// OutPaths is, for each of OutIDs, its jq path when the result is JSON
+	// and the value sits at exactly one path; "*" when it sits at several;
+	// "" when the result is not JSON or the value is not a JSON value.
+	OutPaths []string `json:",omitempty"`
+	// OutTokens are the distinct name-like words of the result (a repo, a
+	// pod, a file name): at most 128, from its first 8 KB. They show that a
+	// later value, or a list a later step loops over, came from this result.
+	OutTokens []string `json:",omitempty"`
 	// Output is the start of the result as the client recorded it (at most
 	// 600 bytes), kept for reviewing a task's evidence on this machine.
 	Output string `json:",omitempty"`
@@ -85,6 +95,15 @@ func outputIDs(text string) []string {
 // outputRefs returns outputIDs and, for each, the context of its first
 // occurrence (see Call.OutCtx).
 func outputRefs(text string) (ids, ctx []string) {
+	ids, ctx, _ = outputRefsPaths(text)
+	return ids, ctx
+}
+
+// outputRefsPaths is outputRefs plus each identifier's JSON path.
+func outputRefsPaths(text string) (ids, ctx, paths []string) {
+	defer func() {
+		paths = jsonPaths(text, ids)
+	}()
 	text = truncateUTF8(text, 64<<10)
 	seen := map[string]bool{}
 	for _, loc := range outIDRe.FindAllStringIndex(text, -1) {
@@ -117,7 +136,7 @@ func outputRefs(text string) (ids, ctx []string) {
 			break
 		}
 	}
-	return ids, ctx
+	return ids, ctx, nil
 }
 
 // exitOutcome reads a shell result's exit status: failed when it names a
@@ -171,6 +190,21 @@ type Session struct {
 	// message. The text stays on this machine: it is used only to check
 	// whether a routine's inputs were given in the request.
 	Requests []string
+	// Approvals are acknowledgements the user gave in the middle of a
+	// request ("yes", "approved"): a human decision between two of its
+	// calls. None of them carries over to a new run.
+	Approvals []Approval `json:",omitempty"`
+	// SourceDigest is the sha256 of what the reader read for this session
+	// (its transcript file, or its rows in a client database), so a frozen
+	// corpus can prove its inputs unchanged whatever the parser does.
+	SourceDigest string `json:"-"`
+}
+
+// Approval is a user acknowledgement given after AfterCall calls of the
+// session, while Request was in progress.
+type Approval struct {
+	Request   int
+	AfterCall int
 }
 
 // isRequest reports a user message that asks for work. Harness wrappers
@@ -181,6 +215,24 @@ func isRequest(text string) bool {
 	return t != "" && !strings.HasPrefix(t, "<")
 }
 
+// harnessPrefixes are the envelopes clients and harnesses inject as a user
+// message: instructions files, browser context without a request, and
+// interruption markers. They are recorded (so their calls stay attributed)
+// but they are not a person's request.
+var harnessPrefixes = []string{"# AGENTS.md instructions", "# In app browser:", "[Request interrupted", "# Context from my IDE setup:"}
+
+// isHarness reports text injected by a client or harness rather than typed
+// by a person.
+func isHarness(text string) bool {
+	t := strings.TrimSpace(text)
+	for _, p := range harnessPrefixes {
+		if strings.HasPrefix(t, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // addRequest records a user message as a new request, unless it continues
 // the one before it in this session: the same text sent again (a retry), or
 // an acknowledgement ("yes, file", "continue", "already approved."), whose
@@ -189,7 +241,15 @@ func (s *Session) addRequest(text string) {
 	text = truncateUTF8(requestText(text), 4000)
 	t := strings.TrimSpace(text)
 	if n := len(s.Requests); n > 0 && strings.TrimSpace(s.Requests[n-1]) != "" {
-		if t == strings.TrimSpace(s.Requests[n-1]) || isAcknowledgement(t) {
+		if t == strings.TrimSpace(s.Requests[n-1]) {
+			return
+		}
+		if isAcknowledgement(t) {
+			// An answer to the agent partway through the request is a human
+			// decision point, recorded so it is never replayed.
+			if k := len(s.Calls); k > 0 && s.Calls[k-1].Request == n-1 {
+				s.Approvals = append(s.Approvals, Approval{Request: n - 1, AfterCall: k})
+			}
 			return
 		}
 	}
@@ -248,4 +308,84 @@ type Reader interface {
 	// Read returns every session that started at or after since. A client
 	// whose store is absent returns (nil, nil).
 	Read(since time.Time) ([]Session, error)
+}
+
+// jsonPaths locates each id in a JSON result: its jq path when it is a
+// string or number value at exactly one place, "*" when at several, "".
+func jsonPaths(text string, ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	t := strings.TrimSpace(text)
+	if len(t) > 64<<10 || (!strings.HasPrefix(t, "{") && !strings.HasPrefix(t, "[")) {
+		return make([]string, len(ids))
+	}
+	var v any
+	dec := json.NewDecoder(strings.NewReader(t))
+	dec.UseNumber()
+	if dec.Decode(&v) != nil {
+		return make([]string, len(ids))
+	}
+	at := map[string][]string{}
+	var walk func(x any, p string)
+	walk = func(x any, p string) {
+		switch y := x.(type) {
+		case map[string]any:
+			for k, z := range y {
+				walk(z, p+jqKeyPath(k))
+			}
+		case []any:
+			for i, z := range y {
+				walk(z, fmt.Sprintf("%s[%d]", p, i))
+			}
+		case string:
+			at[y] = append(at[y], p)
+		case json.Number:
+			at[y.String()] = append(at[y.String()], p)
+		}
+	}
+	walk(v, "")
+	out := make([]string, len(ids))
+	for k, id := range ids {
+		switch ps := at[id]; len(ps) {
+		case 0:
+		case 1:
+			out[k] = ps[0]
+		default:
+			out[k] = "*"
+		}
+	}
+	return out
+}
+
+var jqPlainKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func jqKeyPath(k string) string {
+	if jqPlainKey.MatchString(k) {
+		return "." + k
+	}
+	b, _ := json.Marshal(k)
+	return ".[" + string(b) + "]"
+}
+
+var outTokenRe = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9._/:@+-]{2,}`)
+
+// outputTokens returns the distinct name-like words of a result that carry
+// a letter and are at least 4 bytes long.
+func outputTokens(text string) []string {
+	text = truncateUTF8(text, 8<<10)
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range outTokenRe.FindAllString(text, -1) {
+		m = strings.TrimRight(m, ".,:;/")
+		if len(m) < 4 || len(m) > 200 || seen[m] || !strings.ContainsAny(strings.ToLower(m), "abcdefghijklmnopqrstuvwxyz") {
+			continue
+		}
+		seen[m] = true
+		out = append(out, m)
+		if len(out) == 128 {
+			break
+		}
+	}
+	return out
 }

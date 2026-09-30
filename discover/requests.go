@@ -66,6 +66,14 @@ type Funnel struct {
 	ByKind map[string]int `json:"primitives_by_kind"`
 	// Savings says how the token figures were obtained.
 	Savings string `json:"savings"`
+	// Per-dimension counts over routines not merged into another:
+	// source role -> suitability, suitability -> draft status, and outcome,
+	// validation and value. Each sums to the same total.
+	ByRole       map[string]map[string]int `json:"by_role"`
+	ByDraft      map[string]map[string]int `json:"by_suitability_draft"`
+	ByOutcome    map[string]int            `json:"by_outcome"`
+	ByValidation map[string]int            `json:"by_validation"`
+	ByValue      map[string]int            `json:"by_value"`
 }
 
 // Routine is one group of requests that recurred, with its template and the
@@ -116,11 +124,29 @@ type Routine struct {
 	UnknownRuns int `json:"unknown_runs"`
 	// Example is one request's text, shortened.
 	Example string `json:"example"`
+	// The separate dimensions (see states.go).
+	SourceRole      string   `json:"source_role"`
+	Suitability     string   `json:"suitability"`
+	DraftStatus     string   `json:"draft_status"`
+	Blockers        []string `json:"blockers,omitempty"`
+	OutcomeEvidence string   `json:"outcome_evidence"`
+	Value           string   `json:"value"`
+	// Reasons are stable codes for each dimension's value.
+	Reasons []string `json:"reasons,omitempty"`
+	// Family is the task family (goal and outcome); ID is this procedure.
+	Family   string   `json:"family"`
+	Contract Contract `json:"contract"`
+	// Baseline names existing automation of the same work, if any.
+	Baseline string `json:"baseline,omitempty"`
+	// Parent is the routine this one is a bounded part of: a procedure
+	// found inside requests whose whole was not one.
+	Parent string `json:"parent,omitempty"`
 	// Sources are the requests the routine was found in. They point into
 	// this machine's history and are for local review only.
 	Sources []SourceRef `json:"sources,omitempty"`
 	draft   *Draft
 	occ     [][]Step
+	loops   map[string]loopSpec
 }
 
 // DraftAs redrafts the routine under a publisher, with the steps the user
@@ -129,7 +155,7 @@ func (r *Routine) DraftAs(publisher string, readOnly map[int]bool) *Draft {
 	if r.occ == nil {
 		return r.draft
 	}
-	return buildDraft(r.Candidate, r.occ, DraftOptions{Publisher: publisher, ReadOnly: readOnly})
+	return buildDraft(r.Candidate, r.occ, DraftOptions{Publisher: publisher, ReadOnly: readOnly, loops: r.loops})
 }
 
 // SourceRef names one request in a client's session history. Ran is true
@@ -182,12 +208,16 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 		for _, r := range reqs {
 			steps := byReq[r]
 			labels := map[int]float64{}
+			nrep := 0
 			for _, i := range steps {
 				if l := s.Steps[i].Label; replayable(l) {
 					labels[ids[l]] = 1
+					nrep++
 				}
 			}
-			if len(labels) < 2 {
+			// Two replayable steps make a procedure, even of one tool: two
+			// diffs, a checksum per file.
+			if nrep < 2 {
 				continue
 			}
 			text := ""
@@ -218,7 +248,27 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 	groups := groupRequests(inst)
 	f.Groups = len(groups)
 	var routines []Routine
+	var split [][]int
 	for _, g := range groups {
+		split = append(split, splitGroup(corpus, inst, g)...)
+	}
+	// How many requests carry each request text (digits aside): a routine
+	// whose goal is a stated text must be how most of them were done.
+	byText := map[string]int{}
+	for _, s := range corpus {
+		asked := map[int]bool{}
+		for _, st := range s.Steps {
+			asked[st.Request] = true
+		}
+		for r := range asked {
+			if r < len(s.Requests) {
+				if k := textKey(s.Requests[r]); k != "" {
+					byText[k]++
+				}
+			}
+		}
+	}
+	for _, g := range split {
 		sessions := map[int]bool{}
 		for _, i := range g {
 			sessions[inst[i].session] = true
@@ -231,10 +281,15 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 		if !ok {
 			continue
 		}
+		goalShare(&rt, corpus, inst, g, byText)
 		f.Routines++
 		routines = append(routines, rt)
+		if sub, ok := boundedPart(corpus, inst, g, names, o, &rt); ok {
+			f.Routines++
+			routines = append(routines, sub)
+		}
 	}
-	rank := map[string]int{"primitive": 0, "needs_authoring": 1, "removed": 2}
+	rank := map[string]int{"primitive": 0, "needs_authoring": 1, "baseline": 2, "removed": 3}
 	// Primitives first. Among them, procedures before investigations: the
 	// tokens a routine saves weighted by its coverage (how much of its
 	// requests it is). Routines whose clients recorded no token use follow,
@@ -256,16 +311,30 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 	// One job found as two groups is counted once, under the first.
 	f.Merged = mergeDuplicates(routines)
 	f.ByKind = map[string]int{}
+	f.ByRole, f.ByDraft = map[string]map[string]int{}, map[string]map[string]int{}
+	f.ByOutcome, f.ByValidation, f.ByValue = map[string]int{}, map[string]int{}, map[string]int{}
 	for i := range routines {
 		if routines[i].MergedInto != "" {
 			continue
 		}
+		r := &routines[i]
+		if f.ByRole[r.SourceRole] == nil {
+			f.ByRole[r.SourceRole] = map[string]int{}
+		}
+		f.ByRole[r.SourceRole][r.Suitability]++
+		if f.ByDraft[r.Suitability] == nil {
+			f.ByDraft[r.Suitability] = map[string]int{}
+		}
+		f.ByDraft[r.Suitability][r.DraftStatus]++
+		f.ByOutcome[r.OutcomeEvidence]++
+		f.ByValidation[r.Validation]++
+		f.ByValue[r.Value]++
 		switch routines[i].Decision {
 		case "removed":
 			f.Removed[routines[i].Failed]++
 		case "needs_authoring":
 			f.NeedsAuthoring++
-		default:
+		case "primitive":
 			f.Primitives++
 			f.ByKind[routines[i].Kind]++
 		}
@@ -421,7 +490,30 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 			covering = next
 		}
 	}
-	if len(inSet) < 2 {
+	if len(inSet) == 1 {
+		// One tool can still be a procedure when most requests ran it more
+		// than once (two diffs, a checksum per file).
+		var only string
+		for l := range inSet {
+			only = l
+		}
+		multi := 0
+		for _, i := range g {
+			n := 0
+			for _, si := range inst[i].steps {
+				if corpus[inst[i].session].Steps[si].Label == only {
+					n++
+				}
+			}
+			if n >= 2 {
+				multi++
+			}
+		}
+		if 2*multi < len(g) {
+			return Routine{}, false
+		}
+	}
+	if len(inSet) == 0 {
 		return Routine{}, false
 	}
 	// Each request's run of those steps in recorded order. Two readings:
@@ -479,6 +571,7 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	type chosenRun struct {
 		inst  int
 		steps []Step
+		all   []Step
 	}
 	var chosen []chosenRun
 	var tmpl []string
@@ -486,13 +579,13 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	if full := modalOf(byFull); full != "" && 2*len(byFull[full]) >= len(g) {
 		tmpl = strings.Split(full, "\x1f")
 		for _, r := range byFull[full] {
-			chosen = append(chosen, chosenRun{r.inst, r.all})
+			chosen = append(chosen, chosenRun{r.inst, r.all, r.all})
 		}
 	} else if first := modalOf(byFirst); first != "" {
 		tmpl = strings.Split(first, "\x1f")
 		rep := map[string]int{}
 		for _, r := range byFirst[first] {
-			chosen = append(chosen, chosenRun{r.inst, r.first})
+			chosen = append(chosen, chosenRun{r.inst, r.first, r.all})
 			for l := range r.repeats {
 				rep[l]++
 			}
@@ -506,6 +599,7 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	// A run where a step failed is not evidence the procedure works.
 	var occ [][]Step
 	var occReq []int // index into inst
+	var occAll [][]Step
 	seqRuns, failedRuns, unknownRuns := 0, 0, 0
 	for _, r := range chosen {
 		seqRuns++
@@ -527,10 +621,12 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 		}
 		occ = append(occ, r.steps)
 		occReq = append(occReq, r.inst)
+		occAll = append(occAll, r.all)
 	}
-	if len(tmpl) < 2 {
+	if len(tmpl) < 2 && len(inSet) > 1 {
 		// No sequence of these steps recurred: the requests share steps but
 		// not a procedure. Report the step set for the reader.
+		tmpl = nil
 		for l := range inSet {
 			tmpl = append(tmpl, l)
 		}
@@ -623,14 +719,22 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 		rt.Decision = "removed"
 		rt.Statistics, rt.Validation = "not_run", "not_run"
 		rt.Kind = routineKind(corpus, inst, g, tmpl)
-		sum := sha256.Sum256([]byte(rt.Kind + "\x00" + strings.Join(tmpl, "\x1f")))
+		rt.legacyStates(nil)
+		sum := sha256.Sum256([]byte(rt.SourceRole + "\x00" + strings.Join(tmpl, "\x1f")))
 		rt.ID = hex.EncodeToString(sum[:6])
+		rt.Family = "unknown:" + rt.ID
+		rt.Suitability, rt.Reasons = SuitInsufficient, []string{"inconsistent_order"}
+		if rt.SourceRole == RoleHarness {
+			rt.Suitability, rt.Reasons = SuitInvalid, []string{"harness_request"}
+		}
+		rt.Failed = strings.SplitN(rt.Reasons[0], ":", 2)[0]
 		return rt, true
 	}
 	c.items = make([]int, len(tmpl))
 	rt.Candidate = c
-	d := buildDraft(c, occ, DraftOptions{Publisher: DefaultPublisher})
-	rt.draft, rt.occ = d, occ
+	specs := loopSpecs(loops, occAll, occReq, inst)
+	d := buildDraft(c, occ, DraftOptions{Publisher: DefaultPublisher, loops: specs})
+	rt.draft, rt.occ, rt.loops = d, occ, specs
 
 	// Per input: how often its value appeared in the request (reported, not a check).
 	for n, in := range d.Inputs {
@@ -664,42 +768,151 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	}
 
 	rt.Runs, rt.FailedRuns, rt.UnknownRuns = seqRuns, failedRuns, unknownRuns
-	switch {
-	case d.FixedSteps == 0:
-		rt.Failed, rt.Why = CheckReplays, "no step fixes anything (no subcommand, tool or constant value): exploration, not a procedure"
-	case rt.Consistency < 0.5:
-		rt.Failed, rt.Why = CheckSameWay, fmt.Sprintf("only %.0f%% of its requests ran the same sequence of its steps and succeeded", 100*rt.Consistency)
-		if failedRuns > 0 {
-			rt.Why += fmt.Sprintf(" (%d of the %d that ran it had a failed step)", failedRuns, seqRuns)
-		}
-	case c.Weeks < 2:
-		rt.Failed, rt.Why = CheckWorth, "all its requests fell in one week"
-	case c.Measured > 0 && c.SavedPerRun.Total() == 0:
-		rt.Failed, rt.Why = CheckWorth, "a typical run was already a single turn"
-	}
-	switch {
-	case rt.Failed != "":
-		rt.Decision = "removed"
-	case d.HumanSteps > 0 || d.Derived > 0 || len(loops) > 0:
-		rt.Decision = "needs_authoring"
-		var why []string
-		if len(loops) > 0 {
-			why = append(why, "runs "+strings.Join(loops, ", ")+" several times with different values: write the loop")
-		}
-		if d.HumanSteps > 0 {
-			why = append(why, fmt.Sprintf("%d step(s) decided per run", d.HumanSteps))
-		}
-		if d.Derived > 0 {
-			why = append(why, fmt.Sprintf("%d value(s) come from an earlier step's output", d.Derived))
-		}
-		rt.Why = strings.Join(why, "; ")
-	default:
-		rt.Decision = "primitive"
-	}
 	rt.Kind = routineKind(corpus, inst, g, tmpl)
-	sum := sha256.Sum256([]byte(rt.Kind + "\x00" + strings.Join(tmpl, "\x1f")))
+	// Role, outcome and value; suitability is decided by the contract.
+	rt.legacyStates(d)
+	switch {
+	case rt.SourceRole == RoleScheduled:
+		rt.Baseline = "scheduled_automation"
+	case rt.CoveredBy != "":
+		rt.Baseline = "skill:" + rt.CoveredBy
+	}
+	common := map[string]bool{}
+	for _, l := range tmpl {
+		common[l] = true
+	}
+	sum := sha256.Sum256([]byte(rt.SourceRole + "\x00" + strings.Join(tmpl, "\x1f") + "\x00" + splitKey(occ[0], common)))
 	rt.ID = hex.EncodeToString(sum[:6])
+	cruns := make([]contractRun, len(occ))
+	for j := range occ {
+		in := inst[occReq[j]]
+		s := corpus[in.session]
+		first, last := -1, -1
+		for _, st := range occAll[j] {
+			if first < 0 || st.Call < first {
+				first = st.Call
+			}
+			if st.Call > last {
+				last = st.Call
+			}
+		}
+		n := 0
+		for _, a := range s.Approvals {
+			if a.Request == in.request && a.AfterCall > first && a.AfterCall <= last {
+				n++
+			}
+		}
+		var all []Step
+		for _, si := range in.steps {
+			all = append(all, s.Steps[si])
+		}
+		cruns[j] = contractRun{steps: occ[j], all: all, text: in.text, approvals: n}
+	}
+	buildContract(&rt, d, cruns, loops)
 	return rt, true
+}
+
+// loopSpecs finds, for each step most runs made several times, whether it
+// loops over a list the request gave: exactly one argument varies between
+// its occurrences, and in most runs every value of it is in the request.
+// Anything else stays an open loop.
+func loopSpecs(loops []string, occAll [][]Step, occReq []int, inst []reqInstance) map[string]loopSpec {
+	out := map[string]loopSpec{}
+	for _, l := range loops {
+		varied := map[string]int{}
+		per := make([]map[string][]string, len(occAll))
+		for j, all := range occAll {
+			per[j] = map[string][]string{}
+			var occs []Step
+			for _, st := range all {
+				if st.Label == l {
+					occs = append(occs, st)
+				}
+			}
+			vals := map[string][]string{}
+			for _, st := range occs {
+				for _, sl := range st.Slots {
+					if sl.Sub || sl.Type == SlotFlag || derived(sl.Key) {
+						continue
+					}
+					vals[sl.Key] = append(vals[sl.Key], sl.Value)
+				}
+			}
+			for k, vs := range vals {
+				if len(vs) != len(occs) {
+					continue
+				}
+				per[j][k] = vs
+				for _, v := range vs[1:] {
+					if v != vs[0] {
+						varied[k]++
+						break
+					}
+				}
+			}
+		}
+		key, n := "", 0
+		others := 0
+		for k, c := range varied {
+			if c > n || (c == n && k < key) {
+				key, n = k, c
+			}
+		}
+		for k, c := range varied {
+			if k != key && 2*c >= len(occAll) {
+				others++
+			}
+		}
+		if key == "" || 2*n < len(occAll) || others > 0 {
+			continue
+		}
+		spec := loopSpec{key: key, values: make([][]string, len(occAll))}
+		given, prior := 0, 0
+		for j := range occAll {
+			vs := per[j][key]
+			spec.values[j] = vs
+			// The steps before the loop's first item, whose results could
+			// have listed the items.
+			var before []Step
+			for _, st := range occAll[j] {
+				if st.Label == l {
+					break
+				}
+				before = append(before, st)
+			}
+			inReq, inOut := len(vs) > 0, len(vs) > 0
+			for _, v := range vs {
+				if !inRequest(v, inst[occReq[j]].text) {
+					inReq = false
+				}
+				found := false
+				for _, st := range before {
+					if inResult(v, st) {
+						found = true
+						break
+					}
+				}
+				if !found && !inRequest(v, inst[occReq[j]].text) {
+					inOut = false
+				}
+			}
+			switch {
+			case inReq:
+				given++
+			case inOut:
+				prior++
+			}
+		}
+		switch {
+		case 2*given >= len(occAll):
+			spec.source = "caller"
+			out[l] = spec
+		case 2*(given+prior) >= len(occAll):
+			spec.source = "prior_output"
+			out[l] = spec
+		}
+	}
+	return out
 }
 
 // unexplained names the first input whose values were mostly not in the
@@ -750,17 +963,26 @@ func routineKind(corpus []normSession, inst []reqInstance, g []int, tmpl []strin
 	if book {
 		return "bookkeeping"
 	}
-	scheduled, single := 0, 0
+	scheduled, single, harness, long := 0, 0, 0, 0
 	texts := map[string]int{}
 	for _, i := range g {
 		t := strings.TrimSpace(inst[i].text)
 		if strings.HasPrefix(t, "Automation:") {
 			scheduled++
 		}
+		if isHarness(t) || t == "" {
+			harness++
+		}
+		if len(t) >= 120 {
+			long++
+		}
 		if len(corpus[inst[i].session].Requests) == 1 {
 			single++
 		}
 		texts[digits.ReplaceAllString(truncateUTF8(t, 120), "#")]++
+	}
+	if 2*harness > len(g) {
+		return "harness"
 	}
 	if 2*scheduled >= len(g) {
 		return "scheduled"
@@ -771,14 +993,20 @@ func routineKind(corpus []normSession, inst []reqInstance, g []int, tmpl []strin
 			top = n
 		}
 	}
-	if 5*top >= 4*len(g) && 5*single >= 4*len(g) {
+	// A program sends the same long prompt, alone in its session; a person
+	// types a short request that merely differs in a number.
+	if 5*top >= 4*len(g) && 5*single >= 4*len(g) && 5*long >= 4*len(g) {
 		return "automated"
 	}
 	return "user"
 }
 
-// mergeDuplicates folds a routine into an earlier one (in report order) with
-// the same kind and the same set of steps: one job found as two groups.
+// mergeDuplicates folds a routine into an earlier one (in report order)
+// that is the same procedure: the same source role and the same steps in the
+// same order and multiplicity, with the same operations and scope (the
+// routine ID covers those, and so does Family's contract). An unordered set
+// of labels is never enough: a different order or count is a different
+// procedure.
 func mergeDuplicates(rs []Routine) int {
 	seen := map[string]string{}
 	merged := 0
@@ -786,16 +1014,14 @@ func mergeDuplicates(rs []Routine) int {
 		if rs[i].Decision == "removed" {
 			continue
 		}
-		set := map[string]bool{}
-		for _, st := range rs[i].Steps {
-			set[st.Label] = true
+		labels := make([]string, len(rs[i].Steps))
+		for k, st := range rs[i].Steps {
+			labels[k] = st.Label
 		}
-		keys := make([]string, 0, len(set))
-		for k := range set {
-			keys = append(keys, k)
+		key := rs[i].Kind + "\x00" + rs[i].SourceRole + "\x00" + strings.Join(labels, "\x1f") + "\x00" + strings.Join(rs[i].Contract.Scope, "\x1f") + "\x00" + rs[i].Family
+		if rs[i].Family == "" || strings.HasPrefix(rs[i].Family, "unknown:") {
+			key += "\x00" + rs[i].ID
 		}
-		sort.Strings(keys)
-		key := rs[i].Kind + "\x00" + strings.Join(keys, "\x1f")
 		if first, ok := seen[key]; ok {
 			rs[i].MergedInto = first
 			merged++
@@ -804,4 +1030,145 @@ func mergeDuplicates(rs []Routine) int {
 		seen[key] = rs[i].ID
 	}
 	return merged
+}
+
+// boundedPart looks inside a routine that is not a useful procedure as a
+// whole for the longest run of its steps (two or more, in order) whose
+// every input has a known source and no judgment: a bounded procedure
+// inside a larger investigation, such as collecting a namespace's pod logs
+// before diagnosing. It is judged on its own contract and reported with its
+// parent. It is kept only when useful; the parent is never claimed.
+func boundedPart(corpus []normSession, inst []reqInstance, g []int, names []string, o Options, rt *Routine) (Routine, bool) {
+	d := rt.draft
+	// Only inside a person's varying work: a scheduled automation is
+	// already automated (its baseline covers its parts), and harness or
+	// bookkeeping sources carry no user procedure.
+	if d == nil || rt.Suitability == SuitUseful || rt.SourceRole != RoleUser || len(rt.Steps) < 3 {
+		return Routine{}, false
+	}
+	bad := map[int]bool{}
+	for p := range d.humanPos {
+		bad[p] = true
+	}
+	for k, in := range d.Inputs {
+		if k >= len(rt.Contract.Inputs) {
+			break
+		}
+		switch rt.Contract.Inputs[k].Source {
+		case InputUnresolved, InputComposed:
+			bad[in.pos] = true
+		}
+	}
+	for p, st := range rt.Steps {
+		for _, l := range rt.Loops {
+			if st.Label == l && !d.listLoop[l] {
+				bad[p] = true
+			}
+		}
+	}
+	if len(bad) == 0 {
+		return Routine{}, false
+	}
+	bestLo, bestHi := 0, 0
+	for lo := 0; lo < len(rt.Steps); lo++ {
+		hi := lo
+		for hi < len(rt.Steps) && !bad[hi] {
+			hi++
+		}
+		if hi-lo > bestHi-bestLo {
+			bestLo, bestHi = lo, hi
+		}
+	}
+	if bestHi-bestLo < 2 {
+		return Routine{}, false
+	}
+	keep := map[string]bool{}
+	for p := bestLo; p < bestHi; p++ {
+		keep[rt.Steps[p].Label] = true
+	}
+	for p := range bad {
+		if p < len(rt.Steps) && keep[rt.Steps[p].Label] {
+			return Routine{}, false // a kept label also sits at a bad position
+		}
+	}
+	var sub []reqInstance
+	var gs []int
+	sessions := map[int]bool{}
+	for _, i := range g {
+		in := inst[i]
+		var steps []int
+		for _, si := range inst[i].steps {
+			if keep[corpus[inst[i].session].Steps[si].Label] {
+				steps = append(steps, si)
+			}
+		}
+		if len(steps) < 2 {
+			continue
+		}
+		in.steps = steps
+		gs = append(gs, len(sub))
+		sub = append(sub, in)
+		sessions[in.session] = true
+	}
+	// The part must recur on its own.
+	if len(gs) < o.MinSupport || len(sessions) < 2 {
+		return Routine{}, false
+	}
+	part, ok := buildRoutine(corpus, sub, gs, names, o)
+	if !ok || part.Suitability != SuitUseful {
+		return Routine{}, false
+	}
+	// A part with nothing to parameterize (opening a browser, printing the
+	// working directory) is scaffolding around the work, not a procedure a
+	// caller would run with different inputs.
+	param := false
+	for _, in := range part.Contract.Inputs {
+		if in.Source == InputCaller || in.Source == InputPriorOutput {
+			param = true
+		}
+	}
+	if !param {
+		return Routine{}, false
+	}
+	part.Parent = rt.ID
+	part.Reasons = append(part.Reasons, "bounded_part_of:"+rt.ID)
+	return part, true
+}
+
+// textKey is a request's text with digits and spacing normalized.
+func textKey(t string) string {
+	t = strings.Join(strings.Fields(strings.ToLower(digits.ReplaceAllString(t, "#"))), " ")
+	if len(t) < 8 {
+		return ""
+	}
+	return t
+}
+
+// goalShare checks a routine whose goal is its requests' shared text: if
+// most requests with that text did something else, these steps are not the
+// procedure for the goal (a few runs happened to share incidental calls).
+func goalShare(rt *Routine, corpus []normSession, inst []reqInstance, g []int, byText map[string]int) {
+	if rt.Suitability != SuitUseful || rt.Contract.Goal != GoalStated {
+		return
+	}
+	count := map[string]int{}
+	for _, i := range g {
+		if k := textKey(inst[i].text); k != "" {
+			count[k]++
+		}
+	}
+	top, n := "", 0
+	for k, c := range count {
+		if c > n || (c == n && k < top) {
+			top, n = k, c
+		}
+	}
+	if top == "" || 2*n >= byText[top] {
+		return
+	}
+	rt.Suitability = SuitInsufficient
+	rt.Reasons = []string{fmt.Sprintf("goal_usually_done_differently:%d_of_%d", n, byText[top])}
+	rt.DraftStatus, rt.Blockers = DraftNotAttempted, nil
+	rt.Decision, rt.Failed = "removed", "goal_usually_done_differently"
+	rt.Why = strings.Join(rt.Reasons, "; ")
 }

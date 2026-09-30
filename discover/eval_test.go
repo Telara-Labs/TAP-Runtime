@@ -86,3 +86,22 @@ func TestSampleIsReproducibleAndCarriesNoDecision(t *testing.T) {
 		}
 	}
 }
+
+func TestSourceDigestSurvivesParserChanges(t *testing.T) {
+	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	a := Session{Client: "fake", ID: "a", Start: t0, SourceDigest: "abc", Calls: []Call{{Tool: "shell", Command: "ls", Time: t0}}}
+	m := BuildManifest([]Session{a}, t0.Add(time.Hour))
+	if m.Sessions[0].Digest != "abc" {
+		t.Fatalf("digest %q", m.Sessions[0].Digest)
+	}
+	// A newer parser reads more out of the same bytes: same input.
+	b := a
+	b.Calls = []Call{{Tool: "shell", Command: "ls", Time: t0, Output: "x", OutPaths: []string{".id"}}}
+	if _, err := (FrozenReader{Inner: fakeReader{sessions: []Session{b}}, Manifest: m}).Read(time.Time{}); err != nil {
+		t.Fatalf("a parser change is not an input change: %v", err)
+	}
+	b.SourceDigest = "def"
+	if _, err := (FrozenReader{Inner: fakeReader{sessions: []Session{b}}, Manifest: m}).Read(time.Time{}); !errors.Is(err, ErrCorpusChanged) {
+		t.Fatalf("changed source bytes must stop the run: %v", err)
+	}
+}

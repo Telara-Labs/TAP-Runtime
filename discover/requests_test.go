@@ -93,7 +93,7 @@ func TestRecurringRequestsBecomePrimitives(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	WriteFunnel(&buf, rep, 0, true)
-	for _, want := range []string{"Reviewed 30 sessions", "Consolidated to"} {
+	for _, want := range []string{"Reviewed 30 sessions", "Useful procedures for user tasks: ", "No draft has been executed"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("funnel output lacks %q:\n%s", want, buf.String())
 		}
@@ -191,12 +191,12 @@ func TestExplorationIsNotAPrimitive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Funnel.Routines != 1 || rep.Funnel.Primitives != 0 || rep.Routines[0].Failed != CheckReplays {
+	if rep.Funnel.Routines != 1 || rep.Funnel.Primitives != 0 || rep.Routines[0].Suitability == SuitUseful {
 		t.Fatalf("funnel %+v; failed %q: %s", rep.Funnel, rep.Routines[0].Failed, rep.Routines[0].Why)
 	}
 }
 
-func TestProceduresRankAboveInvestigations(t *testing.T) {
+func TestFixedShareIsAFractionOfTheRoutine(t *testing.T) {
 	o := DefaultOptions()
 	o.Readers = []Reader{fakeReader{sessions: requestCorpus()}}
 	rep, err := Run(o)

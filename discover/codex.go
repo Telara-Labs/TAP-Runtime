@@ -52,6 +52,7 @@ func (r Codex) Read(since time.Time) ([]Session, error) {
 		if err != nil || len(s.Calls) == 0 || s.Start.Before(since) {
 			continue
 		}
+		s.SourceDigest = fileDigest(f)
 		// A sub-rollout can open with its parent's meta. Session identity
 		// must be unique, so a later file claiming a used id is named by
 		// its own file.
@@ -173,8 +174,9 @@ func readCodexFile(path string) (s Session, err error) {
 			text := codexOutputText(p.Output)
 			for _, ci := range byCallID[p.CallID] {
 				s.Calls[ci].Outcome = exitOutcome(text)
-				s.Calls[ci].OutIDs, s.Calls[ci].OutCtx = outputRefs(text)
+				s.Calls[ci].OutIDs, s.Calls[ci].OutCtx, s.Calls[ci].OutPaths = outputRefsPaths(text)
 				s.Calls[ci].Output = truncateUTF8(text, 600)
+				s.Calls[ci].OutTokens = outputTokens(text)
 			}
 		case p.Type == "function_call":
 			var args map[string]json.RawMessage

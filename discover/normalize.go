@@ -68,6 +68,12 @@ type Step struct {
 	Outcome Outcome
 	OutIDs  []string
 	OutCtx  []string
+	// OutPaths are the ids' JSON paths (see Call.OutPaths).
+	OutPaths []string
+	// Output is the start of the call's result.
+	Output string
+	// OutTokens are the result's name-like words (see Call.OutTokens).
+	OutTokens []string
 	// Session is the client and session the step was recorded in.
 	Session string
 }
@@ -83,6 +89,7 @@ type normSession struct {
 	// Requests are the user's messages; RequestSkills the skills each loaded.
 	Requests      []string
 	RequestSkills map[int]map[string]bool
+	Approvals     []Approval
 }
 
 var (
@@ -161,7 +168,7 @@ func normalize(sessions []Session) []normSession {
 	}
 	out := make([]normSession, 0, len(sessions))
 	for _, s := range sessions {
-		ns := normSession{Client: s.Client, ID: s.ID, Start: s.Start, Skills: map[string]bool{}, Requests: s.Requests, RequestSkills: map[int]map[string]bool{}}
+		ns := normSession{Client: s.Client, ID: s.ID, Start: s.Start, Skills: map[string]bool{}, Requests: s.Requests, RequestSkills: map[int]map[string]bool{}, Approvals: s.Approvals}
 		for ci, c := range s.Calls {
 			if sk := skillOf(c); sk != "" {
 				ns.Skills[sk] = true
@@ -180,7 +187,8 @@ func normalize(sessions []Session) []normSession {
 				if c.Tool == "shell" {
 					steps[i].Raw, steps[i].Compound = c.Command, isCompound(c.Command)
 				}
-				steps[i].Outcome, steps[i].OutIDs, steps[i].OutCtx = c.Outcome, c.OutIDs, c.OutCtx
+				steps[i].Outcome, steps[i].OutIDs, steps[i].OutCtx, steps[i].OutPaths = c.Outcome, c.OutIDs, c.OutCtx, c.OutPaths
+				steps[i].Output, steps[i].OutTokens = c.Output, c.OutTokens
 				steps[i].Session = s.Client + "/" + s.ID
 			}
 			for _, st := range steps {
@@ -190,7 +198,7 @@ func normalize(sessions []Session) []normSession {
 					// label but different arguments are two steps.
 					ns.Steps[n-1].Tokens = ns.Steps[n-1].Tokens.add(st.Tokens)
 					// The retry's result is what the step finally did.
-					ns.Steps[n-1].Outcome, ns.Steps[n-1].OutIDs, ns.Steps[n-1].OutCtx = st.Outcome, st.OutIDs, st.OutCtx
+					ns.Steps[n-1].Outcome, ns.Steps[n-1].OutIDs, ns.Steps[n-1].OutCtx, ns.Steps[n-1].OutPaths, ns.Steps[n-1].Output, ns.Steps[n-1].OutTokens = st.Outcome, st.OutIDs, st.OutCtx, st.OutPaths, st.Output, st.OutTokens
 					if st.Turn != ns.Steps[n-1].Turn {
 						ns.Steps[n-1].Turns++
 					}

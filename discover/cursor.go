@@ -2,6 +2,8 @@ package discover
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -148,6 +150,8 @@ func (r Cursor) Read(since time.Time) ([]Session, error) {
 		call := cursorCall(row)
 		call.Session = row.Composer
 		cv.calls = append(cv.calls, cursorPlaced{pos, call})
+		raw, _ := json.Marshal(row)
+		cv.raw = append(cv.raw, string(raw))
 	}
 	for _, b := range bubbles {
 		pos, ok := convs[b.Composer].orderOf(b.Bubble)
@@ -164,6 +168,8 @@ func (r Cursor) Read(since time.Time) ([]Session, error) {
 	addUser := func(row cursorRow, pos int) {
 		if cv := convs[row.Composer]; cv != nil {
 			cv.users = append(cv.users, cursorUser{pos, row.Text})
+			raw, _ := json.Marshal(row)
+			cv.raw = append(cv.raw, string(raw))
 		}
 	}
 	for _, u := range users {
@@ -184,6 +190,13 @@ func (r Cursor) Read(since time.Time) ([]Session, error) {
 		sort.SliceStable(cv.calls, func(i, j int) bool { return cv.calls[i].pos < cv.calls[j].pos })
 		sort.SliceStable(cv.users, func(i, j int) bool { return cv.users[i].pos < cv.users[j].pos })
 		s := Session{Client: "cursor", ID: id, Start: cv.start}
+		sort.Strings(cv.raw)
+		h := sha256.New()
+		for _, r := range cv.raw {
+			h.Write([]byte(r))
+			h.Write([]byte{0})
+		}
+		s.SourceDigest = hex.EncodeToString(h.Sum(nil))
 		u := 0
 		for _, c := range cv.calls {
 			for u < len(cv.users) && cv.users[u].pos < c.pos {
@@ -213,6 +226,7 @@ type cursorPlaced struct {
 }
 
 type cursorConv struct {
+	raw   []string // the rows read for it, for its source digest
 	start time.Time
 	order map[string]int
 	calls []cursorPlaced
@@ -235,8 +249,9 @@ func (c *cursorConv) orderOf(bubble string) (int, bool) {
 
 func cursorCall(row cursorRow) Call {
 	c := Call{Client: "cursor", Time: cursorTime(row.Created)}
-	c.OutIDs, c.OutCtx = outputRefs(row.Result)
+	c.OutIDs, c.OutCtx, c.OutPaths = outputRefsPaths(row.Result)
 	c.Output = truncateUTF8(row.Result, 600)
+	c.OutTokens = outputTokens(row.Result)
 	switch row.Status {
 	case "completed":
 		c.Outcome = OutcomeOK

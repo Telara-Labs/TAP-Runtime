@@ -21,7 +21,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: discover-eval freeze|run|sample [flags]")
+		fmt.Fprintln(os.Stderr, "usage: discover-eval freeze|run|sample|show [flags]")
 		os.Exit(2)
 	}
 	var err error
@@ -32,6 +32,8 @@ func main() {
 		err = run(os.Args[2:])
 	case "sample":
 		err = sample(os.Args[2:])
+	case "show":
+		err = show(os.Args[2:])
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}
@@ -185,4 +187,81 @@ func sample(args []string) error {
 	}
 	fmt.Printf("sampled %d episodes: %v\n", len(eps), strata)
 	return writeJSON(filepath.Join(*dir, "sample.json"), map[string]any{"seed": *seed, "report": *report, "episodes": eps, "strata": strata})
+}
+
+// show reruns discovery on the frozen corpus and writes, for each named
+// routine, its record, its drafted files and up to -episodes of its source
+// episodes, for reviewing a decision against its evidence.
+func show(args []string) error {
+	fs := flag.NewFlagSet("show", flag.ExitOnError)
+	manifest := fs.String("manifest", "manifest.json", "frozen corpus")
+	dir := fs.String("dir", "show", "output directory")
+	n := fs.Int("episodes", 4, "source episodes rendered per routine")
+	fs.Parse(args)
+	ids := map[string]bool{}
+	for _, a := range fs.Args() {
+		ids[a] = true
+	}
+	rs, _, err := frozenReaders(*manifest)
+	if err != nil {
+		return err
+	}
+	var all []discover.Session
+	for _, r := range rs {
+		ss, err := r.Read(time.Time{})
+		if err != nil {
+			return err
+		}
+		all = append(all, ss...)
+	}
+	o := discover.DefaultOptions()
+	o.Readers = []discover.Reader{staticReader(all)}
+	o.Now = func() time.Time { return time.Time{} }
+	rep, err := discover.Run(o)
+	if err != nil {
+		return err
+	}
+	c := discover.NewCorpus(all)
+	for i := range rep.Routines {
+		r := &rep.Routines[i]
+		if !ids[r.ID] {
+			continue
+		}
+		d := filepath.Join(*dir, r.ID)
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			return err
+		}
+		rec := *r
+		if err := writeJSON(filepath.Join(d, "routine.json"), rec); err != nil {
+			return err
+		}
+		if dr := r.Draft(); dr != nil {
+			for name, body := range dr.Files {
+				os.WriteFile(filepath.Join(d, name), body, 0o600)
+			}
+		}
+		for k, s := range r.Sources {
+			if k == *n {
+				break
+			}
+			e := discover.Episode{ID: discover.EpisodeID(s.Client, s.Session, s.Request), Client: s.Client, Session: s.Session, Request: s.Request}
+			for _, ep := range c.Episodes() {
+				if ep.ID == e.ID {
+					e = ep
+				}
+			}
+			os.WriteFile(filepath.Join(d, fmt.Sprintf("episode-%d-%s.md", k+1, e.ID)), []byte(c.RenderEpisode(e)), 0o600)
+		}
+		fmt.Printf("%s: %s\n", r.ID, d)
+	}
+	return nil
+}
+
+// staticReader serves sessions already read, as one reader per client.
+type staticReaderT struct{ ss []discover.Session }
+
+func staticReader(ss []discover.Session) discover.Reader { return staticReaderT{ss} }
+func (s staticReaderT) Client() string                   { return "frozen" }
+func (s staticReaderT) Read(time.Time) ([]discover.Session, error) {
+	return s.ss, nil
 }
