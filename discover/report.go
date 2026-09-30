@@ -260,19 +260,21 @@ func (r *Report) Primitives() []*Routine {
 }
 
 // WriteOpportunities says how many requests the selection pass surfaced,
-// by route, and lists up to n with the reference an authoring brief takes.
+// by route, and lists the n highest-ranked contract groups with the id of
+// the example an authoring brief takes.
 func WriteOpportunities(w io.Writer, r *Report, n int) {
 	by := map[string]int{}
 	for _, o := range r.Opportunities {
 		by[o.Route]++
 	}
-	fmt.Fprintf(w, "\nSurfaced %d opportunities from the whole history by mechanical evidence (%d stated template, %d re-run check, %d parametric loop).\n",
-		len(r.Opportunities), by[RouteStatedTemplate], by[RouteRerunCheck], by[RouteParamLoop])
-	fmt.Fprintln(w, "Each is an unassessed proposal, not a verified procedure. Brief one for an authoring agent with `tap discover brief --opportunity <id> --report <file>`.")
-	for i, o := range r.Opportunities {
+	fmt.Fprintf(w, "\nSurfaced %d opportunities from the whole history by mechanical evidence (%d stated template, %d re-run check, %d parametric loop, %d single pass), in %d contract groups.\n",
+		len(r.Opportunities), by[RouteStatedTemplate], by[RouteRerunCheck], by[RouteParamLoop], by[RouteNamedObject], len(r.OpportunityGroups))
+	fmt.Fprintln(w, "Each is an unassessed proposal, not a verified procedure. Brief a group's example with `tap discover brief --opportunity <id> --report <file>`.")
+	for i, g := range r.OpportunityGroups {
 		if i == n {
 			break
 		}
-		fmt.Fprintf(w, "  %s  %-16s %s  (%s)\n", o.ID, o.Route, o.Task, strings.Join(o.Reasons, "; "))
+		fmt.Fprintf(w, "  %3d. %-16s %3d sessions %4d requests  last %s  %s\n       %s\n",
+			i+1, g.Route, g.Sessions, g.Requests, g.Last.Format("2006-01-02"), g.Example.ID, oneLine(g.Contract, 110))
 	}
 }
