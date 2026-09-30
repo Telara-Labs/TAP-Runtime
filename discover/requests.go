@@ -116,6 +116,9 @@ type Routine struct {
 	UnknownRuns int `json:"unknown_runs"`
 	// Example is one request's text, shortened.
 	Example string `json:"example"`
+	// Sources are the requests the routine was found in. They point into
+	// this machine's history and are for local review only.
+	Sources []SourceRef `json:"sources,omitempty"`
 	draft   *Draft
 	occ     [][]Step
 }
@@ -127,6 +130,15 @@ func (r *Routine) DraftAs(publisher string, readOnly map[int]bool) *Draft {
 		return r.draft
 	}
 	return buildDraft(r.Candidate, r.occ, DraftOptions{Publisher: publisher, ReadOnly: readOnly})
+}
+
+// SourceRef names one request in a client's session history. Ran is true
+// when that request ran the routine's steps in its order and succeeded.
+type SourceRef struct {
+	Client  string `json:"client"`
+	Session string `json:"session"`
+	Request int    `json:"request"`
+	Ran     bool   `json:"ran"`
 }
 
 type RoutineInput struct {
@@ -547,6 +559,14 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 		rt.Coverage = covs[len(covs)/2]
 	}
 	rt.Example = oneLine(Redact(inst[g[0]].text), 140)
+	ran := map[int]bool{}
+	for _, i := range occReq {
+		ran[i] = true
+	}
+	for _, i := range g {
+		s := corpus[inst[i].session]
+		rt.Sources = append(rt.Sources, SourceRef{Client: s.Client, Session: s.ID, Request: inst[i].request, Ran: ran[i]})
+	}
 	weeks := map[string]bool{}
 	var times []time.Time
 	for _, i := range g {

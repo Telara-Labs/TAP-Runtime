@@ -116,7 +116,9 @@ func readClaudeFile(path string) (s Session, err error) {
 					if r.IsError {
 						s.Calls[ci].Outcome = OutcomeFailed
 					}
-					s.Calls[ci].OutIDs, s.Calls[ci].OutCtx = outputRefs(claudeUserText(r.Content))
+					text := claudeUserText(r.Content)
+					s.Calls[ci].OutIDs, s.Calls[ci].OutCtx = outputRefs(text)
+					s.Calls[ci].Output = truncateUTF8(text, 600)
 				}
 			}
 			continue
