@@ -226,7 +226,7 @@ func codexCall(s Session, t time.Time, namespace, name string, args map[string]j
 			c.Command = strings.Join(argv, " ")
 		}
 	case strings.HasPrefix(full, "mcp__"):
-		c.Tool, c.Args, c.RawArgs = "mcp:"+strings.TrimPrefix(lastSegment(full), "_"), flatten(args), rawKeys(args)
+		c.Tool, c.Args, c.RawArgs = "mcp:"+undouble(strings.TrimPrefix(lastSegment(full), "_")), flatten(args), rawKeys(args)
 	default:
 		c.Tool, c.Args, c.RawArgs = name, flatten(args), rawKeys(args)
 	}
@@ -422,4 +422,14 @@ func codexOutputText(raw json.RawMessage) string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+// undouble collapses an app name that Codex's app connectors prepend to a
+// tool whose name already starts with it: codex_apps' telara_telara_task_list
+// is Telara's telara_task_list. Only an exact doubling is collapsed.
+func undouble(tool string) string {
+	if p, rest, ok := strings.Cut(tool, "_"); ok && strings.HasPrefix(rest, p+"_") {
+		return rest
+	}
+	return tool
 }
