@@ -28,6 +28,11 @@ func TestFrozenReaderRefusesAChangedCorpus(t *testing.T) {
 	if _, err := (FrozenReader{Inner: fakeReader{sessions: nil}, Manifest: m}).Read(time.Time{}); !errors.Is(err, ErrCorpusChanged) {
 		t.Fatalf("a missing session must stop the run: %v", err)
 	}
+	dup := m
+	dup.Sessions = append(append([]ManifestEntry(nil), m.Sessions...), m.Sessions[0])
+	if _, err := (FrozenReader{Inner: fakeReader{sessions: []Session{a}}, Manifest: dup}).Read(time.Time{}); !errors.Is(err, ErrCorpusChanged) {
+		t.Fatalf("a manifest naming one session twice must stop the run: %v", err)
+	}
 }
 
 func TestLineageJoinsCopiesAndTemplatedPrompts(t *testing.T) {

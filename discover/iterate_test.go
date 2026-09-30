@@ -3,8 +3,11 @@ package discover
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCursorMCPEnvelopeIsUnwrapped(t *testing.T) {
@@ -124,5 +127,38 @@ func TestEscapedNewlinesStartALineAndBackslashesNeverAnchor(t *testing.T) {
 		if _, _, ok := d.extraction(0, map[int]string{0: "18c0000000000abc1", 1: "18c0000000000abc2"}); ok {
 			t.Errorf("anchor %q was recorded escaped and must not be used", c)
 		}
+	}
+}
+
+func TestCodexSessionIdentityIsTheFilesOwnAndUnique(t *testing.T) {
+	dir := t.TempDir()
+	call := `{"timestamp":"2026-09-27T10:00:01Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"git status\"}"}}` + "\n"
+	// A fork: its own meta first, then its parent's.
+	fork := `{"timestamp":"2026-09-27T10:00:00Z","type":"session_meta","payload":{"id":"child"}}` + "\n" +
+		`{"timestamp":"2026-09-27T10:00:00Z","type":"session_meta","payload":{"id":"parent"}}` + "\n" + call
+	parent := `{"timestamp":"2026-09-27T09:00:00Z","type":"session_meta","payload":{"id":"parent"}}` + "\n" + call
+	// A sub-rollout that opens with its parent's meta.
+	sub := `{"timestamp":"2026-09-27T11:00:00Z","type":"session_meta","payload":{"id":"parent"}}` + "\n" + call
+	os.WriteFile(filepath.Join(dir, "a-parent.jsonl"), []byte(parent), 0o600)
+	os.WriteFile(filepath.Join(dir, "b-child.jsonl"), []byte(fork), 0o600)
+	os.WriteFile(filepath.Join(dir, "c-parent_sub.jsonl"), []byte(sub), 0o600)
+	ss, err := Codex{Dir: dir}.Read(time.Time{})
+	if err != nil || len(ss) != 3 {
+		t.Fatalf("read %d: %v", len(ss), err)
+	}
+	got := map[string]bool{}
+	for _, s := range ss {
+		if got[s.ID] {
+			t.Fatalf("two sessions named %q", s.ID)
+		}
+		got[s.ID] = true
+		for _, c := range s.Calls {
+			if c.Session != s.ID {
+				t.Fatalf("call names session %q, session is %q", c.Session, s.ID)
+			}
+		}
+	}
+	if !got["parent"] || !got["child"] || !got["c-parent_sub"] {
+		t.Fatalf("ids = %v", got)
 	}
 }

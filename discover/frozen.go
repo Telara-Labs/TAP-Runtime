@@ -90,6 +90,9 @@ func (f FrozenReader) Read(since time.Time) ([]Session, error) {
 	want := map[string]string{}
 	for _, e := range f.Manifest.Sessions {
 		if e.Client == f.Inner.Client() {
+			if _, dup := want[e.ID]; dup {
+				return nil, fmt.Errorf("%w: %s: session id %s is listed twice; the reader must give each session a unique id", ErrCorpusChanged, e.Client, e.ID)
+			}
 			want[e.ID] = e.Digest
 		}
 	}
