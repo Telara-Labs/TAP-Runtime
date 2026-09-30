@@ -63,6 +63,8 @@ type codexLine struct {
 		Type      string          `json:"type"`
 		ID        string          `json:"id"`
 		Role      string          `json:"role"`
+		CallID    string          `json:"call_id"`
+		Output    json.RawMessage `json:"output"`
 		Content   json.RawMessage `json:"content"`
 		Message   string          `json:"message"`
 		Name      string          `json:"name"`
@@ -89,8 +91,13 @@ func readCodexFile(path string) (s Session, err error) {
 	defer fh.Close()
 	s = Session{Client: "codex", ID: strings.TrimSuffix(filepath.Base(path), ".jsonl")}
 	turn, turnStart := 0, 0
+	byCallID := map[string][]int{} // call_id -> calls it produced
+	curID := ""
 	add := func(c Call) {
 		c.Request = s.request()
+		if curID != "" {
+			byCallID[curID] = append(byCallID[curID], len(s.Calls))
+		}
 		s.Calls = append(s.Calls, c)
 	}
 	sc := bufio.NewScanner(fh)
@@ -119,7 +126,7 @@ func readCodexFile(path string) (s Session, err error) {
 			}
 			continue
 		}
-		if !jsonHasAny(b, `"session_meta"`, `"function_call"`, `"custom_tool_call"`, `"local_shell_call"`, `"role":"user"`, `"role": "user"`) {
+		if !jsonHasAny(b, `"session_meta"`, `"function_call"`, `"custom_tool_call"`, `"local_shell_call"`, `"role":"user"`, `"role": "user"`, `_call_output"`) {
 			continue
 		}
 		var ln codexLine
@@ -127,6 +134,7 @@ func readCodexFile(path string) (s Session, err error) {
 			continue
 		}
 		p := ln.Payload
+		curID = p.CallID
 		switch {
 		case p.Type == "message" && p.Role == "user":
 			var blocks []struct {
@@ -146,6 +154,12 @@ func readCodexFile(path string) (s Session, err error) {
 			}
 			if s.Start.IsZero() {
 				s.Start = ln.Timestamp
+			}
+		case strings.HasSuffix(p.Type, "_call_output"):
+			text := codexOutputText(p.Output)
+			for _, ci := range byCallID[p.CallID] {
+				s.Calls[ci].Outcome = exitOutcome(text)
+				s.Calls[ci].OutIDs = outputIDs(text)
 			}
 		case p.Type == "function_call":
 			var args map[string]json.RawMessage
@@ -385,4 +399,23 @@ func truncate(s string, n int) string {
 		return s[:n]
 	}
 	return s
+}
+
+// codexOutputText is a call output's text: a string, or the text parts of a
+// content list.
+func codexOutputText(raw json.RawMessage) string {
+	var str string
+	if json.Unmarshal(raw, &str) == nil {
+		return str
+	}
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	_ = json.Unmarshal(raw, &parts)
+	var b strings.Builder
+	for _, p := range parts {
+		b.WriteString(p.Text)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }

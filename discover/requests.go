@@ -51,6 +51,9 @@ type Funnel struct {
 	Routines          int            `json:"routines"`
 	Removed           map[string]int `json:"removed"`
 	Primitives        int            `json:"primitives"`
+	// NeedsAuthoring counts routines that recur and replay but need a step
+	// or a value's source written by hand before they can run.
+	NeedsAuthoring int `json:"needs_authoring"`
 }
 
 // Routine is one group of requests that recurred, with its template and the
@@ -68,9 +71,18 @@ type Routine struct {
 	Inputs []RoutineInput `json:"inputs"`
 	// CoveredBy names the skill most of its requests loaded, if any.
 	CoveredBy string `json:"covered_by,omitempty"`
-	// Failed is the first check it failed ("" for a primitive), Why says how.
-	Failed string `json:"failed,omitempty"`
-	Why    string `json:"why,omitempty"`
+	// Decision is "primitive" (ready to save), "needs_authoring" (it
+	// recurs and replays, but a step's content or a value's source must be
+	// written by hand) or "removed" (Failed names the check, Why says how).
+	Decision string `json:"decision"`
+	Failed   string `json:"failed,omitempty"`
+	Why      string `json:"why,omitempty"`
+	// Runs counts the requests that ran its sequence; FailedRuns those where
+	// a step failed (not evidence); UnknownRuns those whose client recorded
+	// no result.
+	Runs        int `json:"runs"`
+	FailedRuns  int `json:"failed_runs"`
+	UnknownRuns int `json:"unknown_runs"`
 	// Example is one request's text, shortened.
 	Example string `json:"example"`
 	draft   *Draft
@@ -174,12 +186,16 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 		routines = append(routines, rt)
 	}
 	for i := range routines {
-		if routines[i].Failed != "" {
+		switch routines[i].Decision {
+		case "removed":
 			f.Removed[routines[i].Failed]++
-		} else {
+		case "needs_authoring":
+			f.NeedsAuthoring++
+		default:
 			f.Primitives++
 		}
 	}
+	rank := map[string]int{"primitive": 0, "needs_authoring": 1, "removed": 2}
 	// Primitives first. Among them, procedures before investigations: the
 	// tokens a routine saves weighted by its coverage (how much of its
 	// requests it is). Routines whose clients recorded no token use follow,
@@ -187,8 +203,8 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 	share := func(r Routine) float64 { return r.Coverage }
 	sort.SliceStable(routines, func(a, b int) bool {
 		ra, rb := routines[a], routines[b]
-		if (ra.Failed == "") != (rb.Failed == "") {
-			return ra.Failed == ""
+		if rank[ra.Decision] != rank[rb.Decision] {
+			return rank[ra.Decision] < rank[rb.Decision]
 		}
 		if (ra.Measured > 0) != (rb.Measured > 0) {
 			return ra.Measured > 0
@@ -321,9 +337,28 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	if modal != "" {
 		tmpl = strings.Split(modal, "\x1f")
 	}
+	// A run where a step failed is not evidence the procedure works.
 	var occ [][]Step
 	var occReq []int // index into inst
+	seqRuns, failedRuns, unknownRuns := 0, 0, 0
 	for _, r := range bySeq[modal] {
+		seqRuns++
+		failed, unknown := false, false
+		for _, st := range r.steps {
+			switch st.Outcome {
+			case OutcomeFailed:
+				failed = true
+			case OutcomeUnknown:
+				unknown = true
+			}
+		}
+		if failed {
+			failedRuns++
+			continue
+		}
+		if unknown {
+			unknownRuns++
+		}
 		occ = append(occ, r.steps)
 		occReq = append(occReq, r.inst)
 	}
@@ -446,19 +481,37 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 		}
 	}
 
+	rt.Runs, rt.FailedRuns, rt.UnknownRuns = seqRuns, failedRuns, unknownRuns
 	switch {
-	case d.HumanSteps > 0:
-		rt.Failed, rt.Why = CheckReplays, fmt.Sprintf("%d step(s) the agent decided per run", d.HumanSteps)
 	case d.FixedSteps == 0:
 		rt.Failed, rt.Why = CheckReplays, "no step fixes anything (no subcommand, tool or constant value): exploration, not a procedure"
 	case rt.Consistency < 0.5:
-		rt.Failed, rt.Why = CheckSameWay, fmt.Sprintf("only %.0f%% of its requests ran the same sequence of its steps", 100*rt.Consistency)
+		rt.Failed, rt.Why = CheckSameWay, fmt.Sprintf("only %.0f%% of its requests ran the same sequence of its steps and succeeded", 100*rt.Consistency)
+		if failedRuns > 0 {
+			rt.Why += fmt.Sprintf(" (%d of the %d that ran it had a failed step)", failedRuns, seqRuns)
+		}
 	case c.Weeks < 2:
 		rt.Failed, rt.Why = CheckWorth, "all its requests fell in one week"
-	case c.Measured > 0 && c.SavedTotal.Total() == 0:
-		rt.Failed, rt.Why = CheckWorth, "each run was already a single turn"
+	case c.Measured > 0 && c.SavedPerRun.Total() == 0:
+		rt.Failed, rt.Why = CheckWorth, "a typical run was already a single turn"
 	case rt.CoveredBy != "":
 		rt.Failed, rt.Why = CheckCovered, "its requests already load the "+rt.CoveredBy+" skill"
+	}
+	switch {
+	case rt.Failed != "":
+		rt.Decision = "removed"
+	case d.HumanSteps > 0 || d.Derived > 0:
+		rt.Decision = "needs_authoring"
+		var why []string
+		if d.HumanSteps > 0 {
+			why = append(why, fmt.Sprintf("%d step(s) decided per run", d.HumanSteps))
+		}
+		if d.Derived > 0 {
+			why = append(why, fmt.Sprintf("%d value(s) come from an earlier step's output", d.Derived))
+		}
+		rt.Why = strings.Join(why, "; ")
+	default:
+		rt.Decision = "primitive"
 	}
 	return rt, true
 }

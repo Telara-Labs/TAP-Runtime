@@ -240,3 +240,24 @@ func TestRunCostSavesAllButOneTurn(t *testing.T) {
 		t.Fatal("an unmeasured step must make the run unmeasured")
 	}
 }
+
+func TestOutcomesAreRead(t *testing.T) {
+	ss, err := ClaudeCode{Dir: "testdata/claude"}.Read(time.Time{})
+	if err != nil || ss[0].Calls[0].Outcome != OutcomeOK {
+		t.Fatalf("claude: the tool_result for the git call must mark it OK: %+v %v", ss[0].Calls[0], err)
+	}
+	cs, err := Codex{Dir: "testdata/codex"}.Read(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := cs[0].Calls[0]
+	if first.Outcome != OutcomeFailed || len(first.OutIDs) != 1 || first.OutIDs[0] != "TENG-1234" {
+		t.Fatalf("codex: exit code 1 must mark the call failed and keep its ids: %+v", first)
+	}
+	if cs[0].Calls[1].Outcome != OutcomeUnknown {
+		t.Fatalf("codex: a call with no output is unknown: %+v", cs[0].Calls[1])
+	}
+	if c := cursorCall(cursorRow{Name: "run_terminal_cmd", Args: `{"command":"make"}`, Status: "error", Result: `{"output":"see https://ci.example.com/j/42"}`}); c.Outcome != OutcomeFailed || c.OutIDs[0] != "https://ci.example.com/j/42" {
+		t.Fatalf("cursor: %+v", c)
+	}
+}

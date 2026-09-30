@@ -56,9 +56,12 @@ type DraftInput struct {
 	Example string `json:"-"`
 	// Sensitive inputs are credentials: the caller supplies them from its
 	// own configuration and no recorded value is kept.
-	Sensitive bool   `json:"sensitive,omitempty"`
-	Position  int    `json:"position"`
-	From      string `json:"from"`
+	Sensitive bool `json:"sensitive,omitempty"`
+	// DerivedFrom is the step (1-based) whose output held this value in most
+	// runs: the program must take it from there, not from the caller.
+	DerivedFrom int    `json:"derived_from,omitempty"`
+	Position    int    `json:"position"`
+	From        string `json:"from"`
 }
 
 // Draft is a drafted package and what the review needs to show it.
@@ -76,6 +79,9 @@ type Draft struct {
 	// package passes the same checks the registry runs before accepting it.
 	Problems   []string `json:"problems"`
 	HumanSteps int      `json:"human_steps"`
+	// Derived counts inputs an earlier step's output supplied in the
+	// recorded runs; extracting them needs authoring.
+	Derived int `json:"derived"`
 	// FixedSteps counts steps that pin something: a subcommand, an MCP tool,
 	// a constant argument or browser object. None means every command and
 	// argument varied: exploration, not a procedure.
@@ -158,19 +164,24 @@ type drafter struct {
 	humanCnt int
 	fixedCnt int
 	fixedArg int // arguments that had the same value in every run
+	// posStep maps a pattern position to the draft step that replays it.
+	posStep    map[int]int
+	derivedCnt int
 }
 
 func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 	if opt.Publisher == "" {
 		opt.Publisher = DefaultPublisher
 	}
-	d := &drafter{opt: opt, occ: occ, names: map[string]bool{}, cmds: map[string]bool{}, files: map[string]bool{}, origins: map[string]bool{}, tools: map[string]bool{}}
+	d := &drafter{opt: opt, occ: occ, posStep: map[int]int{}, names: map[string]bool{}, cmds: map[string]bool{}, files: map[string]bool{}, origins: map[string]bool{}, tools: map[string]bool{}}
 	for i := 0; i < len(c.items); {
 		label := c.Steps[i].Label
+		d.posStep[i] = len(d.steps) + 1
 		if strings.HasPrefix(label, "js:") {
 			// Consecutive browser calls were one script: they stay one call.
 			j := i
 			for j < len(c.items) && strings.HasPrefix(c.Steps[j].Label, "js:") {
+				d.posStep[j] = len(d.steps) + 1
 				j++
 			}
 			d.browser(i, j)
@@ -182,6 +193,7 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 			// that holds this step and possibly the next ones.
 			j := i + 1
 			for j < len(c.items) && sameCall(d.occ, i, j) {
+				d.posStep[j] = len(d.steps) + 1
 				j++
 			}
 			d.compound(i, j)
@@ -228,6 +240,8 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 	for _, in := range d.inputs {
 		if in.Sensitive {
 			fmt.Fprintf(&sh, "# $%d  %s: a credential; supply it from your own configuration (no recorded value is kept)\n", in.Position, in.Name)
+		} else if in.DerivedFrom > 0 {
+			fmt.Fprintf(&sh, "# $%d  %s (%s): in the recorded runs this came from step %d's output; take it from there (authoring needed)\n", in.Position, in.Name, in.Type, in.DerivedFrom)
 		} else {
 			fmt.Fprintf(&sh, "# $%d  %s (%s)\n", in.Position, in.Name, in.Type)
 		}
@@ -246,7 +260,7 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 	return &Draft{
 		Blocked: scanArtifacts(files),
 		Name:    name, Publisher: opt.Publisher, Inputs: d.inputs, Steps: d.steps,
-		Problems: problems, HumanSteps: d.humanCnt, FixedSteps: d.fixedCnt, FixedShare: fixedShare(d), values: d.vectors,
+		Problems: problems, HumanSteps: d.humanCnt, Derived: d.derivedCnt, FixedSteps: d.fixedCnt, FixedShare: fixedShare(d), values: d.vectors,
 		Files: files,
 	}
 }
@@ -336,7 +350,7 @@ func (d *drafter) plan(i int, stepName string) []slotPlan {
 		}
 		switch {
 		case sensitive:
-			p.input = d.input(stepName, sl, vec, true)
+			p.input = d.input(stepName, sl, vec, true, i)
 		case same && len(reps) > 1:
 			p.fixed = true
 			d.fixedArg++
@@ -345,7 +359,7 @@ func (d *drafter) plan(i int, stepName string) []slotPlan {
 			// input anyone would pass; the browser step names it itself.
 			p.input = -1
 		default:
-			p.input = d.input(stepName, sl, vec, false)
+			p.input = d.input(stepName, sl, vec, false, i)
 		}
 		plans = append(plans, p)
 	}
@@ -355,7 +369,7 @@ func (d *drafter) plan(i int, stepName string) []slotPlan {
 // input returns the input for a varying slot, reusing an earlier input that
 // held the same value in every occurrence both appear in (a path passed to
 // gofmt and then to go test is one input, not two).
-func (d *drafter) input(stepName string, sl Slot, vec map[int]string, sensitive bool) int {
+func (d *drafter) input(stepName string, sl Slot, vec map[int]string, sensitive bool, pos int) int {
 	for n, other := range d.vectors {
 		if d.inputs[n].Sensitive != sensitive {
 			continue
@@ -392,6 +406,12 @@ func (d *drafter) input(stepName string, sl Slot, vec map[int]string, sensitive 
 	}
 	d.names[name] = true
 	in := DraftInput{Name: name, Type: sl.Type, Raw: sl.Raw, Example: Redact(sl.Value), Position: len(d.inputs) + 1, From: stepName}
+	if !sensitive {
+		if h := d.derivedFrom(pos, vec); h >= 0 {
+			in.DerivedFrom = d.posStep[h]
+			d.derivedCnt++
+		}
+	}
 	if sensitive {
 		in.Sensitive, in.Type, in.Example = true, SlotSecret, ""
 	}
@@ -705,6 +725,8 @@ func draftReadme(name, desc string, d *drafter) string {
 	for _, in := range d.inputs {
 		if in.Sensitive {
 			fmt.Fprintf(&b, "- `$%d` **%s**: a credential, from %s. Supply it from your own configuration; its recorded value was not kept.\n", in.Position, in.Name, in.From)
+		} else if in.DerivedFrom > 0 {
+			fmt.Fprintf(&b, "- `$%d` **%s** (%s), from %s: in the recorded runs step %d's output supplied it. Take it from there; the caller should not have to.\n", in.Position, in.Name, in.Type, in.From, in.DerivedFrom)
 		} else {
 			fmt.Fprintf(&b, "- `$%d` **%s** (%s), from %s.\n", in.Position, in.Name, in.Type, in.From)
 		}
@@ -1004,7 +1026,7 @@ func (d *drafter) compound(i, j int) {
 		if p > 0 && strings.HasPrefix(first.words[p-1].text, "-") {
 			name = prog + "_" + strings.TrimLeft(first.words[p-1].text, "-")
 		}
-		in := d.input(name, Slot{Key: "w" + itoa(p), Type: typeOf(word{Text: w.text, Quoted: w.quoted}), Value: w.text}, vec, sensitive)
+		in := d.input(name, Slot{Key: "w" + itoa(p), Type: typeOf(word{Text: w.text, Quoted: w.quoted}), Value: w.text}, vec, sensitive, i)
 		out.WriteString(first.raw[last:w.s])
 		fmt.Fprintf(&out, `"${%d}"`, d.inputs[in].Position)
 		last = w.e
@@ -1034,3 +1056,35 @@ func (d *drafter) compound(i, j int) {
 }
 
 var manifestCommand = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._+-]{0,63}$`)
+
+// derivedFrom returns the position of the earlier step whose output held
+// this value in at least half the runs, or -1.
+func (d *drafter) derivedFrom(pos int, vec map[int]string) int {
+	count := map[int]int{}
+	n := 0
+	for j, v := range vec {
+		if v == "" || j >= len(d.occ) {
+			continue
+		}
+		n++
+	found:
+		for h := 0; h < pos && h < len(d.occ[j]); h++ {
+			for _, id := range d.occ[j][h].OutIDs {
+				if id == v {
+					count[h]++
+					break found
+				}
+			}
+		}
+	}
+	best, bestN := -1, 0
+	for h, c := range count {
+		if c > bestN || (c == bestN && h < best) {
+			best, bestN = h, c
+		}
+	}
+	if n == 0 || 2*bestN < n {
+		return -1
+	}
+	return best
+}

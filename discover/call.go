@@ -11,6 +11,7 @@
 package discover
 
 import (
+	"regexp"
 	"strings"
 	"time"
 )
@@ -40,6 +41,58 @@ type Call struct {
 	// Request is the index in Session.Requests of the user message this
 	// call answered.
 	Request int
+	// Outcome is what the client recorded about the result: unknown when it
+	// recorded nothing. OutIDs are identifiers the result contained (ticket
+	// keys, UUIDs, hashes, URLs), used to tell a value an earlier step
+	// produced from one the caller supplied.
+	Outcome Outcome
+	OutIDs  []string
+}
+
+// Outcome of a call, as the client recorded it.
+type Outcome int8
+
+const (
+	OutcomeUnknown Outcome = iota
+	OutcomeOK
+	OutcomeFailed
+)
+
+var (
+	outIDRe = regexp.MustCompile(`https?://[^\s"'<>)\]]+|\b[A-Z][A-Z0-9]{1,9}-\d+\b|\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b|\b[0-9a-f]{8,40}\b|\b\d{6,}\b`)
+	exitRe  = regexp.MustCompile(`(?i)(?:"exit_code"\s*:\s*|exit code:?\s*|exited with code\s*)(-?\d+)`)
+)
+
+// outputIDs are the identifiers in a call's result: at most 64, from its
+// first 64 KB.
+func outputIDs(text string) []string {
+	if len(text) > 64<<10 {
+		text = text[:64<<10]
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range outIDRe.FindAllString(text, -1) {
+		m = strings.TrimRight(m, ".,;:")
+		if !seen[m] {
+			seen[m] = true
+			out = append(out, m)
+			if len(out) == 64 {
+				break
+			}
+		}
+	}
+	return out
+}
+
+// exitOutcome reads a shell result's exit status: failed when it names a
+// non-zero exit code, OK otherwise.
+func exitOutcome(text string) Outcome {
+	for _, m := range exitRe.FindAllStringSubmatch(text, -1) {
+		if m[1] != "0" {
+			return OutcomeFailed
+		}
+	}
+	return OutcomeOK
 }
 
 // Usage is model token use: Fresh input (new or cache-written), Cached input

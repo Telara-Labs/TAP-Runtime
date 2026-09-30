@@ -42,7 +42,9 @@ var (
 	cursorBubbleSQL = `SELECT substr(c.key, 10, 36) AS composer, substr(c.key, 47) AS bubble,
   json_extract(c.value, '$.toolFormerData.name') AS name,
   ` + fmt.Sprintf(cursorArgs, `coalesce(json_extract(c.value, '$.toolFormerData.rawArgs'), json_extract(c.value, '$.toolFormerData.params'))`) + ` AS args,
-  json_extract(c.value, '$.createdAt') AS created
+  json_extract(c.value, '$.createdAt') AS created,
+  json_extract(c.value, '$.toolFormerData.status') AS status,
+  substr(CAST(json_extract(c.value, '$.toolFormerData.result') AS TEXT), 1, 2048) AS result
 FROM cursorDiskKV c WHERE c.key LIKE 'bubbleId:%' AND json_extract(c.value, '$.toolFormerData.name') IS NOT NULL;`
 
 	cursorComposerSQL = `SELECT substr(c.key, 14) AS composer, json_extract(c.value, '$.createdAt') AS created,
@@ -62,7 +64,9 @@ WHERE c.key LIKE 'composerData:%' AND json_extract(j.value, '$.type') = 1;`
 	cursorInlineSQL = `SELECT substr(c.key, 14) AS composer, CAST(j.key AS TEXT) AS bubble,
   json_extract(j.value, '$.toolFormerData.name') AS name,
   ` + fmt.Sprintf(cursorArgs, `coalesce(json_extract(j.value, '$.toolFormerData.rawArgs'), json_extract(j.value, '$.toolFormerData.params'))`) + ` AS args,
-  NULL AS created
+  NULL AS created,
+  json_extract(j.value, '$.toolFormerData.status') AS status,
+  substr(CAST(json_extract(j.value, '$.toolFormerData.result') AS TEXT), 1, 2048) AS result
 FROM cursorDiskKV c, json_each(c.value, '$.conversation') j
 WHERE c.key LIKE 'composerData:%' AND json_extract(j.value, '$.toolFormerData.name') IS NOT NULL;`
 )
@@ -73,6 +77,8 @@ type cursorRow struct {
 	Name     string          `json:"name"`
 	Args     string          `json:"args"`
 	Created  json.RawMessage `json:"created"`
+	Status   string          `json:"status"`
+	Result   string          `json:"result"`
 	Headers  string          `json:"headers"`
 	Text     string          `json:"text"`
 }
@@ -221,7 +227,13 @@ func (c *cursorConv) orderOf(bubble string) (int, bool) {
 }
 
 func cursorCall(row cursorRow) Call {
-	c := Call{Client: "cursor", Time: cursorTime(row.Created)}
+	c := Call{Client: "cursor", Time: cursorTime(row.Created), OutIDs: outputIDs(row.Result)}
+	switch row.Status {
+	case "completed":
+		c.Outcome = OutcomeOK
+	case "error", "cancelled":
+		c.Outcome = OutcomeFailed
+	}
 	var args map[string]json.RawMessage
 	_ = json.Unmarshal([]byte(row.Args), &args)
 	switch {

@@ -147,13 +147,15 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 			fmt.Fprintf(w, "  - %d removed by \"%s\"\n", n, ck)
 		}
 	}
-	fmt.Fprintf(w, "Consolidated to %d primitives.\n\n", f.Primitives)
+	fmt.Fprintf(w, "Consolidated to %d primitives ready to save, and %d more that need authoring before they can run.\n", f.Primitives, f.NeedsAuthoring)
+	fmt.Fprintln(w, "Savings are estimates from the recorded token use, mostly cached input; no primitive run was measured.")
+	fmt.Fprintln(w)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "#\tCOVERS\tREQUESTS\tSESSIONS\tWEEKS\tSAVED/RUN\tSAVED TOTAL\tSTEPS\tINPUTS\tEXAMPLE REQUEST")
 	shown := 0
 	for _, rt := range r.Routines {
-		if rt.Failed != "" || (top > 0 && shown >= top) {
+		if rt.Decision != "primitive" || (top > 0 && shown >= top) {
 			continue
 		}
 		shown++
@@ -166,6 +168,17 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 			oneLine(labelsOf(rt.Candidate), 70), len(rt.Inputs), oneLine(rt.Example, 60))
 	}
 	tw.Flush()
+	if f.NeedsAuthoring > 0 {
+		fmt.Fprintln(w, "\nNeed authoring (they recur and replay, but part must be written by hand):")
+		n := 0
+		for _, rt := range r.Routines {
+			if rt.Decision != "needs_authoring" || (top > 0 && n >= top) {
+				continue
+			}
+			n++
+			fmt.Fprintf(w, "  %d requests, %d weeks: %s\n      %s\n", rt.Requests, rt.Weeks, oneLine(labelsOf(rt.Candidate), 90), rt.Why)
+		}
+	}
 	if !rejected {
 		fmt.Fprintln(w, "\n(--rejected lists the routines each check removed.)")
 		return
@@ -180,11 +193,12 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 	}
 }
 
-// Primitives returns the routines that passed every check, in report order.
+// Primitives returns the routines ready to save (decision "primitive"), in
+// report order.
 func (r *Report) Primitives() []*Routine {
 	var out []*Routine
 	for i := range r.Routines {
-		if r.Routines[i].Failed == "" {
+		if r.Routines[i].Decision == "primitive" {
 			out = append(out, &r.Routines[i])
 		}
 	}

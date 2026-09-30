@@ -70,8 +70,8 @@ func TestDifferingHeredocBodiesNeedAuthoring(t *testing.T) {
 	if d.HumanSteps != 1 {
 		t.Fatalf("a heredoc whose body differs every run must be an authoring step: %+v", d.Steps)
 	}
-	if r.Failed != CheckReplays {
-		t.Fatalf("failed = %q", r.Failed)
+	if r.Decision != "needs_authoring" {
+		t.Fatalf("decision = %q (%s)", r.Decision, r.Why)
 	}
 }
 
@@ -105,5 +105,42 @@ func TestDistinctCallsWithTheSameLabelAreKept(t *testing.T) {
 	r := firstRoutine(t, ss)
 	if got := labelsOf(r.Candidate); got != "Read → Read → sh:git diff" {
 		t.Fatalf("two reads of different files are two steps: %s", got)
+	}
+}
+
+func TestFailedRunsAreNotEvidence(t *testing.T) {
+	ss := requestSessions(10, func(i int) string { return "ship it" }, func(i int) []Call {
+		status := sh("git status --short")
+		push := sh(fmt.Sprintf("git push origin feature-%d", i))
+		status.Outcome, push.Outcome = OutcomeOK, OutcomeOK
+		if i >= 4 {
+			push.Outcome = OutcomeFailed // six of ten pushes failed
+		}
+		return []Call{status, push}
+	})
+	r := firstRoutine(t, ss)
+	if r.Runs != 10 || r.FailedRuns != 6 || len(r.Draft().Inputs) != 1 {
+		t.Fatalf("runs %d failed %d", r.Runs, r.FailedRuns)
+	}
+	if r.Consistency != 0.4 {
+		t.Fatalf("only the four successful runs count: consistency = %v", r.Consistency)
+	}
+}
+
+func TestAValueFromAnEarlierOutputIsDerived(t *testing.T) {
+	ss := requestSessions(8, func(i int) string { return "reply to the intro email" }, func(i int) []Call {
+		thread := fmt.Sprintf("18c%013x", 0xabc0+i)
+		search := Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"}, Outcome: OutcomeOK,
+			OutIDs: outputIDs(`{"threads":[{"id":"` + thread + `"}]}`)}
+		read := Call{Tool: "mcp:gmail_read_email_thread", Args: map[string]string{"thread_id": thread}, Outcome: OutcomeOK}
+		return []Call{search, read}
+	})
+	r := firstRoutine(t, ss)
+	d := r.Draft()
+	if len(d.Inputs) != 1 || d.Inputs[0].DerivedFrom != 1 {
+		t.Fatalf("the thread id came from step 1's output in every run: %+v", d.Inputs)
+	}
+	if r.Decision != "needs_authoring" || !strings.Contains(string(d.Files["README.md"]), "step 1's output supplied it") {
+		t.Fatalf("decision %q; README:\n%s", r.Decision, d.Files["README.md"])
 	}
 }

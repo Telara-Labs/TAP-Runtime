@@ -56,6 +56,7 @@ type claudeLine struct {
 
 type claudeBlock struct {
 	Type  string                     `json:"type"`
+	ID    string                     `json:"id"`
 	Name  string                     `json:"name"`
 	Input map[string]json.RawMessage `json:"input"`
 }
@@ -81,6 +82,7 @@ func readClaudeFile(path string) (s Session, err error) {
 		calls []int
 	}
 	turns := map[string]*turn{}
+	byUseID := map[string]int{} // tool_use id -> call index
 	var order []string
 	sc := bufio.NewScanner(fh)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
@@ -95,6 +97,27 @@ func readClaudeFile(path string) (s Session, err error) {
 		if ln.Type == "user" && !ln.IsMeta {
 			if text := claudeUserText(ln.Message.Content); isRequest(text) {
 				s.addRequest(text)
+			}
+			// Results of earlier tool calls: whether they failed, and the
+			// identifiers they returned.
+			var results []struct {
+				Type      string          `json:"type"`
+				ToolUseID string          `json:"tool_use_id"`
+				IsError   bool            `json:"is_error"`
+				Content   json.RawMessage `json:"content"`
+			}
+			if json.Unmarshal(ln.Message.Content, &results) == nil {
+				for _, r := range results {
+					ci, ok := byUseID[r.ToolUseID]
+					if r.Type != "tool_result" || !ok {
+						continue
+					}
+					s.Calls[ci].Outcome = OutcomeOK
+					if r.IsError {
+						s.Calls[ci].Outcome = OutcomeFailed
+					}
+					s.Calls[ci].OutIDs = outputIDs(claudeUserText(r.Content))
+				}
 			}
 			continue
 		}
@@ -119,6 +142,9 @@ func readClaudeFile(path string) (s Session, err error) {
 				continue
 			}
 			tr.calls = append(tr.calls, len(s.Calls))
+			if b.ID != "" {
+				byUseID[b.ID] = len(s.Calls)
+			}
 			c := Call{Client: s.Client, Session: s.ID, Time: ln.Timestamp, Request: s.request()}
 			switch {
 			case b.Name == "Bash":

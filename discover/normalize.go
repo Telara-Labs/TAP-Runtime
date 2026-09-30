@@ -64,6 +64,9 @@ type Step struct {
 	// is replayed as its recorded line, never as separate commands.
 	Raw      string
 	Compound bool
+	// Outcome and OutIDs come from the call's recorded result.
+	Outcome Outcome
+	OutIDs  []string
 }
 
 type normSession struct {
@@ -169,6 +172,7 @@ func normalize(sessions []Session) []normSession {
 				if c.Tool == "shell" {
 					steps[i].Raw, steps[i].Compound = c.Command, isCompound(c.Command)
 				}
+				steps[i].Outcome, steps[i].OutIDs = c.Outcome, c.OutIDs
 			}
 			for _, st := range steps {
 				if n := len(ns.Steps); n > 0 && ns.Steps[n-1].Label == st.Label && ns.Steps[n-1].Request == st.Request && sameArgs(ns.Steps[n-1], st) {
@@ -176,6 +180,8 @@ func normalize(sessions []Session) []normSession {
 					// once, and so does what it cost. Two calls with the same
 					// label but different arguments are two steps.
 					ns.Steps[n-1].Tokens = ns.Steps[n-1].Tokens.add(st.Tokens)
+					// The retry's result is what the step finally did.
+					ns.Steps[n-1].Outcome, ns.Steps[n-1].OutIDs = st.Outcome, st.OutIDs
 					if st.Turn != ns.Steps[n-1].Turn {
 						ns.Steps[n-1].Turns++
 					}
