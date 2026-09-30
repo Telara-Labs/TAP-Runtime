@@ -1,6 +1,7 @@
 package discover
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -120,6 +121,10 @@ type Draft struct {
 	// firstRun is the first drafted run's steps, for evidence lookups.
 	firstRun []Step
 	posStep  map[int]int
+	// RuntimeUnsupported names steps the TAP guest runtime would not run
+	// as recorded (a built-in that ignores file arguments, a file read the
+	// manifest cannot declare). They block a structurally complete draft.
+	RuntimeUnsupported []string `json:"runtime_unsupported,omitempty"`
 }
 
 // inputValues is input n's value in each drafted run (by run index).
@@ -227,6 +232,52 @@ type drafter struct {
 	extracted  int
 	listLoop   map[string]bool
 	priorLoop  map[string]bool
+	usesJSON   bool
+	usesGrep   bool
+	// unsupported names steps the runtime cannot run as recorded.
+	unsupported []string
+}
+
+// guestReadsStdinOnly are the guest shell's own built-ins that read only
+// standard input and ignore file arguments (tap-runtime guest-sh): a
+// recorded "wc -l file" would count nothing there.
+var guestReadsStdinOnly = map[string]bool{"wc": true, "head": true}
+
+// checkGuest records a step the guest runtime would not run as recorded.
+func (d *drafter) checkGuest(prog string, plans []slotPlan, n int) {
+	if prog == "cat" {
+		for _, p := range plans {
+			if !p.slot.Sub && p.slot.Type != SlotFlag {
+				d.fileAccess(p, n)
+			}
+		}
+		return
+	}
+	if !guestReadsStdinOnly[prog] {
+		return
+	}
+	for _, p := range plans {
+		// "wc -l file" parses as the flag -l taking "file"; only a number
+		// after a flag (head -n 20) is an option's value.
+		if p.slot.Sub || p.slot.Type == SlotFlag || p.slot.Type == SlotNumber {
+			continue
+		}
+		d.unsupported = append(d.unsupported, fmt.Sprintf("guest_builtin_ignores_files:step%d:%s", n, prog))
+		return
+	}
+}
+
+// fileAccess declares a fixed file a step reads, so the host lets the
+// guest open it; a path that varies cannot be declared ahead of time.
+func (d *drafter) fileAccess(p slotPlan, n int) {
+	if !p.fixed {
+		d.unsupported = append(d.unsupported, fmt.Sprintf("file_access_undeclared:step%d:%s", n, d.inputs[p.input].Name))
+		return
+	}
+	if !d.files[p.slot.Value] {
+		d.files[p.slot.Value] = true
+		d.mf.Files = append(d.mf.Files, manifest.File{Path: p.slot.Value, Access: "read"})
+	}
 }
 
 // ref is a placeholder for input k in a generated line. finish replaces it
@@ -320,6 +371,9 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 	// A failing step stops the program, including one inside a pipeline, so
 	// a check that fails never lets a later write run.
 	sh.WriteString("set -eo pipefail\n")
+	if d.usesJSON {
+		sh.WriteString(jsonHelpers + "\n")
+	}
 	for _, l := range d.lines {
 		sh.WriteString(l)
 		sh.WriteByte('\n')
@@ -333,7 +387,8 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 	return &Draft{
 		Blocked: scanArtifacts(files),
 		Name:    name, Publisher: opt.Publisher, Inputs: d.inputs, Steps: d.steps,
-		listLoop: d.listLoop, priorLoop: d.priorLoop, humanPos: d.humanPositions(), firstRun: occ[0], posStep: d.posStep,
+		RuntimeUnsupported: d.unsupported,
+		listLoop:           d.listLoop, priorLoop: d.priorLoop, humanPos: d.humanPositions(), firstRun: occ[0], posStep: d.posStep,
 		Problems: problems, HumanSteps: d.humanCnt, Derived: d.derivedCnt, Extracted: d.extracted, FixedSteps: d.fixedCnt, FixedShare: fixedShare(d), values: d.vectors,
 		Files: files,
 	}
@@ -559,6 +614,7 @@ func (d *drafter) command(i, n int, label string) {
 		d.vectors[loopIn] = vec
 		d.listLoop[label] = true
 	}
+	d.checkGuest(prog, plans, n)
 	words := []string{prog}
 	var globals []string
 	subSeen, sub := false, ""
@@ -629,23 +685,19 @@ func (d *drafter) tool(i, n int, tool, label string) {
 	alias := strings.Trim(nonAlias.ReplaceAllString(strings.ToLower(tool), "_"), "_")
 	plans := d.plan(i, alias)
 	props := map[string]any{}
-	var keys, jqArgs, fields []string
+	var keys []string
+	var pre []string
+	var obj jsonObject
 	for _, p := range plans {
 		keys = append(keys, p.slot.Key)
 		props[p.slot.Key] = argSchema(p.slot)
-		ref := jqKey(p.slot.Key)
 		if p.fixed {
-			fields = append(fields, fmt.Sprintf("%s: %s", ref, jsonLiteral(p.slot)))
+			obj.fixed(p.slot.Key, jsonLiteral(p.slot))
 			continue
 		}
-		in := d.inputs[p.input]
-		v := "a" + itoa(p.input+1)
-		if in.Raw {
-			jqArgs = append(jqArgs, fmt.Sprintf(`--argjson %s "%s"`, v, d.ref(p.input)))
-		} else {
-			jqArgs = append(jqArgs, fmt.Sprintf(`--arg %s "%s"`, v, d.ref(p.input)))
-		}
-		fields = append(fields, fmt.Sprintf("%s: $%s", ref, v))
+		v := fmt.Sprintf("a%d_%d", n, p.input+1)
+		pre = append(pre, d.jsonAssign(v, p.input))
+		obj.variable(p.slot.Key, v)
 	}
 	sort.Strings(keys)
 	args := map[string]any{"type": "object", "properties": props, "required": anySlice(keys)}
@@ -658,8 +710,10 @@ func (d *drafter) tool(i, n int, tool, label string) {
 		d.mf.Capabilities = append(d.mf.Capabilities, manifest.Capability{Label: capLabel, ID: manifest.CapabilityID(question, args, result), Question: question, Args: args, Result: result})
 		d.mf.Tools = append(d.mf.Tools, manifest.Tool{Alias: alias, Capability: capLabel, Effect: eff})
 	}
-	line := fmt.Sprintf(`tap call %s "$(%s)"`, alias, jqCall(jqArgs, "{"+strings.Join(fields, ", ")+"}"))
-	d.lines = append(d.lines, fmt.Sprintf("# %d. %s", n, label), line)
+	line := fmt.Sprintf(`tap call %s %s`, alias, obj.word())
+	d.lines = append(d.lines, fmt.Sprintf("# %d. %s", n, label))
+	d.lines = append(d.lines, pre...)
+	d.lines = append(d.lines, line)
 	d.fixedCnt++ // an MCP tool names one action in one system
 	d.steps = append(d.steps, DraftStep{N: n, Kind: KindTool, Label: label, Line: line, Effect: eff})
 }
@@ -668,7 +722,10 @@ func (d *drafter) tool(i, n int, tool, label string) {
 // the browser tool, rebuilding the script with this run's inputs.
 func (d *drafter) browser(i, j int) {
 	n := len(d.steps) + 1
-	var parts, jqArgs, labels []string
+	var labels, pre []string
+	// The script is built as one shell word: fixed JavaScript in single
+	// quotes, each input spliced in as a JSON value (a JS literal).
+	var code strings.Builder
 	varyingObject, browserFixed := false, false
 	var scriptVars []string
 	for k := i; k < j; k++ {
@@ -687,24 +744,27 @@ func (d *drafter) browser(i, j int) {
 				if jsIdentifier.MatchString(p.slot.Value) {
 					scriptVars = append(scriptVars, p.slot.Value)
 				}
-				arg = `" + ` + strconv.Quote(p.slot.Value) + ` + "`
+				arg = shellSingle(p.slot.Value)
 			case p.fixed:
 				browserFixed = true
-				arg = `" + (` + strconv.Quote(p.slot.Value) + `|tojson) + "`
+				b, _ := json.Marshal(p.slot.Value)
+				arg = shellSingle(string(b))
 			default:
-				v := "a" + itoa(p.input+1)
-				jqArgs = append(jqArgs, fmt.Sprintf(`--arg %s "%s"`, v, d.ref(p.input)))
+				v := fmt.Sprintf("a%d_%d", n, p.input+1)
 				if p.slot.Raw {
 					if jsIdentifier.MatchString(p.slot.Value) {
 						scriptVars = append(scriptVars, p.slot.Value)
 					}
-					arg = `" + $` + v + ` + "`
+					// A JavaScript expression the caller supplies, as is.
+					pre = append(pre, fmt.Sprintf(`%s="%s"`, v, d.ref(p.input)))
 				} else {
-					arg = `" + ($` + v + `|tojson) + "`
+					d.usesJSON = true
+					pre = append(pre, fmt.Sprintf(`%s=$(json_str "%s")`, v, d.ref(p.input)))
 				}
+				arg = `"$` + v + `"`
 			}
 		}
-		parts = append(parts, fmt.Sprintf("await %s.%s(%s);", recv, method, arg))
+		code.WriteString(shellSingle("await "+recv+"."+method+"(") + arg + shellSingle("); "))
 	}
 	question := "Run a browser script in the user's open browser session and return what it reports."
 	args := map[string]any{"type": "object", "properties": map[string]any{"code": map[string]any{"type": "string"}}, "required": []any{"code"}}
@@ -716,8 +776,13 @@ func (d *drafter) browser(i, j int) {
 		d.mf.Capabilities = append(d.mf.Capabilities, manifest.Capability{Label: capLabel, ID: manifest.CapabilityID(question, args, result), Question: question, Args: args, Result: result})
 		d.mf.Tools = append(d.mf.Tools, manifest.Tool{Alias: "browser", Capability: capLabel, Effect: eff})
 	}
-	code := strings.Join(parts, `\n`)
-	line := fmt.Sprintf(`tap call browser "$(%s)"`, jqCall(jqArgs, `{code: ("`+code+`")}`))
+	cv := fmt.Sprintf("code%d", n)
+	pre = append(pre, cv+"="+code.String())
+	d.usesJSON = true
+	pre = append(pre, fmt.Sprintf(`%s_json=$(json_str "$%s")`, cv, cv))
+	var obj jsonObject
+	obj.variable("code", cv+"_json")
+	line := fmt.Sprintf(`tap call browser %s`, obj.word())
 	var notes []string
 	if varyingObject {
 		notes = append(notes, "Some calls were made on a variable the author named differently each run; the draft calls it tab. Open or select that tab first.")
@@ -734,6 +799,7 @@ func (d *drafter) browser(i, j int) {
 	if note != "" {
 		d.lines = append(d.lines, "# "+note)
 	}
+	d.lines = append(d.lines, pre...)
 	d.lines = append(d.lines, line)
 	if browserFixed {
 		d.fixedCnt++
@@ -791,6 +857,7 @@ func (d *drafter) builtin(i, n int, label string) {
 			if !p.fixed {
 				arg = `"` + d.ref(p.input) + `"`
 			}
+			d.fileAccess(p, n)
 			key := "cat\x00\x00*\x00read"
 			if !d.cmds[key] {
 				d.cmds[key] = true
@@ -946,9 +1013,14 @@ func argSchema(sl Slot) map[string]any {
 // jsonLiteral writes a fixed argument as the JSON it was recorded as.
 func jsonLiteral(sl Slot) string {
 	if sl.Raw && json.Valid([]byte(sl.Value)) {
+		var c bytes.Buffer
+		if json.Compact(&c, []byte(sl.Value)) == nil {
+			return c.String()
+		}
 		return sl.Value
 	}
-	return strconv.Quote(sl.Value)
+	b, _ := json.Marshal(sl.Value)
+	return string(b)
 }
 
 var jqIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -962,12 +1034,44 @@ func jqKey(k string) string {
 
 var capChars = regexp.MustCompile(`[^a-z0-9_.-]+`)
 
+// capName writes a tool's name as the provider.resource.verb capability the
+// runner binds (tap-runtime bind.Candidates): the first word is the
+// provider, the first word that is a known verb (else the last) the verb,
+// and the words between the resource (the provider again when none are
+// left). gmail_search_emails -> gmail.emails.search.
 func capName(tool string) string {
 	n := strings.Trim(capChars.ReplaceAllString(strings.ToLower(tool), "_"), "_.-")
-	if n == "" || n[0] < 'a' || n[0] > 'z' {
-		n = "t" + n
+	words := strings.FieldsFunc(n, func(r rune) bool { return r == '_' || r == '.' || r == '-' })
+	if len(words) == 0 {
+		return "tool.tool.run"
 	}
-	return n
+	if words[0][0] < 'a' || words[0][0] > 'z' {
+		words[0] = "t" + words[0]
+	}
+	provider := words[0]
+	rest := words[1:]
+	verbAt := -1
+	for k, w := range rest {
+		if readVerbs[w] || writeVerbs[w] {
+			verbAt = k
+			break
+		}
+	}
+	if verbAt < 0 {
+		verbAt = len(rest) - 1
+	}
+	if verbAt < 0 {
+		return provider + "." + provider + ".run"
+	}
+	verb := rest[verbAt]
+	var res []string
+	res = append(res, rest[:verbAt]...)
+	res = append(res, rest[verbAt+1:]...)
+	resource := strings.Join(res, "_")
+	if resource == "" {
+		resource = provider
+	}
+	return provider + "." + resource + "." + verb
 }
 
 var safeShell = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
@@ -1027,13 +1131,6 @@ func anySlice(ss []string) []any {
 // jqCall is the jq command that builds a JSON argument, quoted for bash:
 // the program goes in single quotes, so a single quote inside it (common in
 // a CSS selector or a message) is closed, escaped and reopened.
-func jqCall(args []string, program string) string {
-	cmd := "jq -nc"
-	if len(args) > 0 {
-		cmd += " " + strings.Join(args, " ")
-	}
-	return cmd + " '" + strings.ReplaceAll(program, "'", `'\''`) + "'"
-}
 
 func fixedShare(d *drafter) float64 {
 	fixed := d.fixedArg
@@ -1410,24 +1507,35 @@ func (d *drafter) finish() {
 				return fmt.Sprintf(`{ echo "step %d's output %s %s" >&2; exit 1; }`, step, why, in.Name)
 			}
 			if in.Binding == "json_path" {
+				// The guest's jq takes -r and a filter only: an absent value
+				// prints "null" (or nothing), which stops the program.
 				out = append(out,
-					fmt.Sprintf(`%s=$(printf '%%s\n' "$%s" | jq -er '%s | select(type == "string" or type == "number")') || %s`, in.Name, v, in.Extract, fail("has no")))
+					fmt.Sprintf(`%s=$(printf '%%s\n' "$%s" | jq -r '%s')`, in.Name, v, in.Extract),
+					fmt.Sprintf(`[ -n "$%s" ] && [ "$%s" != null ] || %s`, in.Name, in.Name, fail("has no")))
 			} else {
 				// The anchor must occur exactly once: a missing, repeated or
 				// quoted anchor never selects a value by accident.
+				d.usesGrep = true
 				m := "m_" + in.Name
 				out = append(out,
 					fmt.Sprintf(`%s=$(printf '%%s\n' "$%s" | grep -o -e '%s' || true)`, m, v, in.Extract),
-					fmt.Sprintf(`[ -n "$%s" ] && [ "$(printf '%%s\n' "$%s" | wc -l | tr -d ' ')" = 1 ] || %s`, m, m, fail("did not hold exactly one")),
+					fmt.Sprintf(`[ -n "$%s" ] && [ "$(( $(printf '%%s\n' "$%s" | wc -l) ))" = 1 ] || %s`, m, m, fail("did not hold exactly one")),
 					fmt.Sprintf(`%s=${%s#%s}`, in.Name, m, shellQuote(in.strip)))
 			}
 			// Whatever was read must look like an identifier before any
 			// later step uses it.
+			d.usesGrep = true
 			out = append(out, fmt.Sprintf(`printf '%%s' "$%s" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._:/@+=-]*$' || %s`, in.Name, fail("held no identifier-shaped")))
 		}
 		delete(byStep, step)
 	}
 	d.lines = out
+	// grep is a host command in the guest: declare it (read-only) when the
+	// program uses it to read a value out of a result.
+	if d.usesGrep && !d.cmds["grep\x00\x00*\x00read"] {
+		d.cmds["grep\x00\x00*\x00read"] = true
+		d.mf.Commands = append(d.mf.Commands, manifest.Command{Command: "grep", Args: []string{"*"}, Effect: "read"})
+	}
 }
 
 // humanPositions are the template positions whose draft step is a human
@@ -1440,4 +1548,54 @@ func (d *drafter) humanPositions() map[int]bool {
 		}
 	}
 	return out
+}
+
+// The guest shell's jq accepts only -r and a filter over stdin, and "tap
+// call" takes one JSON object (tap-runtime guest-sh). A draft therefore
+// builds a call's arguments itself: each value is encoded into a variable
+// first (so a failure stops the program), then one JSON object is written
+// as a single shell word.
+
+// jsonHelpers are defined once at the top of a draft that needs them.
+const jsonHelpers = `json_str() { s=$1; s=${s//\\/\\\\}; s=${s//\"/\\\"}; s=${s//$'\n'/\\n}; s=${s//$'\t'/\\t}; s=${s//$'\r'/\\r}; printf '"%s"' "$s"; }
+json_raw() { printf '%s' "$1" | jq .; }`
+
+// jsonAssign encodes input k into shell variable v: a JSON string, or for a
+// value recorded as JSON, the value checked by jq (a malformed one stops
+// the program).
+func (d *drafter) jsonAssign(v string, k int) string {
+	d.usesJSON = true
+	if d.inputs[k].Raw {
+		return fmt.Sprintf(`%s=$(json_raw "%s")`, v, d.ref(k))
+	}
+	return fmt.Sprintf(`%s=$(json_str "%s")`, v, d.ref(k))
+}
+
+// jsonObject collects the members of a JSON object built in the shell.
+type jsonObject struct{ parts []string }
+
+func (o *jsonObject) fixed(key, literal string) {
+	o.parts = append(o.parts, "'"+strings.ReplaceAll(jsonKeyText(key)+":"+literal, "'", `'\''`)+"'")
+}
+
+func (o *jsonObject) variable(key, v string) {
+	o.parts = append(o.parts, "'"+strings.ReplaceAll(jsonKeyText(key)+":", "'", `'\''`)+"'"+`"$`+v+`"`)
+}
+
+// word is the object as one shell word: quoted fragments joined with ','.
+func (o *jsonObject) word() string {
+	if len(o.parts) == 0 {
+		return "'{}'"
+	}
+	return "'{'" + strings.Join(o.parts, "','") + "'}'"
+}
+
+func jsonKeyText(k string) string {
+	b, _ := json.Marshal(k)
+	return string(b)
+}
+
+// shellSingle quotes s as one single-quoted shell word.
+func shellSingle(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

@@ -148,8 +148,8 @@ func TestAValueFromAnEarlierOutputIsTakenFromIt(t *testing.T) {
 	for _, want := range []string{
 		`out1=$(tap call gmail_search_emails`,
 		`printf '%s\n' "$out1"`,
-		`gmail_read_email_thread_thread_id=$(printf '%s\n' "$out1" | jq -er '.threads[0].id | select(type == "string" or type == "number")')`,
-		`--arg a1 "${gmail_read_email_thread_thread_id}"`,
+		`gmail_read_email_thread_thread_id=$(printf '%s\n' "$out1" | jq -r '.threads[0].id')`,
+		`a2_1=$(json_str "${gmail_read_email_thread_thread_id}")`,
 	} {
 		if !strings.Contains(sh, want) {
 			t.Fatalf("main.sh lacks %q:\n%s", want, sh)

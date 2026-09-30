@@ -111,7 +111,7 @@ func TestAnArgumentAnyRunSentAsJSONIsJSON(t *testing.T) {
 	if in == nil || !in.Raw || in.Type != "object" {
 		t.Fatalf("params input = %+v", in)
 	}
-	if !strings.Contains(string(d.Files["main.sh"]), `--argjson`) {
+	if !strings.Contains(string(d.Files["main.sh"]), `json_raw "${`) {
 		t.Fatalf("params must be passed as JSON:\n%s", d.Files["main.sh"])
 	}
 }

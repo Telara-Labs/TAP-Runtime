@@ -628,6 +628,7 @@ func decide(rt *Routine, d *Draft, loops []string, unresolvedRead, unresolvedWri
 		for _, l := range priorLoops {
 			rt.Blockers = append(rt.Blockers, "loop_collection_binding:"+l)
 		}
+		rt.Blockers = append(rt.Blockers, d.RuntimeUnsupported...)
 		if len(d.Problems) > 0 {
 			rt.Blockers = append(rt.Blockers, "manifest_problems")
 		}

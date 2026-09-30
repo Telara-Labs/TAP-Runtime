@@ -113,14 +113,14 @@ func TestDraftMCPToolsCarryContractsThatPassPublishChecks(t *testing.T) {
 		t.Fatalf("inputs = %v, want the goal and one shared ticket id", names)
 	}
 	sh := string(d.Files["main.sh"])
-	if !strings.Contains(sh, `transition_id: "11"`) {
+	if !strings.Contains(sh, `"transition_id":"11"`) {
 		t.Errorf("a value that never varied must be written in:\n%s", sh)
 	}
 	if strings.Count(sh, "tap call ") != 2 {
 		t.Errorf("want two tool calls:\n%s", sh)
 	}
 	m, _ := manifest.Parse(d.Files["primitive.yaml"])
-	if len(m.Tools) != 2 || m.Tools[0].Capability != "dev.example/telara_task_create@1" {
+	if len(m.Tools) != 2 || m.Tools[0].Capability != "dev.example/telara.task.create@1" {
 		t.Fatalf("tools = %+v", m.Tools)
 	}
 }
@@ -142,7 +142,7 @@ func TestDraftKeepsRecordedArgumentTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 	sh := string(d.Files["main.sh"])
-	if !strings.Contains(sh, `transition_id: "11"`) || !strings.Contains(sh, `notify: false`) {
+	if !strings.Contains(sh, `"transition_id":"11"`) || !strings.Contains(sh, `"notify":false`) {
 		t.Fatalf("a string must stay a string and a boolean a boolean:\n%s", sh)
 	}
 	if len(d.Problems) != 0 {
