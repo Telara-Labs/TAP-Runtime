@@ -85,3 +85,23 @@ func TestUnvalidatedDraftsSayUnvalidated(t *testing.T) {
 		t.Fatalf("marker: %s", b)
 	}
 }
+
+// R3: requests that all did the same thing but were split into several
+// groups (their incidental calls differ) are still how that goal is done:
+// the goal-share check counts every request with the text that ran the
+// steps, not only the ones in this group.
+func TestR3FragmentedGroupsStillShareTheirGoal(t *testing.T) {
+	noise := []string{"ls", "pwd", "date", "uptime", "hostname"}
+	ss := eps("mv", 20, func(i int) string { return fmt.Sprintf("move TENG-%d to done", 3200+i) }, func(i int) []Call {
+		k := fmt.Sprintf("TENG-%d", 3200+i)
+		return []Call{
+			sh(noise[i%len(noise)]), sh(noise[(i/len(noise))%len(noise)] + " -a"),
+			{Tool: "mcp:telara_jira_transition_issue", Args: map[string]string{"issue_key": k, "transition_id": "21"}},
+			{Tool: "mcp:telara_jira_add_comment", Args: map[string]string{"issue_key": k, "body": "done"}},
+		}
+	})
+	rep := runOn(t, ss)
+	if len(rep.Primitives()) == 0 {
+		t.Fatalf("every request ran transition then comment; none recommended:\n%s", dump(rep))
+	}
+}

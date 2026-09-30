@@ -254,6 +254,13 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 	}
 	// How many requests carry each request text (digits aside): a routine
 	// whose goal is a stated text must be how most of them were done.
+	instByText := map[string][]int{}
+	for i := range inst {
+		if k := textKey(inst[i].text); k != "" {
+			instByText[k] = append(instByText[k], i)
+		}
+	}
+	coreSeen := map[string]bool{}
 	byText := map[string]int{}
 	for _, s := range corpus {
 		asked := map[int]bool{}
@@ -281,9 +288,13 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 		if !ok {
 			continue
 		}
-		goalShare(&rt, corpus, inst, g, byText)
+		goalShare(&rt, corpus, inst, g, byText, instByText)
 		f.Routines++
 		routines = append(routines, rt)
+		if core, ok := goalCore(corpus, inst, names, o, &rt, byText, instByText, coreSeen); ok {
+			f.Routines++
+			routines = append(routines, core)
+		}
 		if sub, ok := boundedPart(corpus, inst, g, names, o, &rt); ok {
 			f.Routines++
 			routines = append(routines, sub)
@@ -1147,7 +1158,9 @@ func textKey(t string) string {
 // goalShare checks a routine whose goal is its requests' shared text: if
 // most requests with that text did something else, these steps are not the
 // procedure for the goal (a few runs happened to share incidental calls).
-func goalShare(rt *Routine, corpus []normSession, inst []reqInstance, g []int, byText map[string]int) {
+// A request with the text counts as doing it this way when it ran every
+// step of the routine, whichever group its other calls put it in.
+func goalShare(rt *Routine, corpus []normSession, inst []reqInstance, g []int, byText map[string]int, instByText map[string][]int) {
 	if rt.Suitability != SuitUseful || rt.Contract.Goal != GoalStated {
 		return
 	}
@@ -1163,12 +1176,125 @@ func goalShare(rt *Routine, corpus []normSession, inst []reqInstance, g []int, b
 			top, n = k, c
 		}
 	}
-	if top == "" || 2*n >= byText[top] {
+	if top == "" {
+		return
+	}
+	need := map[string]int{}
+	for _, st := range rt.Steps {
+		need[st.Label]++
+	}
+	ran := 0
+	for _, i := range instByText[top] {
+		have := map[string]int{}
+		for _, si := range inst[i].steps {
+			have[corpus[inst[i].session].Steps[si].Label]++
+		}
+		all := true
+		for l, c := range need {
+			if have[l] < c {
+				all = false
+			}
+		}
+		if all {
+			ran++
+		}
+	}
+	if 2*ran >= byText[top] {
 		return
 	}
 	rt.Suitability = SuitInsufficient
-	rt.Reasons = []string{fmt.Sprintf("goal_usually_done_differently:%d_of_%d", n, byText[top])}
+	rt.Reasons = []string{fmt.Sprintf("goal_usually_done_differently:%d_of_%d", ran, byText[top])}
 	rt.DraftStatus, rt.Blockers = DraftNotAttempted, nil
 	rt.Decision, rt.Failed = "removed", "goal_usually_done_differently"
 	rt.Why = strings.Join(rt.Reasons, "; ")
+}
+
+// goalCore rebuilds a routine that failed the goal-share check from the
+// steps most requests with its text ran, over all of those requests. When
+// incidental calls split one task's requests into several groups, each
+// group fails the check on its own; the steps they share are the procedure
+// for the goal. Built once per text.
+func goalCore(corpus []normSession, inst []reqInstance, names []string, o Options, rt *Routine, byText map[string]int, instByText map[string][]int, seen map[string]bool) (Routine, bool) {
+	if firstReason(*rt) == "" || !strings.HasPrefix(firstReason(*rt), "goal_usually_done_differently") {
+		return Routine{}, false
+	}
+	top := ""
+	// The routine's dominant text.
+	count := map[string]int{}
+	for _, src := range rt.Sources {
+		if k := textKeyOf(corpus, src); k != "" {
+			count[k]++
+		}
+	}
+	n := 0
+	for k, c := range count {
+		if c > n || (c == n && k < top) {
+			top, n = k, c
+		}
+	}
+	if top == "" || seen[top] {
+		return Routine{}, false
+	}
+	seen[top] = true
+	members := instByText[top]
+	has := make([]map[string]bool, len(members))
+	present := map[string]int{}
+	for k, i := range members {
+		has[k] = map[string]bool{}
+		for _, si := range inst[i].steps {
+			if l := corpus[inst[i].session].Steps[si].Label; replayable(l) && !has[k][l] {
+				has[k][l] = true
+				present[l]++
+			}
+		}
+	}
+	keep := map[string]bool{}
+	for l, c := range present {
+		if 2*c >= byText[top] {
+			keep[l] = true
+		}
+	}
+	if len(keep) < 2 {
+		return Routine{}, false
+	}
+	var sub []reqInstance
+	var gs []int
+	sessions := map[int]bool{}
+	for _, i := range members {
+		in := inst[i]
+		var steps []int
+		for _, si := range inst[i].steps {
+			if keep[corpus[inst[i].session].Steps[si].Label] {
+				steps = append(steps, si)
+			}
+		}
+		if len(steps) < 2 {
+			continue
+		}
+		in.steps = steps
+		gs = append(gs, len(sub))
+		sub = append(sub, in)
+		sessions[in.session] = true
+	}
+	if len(gs) < o.MinSupport || len(sessions) < 2 {
+		return Routine{}, false
+	}
+	core, ok := buildRoutine(corpus, sub, gs, names, o)
+	if !ok {
+		return Routine{}, false
+	}
+	core.Reasons = append(core.Reasons, "core_of_goal")
+	return core, true
+}
+
+// textKeyOf is the text key of the request a source names.
+func textKeyOf(corpus []normSession, src SourceRef) string {
+	for _, s := range corpus {
+		if s.Client == src.Client && s.ID == src.Session {
+			if src.Request < len(s.Requests) {
+				return textKey(s.Requests[src.Request])
+			}
+		}
+	}
+	return ""
 }
