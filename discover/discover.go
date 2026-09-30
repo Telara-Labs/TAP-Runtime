@@ -184,6 +184,7 @@ func Run(o Options) (*Report, error) {
 		o.log("%s: %d sessions, %d calls %s", st.Client, len(ss), st.Calls, st.Error)
 	}
 	o.log("read %d sessions", len(raw))
+	dropCopiedCalls(raw)
 	sessions := normalize(raw)
 
 	// Identical step sequences are one piece of work run twice (a replayed
@@ -840,4 +841,24 @@ func runCost(steps []Step) (run, saved Usage, ok bool) {
 	}
 	one := run.scale(1 / float64(len(turns)+merged))
 	return run, Usage{run.Fresh - one.Fresh, run.Cached - one.Cached, run.Output - one.Output}, true
+}
+
+// dropCopiedCalls removes calls a session file copied from another: the same
+// client call ID read twice. The first file read keeps it.
+func dropCopiedCalls(ss []Session) {
+	seen := map[string]bool{}
+	for i := range ss {
+		kept := ss[i].Calls[:0]
+		for _, c := range ss[i].Calls {
+			if c.ID != "" {
+				k := ss[i].Client + "\x00" + c.ID
+				if seen[k] {
+					continue
+				}
+				seen[k] = true
+			}
+			kept = append(kept, c)
+		}
+		ss[i].Calls = kept
+	}
 }

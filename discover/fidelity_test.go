@@ -127,21 +127,71 @@ func TestFailedRunsAreNotEvidence(t *testing.T) {
 	}
 }
 
-func TestAValueFromAnEarlierOutputIsDerived(t *testing.T) {
+func TestAValueFromAnEarlierOutputIsTakenFromIt(t *testing.T) {
+	// Every run read the thread the search returned, and the id always sat
+	// after the same text: the draft takes it from the search's output.
 	ss := requestSessions(8, func(i int) string { return "reply to the intro email" }, func(i int) []Call {
 		thread := fmt.Sprintf("18c%013x", 0xabc0+i)
-		search := Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"}, Outcome: OutcomeOK,
-			OutIDs: outputIDs(`{"threads":[{"id":"` + thread + `"}]}`)}
+		search := Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"}, Outcome: OutcomeOK}
+		search.OutIDs, search.OutCtx = outputRefs(fmt.Sprintf(`{"count":%d,"threads":[{"id":"%s","subject":"hi"}]}`, 3+i, thread))
 		read := Call{Tool: "mcp:gmail_read_email_thread", Args: map[string]string{"thread_id": thread}, Outcome: OutcomeOK}
 		return []Call{search, read}
 	})
 	r := firstRoutine(t, ss)
 	d := r.Draft()
-	if len(d.Inputs) != 1 || d.Inputs[0].DerivedFrom != 1 {
-		t.Fatalf("the thread id came from step 1's output in every run: %+v", d.Inputs)
+	if len(d.Inputs) != 1 || d.Inputs[0].DerivedFrom != 1 || d.Inputs[0].Extract == "" || d.Inputs[0].Position != 0 {
+		t.Fatalf("the thread id came from step 1's output after the same text in every run: %+v", d.Inputs)
+	}
+	sh := string(d.Files["main.sh"])
+	for _, want := range []string{
+		`out1=$(tap call gmail_search_emails`,
+		`printf '%s\n' "$out1"`,
+		`gmail_read_email_thread_thread_id=$(printf '%s\n' "$out1" | grep -o -e ',"threads":\[{"id":"[^"[:space:]]*' | head -n 1)`,
+		`--arg a1 "${gmail_read_email_thread_thread_id}"`,
+	} {
+		if !strings.Contains(sh, want) {
+			t.Fatalf("main.sh lacks %q:\n%s", want, sh)
+		}
+	}
+	if r.Decision != "primitive" || d.Derived != 0 || d.Extracted != 1 {
+		t.Fatalf("decision %q derived %d extracted %d (%s)", r.Decision, d.Derived, d.Extracted, r.Why)
+	}
+	if _, ok := d.Files["primitive.yaml"]; !ok || strings.Contains(string(d.Files["primitive.yaml"]), "gmail_read_email_thread_thread_id") {
+		t.Fatalf("an extracted value is not the caller's argument:\n%s", d.Files["primitive.yaml"])
+	}
+}
+
+func TestAValueWithNoCommonAnchorNeedsAuthoring(t *testing.T) {
+	ss := requestSessions(8, func(i int) string { return "reply to the intro email" }, func(i int) []Call {
+		thread := fmt.Sprintf("18c%013x", 0xabc0+i)
+		search := Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"}, Outcome: OutcomeOK}
+		// The id sits after different text each run.
+		search.OutIDs, search.OutCtx = outputRefs(fmt.Sprintf("result %d: %s", i, thread)[len("result "):])
+		search.OutIDs, search.OutCtx = outputRefs(strings.Repeat("xy", i) + " " + thread)
+		read := Call{Tool: "mcp:gmail_read_email_thread", Args: map[string]string{"thread_id": thread}, Outcome: OutcomeOK}
+		return []Call{search, read}
+	})
+	r := firstRoutine(t, ss)
+	d := r.Draft()
+	if len(d.Inputs) != 1 || d.Inputs[0].DerivedFrom != 1 || d.Inputs[0].Extract != "" {
+		t.Fatalf("inputs: %+v", d.Inputs)
 	}
 	if r.Decision != "needs_authoring" || !strings.Contains(string(d.Files["README.md"]), "step 1's output supplied it") {
 		t.Fatalf("decision %q; README:\n%s", r.Decision, d.Files["README.md"])
+	}
+}
+
+func TestTenOrMoreArgumentsAreBraced(t *testing.T) {
+	ss := requestSessions(6, func(i int) string { return "file the report" }, func(i int) []Call {
+		args := map[string]string{}
+		for k := 0; k < 11; k++ {
+			args[fmt.Sprintf("f%02d", k)] = fmt.Sprintf("v%d-%d", i, k)
+		}
+		return []Call{{Tool: "mcp:telara_tool_search", Args: map[string]string{"query": "x"}}, {Tool: "mcp:report_file", Args: args}}
+	})
+	sh := string(firstRoutine(t, ss).Draft().Files["main.sh"])
+	if strings.Contains(sh, `"$10"`) || !strings.Contains(sh, `"${11}"`) {
+		t.Fatalf("$10 is $1 followed by 0 in the shell:\n%s", sh)
 	}
 }
 

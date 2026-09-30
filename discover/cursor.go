@@ -197,6 +197,13 @@ func (r Cursor) Read(since time.Time) ([]Session, error) {
 		}
 		out = append(out, s)
 	}
+	// Conversations come out of a map; later passes take sessions in order.
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].Start.Equal(out[j].Start) {
+			return out[i].Start.Before(out[j].Start)
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out, nil
 }
 
@@ -227,7 +234,8 @@ func (c *cursorConv) orderOf(bubble string) (int, bool) {
 }
 
 func cursorCall(row cursorRow) Call {
-	c := Call{Client: "cursor", Time: cursorTime(row.Created), OutIDs: outputIDs(row.Result)}
+	c := Call{Client: "cursor", Time: cursorTime(row.Created)}
+	c.OutIDs, c.OutCtx = outputRefs(row.Result)
 	switch row.Status {
 	case "completed":
 		c.Outcome = OutcomeOK
@@ -241,11 +249,42 @@ func cursorCall(row cursorRow) Call {
 		c.Tool, c.Command = "shell", rawString(args["command"])
 	case strings.HasPrefix(row.Name, "mcp-"):
 		parts := strings.Split(row.Name, "-")
+		args = cursorMCPArgs(args)
 		c.Tool, c.Args, c.RawArgs = "mcp:"+parts[len(parts)-1], flatten(args), rawKeys(args)
 	default:
 		c.Tool, c.Args, c.RawArgs = row.Name, flatten(args), rawKeys(args)
 	}
 	return c
+}
+
+// cursorMCPArgs returns the arguments the MCP tool received. Cursor records
+// an MCP call as an envelope, {name, args, toolCallId, providerIdentifier,
+// serverIdentifier, ...} in rawArgs, or {tools: [{name, parameters}]} with
+// the arguments as a JSON string in params. The envelope is Cursor's
+// bookkeeping, not the tool's input.
+func cursorMCPArgs(args map[string]json.RawMessage) map[string]json.RawMessage {
+	inner := args["args"]
+	if inner == nil {
+		var tools []struct {
+			Parameters json.RawMessage `json:"parameters"`
+		}
+		if json.Unmarshal(args["tools"], &tools) != nil || len(tools) != 1 {
+			return args
+		}
+		inner = tools[0].Parameters
+	} else if args["toolCallId"] == nil && args["providerIdentifier"] == nil && args["serverIdentifier"] == nil && args["toolName"] == nil {
+		// A tool whose own argument is named "args".
+		return args
+	}
+	var s string
+	if json.Unmarshal(inner, &s) == nil {
+		inner = json.RawMessage(s)
+	}
+	var out map[string]json.RawMessage
+	if json.Unmarshal(inner, &out) != nil {
+		return map[string]json.RawMessage{}
+	}
+	return out
 }
 
 // cursorTime reads createdAt, which Cursor has written both as epoch

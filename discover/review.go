@@ -94,6 +94,8 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 		for _, in := range d.Inputs {
 			if in.Sensitive {
 				fmt.Fprintf(out, "   input $%d %s: a credential, supplied by the caller (recorded value not kept)\n", in.Position, in.Name)
+			} else if in.Extract != "" {
+				fmt.Fprintf(out, "   value %s (%s): taken from step %d's output, not an input\n", in.Name, in.Type, in.DerivedFrom)
 			} else {
 				fmt.Fprintf(out, "   input $%d %s (%s), e.g. %s\n", in.Position, in.Name, in.Type, oneLine(Redact(in.Example), 60))
 			}

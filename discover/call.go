@@ -21,7 +21,11 @@ import (
 type Call struct {
 	Client  string
 	Session string
-	Time    time.Time
+	// ID is the client's own identifier for the call, when it records one. A
+	// resumed or forked session can copy earlier calls into a new file with
+	// their IDs; a call already read from another file is not read again.
+	ID   string
+	Time time.Time
 	// Tool is the client-neutral tool name: "shell" for a shell command,
 	// "mcp:<tool>" for an MCP tool, otherwise the client's own tool name.
 	Tool string
@@ -48,6 +52,10 @@ type Call struct {
 	// produced from one the caller supplied.
 	Outcome Outcome
 	OutIDs  []string
+	// OutCtx is, for each of OutIDs, where it sat in the result: up to 32
+	// bytes before it on its line, a NUL, then the character after it ("" at
+	// the end of a line). A draft uses it to pull the value back out.
+	OutCtx []string
 }
 
 // Outcome of a call, as the client recorded it.
@@ -67,20 +75,46 @@ var (
 // outputIDs are the identifiers in a call's result: at most 64, from its
 // first 64 KB.
 func outputIDs(text string) []string {
+	ids, _ := outputRefs(text)
+	return ids
+}
+
+// outputRefs returns outputIDs and, for each, the context of its first
+// occurrence (see Call.OutCtx).
+func outputRefs(text string) (ids, ctx []string) {
 	text = truncateUTF8(text, 64<<10)
 	seen := map[string]bool{}
-	var out []string
-	for _, m := range outIDRe.FindAllString(text, -1) {
-		m = strings.TrimRight(m, ".,;:")
-		if !seen[m] {
-			seen[m] = true
-			out = append(out, m)
-			if len(out) == 64 {
-				break
-			}
+	for _, loc := range outIDRe.FindAllStringIndex(text, -1) {
+		m := strings.TrimRight(text[loc[0]:loc[1]], ".,;:")
+		if seen[m] {
+			continue
+		}
+		seen[m] = true
+		start, end := loc[0], loc[0]+len(m)
+		from := max(start-32, 0)
+		// A line starts after a newline, or after an escaped one ("\\n"):
+		// clients that store a result JSON-encoded keep the escape.
+		if nl := strings.LastIndexByte(text[from:start], '\n'); nl >= 0 {
+			from += nl + 1
+		}
+		if nl := strings.LastIndex(text[from:start], `\n`); nl >= 0 {
+			from += nl + 2
+		}
+		for from < start && !utf8.RuneStart(text[from]) {
+			from++
+		}
+		after := ""
+		if end < len(text) && text[end] != '\n' && text[end] != '\r' {
+			r, _ := utf8.DecodeRuneInString(text[end:])
+			after = string(r)
+		}
+		ids = append(ids, m)
+		ctx = append(ctx, text[from:start]+"\x00"+after)
+		if len(ids) == 64 {
+			break
 		}
 	}
-	return out
+	return ids, ctx
 }
 
 // exitOutcome reads a shell result's exit status: failed when it names a

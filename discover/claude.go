@@ -116,7 +116,7 @@ func readClaudeFile(path string) (s Session, err error) {
 					if r.IsError {
 						s.Calls[ci].Outcome = OutcomeFailed
 					}
-					s.Calls[ci].OutIDs = outputIDs(claudeUserText(r.Content))
+					s.Calls[ci].OutIDs, s.Calls[ci].OutCtx = outputRefs(claudeUserText(r.Content))
 				}
 			}
 			continue
@@ -145,7 +145,7 @@ func readClaudeFile(path string) (s Session, err error) {
 			if b.ID != "" {
 				byUseID[b.ID] = len(s.Calls)
 			}
-			c := Call{Client: s.Client, Session: s.ID, Time: ln.Timestamp, Request: s.request()}
+			c := Call{Client: s.Client, Session: s.ID, ID: b.ID, Time: ln.Timestamp, Request: s.request()}
 			switch {
 			case b.Name == "Bash":
 				c.Tool, c.Command = "shell", rawString(b.Input["command"])

@@ -35,7 +35,7 @@ func TestDraftReplaysThePlantedProcedure(t *testing.T) {
 		t.Fatal(err)
 	}
 	sh := string(d.Files["main.sh"])
-	for _, want := range []string{"make build\n", "go test ./... -count=1\n", `git push origin "$1"` + "\n"} {
+	for _, want := range []string{"make build\n", "go test ./... -count=1\n", `git push origin "${1}"` + "\n"} {
 		if !strings.Contains(sh, want) {
 			t.Errorf("main.sh lacks %q:\n%s", want, sh)
 		}
@@ -248,7 +248,7 @@ func TestDraftArgumentOrderDoesNotMakeFlagsInputs(t *testing.T) {
 		t.Fatalf("inputs = %+v: only the package varied, and gofmt and go test share it", d.Inputs)
 	}
 	sh := string(d.Files["main.sh"])
-	if !strings.Contains(sh, `gofmt -w "$1"`) || !strings.Contains(sh, `-count=1`) || !strings.Contains(sh, `-run TestX`) || !strings.Contains(sh, `"$1"`) {
+	if !strings.Contains(sh, `gofmt -w "${1}"`) || !strings.Contains(sh, `-count=1`) || !strings.Contains(sh, `-run TestX`) || !strings.Contains(sh, `"${1}"`) {
 		t.Fatalf("main.sh:\n%s", sh)
 	}
 }

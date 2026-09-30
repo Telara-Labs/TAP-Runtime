@@ -88,7 +88,7 @@ func TestRecurringRequestsBecomePrimitives(t *testing.T) {
 		}
 	}
 	sh := string(jira.Draft().Files["main.sh"])
-	if !strings.Contains(sh, `"$1"`) || !strings.Contains(sh, `transition_id: "21"`) {
+	if !strings.Contains(sh, `"${1}"`) || !strings.Contains(sh, `transition_id: "21"`) {
 		t.Fatalf("draft:\n%s", sh)
 	}
 	var buf bytes.Buffer

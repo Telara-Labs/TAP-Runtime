@@ -1,6 +1,9 @@
 package discover
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The parsers read whatever agents wrote. Both crashes found on the first
 // live run (a heredoc with multibyte text, a stray closing bracket in a Codex
@@ -50,5 +53,23 @@ func FuzzWordSpans(f *testing.F) {
 			}
 		}
 		_ = shapeOf(s, wordSpans(s))
+	})
+}
+
+func FuzzOutputRefs(f *testing.F) {
+	for _, seed := range []string{"Task ID: `90991e90-de01-4847-a933-187b18ef2985`", `{"id":"18c0000000000abc9"}`, "é\nTENG-1 x", "\xff\xfeABC-12"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, text string) {
+		ids, ctx := outputRefs(text)
+		if len(ids) != len(ctx) {
+			t.Fatalf("%d ids, %d contexts", len(ids), len(ctx))
+		}
+		for k, c := range ctx {
+			before, _, ok := strings.Cut(c, "\x00")
+			if !ok || strings.Contains(before, "\n") || len(before) > 32 {
+				t.Fatalf("context %q for %q", c, ids[k])
+			}
+		}
 	})
 }
