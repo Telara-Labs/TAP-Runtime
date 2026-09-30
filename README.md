@@ -16,6 +16,21 @@ programs and has not run there. macOS Intel has never run.
 
 - Writing one: [docs/writing-a-primitive.md](docs/writing-a-primitive.md)
 - Installing into Claude Code or Codex: [docs/install.md](docs/install.md)
+- Running in claude.ai, in the browser: [docs/web.md](docs/web.md)
+
+## Where it runs
+
+| Client | State | How the runner borrows its tools |
+|---|---|---|
+| Claude Code | supported | Claude Code's own control channel |
+| Codex (CLI and app) | supported | Codex's app-server |
+| claude.ai (web) | preview | a page, published as an Artifact, whose code calls your connectors: [docs/web.md](docs/web.md) |
+| VS Code (GitHub Copilot) | preview | an extension that calls the editor's tools. Proven in VS Code; not yet from Copilot chat |
+| Gemini CLI | experimental | a hook that has Gemini make each call. Never run against Gemini CLI itself: Google no longer admits individual accounts to it |
+| ChatGPT (web) | not supported | the matching feature, Sites with plugins, needs a Business, Enterprise or Edu workspace. Untested |
+| Gemini, Copilot (web) | not supported | neither lets code reach its connected apps |
+| Cursor, OpenCode | not supported | they list their tools and give no way to call them |
+
 
 ## What it does
 
