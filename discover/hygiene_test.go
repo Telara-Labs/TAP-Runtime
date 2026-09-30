@@ -112,9 +112,11 @@ func TestKindsAndMerging(t *testing.T) {
 		t.Fatalf("kinds = %v", kinds)
 	}
 	rs := []Routine{
-		{ID: "a", Kind: "user", Decision: "primitive", Candidate: Candidate{Steps: []StepTemplate{{Label: "sh:git status"}, {Label: "sh:git diff"}}}},
-		{ID: "b", Kind: "user", Decision: "primitive", Candidate: Candidate{Steps: []StepTemplate{{Label: "sh:git diff"}, {Label: "sh:git status"}}}},
-		{ID: "c", Kind: "scheduled", Decision: "primitive", Candidate: Candidate{Steps: []StepTemplate{{Label: "sh:git diff"}, {Label: "sh:git status"}}}},
+		{ID: "a", Kind: "user", Family: "fam_1", Decision: "primitive", Candidate: Candidate{Steps: []StepTemplate{{Label: "sh:git status"}, {Label: "sh:git diff"}}}},
+		// Same kind, same steps in the same order: one procedure found twice.
+		// (A different order is a different procedure: see C13.)
+		{ID: "b", Kind: "user", Family: "fam_1", Decision: "primitive", Candidate: Candidate{Steps: []StepTemplate{{Label: "sh:git status"}, {Label: "sh:git diff"}}}},
+		{ID: "c", Kind: "scheduled", Family: "fam_1", Decision: "primitive", Candidate: Candidate{Steps: []StepTemplate{{Label: "sh:git status"}, {Label: "sh:git diff"}}}},
 	}
 	if n := mergeDuplicates(rs); n != 1 || rs[1].MergedInto != "a" || rs[2].MergedInto != "" {
 		t.Fatalf("merged %d: %+v", n, rs)

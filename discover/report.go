@@ -3,6 +3,7 @@ package discover
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -140,74 +141,110 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 		clients = append(clients, fmt.Sprintf("%s %d", c.Client, c.Sessions))
 	}
 	fmt.Fprintf(w, "Reviewed %d sessions (%s) and %d tool calls.\n", f.Sessions, strings.Join(clients, ", "), f.Calls)
-	fmt.Fprintf(w, "%d requests; %d ran at least two steps a primitive could replay.\n", f.Requests, f.RequestsWithSteps)
-	fmt.Fprintf(w, "Grouped into %d kinds of request; %d recurred (%d+ requests in 2+ sessions): the routines.\n", f.Groups, f.Routines, r.Options.MinSupport)
-	for _, ck := range CheckOrder {
-		if n := f.Removed[ck]; n > 0 {
-			fmt.Fprintf(w, "  - %d removed by \"%s\"\n", n, ck)
+	fmt.Fprintf(w, "%d requests; %d ran at least two steps a program could replay.\n", f.Requests, f.RequestsWithSteps)
+	parts := 0
+	for _, rt := range r.Routines {
+		if rt.Parent != "" {
+			parts++
 		}
 	}
+	fmt.Fprintf(w, "Grouped into %d kinds of request; %d routines recurred (%d+ requests in 2+ sessions), %d of them bounded parts found inside larger work.\n",
+		f.Groups, f.Routines, r.Options.MinSupport, parts)
 	if f.Merged > 0 {
-		fmt.Fprintf(w, "  - %d merged into another routine with the same kind and steps\n", f.Merged)
+		fmt.Fprintf(w, "%d routines duplicated another (same role, steps in the same order, scope and task family) and are counted once.\n", f.Merged)
 	}
-	fmt.Fprintf(w, "Consolidated to %d primitives ready to save, and %d more that need authoring before they can run.\n", f.Primitives, f.NeedsAuthoring)
-	var kinds []string
-	for _, k := range []string{"user", "automated", "scheduled", "bookkeeping"} {
-		if n := f.ByKind[k]; n > 0 {
-			kinds = append(kinds, fmt.Sprintf("%d %s", n, k))
+	count := func(m map[string]int, keys ...string) string {
+		var out []string
+		for _, k := range keys {
+			if n := m[k]; n > 0 {
+				out = append(out, fmt.Sprintf("%d %s", n, strings.ReplaceAll(k, "_", " ")))
+			}
+		}
+		if len(out) == 0 {
+			return "none"
+		}
+		return strings.Join(out, ", ")
+	}
+	roles, suits := map[string]int{}, map[string]int{}
+	for role, m := range f.ByRole {
+		for suit, n := range m {
+			roles[role] += n
+			suits[suit] += n
 		}
 	}
-	if len(kinds) > 0 {
-		fmt.Fprintf(w, "The primitives by who the work is for: %s.\n", strings.Join(kinds, ", "))
-	}
-	fmt.Fprintln(w, "Savings are estimates from the recorded token use, mostly cached input; no primitive run was measured.")
-	fmt.Fprintln(w, "No draft has been executed: validate one on fresh inputs before relying on it.")
+	fmt.Fprintf(w, "Who the work is for: %s.\n", count(roles, RoleUser, RoleScheduled, RoleInfrastructure, RoleHarness, RoleUnknown))
+	fmt.Fprintf(w, "Is it a useful procedure: %s.\n", count(suits, SuitUseful, SuitInsufficient, SuitInvestigation, SuitInvalid))
+	useful := f.ByRole[RoleUser][SuitUseful]
+	fmt.Fprintf(w, "Useful procedures for user tasks: %d; drafts: %s. Scheduled work that is already automated: %d (a baseline, not new automation).\n",
+		useful, count(f.ByDraft[SuitUseful], DraftComplete, DraftNeedsAuthor, DraftBlocked), f.ByRole[RoleScheduled][SuitUseful])
+	fmt.Fprintf(w, "Outcome evidence: %s. Validation: %s. Value: %s.\n",
+		count(f.ByOutcome, OutcomeToolOK, OutcomeEvUnknown, OutcomeEvFailed), count(f.ByValidation, ValidationNotRun), count(f.ByValue, ValueEstimated, ValueUnmeasured))
+	fmt.Fprintln(w, "No draft has been executed. \"Structurally complete\" means the package is written and passes publish checks, not that it works: validate it on fresh inputs first.")
+	fmt.Fprintln(w, "Savings are estimates from recorded token use, mostly cached input; no primitive run was measured.")
 	fmt.Fprintln(w)
 
+	fmt.Fprintln(w, "Recommended (useful procedures for user tasks; unvalidated):")
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "#\tKIND\tSKILL\tCOVERS\tREQUESTS\tSESSIONS\tWEEKS\tSAVED/RUN\tSAVED TOTAL\tSTEPS\tINPUTS\tEXAMPLE REQUEST")
+	fmt.Fprintln(tw, "#\tDRAFT\tREQUESTS\tSESSIONS\tWEEKS\tEFFECT\tINPUTS\tSTEPS\tEXAMPLE REQUEST")
 	shown := 0
 	for _, rt := range r.Routines {
-		if rt.Decision != "primitive" || rt.MergedInto != "" || (top > 0 && shown >= top) {
+		if rt.Suitability != SuitUseful || rt.SourceRole != RoleUser || rt.MergedInto != "" || (top > 0 && shown >= top) {
 			continue
 		}
 		shown++
-		saved, per := "-", "-"
-		if rt.Measured > 0 {
-			saved, per = humanTokens(rt.SavedTotal.Total()), humanTokens(rt.SavedPerRun.Total())
+		var ins []string
+		for _, in := range rt.Contract.Inputs {
+			ins = append(ins, in.Source)
 		}
-		fixed := rt.Coverage
-		skill := "-"
-		if rt.CoveredBy != "" {
-			skill = rt.CoveredBy
+		draft := rt.DraftStatus
+		if len(rt.Blockers) > 0 {
+			draft += " (" + strings.Join(rt.Blockers, ", ") + ")"
 		}
-		fmt.Fprintf(tw, "%d\t%s\t%s\t%.0f%%\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%s\n", shown, rt.Kind, skill, 100*fixed, rt.Requests, rt.Sessions, rt.Weeks, per, saved,
-			oneLine(labelsOf(rt.Candidate), 70), len(rt.Inputs), oneLine(rt.Example, 60))
+		fmt.Fprintf(tw, "%d\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n", shown, oneLine(draft, 40), rt.Requests, rt.Sessions, rt.Weeks, rt.Contract.Effect,
+			oneLine(strings.Join(ins, ","), 30), oneLine(labelsOf(rt.Candidate), 60), oneLine(rt.Example, 50))
 	}
 	tw.Flush()
-	if f.NeedsAuthoring > 0 {
-		fmt.Fprintln(w, "\nNeed authoring (they recur and replay, but part must be written by hand):")
-		n := 0
+	if shown == 0 {
+		fmt.Fprintln(w, "  none")
+	}
+	if n := f.ByRole[RoleScheduled][SuitUseful]; n > 0 {
+		fmt.Fprintln(w, "\nScheduled work (already automated; listed as a baseline):")
 		for _, rt := range r.Routines {
-			if rt.Decision != "needs_authoring" || rt.MergedInto != "" || (top > 0 && n >= top) {
-				continue
+			if rt.Suitability == SuitUseful && rt.SourceRole == RoleScheduled && rt.MergedInto == "" {
+				fmt.Fprintf(w, "  %d runs: %s\n", rt.Requests, oneLine(labelsOf(rt.Candidate), 100))
 			}
-			n++
-			fmt.Fprintf(w, "  %d requests, %d weeks: %s\n      %s\n", rt.Requests, rt.Weeks, oneLine(labelsOf(rt.Candidate), 90), rt.Why)
 		}
 	}
 	if !rejected {
-		fmt.Fprintln(w, "\n(--rejected lists the routines each check removed.)")
+		fmt.Fprintln(w, "\n(--rejected lists every other routine by the reason it is not recommended.)")
 		return
 	}
-	for _, ck := range CheckOrder {
-		fmt.Fprintf(w, "\nRemoved by \"%s\":\n", ck)
-		for _, rt := range r.Routines {
-			if rt.Failed == ck {
-				fmt.Fprintf(w, "  %d requests, %d weeks: %s\n      %s\n", rt.Requests, rt.Weeks, oneLine(labelsOf(rt.Candidate), 90), rt.Why)
-			}
+	byReason := map[string][]Routine{}
+	var reasons []string
+	for _, rt := range r.Routines {
+		if rt.Suitability == SuitUseful || rt.MergedInto != "" {
+			continue
+		}
+		k := rt.Suitability + ": " + strings.SplitN(firstReason(rt), ":", 2)[0]
+		if _, ok := byReason[k]; !ok {
+			reasons = append(reasons, k)
+		}
+		byReason[k] = append(byReason[k], rt)
+	}
+	sort.Strings(reasons)
+	for _, k := range reasons {
+		fmt.Fprintf(w, "\n%s (%d):\n", k, len(byReason[k]))
+		for _, rt := range byReason[k] {
+			fmt.Fprintf(w, "  %d requests, %s: %s\n      %s\n", rt.Requests, rt.SourceRole, oneLine(labelsOf(rt.Candidate), 90), oneLine(strings.Join(rt.Reasons, "; "), 140))
 		}
 	}
+}
+
+func firstReason(rt Routine) string {
+	if len(rt.Reasons) == 0 {
+		return "unknown"
+	}
+	return rt.Reasons[0]
 }
 
 // Primitives returns the routines ready to save (decision "primitive"), in

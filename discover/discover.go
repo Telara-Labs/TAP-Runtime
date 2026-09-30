@@ -184,6 +184,18 @@ func Run(o Options) (*Report, error) {
 		o.log("%s: %d sessions, %d calls %s", st.Client, len(ss), st.Calls, st.Error)
 	}
 	o.log("read %d sessions", len(raw))
+	// Later passes take sessions in order (grouping picks each group's first
+	// request), so the report must not depend on the order readers return.
+	sort.SliceStable(raw, func(i, j int) bool {
+		a, b := raw[i], raw[j]
+		if a.Client != b.Client {
+			return a.Client < b.Client
+		}
+		if !a.Start.Equal(b.Start) {
+			return a.Start.Before(b.Start)
+		}
+		return a.ID < b.ID
+	})
 	dropCopiedCalls(raw)
 	sessions := normalize(raw)
 

@@ -124,7 +124,7 @@ func TestEscapedNewlinesStartALineAndBackslashesNeverAnchor(t *testing.T) {
 	for _, c := range []string{`\"id\":\"`, `a\tb: `} {
 		st := func(v string) Step { return Step{OutIDs: []string{v}, OutCtx: []string{c + "\x00\""}} }
 		d := &drafter{occ: [][]Step{{st("18c0000000000abc1")}, {st("18c0000000000abc2")}}}
-		if _, _, ok := d.extraction(0, map[int]string{0: "18c0000000000abc1", 1: "18c0000000000abc2"}); ok {
+		if _, _, _, ok := d.extraction(0, map[int]string{0: "18c0000000000abc1", 1: "18c0000000000abc2"}); ok {
 			t.Errorf("anchor %q was recorded escaped and must not be used", c)
 		}
 	}
@@ -160,5 +160,76 @@ func TestCodexSessionIdentityIsTheFilesOwnAndUnique(t *testing.T) {
 	}
 	if !got["parent"] || !got["child"] || !got["c-parent_sub"] {
 		t.Fatalf("ids = %v", got)
+	}
+}
+
+func TestIncidentalStepsAreNotTheProcedureForAStatedGoal(t *testing.T) {
+	// Ten requests say the same thing; three of them happened to run the
+	// same two constant commands, the rest did other things.
+	ss := eps("la", 10, func(i int) string { return "look around the repo" }, func(i int) []Call {
+		if i < 3 {
+			return []Call{sh("pwd"), sh("id")}
+		}
+		return []Call{sh(fmt.Sprintf("ls dir%d", i)), sh(fmt.Sprintf("cat f%d.txt", i))}
+	})
+	rep := runOn(t, ss)
+	for _, r := range rep.Routines {
+		if hasStep(r, "sh:pwd") && r.Suitability == SuitUseful {
+			t.Fatalf("3 of 10 requests ran it: not the procedure for that goal:\n%s", dump(rep))
+		}
+	}
+}
+
+func TestConstantScaffoldingIsNotABoundedPart(t *testing.T) {
+	// Every run opens the browser the same way, then explores pages the
+	// agent chose: the opening is not a procedure of its own.
+	ss := eps("sc", 8, func(i int) string { return fmt.Sprintf("why is page %d slow", i) }, func(i int) []Call {
+		return []Call{
+			sh("pwd"), sh("git status --short"),
+			{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("web/p%d/page.tsx", i*7)}},
+			{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("web/p%d/layout.tsx", i*5)}},
+		}
+	})
+	rep := runOn(t, ss)
+	for _, r := range rep.Routines {
+		if r.Parent != "" {
+			t.Fatalf("constant scaffolding reported as a bounded procedure:\n%s", dump(rep))
+		}
+	}
+}
+
+func TestConstantOpeningOfVaryingWorkIsNotAProcedure(t *testing.T) {
+	// A routine found in stated, consistent runs whose steps take nothing a
+	// caller could vary, and are 30% of what those requests did: the
+	// constant opening of varying work (open the browser, print the dir).
+	mk := func(coverage float64) Routine {
+		return Routine{SourceRole: RoleScheduled, Consistency: 1, Coverage: coverage,
+			Contract: Contract{Goal: GoalStated, Effect: EffectReadOnly}}
+	}
+	low := mk(0.3)
+	decide(&low, &Draft{}, nil, 0, 0)
+	if low.Suitability == SuitUseful || firstReason(low) != "constant_part_of_larger_work" {
+		t.Fatalf("suitability %q reasons %v", low.Suitability, low.Reasons)
+	}
+	// The same constant steps that ARE the work (a scheduled fetch and log)
+	// stay a procedure.
+	high := mk(1)
+	decide(&high, &Draft{}, nil, 0, 0)
+	if high.Suitability != SuitUseful {
+		t.Fatalf("a constant procedure that is the whole task: %q %v", high.Suitability, high.Reasons)
+	}
+}
+
+func TestValuesComposedFromTheRequest(t *testing.T) {
+	for v, want := range map[string]bool{
+		"v1.2.0..v1.2.1":                true,  // a range of two requested tags
+		"involvedObject.name=billing-4": true,  // a selector around a requested name
+		"src/billing/init_4.go":         false, // a file the agent picked under a named area
+		"needle42=billing-4":            false, // an unrequested value beside a requested one
+		"billing-4":                     false, // not composed (inRequest handles it)
+	} {
+		if got := composedFromRequest(v, "why is deployment billing-4 on v1.2.0 not v1.2.1"); got != want {
+			t.Errorf("%q: %v, want %v", v, got, want)
+		}
 	}
 }

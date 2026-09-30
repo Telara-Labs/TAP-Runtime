@@ -66,12 +66,19 @@ type DraftInput struct {
 	// DerivedFrom's output: a grep pattern for the text before it and the
 	// value itself. The caller does not supply it and it has no Position.
 	Extract string `json:"extract,omitempty"`
+	// Binding says how Extract reads the value: "json_path" (a jq path into
+	// a JSON result) or "text_anchor" (the text before it).
+	Binding string `json:"binding,omitempty"`
+	// List marks a caller-given list the program loops over (a JSON array).
+	List bool `json:"list,omitempty"`
 	// Position is the argument number the caller passes it as ($1, $2...);
 	// 0 for an extracted value.
 	Position int    `json:"position"`
 	From     string `json:"from"`
 	// strip is what Extract's match starts with, removed to leave the value.
 	strip string
+	// pos is the template position of the step that takes it.
+	pos int
 }
 
 // Draft is a drafted package and what the review needs to show it.
@@ -104,6 +111,15 @@ type Draft struct {
 	// agent chose most values as it went, is mostly inputs.
 	FixedShare float64 `json:"fixed_share"`
 	values     []map[int]string
+	// listLoop names the steps drafted as a loop over a caller list.
+	listLoop map[string]bool
+	// humanPos are template positions drafted as human steps.
+	humanPos map[int]bool
+	// priorLoop names steps that loop over a list an earlier result held.
+	priorLoop map[string]bool
+	// firstRun is the first drafted run's steps, for evidence lookups.
+	firstRun []Step
+	posStep  map[int]int
 }
 
 // inputValues is input n's value in each drafted run (by run index).
@@ -119,6 +135,35 @@ type DraftOptions struct {
 	Publisher string
 	// ReadOnly lists step numbers (1-based) the user confirmed change nothing.
 	ReadOnly map[int]bool
+	// loops are steps each run made once per item of a list the request
+	// gave: the varying argument and, per occurrence, its values in order.
+	loops map[string]loopSpec
+}
+
+type loopSpec struct {
+	key    string
+	values [][]string // per occurrence (index into occ)
+	// source is where the list came from: "caller" (the request gave it)
+	// or "prior_output" (an earlier step's result held every item).
+	source string
+}
+
+// inResult reports whether a value appears in a step's recorded result.
+func inResult(v string, st Step) bool {
+	if len(v) < 4 || strings.ContainsAny(v, " \n") {
+		return false
+	}
+	for _, id := range st.OutIDs {
+		if id == v {
+			return true
+		}
+	}
+	for _, t := range st.OutTokens {
+		if t == v {
+			return true
+		}
+	}
+	return strings.Contains(st.Output, v)
 }
 
 // Draft builds the package for Candidates[idx].
@@ -180,6 +225,8 @@ type drafter struct {
 	posStep    map[int]int
 	derivedCnt int
 	extracted  int
+	listLoop   map[string]bool
+	priorLoop  map[string]bool
 }
 
 // ref is a placeholder for input k in a generated line. finish replaces it
@@ -191,7 +238,7 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 	if opt.Publisher == "" {
 		opt.Publisher = DefaultPublisher
 	}
-	d := &drafter{opt: opt, occ: occ, posStep: map[int]int{}, names: map[string]bool{}, cmds: map[string]bool{}, files: map[string]bool{}, origins: map[string]bool{}, tools: map[string]bool{}}
+	d := &drafter{opt: opt, occ: occ, listLoop: map[string]bool{}, priorLoop: map[string]bool{}, posStep: map[int]int{}, names: map[string]bool{}, cmds: map[string]bool{}, files: map[string]bool{}, origins: map[string]bool{}, tools: map[string]bool{}}
 	for i := 0; i < len(c.items); {
 		label := c.Steps[i].Label
 		d.posStep[i] = len(d.steps) + 1
@@ -270,7 +317,9 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 			fmt.Fprintf(&sh, "# $%d  %s (%s)\n", in.Position, in.Name, in.Type)
 		}
 	}
-	sh.WriteString("set -e\n")
+	// A failing step stops the program, including one inside a pipeline, so
+	// a check that fails never lets a later write run.
+	sh.WriteString("set -eo pipefail\n")
 	for _, l := range d.lines {
 		sh.WriteString(l)
 		sh.WriteByte('\n')
@@ -284,6 +333,7 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 	return &Draft{
 		Blocked: scanArtifacts(files),
 		Name:    name, Publisher: opt.Publisher, Inputs: d.inputs, Steps: d.steps,
+		listLoop: d.listLoop, priorLoop: d.priorLoop, humanPos: d.humanPositions(), firstRun: occ[0], posStep: d.posStep,
 		Problems: problems, HumanSteps: d.humanCnt, Derived: d.derivedCnt, Extracted: d.extracted, FixedSteps: d.fixedCnt, FixedShare: fixedShare(d), values: d.vectors,
 		Files: files,
 	}
@@ -439,12 +489,12 @@ func (d *drafter) input(stepName string, sl Slot, vec map[int]string, sensitive 
 		name = fmt.Sprintf("%s_%d", sanitizeName(base), k)
 	}
 	d.names[name] = true
-	in := DraftInput{Name: name, Type: sl.Type, Raw: sl.Raw, Example: Redact(sl.Value), From: stepName}
+	in := DraftInput{Name: name, Type: sl.Type, Raw: sl.Raw, Example: Redact(sl.Value), From: stepName, pos: pos}
 	if !sensitive {
 		if h := d.derivedFrom(pos, vec); h >= 0 {
 			in.DerivedFrom = d.posStep[h]
-			if pat, strip, ok := d.extraction(h, vec); ok && d.capturable(in.DerivedFrom) {
-				in.Extract, in.strip = pat, strip
+			if pat, strip, binding, ok := d.extraction(h, vec); ok && d.capturable(in.DerivedFrom) {
+				in.Extract, in.strip, in.Binding = pat, strip, binding
 				d.extracted++
 			} else {
 				d.derivedCnt++
@@ -478,6 +528,37 @@ func (d *drafter) command(i, n int, label string) {
 	prog := fields[0]
 	stepName := strings.Join(fields, "_")
 	plans := d.plan(i, stepName)
+	// A step run once per item of a list the request gave becomes a loop
+	// over a list input.
+	spec, isLoop := d.opt.loops[label]
+	loopIn := -1
+	if isLoop && spec.source == "prior_output" {
+		// The list came from an earlier result; binding a collection out of
+		// a result is not drafted, so this step is marked for authoring.
+		d.priorLoop[label] = true
+		isLoop = false
+	}
+	if isLoop {
+		for _, p := range plans {
+			if p.slot.Key == spec.key && !p.fixed && p.input >= 0 {
+				loopIn = p.input
+			}
+		}
+	}
+	if loopIn >= 0 {
+		in := &d.inputs[loopIn]
+		in.List, in.Raw, in.Type, in.Example = true, true, "list", ""
+		vec := map[int]string{}
+		for j, vs := range spec.values {
+			if vs == nil {
+				continue
+			}
+			b, _ := json.Marshal(vs)
+			vec[j] = string(b)
+		}
+		d.vectors[loopIn] = vec
+		d.listLoop[label] = true
+	}
 	words := []string{prog}
 	var globals []string
 	subSeen, sub := false, ""
@@ -488,6 +569,8 @@ func (d *drafter) command(i, n int, label string) {
 			words = append(words, p.slot.Value)
 		case p.fixed:
 			words = append(words, shellQuote(p.slot.Value))
+		case p.input == loopIn:
+			words = append(words, `"$item"`)
 		default:
 			words = append(words, `"`+d.ref(p.input)+`"`)
 		}
@@ -516,7 +599,14 @@ func (d *drafter) command(i, n int, label string) {
 		d.mf.Commands = append(d.mf.Commands, manifest.Command{Command: prog, Globals: globals, Args: args, Effect: eff})
 	}
 	line := strings.Join(words, " ")
-	d.lines = append(d.lines, fmt.Sprintf("# %d. %s", n, label), line)
+	if loopIn >= 0 {
+		// Each item on its own line from the JSON array; an empty list runs
+		// nothing; a malformed list fails the pipeline (pipefail).
+		line = fmt.Sprintf(`printf '%%s' "%s" | jq -r '.[]' | while IFS= read -r item; do %s; done`, d.ref(loopIn), line)
+		d.lines = append(d.lines, fmt.Sprintf("# %d. %s (once per item of the list; an empty list runs nothing)", n, label), line)
+	} else {
+		d.lines = append(d.lines, fmt.Sprintf("# %d. %s", n, label), line)
+	}
 	fixed := len(fields) > 1
 	for _, p := range plans {
 		if p.fixed && !p.slot.Sub && p.slot.Type != SlotFlag && p.slot.Type != SlotNumber {
@@ -765,7 +855,7 @@ func draftReadme(name, desc string, d *drafter) string {
 		if in.Sensitive {
 			fmt.Fprintf(&b, "- `$%d` **%s**: a credential, from %s. Supply it from your own configuration; its recorded value was not kept.\n", in.Position, in.Name, in.From)
 		} else if in.Extract != "" {
-			fmt.Fprintf(&b, "- **%s** (%s), from %s: not an argument. In every recorded run step %d's output held it after the same text, so the program takes it from there (`grep -o '%s'`).\n", in.Name, in.Type, in.From, in.DerivedFrom, in.Extract)
+			fmt.Fprintf(&b, "- **%s** (%s), from %s: not an argument. In every recorded run step %d's output held it after the same text, so the program takes it from there (%s `%s`, exactly one match or it stops).\n", in.Name, in.Type, in.From, in.DerivedFrom, in.Binding, in.Extract)
 		} else if in.DerivedFrom > 0 {
 			fmt.Fprintf(&b, "- `$%d` **%s** (%s), from %s: in the recorded runs step %d's output supplied it. Take it from there; the caller should not have to.\n", in.Position, in.Name, in.Type, in.From, in.DerivedFrom)
 		} else {
@@ -1126,6 +1216,12 @@ func (d *drafter) derivedFrom(pos int, vec map[int]string) int {
 					break found
 				}
 			}
+			// A name that is not identifier-shaped (a pod, a branch) is
+			// still taken from a result when the result shows it.
+			if inResult(v, d.occ[j][h]) {
+				count[h]++
+				break found
+			}
 		}
 	}
 	best, bestN := -1, 0
@@ -1144,7 +1240,40 @@ func (d *drafter) derivedFrom(pos int, vec map[int]string) int {
 // just before it, common to every run where step h's output held it, and the
 // character that ended it. It returns a grep -o pattern matching that text
 // and the value, and the text to strip from the match.
-func (d *drafter) extraction(h int, vec map[int]string) (pattern, strip string, ok bool) {
+func (d *drafter) extraction(h int, vec map[int]string) (pattern, strip, binding string, ok bool) {
+	// A JSON result is read by its path. When every run found the value at
+	// one and the same path, bind that path. When runs found it at
+	// different paths (the first result one time, the second another) the
+	// choice was the agent's: bind nothing, and do not fall back to text.
+	paths := map[string]bool{}
+	located, total := 0, 0
+	for j, v := range vec {
+		if v == "" || j >= len(d.occ) || h >= len(d.occ[j]) {
+			continue
+		}
+		st := d.occ[j][h]
+		for k, id := range st.OutIDs {
+			if id != v {
+				continue
+			}
+			total++
+			if k < len(st.OutPaths) && st.OutPaths[k] != "" && st.OutPaths[k] != "*" {
+				paths[st.OutPaths[k]] = true
+				located++
+			}
+			break
+		}
+	}
+	if located >= 2 && len(paths) > 1 {
+		return "", "", "", false
+	}
+	if located >= 2 && located == total && len(paths) == 1 {
+		for p := range paths {
+			if !strings.ContainsAny(p, "'\\") {
+				return p, "", "json_path", true
+			}
+		}
+	}
 	var befores []string
 	after, first := "", true
 	for j, v := range vec {
@@ -1158,7 +1287,7 @@ func (d *drafter) extraction(h int, vec map[int]string) (pattern, strip string, 
 			}
 			b, a, _ := strings.Cut(st.OutCtx[k], "\x00")
 			if !first && a != after {
-				return "", "", false
+				return "", "", "", false
 			}
 			after, first = a, false
 			befores = append(befores, b)
@@ -1166,7 +1295,7 @@ func (d *drafter) extraction(h int, vec map[int]string) (pattern, strip string, 
 		}
 	}
 	if len(befores) < 2 {
-		return "", "", false
+		return "", "", "", false
 	}
 	common := befores[0]
 	for _, b := range befores[1:] {
@@ -1184,11 +1313,11 @@ func (d *drafter) extraction(h int, vec map[int]string) (pattern, strip string, 
 	// with a backslash was recorded escaped (a JSON-encoded result) and will
 	// not read the same in the live output.
 	if len(strings.TrimSpace(common)) < 3 || strings.ContainsAny(common+after, "'\n\\") {
-		return "", "", false
+		return "", "", "", false
 	}
 	if after != "" {
 		if r, _ := utf8.DecodeRuneInString(after); unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return "", "", false
+			return "", "", "", false
 		}
 	}
 	class := "[^[:space:]]*"
@@ -1198,7 +1327,7 @@ func (d *drafter) extraction(h int, vec map[int]string) (pattern, strip string, 
 			class = "[^][:space:]]*"
 		}
 	}
-	return breQuote(common) + class, common, true
+	return breQuote(common) + class, common, "text_anchor", true
 }
 
 // breQuote escapes s for a basic regular expression.
@@ -1277,12 +1406,38 @@ func (d *drafter) finish() {
 		out = append(out, v+"=$("+l+")", `printf '%s\n' "$`+v+`"`)
 		for _, k := range ks {
 			in := d.inputs[k]
-			out = append(out,
-				fmt.Sprintf(`%s=$(printf '%%s\n' "$%s" | grep -o -e '%s' | head -n 1)`, in.Name, v, in.Extract),
-				fmt.Sprintf(`%s=${%s#%s}`, in.Name, in.Name, shellQuote(in.strip)),
-				fmt.Sprintf(`[ -n "$%s" ] || { echo "step %d's output held no %s" >&2; exit 1; }`, in.Name, step, in.Name))
+			fail := func(why string) string {
+				return fmt.Sprintf(`{ echo "step %d's output %s %s" >&2; exit 1; }`, step, why, in.Name)
+			}
+			if in.Binding == "json_path" {
+				out = append(out,
+					fmt.Sprintf(`%s=$(printf '%%s\n' "$%s" | jq -er '%s | select(type == "string" or type == "number")') || %s`, in.Name, v, in.Extract, fail("has no")))
+			} else {
+				// The anchor must occur exactly once: a missing, repeated or
+				// quoted anchor never selects a value by accident.
+				m := "m_" + in.Name
+				out = append(out,
+					fmt.Sprintf(`%s=$(printf '%%s\n' "$%s" | grep -o -e '%s' || true)`, m, v, in.Extract),
+					fmt.Sprintf(`[ -n "$%s" ] && [ "$(printf '%%s\n' "$%s" | wc -l | tr -d ' ')" = 1 ] || %s`, m, m, fail("did not hold exactly one")),
+					fmt.Sprintf(`%s=${%s#%s}`, in.Name, m, shellQuote(in.strip)))
+			}
+			// Whatever was read must look like an identifier before any
+			// later step uses it.
+			out = append(out, fmt.Sprintf(`printf '%%s' "$%s" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._:/@+=-]*$' || %s`, in.Name, fail("held no identifier-shaped")))
 		}
 		delete(byStep, step)
 	}
 	d.lines = out
+}
+
+// humanPositions are the template positions whose draft step is a human
+// step.
+func (d *drafter) humanPositions() map[int]bool {
+	out := map[int]bool{}
+	for pos, n := range d.posStep {
+		if n >= 1 && n <= len(d.steps) && d.steps[n-1].Kind == KindHuman {
+			out[pos] = true
+		}
+	}
+	return out
 }

@@ -70,8 +70,10 @@ func TestDifferingHeredocBodiesNeedAuthoring(t *testing.T) {
 	if d.HumanSteps != 1 {
 		t.Fatalf("a heredoc whose body differs every run must be an authoring step: %+v", d.Steps)
 	}
-	if r.Decision != "needs_authoring" {
-		t.Fatalf("decision = %q (%s)", r.Decision, r.Why)
+	// Judgment inside the procedure: not a useful procedure (plan section 3,
+	// item 6), not "needs authoring".
+	if r.Suitability != SuitInsufficient || !strings.Contains(r.Why, "judgment_step") {
+		t.Fatalf("suitability %q (%s)", r.Suitability, r.Why)
 	}
 }
 
@@ -133,7 +135,7 @@ func TestAValueFromAnEarlierOutputIsTakenFromIt(t *testing.T) {
 	ss := requestSessions(8, func(i int) string { return "reply to the intro email" }, func(i int) []Call {
 		thread := fmt.Sprintf("18c%013x", 0xabc0+i)
 		search := Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"}, Outcome: OutcomeOK}
-		search.OutIDs, search.OutCtx = outputRefs(fmt.Sprintf(`{"count":%d,"threads":[{"id":"%s","subject":"hi"}]}`, 3+i, thread))
+		search.OutIDs, search.OutCtx, search.OutPaths = outputRefsPaths(fmt.Sprintf(`{"count":%d,"threads":[{"id":"%s","subject":"hi"}]}`, 3+i, thread))
 		read := Call{Tool: "mcp:gmail_read_email_thread", Args: map[string]string{"thread_id": thread}, Outcome: OutcomeOK}
 		return []Call{search, read}
 	})
@@ -146,7 +148,7 @@ func TestAValueFromAnEarlierOutputIsTakenFromIt(t *testing.T) {
 	for _, want := range []string{
 		`out1=$(tap call gmail_search_emails`,
 		`printf '%s\n' "$out1"`,
-		`gmail_read_email_thread_thread_id=$(printf '%s\n' "$out1" | grep -o -e ',"threads":\[{"id":"[^"[:space:]]*' | head -n 1)`,
+		`gmail_read_email_thread_thread_id=$(printf '%s\n' "$out1" | jq -er '.threads[0].id | select(type == "string" or type == "number")')`,
 		`--arg a1 "${gmail_read_email_thread_thread_id}"`,
 	} {
 		if !strings.Contains(sh, want) {
@@ -207,8 +209,11 @@ func TestAStepRepeatedWithDifferentValuesIsALoop(t *testing.T) {
 	if labelsOf(r.Candidate) != "Read → sh:git diff" || len(r.Loops) != 1 || r.Loops[0] != "Read" {
 		t.Fatalf("labels %s loops %v", labelsOf(r.Candidate), r.Loops)
 	}
-	if r.Decision != "needs_authoring" || !strings.Contains(r.Why, "write the loop") {
-		t.Fatalf("decision %q why %q", r.Decision, r.Why)
+	// The files read were not given by the request: a loop over an unknown
+	// collection is not a loop to write. The request is one stated task, so
+	// the program abstains rather than calling it an investigation.
+	if r.Suitability == SuitUseful || !strings.Contains(r.Why, ":Read") {
+		t.Fatalf("suitability %q why %q", r.Suitability, r.Why)
 	}
 }
 
