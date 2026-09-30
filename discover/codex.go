@@ -394,12 +394,7 @@ func isIdentStart(c rune) bool {
 	return c == '_' || c == '$' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
-func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
-	}
-	return s
-}
+func truncate(s string, n int) string { return truncateUTF8(s, n) }
 
 // codexOutputText is a call output's text: a string, or the text parts of a
 // content list.

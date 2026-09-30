@@ -83,21 +83,26 @@ type normSession struct {
 }
 
 var (
-	numberRe = regexp.MustCompile(`^[0-9]+([.:][0-9]+)*[a-zA-Z]{0,2}$`)
-	idRe     = regexp.MustCompile(`^([0-9a-fA-F]{7,}|[0-9a-fA-F-]{32,36}|[A-Z][A-Z0-9]+-[0-9]+|.*[0-9].*[a-zA-Z].*[0-9].*)$`)
-	extRe    = regexp.MustCompile(`\.[A-Za-z0-9]{1,6}$`)
-	skillRe  = regexp.MustCompile(`([A-Za-z0-9_.:-]+)/SKILL\.md`)
+	numericFlag = regexp.MustCompile(`^-\d+$`)
+	numberRe    = regexp.MustCompile(`^[0-9]+([.:][0-9]+)*[a-zA-Z]{0,2}$`)
+	idRe        = regexp.MustCompile(`^([0-9a-fA-F]{7,}|[0-9a-fA-F-]{32,36}|[A-Z][A-Z0-9]+-[0-9]+|.*[0-9].*[a-zA-Z].*[0-9].*)$`)
+	extRe       = regexp.MustCompile(`\.[A-Za-z0-9]{1,6}$`)
+	skillRe     = regexp.MustCompile(`([A-Za-z0-9_.:-]+)/SKILL\.md`)
 )
 
 func typeOf(w word) string {
 	t := w.Text
 	switch {
+	case !w.Quoted && numericFlag.MatchString(t):
+		// head -10, tail -15: a count, not an option.
+		return SlotNumber
 	case !w.Quoted && len(t) > 1 && strings.HasPrefix(t, "-"):
 		return SlotFlag
+	case w.Quoted && strings.ContainsAny(t, " \n\t"):
+		// A quoted sentence that mentions a URL is still a sentence.
+		return SlotText
 	case strings.Contains(t, "://") || strings.HasPrefix(t, "data:"):
 		return SlotURL
-	case w.Quoted && strings.ContainsAny(t, " \n\t"):
-		return SlotText
 	case numberRe.MatchString(t):
 		return SlotNumber
 	case strings.ContainsAny(t, "/~") || strings.HasPrefix(t, ".") || (extRe.MatchString(t) && !strings.Contains(t, " ")):

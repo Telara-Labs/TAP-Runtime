@@ -100,6 +100,11 @@ func splitShell(line string) [][]word {
 				heredoc = append(heredoc, d)
 			}
 			i = k - 1
+		case c == '#' && !inWord:
+			// A comment runs to the end of the line.
+			for i+1 < len(rs) && rs[i+1] != '\n' {
+				i++
+			}
 		case c == '\n':
 			endCmd()
 			for len(heredoc) > 0 && i < len(rs) {
@@ -171,7 +176,33 @@ var wrappers = map[string]bool{"sudo": true, "time": true, "nohup": true, "env":
 // dropped. Each result starts with the program's base name.
 func simpleCommands(line string) [][]word {
 	var out [][]word
+	skipUntil := "" // inside a for/select header until "do", a case until "esac"
 	for _, ws := range splitShell(line) {
+		if len(ws) == 0 {
+			continue
+		}
+		first := ws[0].Text
+		if skipUntil != "" {
+			if first != skipUntil {
+				continue
+			}
+			skipUntil = ""
+			if first == "esac" {
+				continue
+			}
+		}
+		switch first {
+		case "for", "select":
+			// A loop header can span lines ("for r in\n a\n b; do"); its
+			// words are data, not commands.
+			if !containsWord(ws, "do") {
+				skipUntil = "do"
+			}
+			continue
+		case "case":
+			skipUntil = "esac"
+			continue
+		}
 		var kept []word
 		skipNext := false
 		for _, w := range ws {
@@ -210,6 +241,12 @@ func simpleCommands(line string) [][]word {
 			}
 		}
 		if len(kept) == 0 || shellState[kept[0].Text] || outputOnly[kept[0].Text] {
+			continue
+		}
+		// A program is a name: not a variable ($repo), a glob (*.csv) or a
+		// data file (notes.md), which are what a split loop or heredoc
+		// leaves behind.
+		if !programName.MatchString(filepath.Base(kept[0].Text)) || dataFile.MatchString(kept[0].Text) {
 			continue
 		}
 		kept[0].Text = filepath.Base(kept[0].Text)
@@ -336,6 +373,10 @@ func wordSpans(line string) []span {
 				// Continue after the line that ends the body.
 				i = lineEnd
 			}
+		case c == '#' && !inWord:
+			for i+1 < len(line) && line[i+1] != '\n' {
+				i++
+			}
 		case strings.IndexByte(" \t;|&(){}", c) >= 0:
 			end(i)
 		default:
@@ -380,4 +421,18 @@ func shapeOf(line string, ws []span) string {
 	}
 	b.WriteString(line[last:])
 	return b.String()
+}
+
+var (
+	programName = regexp.MustCompile(`^(\[|\[\[|[A-Za-z0-9_][A-Za-z0-9._+-]*)$`)
+	dataFile    = regexp.MustCompile(`(?i)\.(md|csv|json|jsonl|txt|log|ya?ml|html?|xml|pdf|png|jpe?g|svg|tsv|toml|lock)$`)
+)
+
+func containsWord(ws []word, w string) bool {
+	for _, x := range ws {
+		if !x.Quoted && x.Text == w {
+			return true
+		}
+	}
+	return false
 }

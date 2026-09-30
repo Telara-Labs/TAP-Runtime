@@ -216,9 +216,7 @@ func flatten(in map[string]json.RawMessage) map[string]string {
 	out := make(map[string]string, len(in))
 	for k, v := range in {
 		s := rawString(v)
-		if len(s) > maxArg {
-			s = s[:maxArg]
-		}
+		s = truncateUTF8(s, maxArg)
 		out[k] = s
 	}
 	return out

@@ -1,9 +1,12 @@
 package discover
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -54,6 +57,12 @@ type Funnel struct {
 	// NeedsAuthoring counts routines that recur and replay but need a step
 	// or a value's source written by hand before they can run.
 	NeedsAuthoring int `json:"needs_authoring"`
+	// Merged counts routines folded into another (same kind, same steps).
+	Merged int `json:"merged"`
+	// ByKind splits the primitives by who the work is for.
+	ByKind map[string]int `json:"primitives_by_kind"`
+	// Savings says how the token figures were obtained.
+	Savings string `json:"savings"`
 }
 
 // Routine is one group of requests that recurred, with its template and the
@@ -75,8 +84,21 @@ type Routine struct {
 	// recurs and replays, but a step's content or a value's source must be
 	// written by hand) or "removed" (Failed names the check, Why says how).
 	Decision string `json:"decision"`
-	Failed   string `json:"failed,omitempty"`
-	Why      string `json:"why,omitempty"`
+	// ID is stable across runs for the same kind and step sequence.
+	ID string `json:"id"`
+	// Kind is who the work is for: "user" (asked for by a person),
+	// "automated" (a program sent the same prompt each time), "scheduled"
+	// (a Codex automation) or "bookkeeping" (Telara's own recording and
+	// tool-discovery calls, which instructions make every agent do).
+	Kind string `json:"kind"`
+	// Statistics is "not_run": recurrence here is 3+ requests in 2+
+	// sessions, not a significance test.
+	Statistics string `json:"statistics"`
+	// MergedInto is the id of the routine this one duplicated (same kind,
+	// same set of steps); a merged routine is not counted again.
+	MergedInto string `json:"merged_into,omitempty"`
+	Failed     string `json:"failed,omitempty"`
+	Why        string `json:"why,omitempty"`
 	// Runs counts the requests that ran its sequence; FailedRuns those where
 	// a step failed (not evidence); UnknownRuns those whose client recorded
 	// no result.
@@ -117,7 +139,8 @@ type reqInstance struct {
 
 // requestRoutines runs the request-level pass over a normalized corpus.
 func requestRoutines(corpus []normSession, ids map[string]int, names []string, o Options, rawCalls int) (Funnel, []Routine) {
-	f := Funnel{Sessions: len(corpus), Calls: rawCalls, Removed: map[string]int{}}
+	f := Funnel{Sessions: len(corpus), Calls: rawCalls, Removed: map[string]int{},
+		Savings: "estimated from recorded token use (mostly cached input); no primitive run was measured"}
 	// Requests and their replayable steps.
 	var inst []reqInstance
 	df := make([]int, len(names))
@@ -185,16 +208,6 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 		f.Routines++
 		routines = append(routines, rt)
 	}
-	for i := range routines {
-		switch routines[i].Decision {
-		case "removed":
-			f.Removed[routines[i].Failed]++
-		case "needs_authoring":
-			f.NeedsAuthoring++
-		default:
-			f.Primitives++
-		}
-	}
 	rank := map[string]int{"primitive": 0, "needs_authoring": 1, "removed": 2}
 	// Primitives first. Among them, procedures before investigations: the
 	// tokens a routine saves weighted by its coverage (how much of its
@@ -214,6 +227,23 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 		}
 		return share(ra)*float64(ra.Requests) > share(rb)*float64(rb.Requests)
 	})
+	// One job found as two groups is counted once, under the first.
+	f.Merged = mergeDuplicates(routines)
+	f.ByKind = map[string]int{}
+	for i := range routines {
+		if routines[i].MergedInto != "" {
+			continue
+		}
+		switch routines[i].Decision {
+		case "removed":
+			f.Removed[routines[i].Failed]++
+		case "needs_authoring":
+			f.NeedsAuthoring++
+		default:
+			f.Primitives++
+			f.ByKind[routines[i].Kind]++
+		}
+	}
 	return f, routines
 }
 
@@ -437,8 +467,10 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 		sort.Slice(runs, func(a, b int) bool { return runs[a][0].Total() < runs[b][0].Total() })
 		c.PerRun, c.SavedPerRun = runs[len(runs)/2][0], runs[len(runs)/2][1]
 	}
-	c.Qualified = true
+	// Request routines are not significance-tested: none of the pattern
+	// statistics apply, and none is claimed.
 	rt.Candidate = c
+	rt.Statistics = "not_run"
 
 	// A group whose template no request ran in full cannot be drafted.
 	if len(occ) < 2 {
@@ -513,6 +545,9 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	default:
 		rt.Decision = "primitive"
 	}
+	rt.Kind = routineKind(corpus, inst, g, tmpl)
+	sum := sha256.Sum256([]byte(rt.Kind + "\x00" + strings.Join(tmpl, "\x1f")))
+	rt.ID = hex.EncodeToString(sum[:6])
 	return rt, true
 }
 
@@ -537,4 +572,85 @@ func inRequest(v, text string) bool {
 		return true
 	}
 	return false
+}
+
+// bookkeepingTools are Telara's own recording and tool-discovery calls,
+// which agent instructions make every agent run around its work.
+var bookkeepingTools = map[string]bool{
+	"mcp:telara_task_list": true, "mcp:telara_task_create": true, "mcp:telara_task_resume": true,
+	"mcp:telara_task_checkpoint": true, "mcp:telara_task_complete": true, "mcp:telara_task_pause": true,
+	"mcp:telara_tool_search": true, "mcp:telara_tool_describe": true, "mcp:telara_annotate": true,
+	"mcp:telara_link": true, "get_mcp_tools": true, "ToolSearch": true,
+}
+
+var digits = regexp.MustCompile(`\d+`)
+
+// routineKind says who a routine's work is for. Scheduled: most requests are
+// Codex automation prompts. Automated: most requests carry the same prompt
+// (digits aside), each alone in its session, so a program sent it.
+// Bookkeeping: every step is a Telara recording or discovery call.
+func routineKind(corpus []normSession, inst []reqInstance, g []int, tmpl []string) string {
+	book := true
+	for _, l := range tmpl {
+		if !bookkeepingTools[l] {
+			book = false
+		}
+	}
+	if book {
+		return "bookkeeping"
+	}
+	scheduled, single := 0, 0
+	texts := map[string]int{}
+	for _, i := range g {
+		t := strings.TrimSpace(inst[i].text)
+		if strings.HasPrefix(t, "Automation:") {
+			scheduled++
+		}
+		if len(corpus[inst[i].session].Requests) == 1 {
+			single++
+		}
+		texts[digits.ReplaceAllString(truncateUTF8(t, 120), "#")]++
+	}
+	if 2*scheduled >= len(g) {
+		return "scheduled"
+	}
+	top := 0
+	for t, n := range texts {
+		if t != "" && n > top {
+			top = n
+		}
+	}
+	if 5*top >= 4*len(g) && 5*single >= 4*len(g) {
+		return "automated"
+	}
+	return "user"
+}
+
+// mergeDuplicates folds a routine into an earlier one (in report order) with
+// the same kind and the same set of steps: one job found as two groups.
+func mergeDuplicates(rs []Routine) int {
+	seen := map[string]string{}
+	merged := 0
+	for i := range rs {
+		if rs[i].Decision == "removed" {
+			continue
+		}
+		set := map[string]bool{}
+		for _, st := range rs[i].Steps {
+			set[st.Label] = true
+		}
+		keys := make([]string, 0, len(set))
+		for k := range set {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		key := rs[i].Kind + "\x00" + strings.Join(keys, "\x1f")
+		if first, ok := seen[key]; ok {
+			rs[i].MergedInto = first
+			merged++
+			continue
+		}
+		seen[key] = rs[i].ID
+	}
+	return merged
 }

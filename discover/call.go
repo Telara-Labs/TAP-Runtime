@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Call is one tool call an agent made, in any client.
@@ -66,9 +67,7 @@ var (
 // outputIDs are the identifiers in a call's result: at most 64, from its
 // first 64 KB.
 func outputIDs(text string) []string {
-	if len(text) > 64<<10 {
-		text = text[:64<<10]
-	}
+	text = truncateUTF8(text, 64<<10)
 	seen := map[string]bool{}
 	var out []string
 	for _, m := range outIDRe.FindAllString(text, -1) {
@@ -145,12 +144,56 @@ func isRequest(text string) bool {
 	return t != "" && !strings.HasPrefix(t, "<")
 }
 
-// addRequest records a user message and returns its index.
+// addRequest records a user message as a new request, unless it continues
+// the one before it in this session: the same text sent again (a retry), or
+// an acknowledgement ("yes, file", "continue", "already approved."), whose
+// calls belong to the request it answers.
 func (s *Session) addRequest(text string) {
-	if len(text) > 4000 {
-		text = text[:4000]
+	text = truncateUTF8(requestText(text), 4000)
+	t := strings.TrimSpace(text)
+	if n := len(s.Requests); n > 0 && strings.TrimSpace(s.Requests[n-1]) != "" {
+		if t == strings.TrimSpace(s.Requests[n-1]) || isAcknowledgement(t) {
+			return
+		}
 	}
 	s.Requests = append(s.Requests, text)
+}
+
+// requestText is what the user asked. Codex wraps it in context blocks
+// ("# In app browser:", "# Files mentioned by the user:") and puts the
+// request under "## My request for Codex:".
+func requestText(text string) string {
+	const marker = "## My request for Codex:"
+	if i := strings.LastIndex(text, marker); i >= 0 {
+		return strings.TrimSpace(text[i+len(marker):])
+	}
+	return text
+}
+
+var ackWords = map[string]bool{"yes": true, "yeah": true, "yep": true, "yup": true, "y": true, "ok": true, "okay": true, "k": true, "sure": true,
+	"continue": true, "proceed": true, "go": true, "done": true, "approved": true, "already": true, "lgtm": true, "perfect": true,
+	"great": true, "thanks": true, "thank": true, "fine": true, "correct": true, "agreed": true, "good": true, "right": true}
+
+// isAcknowledgement is a short reply that answers the agent rather than
+// asking for new work: at most six words, starting with an acknowledgement
+// word, naming nothing (no path, URL, ticket or id).
+func isAcknowledgement(t string) bool {
+	words := strings.Fields(strings.ToLower(t))
+	if len(words) == 0 || len(words) > 6 || outIDRe.MatchString(t) || strings.Contains(t, "/") {
+		return false
+	}
+	return ackWords[strings.Trim(words[0], ".,!?:;")]
+}
+
+// truncateUTF8 cuts s to at most n bytes without splitting a character.
+func truncateUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // request is the index calls made now belong to.
