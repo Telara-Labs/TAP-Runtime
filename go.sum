@@ -40,6 +40,8 @@ gitlab.com/telara-labs/tap-runtime/discover v0.0.0-20260930081947-697c778154b2 h
 gitlab.com/telara-labs/tap-runtime/discover v0.0.0-20260930081947-697c778154b2/go.mod h1:u3x41kDl9Kdgab2HTJkmxwNmfY3Sv75xF3OGNSVi5M0=
 gitlab.com/telara-labs/tap-runtime/discover v0.0.0-20260930124027-aa1b08251c0a h1:Ev0TYsHBXcvVR6q1gSsvbr14y419qDOpZdL97Ok30y4=
 gitlab.com/telara-labs/tap-runtime/discover v0.0.0-20260930124027-aa1b08251c0a/go.mod h1:u3x41kDl9Kdgab2HTJkmxwNmfY3Sv75xF3OGNSVi5M0=
+gitlab.com/telara-labs/tap-runtime/discover v0.0.0-20260930142901-f7ba94689440 h1:GGZ5kvrH0y3z3SCkHMrusMMQSw21/EDOVE7waMM9mhQ=
+gitlab.com/telara-labs/tap-runtime/discover v0.0.0-20260930142901-f7ba94689440/go.mod h1:u3x41kDl9Kdgab2HTJkmxwNmfY3Sv75xF3OGNSVi5M0=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=
 go.opentelemetry.io/otel v1.46.0 h1:FHt5/CDyVxi/8IM1CH7VE/rRgq3kLHa2mSTVMO8AWyc=
