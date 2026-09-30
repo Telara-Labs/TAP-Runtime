@@ -77,10 +77,10 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 		prims = prims[:cfg.Top]
 	}
 	if len(prims) == 0 {
-		fmt.Fprintln(out, "No routine passed every check, so there is nothing to save.")
+		fmt.Fprintln(out, "No routine was recognized as a useful procedure with a complete draft, so there is nothing to save.")
 		return nil
 	}
-	fmt.Fprintln(out, "\nPrimitives, drafted:")
+	fmt.Fprintln(out, "\nRecommended procedures, drafted. UNVALIDATED: none has been executed.")
 	for i, p := range prims {
 		d := p.Draft()
 		fmt.Fprintf(out, "\n%d. %s  (%d requests, %d weeks", i+1, d.Name, p.Requests, p.Weeks)
@@ -88,6 +88,18 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 			fmt.Fprintf(out, ", saves %s tokens per run", humanTokens(p.SavedPerRun.Total()))
 		}
 		fmt.Fprintf(out, ")\n   asked as: %s\n", oneLine(Redact(p.Example), 120))
+		if _, digest, err := d.Package(); err == nil {
+			fmt.Fprintf(out, "   status: unvalidated (validation not run for %s)\n", digest)
+		}
+		var srcs []string
+		for _, in := range p.Contract.Inputs {
+			srcs = append(srcs, in.Name+"<-"+in.Source)
+		}
+		fmt.Fprintf(out, "   contract: effect %s, goal %s, inputs %s", p.Contract.Effect, p.Contract.Goal, orNone(srcs))
+		if p.Contract.Boundary != "" {
+			fmt.Fprintf(out, "; %s", p.Contract.Boundary)
+		}
+		fmt.Fprintln(out)
 		for _, s := range d.Steps {
 			fmt.Fprintf(out, "   %d. [%s] %s\n", s.N, s.Kind, oneLine(Redact(s.Line), 130))
 		}

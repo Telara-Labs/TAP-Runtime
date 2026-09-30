@@ -6,6 +6,7 @@ package discover
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 )
@@ -49,5 +50,38 @@ func TestR2EphemeralConstantsAreNotAReusableProcedure(t *testing.T) {
 	}
 	if len(rep.Routines) == 0 {
 		t.Fatal(fmt.Sprint("no routine: the case did not exercise the rule"))
+	}
+}
+
+// An unvalidated draft says so wherever it surfaces: the manifest and
+// README, the review list (with the digest that was not validated) and the
+// saved folder's marker.
+func TestUnvalidatedDraftsSayUnvalidated(t *testing.T) {
+	rep := runOn(t, requestCorpus())
+	prims := rep.Primitives()
+	if len(prims) == 0 {
+		t.Fatal("no recommended procedure to review")
+	}
+	d := prims[0].Draft()
+	if !strings.Contains(string(d.Files["README.md"]), "**Status: unvalidated.**") || !strings.Contains(string(d.Files["primitive.yaml"]), "Unvalidated draft (never executed)") {
+		t.Fatalf("README/manifest do not say unvalidated")
+	}
+	_, digest, err := d.Package()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	Review(strings.NewReader("\n"), &out, rep, ReviewConfig{}, ReviewActions{})
+	if !strings.Contains(out.String(), "UNVALIDATED") || !strings.Contains(out.String(), "validation not run for "+digest) {
+		t.Fatalf("review output:\n%s", out.String())
+	}
+	dir := t.TempDir()
+	path, _, err := d.Save(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path + "/" + SavedMarker)
+	if !strings.Contains(string(b), `"validation": "not_run"`) {
+		t.Fatalf("marker: %s", b)
 	}
 }
