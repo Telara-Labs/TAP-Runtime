@@ -45,7 +45,7 @@ func TestAddGeminiKeepsSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	os.WriteFile(path, []byte(`{"mcpServers":{"telara":{"httpUrl":"https://example.com/mcp"}},"hooks":{"AfterTool":[{"matcher":"write_file","hooks":[{"name":"lint","type":"command","command":"lint.sh"}]}]},"theme":"dark"}`), 0o600)
 	for i := 0; i < 2; i++ {
-		if err := addGemini(path, "tap", "/opt/tap dir/tap"); err != nil {
+		if err := addGemini(path, "tap", "/opt/tap dir/tap", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -88,7 +88,7 @@ func TestAddGeminiKeepsSettings(t *testing.T) {
 		t.Error("the file was rewritten without a copy of what it held")
 	}
 	os.WriteFile(path, []byte("{ // a comment\n}"), 0o600)
-	if err := addGemini(path, "tap", "/x"); err == nil || !strings.Contains(err.Error(), "by hand") {
+	if err := addGemini(path, "tap", "/x", nil); err == nil || !strings.Contains(err.Error(), "by hand") {
 		t.Errorf("a file with comments was rewritten: %v", err)
 	}
 }

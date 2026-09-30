@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -49,8 +50,35 @@ type telemetry struct {
 	buf  []byte
 }
 
+// runIdentity names what a run ran, for the collector. ArtifactDigest is the
+// registry's digest of the package, read from the marker the telara CLI writes
+// beside a pulled primitive (.telara-primitive.json); it is empty for a
+// package that was not pulled from a registry. PackageDigest is the runner's
+// own digest of the manifest and entrypoint.
+type runIdentity struct {
+	Publisher, Name, Version           string
+	PackageDigest, ArtifactDigest, Ref string
+}
+
+// readRegistryMarker returns the ref and artifact digest a telara CLI pull
+// recorded in dir, or empty strings.
+func readRegistryMarker(dir string) (ref, digest string) {
+	b, err := os.ReadFile(filepath.Join(dir, ".telara-primitive.json"))
+	if err != nil {
+		return "", ""
+	}
+	var m struct {
+		Ref            string `json:"ref"`
+		ArtifactDigest string `json:"artifact_digest"`
+	}
+	if json.Unmarshal(b, &m) != nil {
+		return "", ""
+	}
+	return m.Ref, m.ArtifactDigest
+}
+
 // startTelemetry starts the exporter, or returns nil when none is configured.
-func startTelemetry(ctx context.Context, primitive, runID, client string, payloads bool) (*telemetry, error) {
+func startTelemetry(ctx context.Context, id runIdentity, runID, client string, payloads bool) (*telemetry, error) {
 	if !otelEndpointSet() {
 		return nil, nil
 	}
@@ -72,7 +100,12 @@ func startTelemetry(ctx context.Context, primitive, runID, client string, payloa
 	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exp), sdktrace.WithResource(res))
 	t := &telemetry{provider: tp, tracer: tp.Tracer("tap-runtime"), payloads: payloads}
 	t.ctx, t.root = t.tracer.Start(ctx, "tap.run", trace.WithAttributes(
-		attribute.String("tap.primitive", primitive),
+		attribute.String("tap.primitive", id.Name),
+		attribute.String("tap.publisher", id.Publisher),
+		attribute.String("tap.version", id.Version),
+		attribute.String("tap.ref", id.Ref),
+		attribute.String("tap.package_digest", id.PackageDigest),
+		attribute.String("tap.artifact_digest", id.ArtifactDigest),
 		attribute.String("tap.run_id", runID),
 		attribute.String("tap.client", client),
 	))
@@ -161,12 +194,22 @@ func (t *telemetry) span(e map[string]any) {
 
 // stop ends the run's span and sends what is waiting. It is bounded: a
 // collector that does not answer must not hold a run open.
-func (t *telemetry) stop(outcome string) {
+func (t *telemetry) stop(outcome string, res *Result) {
 	if t == nil {
 		return
 	}
 	t.root.SetAttributes(attribute.String("tap.outcome", outcome))
-	if outcome != "completed" {
+	if res != nil {
+		// What the program returned and what it did: a run can complete with
+		// the program failing, and a completed run can have been refused.
+		t.root.SetAttributes(
+			attribute.Int("tap.exit", res.Exit),
+			attribute.Int("tap.ran", res.Ran),
+			attribute.Int("tap.refused", res.Refused),
+			attribute.Int("tap.unknown", res.Unknown),
+		)
+	}
+	if outcome != "completed" || (res != nil && res.Exit != 0) {
 		t.root.SetStatus(codes.Error, outcome)
 	}
 	t.root.End()

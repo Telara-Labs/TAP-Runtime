@@ -20,6 +20,12 @@ var version = "dev"
 //	tap install --client claude [--scope user] [--print]
 //	tap install --client codex [--print]
 //	tap install --client gemini [--print]
+//	... [--env OTEL_EXPORTER_OTLP_ENDPOINT=URL --env OTEL_EXPORTER_OTLP_HEADERS=...]
+//
+// --env hands the runner the standard OpenTelemetry variables through the
+// client's own configuration, so a run reports to that collector (rulings 26
+// and 35). Only OTEL_* names are accepted: those are the only variables the
+// runner reads for telemetry, and nothing else is to be configured this way.
 //
 // It is the one setup step a person takes. With --print it changes nothing
 // and shows what it would run.
@@ -30,6 +36,8 @@ func installCommand(args []string, stdout, stderr io.Writer) int {
 	scope := fs.String("scope", "user", "for claude: local, user or project")
 	print := fs.Bool("print", false, "show the command and change nothing")
 	name := fs.String("name", "tap", "name the client will know the runner by")
+	var env envFlags
+	fs.Var(&env, "env", "OTEL_* variable for the runner, as NAME=VALUE; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -41,7 +49,7 @@ func installCommand(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cannot tell where this program is:", err)
 		return 1
 	}
-	argv, err := installArgv(*client, *scope, *name, self)
+	argv, err := installArgv(*client, *scope, *name, self, env)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -61,10 +69,10 @@ func installCommand(args []string, stdout, stderr io.Writer) int {
 		// Gemini keeps its MCP servers and its hooks in one settings file.
 		// Both are written there directly, as its own `mcp add` would.
 		if *print {
-			fmt.Fprintf(stdout, "add to %s: mcpServers.%s runs %s serve --name %s; hooks.AfterTool runs %s\n", settings, *name, self, *name, geminiHookCommand(self))
+			fmt.Fprintf(stdout, "add to %s: mcpServers.%s runs %s serve --name %s%s; hooks.AfterTool runs %s\n", settings, *name, self, *name, env.masked(), geminiHookCommand(self))
 			return 0
 		}
-		if err := addGemini(settings, *name, self); err != nil {
+		if err := addGemini(settings, *name, self, env); err != nil {
 			fmt.Fprintln(stderr, "not installed:", err)
 			return 1
 		}
@@ -72,7 +80,7 @@ func installCommand(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if *print {
-		fmt.Fprintln(stdout, strings.Join(argv, " "))
+		fmt.Fprintln(stdout, strings.Join(maskEnvArgs(argv), " "))
 		return 0
 	}
 	if _, err := exec.LookPath(argv[0]); err != nil {
@@ -122,7 +130,7 @@ func shellQuote(s string) string {
 // adds its hook, keeping everything else in the file as it was. Running it
 // twice leaves one of each. A file that is not plain JSON is left alone and
 // the reason given, rather than rewritten.
-func addGemini(path, name, self string) error {
+func addGemini(path, name, self string, env envFlags) error {
 	command := geminiHookCommand(self)
 	raw, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -138,7 +146,16 @@ func addGemini(path, name, self string) error {
 	if servers == nil {
 		servers = map[string]any{}
 	}
-	servers[name] = map[string]any{"command": self, "args": []any{"serve", "--name", name}}
+	entry := map[string]any{"command": self, "args": []any{"serve", "--name", name}}
+	if len(env) > 0 {
+		vars := map[string]any{}
+		for _, kv := range env {
+			k, v, _ := strings.Cut(kv, "=")
+			vars[k] = v
+		}
+		entry["env"] = vars
+	}
+	servers[name] = entry
 	settings["mcpServers"] = servers
 	hooks, _ := settings["hooks"].(map[string]any)
 	if hooks == nil {
@@ -180,7 +197,7 @@ func addGemini(path, name, self string) error {
 	return os.WriteFile(path, append(out, '\n'), 0o600)
 }
 
-func installArgv(client, scope, name, self string) ([]string, error) {
+func installArgv(client, scope, name, self string, env envFlags) ([]string, error) {
 	switch client {
 	case "claude":
 		switch scope {
@@ -188,9 +205,17 @@ func installArgv(client, scope, name, self string) ([]string, error) {
 		default:
 			return nil, fmt.Errorf("scope %q is not one Claude Code has", scope)
 		}
-		return []string{"claude", "mcp", "add", "--scope", scope, name, "--", self, "serve"}, nil
+		argv := []string{"claude", "mcp", "add", "--scope", scope}
+		for _, kv := range env {
+			argv = append(argv, "-e", kv)
+		}
+		return append(argv, name, "--", self, "serve"), nil
 	case "codex":
-		return []string{"codex", "mcp", "add", name, "--", self, "serve"}, nil
+		argv := []string{"codex", "mcp", "add"}
+		for _, kv := range env {
+			argv = append(argv, "--env", kv)
+		}
+		return append(argv, name, "--", self, "serve"), nil
 	case "gemini":
 		// Written to Gemini's settings by addGemini; shown for --print.
 		return []string{"gemini-settings", name, self, "serve", "--name", name}, nil
@@ -198,4 +223,48 @@ func installArgv(client, scope, name, self string) ([]string, error) {
 		return nil, fmt.Errorf("say which client: --client claude, --client codex or --client gemini")
 	}
 	return nil, fmt.Errorf("client %q cannot lend its connections, so there is nothing to install into", client)
+}
+
+// envFlags is the repeatable --env NAME=VALUE flag. Only OTEL_* names are
+// accepted (ruling 35).
+type envFlags []string
+
+func (e *envFlags) String() string { return strings.Join(*e, ",") }
+
+func (e *envFlags) Set(v string) error {
+	k, _, ok := strings.Cut(v, "=")
+	if !ok || k == "" {
+		return fmt.Errorf("--env takes NAME=VALUE, got %q", v)
+	}
+	if !strings.HasPrefix(k, "OTEL_") {
+		return fmt.Errorf("--env %s: only OpenTelemetry (OTEL_*) variables are passed to the runner this way", k)
+	}
+	*e = append(*e, v)
+	return nil
+}
+
+// masked lists the names only: a header value can carry a credential.
+func (e envFlags) masked() string {
+	if len(e) == 0 {
+		return ""
+	}
+	var names []string
+	for _, kv := range e {
+		k, _, _ := strings.Cut(kv, "=")
+		names = append(names, k)
+	}
+	return " with env " + strings.Join(names, ", ")
+}
+
+// maskEnvArgs hides the value of each NAME=VALUE that follows -e or --env.
+func maskEnvArgs(argv []string) []string {
+	out := append([]string(nil), argv...)
+	for i := 1; i < len(out); i++ {
+		if out[i-1] == "-e" || out[i-1] == "--env" {
+			if k, _, ok := strings.Cut(out[i], "="); ok {
+				out[i] = k + "=***"
+			}
+		}
+	}
+	return out
 }
