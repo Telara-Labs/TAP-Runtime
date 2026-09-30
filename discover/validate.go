@@ -82,6 +82,7 @@ type Receipts struct {
 	Package       string            `json:"package"`
 	PackageDigest string            `json:"package_digest"`
 	Runner        string            `json:"runner"`
+	RunnerFlags   []string          `json:"runner_flags,omitempty"`
 	RunnerSHA256  string            `json:"runner_sha256"`
 	CasesSHA256   string            `json:"cases_sha256"`
 	OracleSHA256  map[string]string `json:"oracle_sha256"`
@@ -486,6 +487,9 @@ type ValidateOptions struct {
 	Package string
 	Cases   string
 	Runner  string
+	// RunnerFlags go to the runner before its own flags, such as an
+	// interpreter store for a machine that must not download one.
+	RunnerFlags []string
 }
 
 // Validate runs every case and returns the receipts. An error means the run
@@ -514,7 +518,7 @@ func Validate(o ValidateOptions) (*Receipts, error) {
 	}
 	rs := sha256.Sum256(runnerBytes)
 	argv, oracleSums := oracleArgv(cf, filepath.Dir(o.Cases))
-	rec := &Receipts{Kind: "tap.validation-receipts/v1", Package: pkg, PackageDigest: digest, Runner: o.Runner,
+	rec := &Receipts{Kind: "tap.validation-receipts/v1", Package: pkg, PackageDigest: digest, Runner: o.Runner, RunnerFlags: o.RunnerFlags,
 		RunnerSHA256: "sha256:" + hex.EncodeToString(rs[:]), CasesSHA256: casesSum, OracleSHA256: oracleSums,
 		Started: time.Now().UTC(), AllPassed: len(cf.Cases) > 0}
 
@@ -527,7 +531,7 @@ func Validate(o ValidateOptions) (*Receipts, error) {
 		rec.AllPassed = false
 	}
 	for _, c := range cf.Cases {
-		cr, err := validateCase(c, pkg, o.Runner, argv)
+		cr, err := validateCase(c, pkg, o.Runner, o.RunnerFlags, argv)
 		if err != nil {
 			return nil, err
 		}
@@ -537,7 +541,7 @@ func Validate(o ValidateOptions) (*Receipts, error) {
 	return rec, nil
 }
 
-func validateCase(c Case, pkg, runner string, oracle []string) (*CaseReceipt, error) {
+func validateCase(c Case, pkg, runner string, runnerFlags, oracle []string) (*CaseReceipt, error) {
 	f, err := newFixture(c)
 	if err != nil {
 		return nil, err
@@ -576,7 +580,7 @@ func validateCase(c Case, pkg, runner string, oracle []string) (*CaseReceipt, er
 	// shows only what the package did.
 	journal := filepath.Join(os.TempDir(), "tap-validate-journal-"+c.ID+"-"+strconv.FormatInt(time.Now().UnixNano(), 36)+".jsonl")
 	defer os.Remove(journal)
-	run := []string{runner, "-no-record", "-journal", journal}
+	run := append(append([]string{runner}, runnerFlags...), "-no-record", "-journal", journal)
 	if c.Approve {
 		run = append(run, "-approve")
 	}
