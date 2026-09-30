@@ -43,6 +43,7 @@ func (r Codex) Read(since time.Time) ([]Session, error) {
 		return nil, err
 	}
 	var out []Session
+	ids := map[string]bool{}
 	for _, f := range files {
 		if info, err := os.Stat(f); err != nil || info.ModTime().Before(since) {
 			continue
@@ -51,6 +52,16 @@ func (r Codex) Read(since time.Time) ([]Session, error) {
 		if err != nil || len(s.Calls) == 0 || s.Start.Before(since) {
 			continue
 		}
+		// A sub-rollout can open with its parent's meta. Session identity
+		// must be unique, so a later file claiming a used id is named by
+		// its own file.
+		if ids[s.ID] {
+			s.ID = strings.TrimSuffix(filepath.Base(f), ".jsonl")
+			for i := range s.Calls {
+				s.Calls[i].Session = s.ID
+			}
+		}
+		ids[s.ID] = true
 		out = append(out, s)
 	}
 	return out, nil
@@ -91,6 +102,7 @@ func readCodexFile(path string) (s Session, err error) {
 	defer fh.Close()
 	s = Session{Client: "codex", ID: strings.TrimSuffix(filepath.Base(path), ".jsonl")}
 	turn, turnStart := 0, 0
+	metaSeen := false
 	byCallID := map[string][]int{} // call_id -> calls it produced
 	curID := ""
 	add := func(c Call) {
@@ -149,8 +161,10 @@ func readCodexFile(path string) (s Session, err error) {
 				}
 			}
 		case ln.Type == "session_meta":
-			if p.ID != "" {
-				s.ID = p.ID
+			// A forked or resumed rollout also carries its parent's meta
+			// later in the file; the first one is this file's own.
+			if p.ID != "" && !metaSeen {
+				s.ID, metaSeen = p.ID, true
 			}
 			if s.Start.IsZero() {
 				s.Start = ln.Timestamp
