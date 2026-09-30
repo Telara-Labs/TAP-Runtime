@@ -51,6 +51,9 @@ func SkillsDir(client string, project bool, home, cwd string) (string, error) {
 type savedMarker struct {
 	Name   string `json:"name"`
 	Digest string `json:"digest"`
+	// Validation is "not_run": saving is not validating. A validation
+	// result names the exact digest it passed for.
+	Validation string `json:"validation"`
 }
 
 // ErrNotSaved reports a folder of the draft's name that is not a saved
@@ -102,7 +105,7 @@ func (d *Draft) Save(root string) (path string, unchanged bool, err error) {
 	if err := os.WriteFile(filepath.Join(stage, "SKILL.md"), []byte(savedSkillMD(d, dest)), 0o644); err != nil {
 		return "", false, err
 	}
-	marker, _ := json.MarshalIndent(savedMarker{Name: d.Publisher + "/" + d.Name, Digest: digest}, "", "  ")
+	marker, _ := json.MarshalIndent(savedMarker{Name: d.Publisher + "/" + d.Name, Digest: digest, Validation: ValidationNotRun}, "", "  ")
 	if err := os.WriteFile(filepath.Join(stage, SavedMarker), append(marker, '\n'), 0o644); err != nil {
 		return "", false, err
 	}

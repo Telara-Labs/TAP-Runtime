@@ -271,7 +271,7 @@ func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 
 	d.finish()
 	name := draftName(c)
-	desc := fmt.Sprintf("Recurring routine found by tap discover in %d sessions over %d weeks (%s). Steps: %s.",
+	desc := fmt.Sprintf("Unvalidated draft (never executed). Recurring routine found by tap discover in %d sessions over %d weeks (%s). Steps: %s.",
 		c.Sessions, c.Weeks, clientList(c.ByClient), labelsOf(c))
 	props := map[string]any{}
 	var required []string
@@ -846,7 +846,7 @@ func (d *drafter) builtin(i, n int, label string) {
 
 func draftReadme(name, desc string, d *drafter) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# %s\n\n%s\n\nDrafted by `telara tap discover` from recorded sessions on this machine. Review it before you run or publish it.\n\n", name, desc)
+	fmt.Fprintf(&b, "# %s\n\n**Status: unvalidated.** This package has never been executed. Its steps were drafted from recorded sessions; passing publish checks is not validation. Run it on fresh inputs with an independent check of the result before relying on it.\n\n%s\n\nDrafted by `telara tap discover` from recorded sessions on this machine. Review it before you run or publish it.\n\n", name, desc)
 	b.WriteString("## Inputs\n\n")
 	if len(d.inputs) == 0 {
 		b.WriteString("None: every value was the same in every recorded run.\n")
