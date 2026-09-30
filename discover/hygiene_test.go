@@ -100,7 +100,7 @@ func TestKindsAndMerging(t *testing.T) {
 	kinds := map[string]bool{}
 	for _, r := range rep.Routines {
 		kinds[r.Kind] = true
-		if r.Statistics != "not_run" || r.ID == "" {
+		if r.Statistics != "not_run" || r.Validation != "not_run" || r.ID == "" {
 			t.Errorf("routine %s: statistics %q id %q", labelsOf(r.Candidate), r.Statistics, r.ID)
 		}
 		b, _ := json.Marshal(r)
