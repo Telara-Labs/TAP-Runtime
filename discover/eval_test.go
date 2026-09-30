@@ -105,3 +105,24 @@ func TestSourceDigestSurvivesParserChanges(t *testing.T) {
 		t.Fatalf("changed source bytes must stop the run: %v", err)
 	}
 }
+
+func TestSingleEpisodeContract(t *testing.T) {
+	// A request that names both revisions and runs two diffs: every value
+	// has a source, so the episode alone is a specified procedure.
+	good := eps("g", 1, func(int) string { return "compare a1b2c3d and d4e5f6a for services and tests" }, func(int) []Call {
+		return []Call{sh("git diff --name-only a1b2c3d d4e5f6a -- services"), sh("git diff --name-only a1b2c3d d4e5f6a -- tests")}
+	})
+	// A request whose reads target files nobody named: chosen during the run.
+	bad := eps("b", 1, func(int) string { return "why is the gateway slow?" }, func(int) []Call {
+		return []Call{{Tool: "Read", Args: map[string]string{"file_path": "src/x/pool.go"}}, sh("rg -n timeout internal/y"), {Tool: "Read", Args: map[string]string{"file_path": "src/z/conn.go"}}}
+	})
+	c := NewCorpus(append(good, bad...))
+	cl := c.AssessEpisodes(c.Episodes())
+	got := map[string]string{}
+	for _, x := range cl {
+		got[x.Session] = x.Suitability
+	}
+	if got["g00"] != SuitUseful || got["b00"] == SuitUseful {
+		t.Fatalf("claims %v", got)
+	}
+}

@@ -34,6 +34,8 @@ func main() {
 		err = sample(os.Args[2:])
 	case "show":
 		err = show(os.Args[2:])
+	case "episodes":
+		err = episodes(os.Args[2:])
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}
@@ -264,4 +266,39 @@ func staticReader(ss []discover.Session) discover.Reader { return staticReaderT{
 func (s staticReaderT) Client() string                   { return "frozen" }
 func (s staticReaderT) Read(time.Time) ([]discover.Session, error) {
 	return s.ss, nil
+}
+
+// episodes judges each sampled episode on its own contract (no recurrence).
+func episodes(args []string) error {
+	fs := flag.NewFlagSet("episodes", flag.ExitOnError)
+	manifest := fs.String("manifest", "manifest.json", "frozen corpus")
+	sample := fs.String("sample", "sample/sample.json", "sample to judge")
+	out := fs.String("out", "episode-claims.json", "claims to write")
+	fs.Parse(args)
+	rs, _, err := frozenReaders(*manifest)
+	if err != nil {
+		return err
+	}
+	ss, err := readAll(rs)
+	if err != nil {
+		return err
+	}
+	var smp struct {
+		Episodes []discover.Episode `json:"episodes"`
+	}
+	b, err := os.ReadFile(*sample)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(b, &smp); err != nil {
+		return err
+	}
+	c := discover.NewCorpus(ss)
+	claims := c.AssessEpisodes(smp.Episodes)
+	n := map[string]int{}
+	for _, cl := range claims {
+		n[cl.Suitability]++
+	}
+	fmt.Println("episode claims:", n)
+	return writeJSON(*out, claims)
 }
