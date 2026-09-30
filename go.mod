@@ -8,7 +8,7 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/tetratelabs/wazero v1.12.0
 	gitlab.com/telara-labs/tap-runtime/contract v0.0.0-20260929043506-c37e9b089cfa
-	gitlab.com/telara-labs/tap-runtime/discover v0.0.0-20260930124027-aa1b08251c0a
+	gitlab.com/telara-labs/tap-runtime/discover v0.0.0-20260930142901-f7ba94689440
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0
 	go.opentelemetry.io/otel/sdk v1.46.0
