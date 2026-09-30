@@ -306,27 +306,55 @@ func weightedJaccard(a, b map[int]float64) float64 {
 	return inter / union
 }
 
-// buildRoutine makes a group's template (steps at least half its requests
-// ran, in their usual order), finds each request's run of it, drafts it and
-// runs the checks.
+// buildRoutine makes a group's template (the steps at least half its
+// requests ran together, in a recorded order), finds each request's run of
+// it, drafts it and runs the checks.
 func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []string, o Options) (Routine, bool) {
-	// The steps that belong to the routine: replayable labels at least half
-	// its requests ran.
+	// The steps that belong to the routine: the largest set of replayable
+	// steps that at least half its requests ran together. Steps are taken in
+	// order of how many requests ran them, and one is kept only if half the
+	// requests still ran every step kept so far; steps each present in half
+	// the requests separately can otherwise make a set no request ran whole.
+	has := make([]map[string]bool, len(g))
 	present := map[string]int{}
-	for _, i := range g {
+	for k, i := range g {
 		s := corpus[inst[i].session]
-		seen := map[string]bool{}
+		has[k] = map[string]bool{}
 		for _, si := range inst[i].steps {
-			if l := s.Steps[si].Label; replayable(l) && !seen[l] {
-				seen[l] = true
+			if l := s.Steps[si].Label; replayable(l) && !has[k][l] {
+				has[k][l] = true
 				present[l]++
 			}
 		}
 	}
+	byPresence := make([]string, 0, len(present))
+	for l := range present {
+		byPresence = append(byPresence, l)
+	}
+	sort.Slice(byPresence, func(a, b int) bool {
+		if present[byPresence[a]] != present[byPresence[b]] {
+			return present[byPresence[a]] > present[byPresence[b]]
+		}
+		return byPresence[a] < byPresence[b]
+	})
 	inSet := map[string]bool{}
-	for l, n := range present {
-		if 2*n >= len(g) {
+	covering := make([]int, len(g))
+	for k := range covering {
+		covering[k] = k
+	}
+	for _, l := range byPresence {
+		if 2*present[l] < len(g) {
+			break
+		}
+		var next []int
+		for _, k := range covering {
+			if has[k][l] {
+				next = append(next, k)
+			}
+		}
+		if 2*len(next) >= len(g) {
 			inSet[l] = true
+			covering = next
 		}
 	}
 	if len(inSet) < 2 {
