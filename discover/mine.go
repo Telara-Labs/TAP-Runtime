@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
 // pattern is an ordered list of step labels (as ids) and the sessions that
@@ -20,23 +22,9 @@ func (p pattern) key() string {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		b.WriteString(itoa(x))
+		b.WriteString(util.Itoa(x))
 	}
 	return b.String()
-}
-
-func itoa(x int) string {
-	if x == 0 {
-		return "0"
-	}
-	var d [20]byte
-	i := len(d)
-	for x > 0 {
-		i--
-		d[i] = byte('0' + x%10)
-		x /= 10
-	}
-	return string(d[i:])
 }
 
 type mineLimits struct {
@@ -141,7 +129,7 @@ func minePatterns(seqs [][]int, lim mineLimits) ([]pattern, int, bool) {
 		}
 	}
 	sort.Ints(roots)
-	parallelFor(len(roots), func(i int) {
+	util.ParallelFor(len(roots), func(i int) {
 		grow([]int{roots[i]}, first[roots[i]])
 	})
 	sort.Slice(out, func(a, b int) bool { return lessItems(out[a].items, out[b].items) })

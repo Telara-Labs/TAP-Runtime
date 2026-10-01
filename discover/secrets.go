@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
 // Session history holds credentials: a bearer header typed into curl, a
@@ -107,7 +109,7 @@ func scanArtifacts(files map[string][]byte) []string {
 	for name, body := range files {
 		for i, line := range strings.Split(string(body), "\n") {
 			if sh := secretShape(line); sh != "" {
-				out = append(out, name+" line "+itoa(i+1)+": "+sh)
+				out = append(out, name+" line "+util.Itoa(i+1)+": "+sh)
 			}
 		}
 	}

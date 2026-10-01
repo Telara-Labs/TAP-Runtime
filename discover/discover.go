@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
 // RulesVersion changes whenever a rule changes, so two reports are only
@@ -399,7 +401,7 @@ func Run(o Options) (*Report, error) {
 	// which cost a pass over the corpus per permutation.
 	closed := closedOnly(mined)
 	pNeedAll := make([]float64, len(closed))
-	parallelFor(len(closed), func(i int) {
+	util.ParallelFor(len(closed), func(i int) {
 		pNeedAll[i] = necessity(closed[i], seqs, index, df, share, o.Window)
 	})
 	qNeedAll := benjaminiHochbergOf(pNeedAll, examined)
@@ -840,26 +842,6 @@ next:
 		}
 	}
 	return n
-}
-
-// parallelFor runs f(0..n-1) on every CPU.
-func parallelFor(n int, f func(int)) {
-	var wg sync.WaitGroup
-	next := make(chan int)
-	for w := 0; w < runtime.GOMAXPROCS(0); w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := range next {
-				f(i)
-			}
-		}()
-	}
-	for i := 0; i < n; i++ {
-		next <- i
-	}
-	close(next)
-	wg.Wait()
 }
 
 func (o Options) log(format string, a ...any) {
