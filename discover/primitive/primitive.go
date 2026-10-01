@@ -58,6 +58,8 @@ type Primitive struct {
 	ExecutionCount int `json:"executionCount"`
 	// Executions index every supporting execution with exact locators.
 	Executions []Execution `json:"executions"`
+	// Confidence scores how well the evidence supports this flow.
+	Confidence Confidence `json:"confidence"`
 }
 
 // Binding is one argument's source, aggregated over the executions.
@@ -106,6 +108,9 @@ type CallRef struct {
 	ID    string `json:"id,omitempty"`
 	Time  string `json:"time,omitempty"`
 	Op    string `json:"op"`
+	// OK is true when the client recorded the call as succeeding; false
+	// when it recorded nothing (failed calls are never steps).
+	OK bool `json:"ok"`
 }
 
 // Observed is one argument's source in one execution.
@@ -257,6 +262,9 @@ func Discover(ss []trace.Session, known []Known) Result {
 		if len(p.ComposedOf) > 0 {
 			res.Summary.Composed++
 		}
+	}
+	for i := range res.Primitives {
+		res.Primitives[i].Confidence = score(res.Primitives[i])
 	}
 	res.Summary.Primitives = len(res.Primitives)
 	return res

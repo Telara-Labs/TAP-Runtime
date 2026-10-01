@@ -287,7 +287,7 @@ func condense(ss []trace.Session, graphs [][]node) []Primitive {
 			}
 			for _, k := range st.members {
 				n := g[k]
-				ref := CallRef{Step: p + 1, Index: n.call, ID: n.c.ID, Op: n.op}
+				ref := CallRef{Step: p + 1, Index: n.call, ID: n.c.ID, Op: n.op, OK: n.c.Outcome == trace.OutcomeOK}
 				if !n.c.Time.IsZero() {
 					ref.Time = n.c.Time.UTC().Format("2006-01-02T15:04:05Z")
 				}

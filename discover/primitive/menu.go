@@ -175,6 +175,7 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 		}
 		fmt.Fprintf(out, "%3d. %s%s\n", i+1, describe(p), mark)
 		fmt.Fprintf(out, "     inputs: %s · effect: %s · sessionCount: %d · executionCount: %d\n", inputNames(p), p.Effect, p.SessionCount, p.ExecutionCount)
+		fmt.Fprintf(out, "     flow confidence: %s\n", p.Confidence.Summary())
 		fmt.Fprintf(out, "     bindings: %s\n", bindingSummary(p))
 		for _, u := range p.Unresolved {
 			fmt.Fprintf(out, "     unresolved: %s\n", u)
