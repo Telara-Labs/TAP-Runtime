@@ -5,6 +5,8 @@ import (
 	"path"
 	"regexp"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
 
 // Some calls carry their real work as code or a document: a browser script
@@ -71,7 +73,7 @@ func patchSteps(input string) []Step {
 // time) and the path the parameter. A path also yields its base name.
 func argSlots(key, v string) []Slot {
 	v = truncateUTF8(v, 200)
-	tp := typeOf(word{Text: v, Quoted: strings.ContainsAny(v, " \n")})
+	tp := typeOf(shellparse.Word{Text: v, Quoted: strings.ContainsAny(v, " \n")})
 	out := []Slot{{Key: key, Type: tp, Value: v}}
 	switch tp {
 	case SlotURL:

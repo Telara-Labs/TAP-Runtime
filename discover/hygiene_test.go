@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
 
 func TestAcknowledgementsAndRetriesContinueTheRequest(t *testing.T) {
@@ -46,7 +48,7 @@ func TestNonCommandsAreNotSteps(t *testing.T) {
 		"case $x in a) ls ;; esac\nmake":          "make",
 	} {
 		var got []string
-		for _, c := range simpleCommands(in) {
+		for _, c := range shellparse.SimpleCommands(in) {
 			got = append(got, c[0].Text)
 		}
 		if strings.Join(got, " ") != want {
@@ -56,10 +58,10 @@ func TestNonCommandsAreNotSteps(t *testing.T) {
 }
 
 func TestTypingOfQuotedURLsAndNumericFlags(t *testing.T) {
-	if got := typeOf(word{Text: "see https://x.dev for why", Quoted: true}); got != SlotText {
+	if got := typeOf(shellparse.Word{Text: "see https://x.dev for why", Quoted: true}); got != SlotText {
 		t.Errorf("a quoted sentence with a URL is text, got %s", got)
 	}
-	if got := typeOf(word{Text: "-15"}); got != SlotNumber {
+	if got := typeOf(shellparse.Word{Text: "-15"}); got != SlotNumber {
 		t.Errorf("tail -15 is a count, got %s", got)
 	}
 }

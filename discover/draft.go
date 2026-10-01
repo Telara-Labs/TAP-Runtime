@@ -13,6 +13,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/util"
 
 	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
@@ -1203,15 +1205,15 @@ func (d *drafter) compound(i, j int) {
 	}
 	type cut struct {
 		raw   string
-		words []span
+		words []shellparse.Span
 	}
 	byShape := map[string][]int{}
 	cuts := make([]cut, len(d.occ))
 	for o := range d.occ {
 		raw := d.occ[o][i].Raw
-		ws := wordSpans(raw)
+		ws := shellparse.WordSpans(raw)
 		cuts[o] = cut{raw, ws}
-		byShape[shapeOf(raw, ws)] = append(byShape[shapeOf(raw, ws)], o)
+		byShape[shellparse.ShapeOf(raw, ws)] = append(byShape[shellparse.ShapeOf(raw, ws)], o)
 	}
 	best := ""
 	for k, os := range byShape {
@@ -1243,39 +1245,39 @@ func (d *drafter) compound(i, j int) {
 		same := true
 		sensitive := false
 		for _, o := range reps {
-			v := cuts[o].words[p].text
+			v := cuts[o].words[p].Text
 			vec[o] = v
-			if v != w.text {
+			if v != w.Text {
 				same = false
 			}
 			if secretShape(v) != "" {
 				sensitive = true
 			}
 		}
-		if p > 0 && sensitiveName.MatchString(strings.TrimSuffix(first.words[p-1].text, "=")) {
+		if p > 0 && sensitiveName.MatchString(strings.TrimSuffix(first.words[p-1].Text, "=")) {
 			sensitive = true
 		}
 		if same && !sensitive {
 			continue
 		}
-		if w.body {
+		if w.Body {
 			human("its heredoc body differs between runs")
 			return
 		}
 		name := prog + "_arg" + util.Itoa(p)
-		if p > 0 && strings.HasPrefix(first.words[p-1].text, "-") {
-			name = prog + "_" + strings.TrimLeft(first.words[p-1].text, "-")
+		if p > 0 && strings.HasPrefix(first.words[p-1].Text, "-") {
+			name = prog + "_" + strings.TrimLeft(first.words[p-1].Text, "-")
 		}
-		in := d.input(name, Slot{Key: "w" + util.Itoa(p), Type: typeOf(word{Text: w.text, Quoted: w.quoted}), Value: w.text}, vec, sensitive, i)
-		out.WriteString(first.raw[last:w.s])
+		in := d.input(name, Slot{Key: "w" + util.Itoa(p), Type: typeOf(shellparse.Word{Text: w.Text, Quoted: w.Quoted}), Value: w.Text}, vec, sensitive, i)
+		out.WriteString(first.raw[last:w.S])
 		out.WriteString(`"` + d.ref(in) + `"`)
-		last = w.e
+		last = w.E
 	}
 	out.WriteString(first.raw[last:])
 	line := out.String()
 
 	eff := d.effect(n)
-	for _, ws := range simpleCommands(line) {
+	for _, ws := range shellparse.SimpleCommands(line) {
 		prog := ws[0].Text
 		if !manifestCommand.MatchString(prog) {
 			continue

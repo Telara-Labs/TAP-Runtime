@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
 
 // ProgramGraph is a proposed executable shape, not a claim about the user's
@@ -245,7 +247,7 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 		first := traces[0].groups[step][0]
 		ps := ProgramStep{Role: role, Tool: first.node.call.Tool, Effect: first.node.effect}
 		if ps.Tool == "shell" {
-			plan, err := programShellPlan(first.node.call.Command)
+			plan, err := shellparse.ProgramShellPlan(first.node.call.Command)
 			if err != nil {
 				graph.Problems = append(graph.Problems, fmt.Sprintf("step %d: %v", step+1, err))
 			} else {
@@ -254,7 +256,7 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 				}
 				for j, stage := range plan {
 					words := stage.Words
-					if programCommandRunsCode(words[0], words[1:]) {
+					if shellparse.ProgramCommandRunsCode(words[0], words[1:]) {
 						graph.Problems = append(graph.Problems, fmt.Sprintf("step %d stage %d runs code whose reach is not described by argv", step+1, j+1))
 					}
 					if len(plan) == 1 {
@@ -301,7 +303,7 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 					graph.Problems = append(graph.Problems, fmt.Sprintf("step %d uses incompatible MCP bindings", step+1))
 				}
 				if ps.Tool == "shell" {
-					plan, err := programShellPlan(op.node.call.Command)
+					plan, err := shellparse.ProgramShellPlan(op.node.call.Command)
 					if err != nil || len(plan) == 0 || len(plan) != max(1, len(ps.Pipeline)) {
 						graph.Problems = append(graph.Problems, fmt.Sprintf("step %d has incompatible or non-literal command syntax", step+1))
 					} else {
@@ -317,7 +319,7 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 									graph.Problems = append(graph.Problems, fmt.Sprintf("step %d pipeline stage %d changes effect", step+1, j+1))
 								}
 							}
-							if words[0] != want || programCommandRunsCode(words[0], words[1:]) {
+							if words[0] != want || shellparse.ProgramCommandRunsCode(words[0], words[1:]) {
 								graph.Problems = append(graph.Problems, fmt.Sprintf("step %d has incompatible command operations", step+1))
 							}
 						}
@@ -610,7 +612,7 @@ func observedForEach(p SpanProposal, role string) bool {
 func observedArgs(c Call) map[string]observedField {
 	out := map[string]observedField{}
 	if c.Tool == "shell" {
-		commands, err := programShellCommands(c.Command)
+		commands, err := shellparse.ProgramShellCommands(c.Command)
 		if err != nil {
 			return out
 		}
@@ -678,7 +680,7 @@ func observedArgs(c Call) map[string]observedField {
 
 func operationSelector(c Call, path string) bool {
 	if c.Tool == "shell" {
-		commands, err := programShellCommands(c.Command)
+		commands, err := shellparse.ProgramShellCommands(c.Command)
 		if err != nil {
 			return false
 		}
@@ -698,7 +700,7 @@ func operationSelector(c Call, path string) bool {
 		if strings.HasPrefix(value, "-") && !strings.Contains(value, "=") {
 			return true
 		}
-		if i != 0 || typeOf(word{Text: value}) != SlotWord {
+		if i != 0 || typeOf(shellparse.Word{Text: value}) != SlotWord {
 			return false
 		}
 		// The first word is structural only for command families whose

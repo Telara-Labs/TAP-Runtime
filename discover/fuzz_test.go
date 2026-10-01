@@ -3,6 +3,8 @@ package discover
 import (
 	"strings"
 	"testing"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
 
 // The parsers read whatever agents wrote. Both crashes found on the first
@@ -21,7 +23,7 @@ func FuzzSimpleCommands(f *testing.F) {
 	} {
 		f.Add(s)
 	}
-	f.Fuzz(func(t *testing.T, s string) { _ = simpleCommands(s) })
+	f.Fuzz(func(t *testing.T, s string) { _ = shellparse.SimpleCommands(s) })
 }
 
 func FuzzJSToolCalls(f *testing.F) {
@@ -47,12 +49,12 @@ func FuzzWordSpans(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		for _, w := range wordSpans(s) {
-			if w.s < 0 || w.e > len(s) || w.s > w.e {
+		for _, w := range shellparse.WordSpans(s) {
+			if w.S < 0 || w.E > len(s) || w.S > w.E {
 				t.Fatalf("span %+v out of range for %q", w, s)
 			}
 		}
-		_ = shapeOf(s, wordSpans(s))
+		_ = shellparse.ShapeOf(s, shellparse.WordSpans(s))
 	})
 }
 
