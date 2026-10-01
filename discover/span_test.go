@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/author"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -243,18 +245,18 @@ func TestSpanBriefIncludesOnlyVerifiedCallsAndPriorContext(t *testing.T) {
 	if p == nil {
 		t.Fatalf("no follow-up span: %+v", ps)
 	}
-	b, err := NewBriefSpan(s, *p)
+	b, err := author.NewBriefSpan(s, *p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Selection != DiscoverSpan || b.Status != model.BriefStatus || len(b.Evidence.Steps) != 1 || b.Evidence.Steps[0].Tool != "mcp:gitlab_list_jobs" || b.Evidence.Steps[0].SourceCall != 2 {
+	if b.Selection != author.DiscoverSpan || b.Status != model.BriefStatus || len(b.Evidence.Steps) != 1 || b.Evidence.Steps[0].Tool != "mcp:gitlab_list_jobs" || b.Evidence.Steps[0].SourceCall != 2 {
 		t.Fatalf("span brief included wrong calls: %+v", b)
 	}
 	if !strings.Contains(b.Evidence.PreviousRequest, "project 12345") {
 		t.Fatalf("prior context missing: %+v", b.Evidence)
 	}
 	s.Calls[2].Output = "changed after report"
-	if _, err := NewBriefSpan(s, *p); err == nil {
+	if _, err := author.NewBriefSpan(s, *p); err == nil {
 		t.Fatal("stale source must fail")
 	}
 }

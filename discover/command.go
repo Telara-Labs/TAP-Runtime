@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/author"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
@@ -35,11 +37,11 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 				return 1
 			}
 			if args[0] == "brief" {
-				return briefCommand(args[1:], home, out, errOut)
+				return author.BriefCommand(args[1:], home, out, errOut)
 			}
-			return saveCommand(args[1:], home, out, errOut)
+			return author.SaveCommand(args[1:], home, out, errOut)
 		case "validate":
-			return validateCommand(args[1:], out, errOut)
+			return author.ValidateCommand(args[1:], out, errOut)
 		}
 	}
 	d := DefaultOptions()

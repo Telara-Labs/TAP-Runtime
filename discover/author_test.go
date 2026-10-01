@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/author"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
@@ -35,24 +37,24 @@ func homeWithClaudeSession(t *testing.T) string {
 }
 
 func TestBriefFromASelectedTaskEstablishesNothing(t *testing.T) {
-	s, err := FindSession("claude-code", "s1", homeWithClaudeSession(t))
+	s, err := author.FindSession("claude-code", "s1", homeWithClaudeSession(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := NewBrief(s, 0, nil)
+	b, err := author.NewBrief(s, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Status != model.BriefStatus || b.Selection != SelectedTask {
+	if b.Status != model.BriefStatus || b.Selection != author.SelectedTask {
 		t.Errorf("status %q selection %q: a brief is an unassessed proposal", b.Status, b.Selection)
 	}
-	if len(b.Missing) != len(contractFields) {
+	if len(b.Missing) != len(author.ContractFields) {
 		t.Errorf("a selected task has every contract field missing, got %v", b.Missing)
 	}
 	if b.Evidence.Request != "check the repos" || len(b.Evidence.Steps) == 0 || !strings.Contains(b.Evidence.Steps[0].Command, "git status") {
 		t.Errorf("evidence is not the request and its calls: %+v", b.Evidence)
 	}
-	if !strings.HasPrefix(b.Ref, "src_") || strings.Contains(b.Ref, "s1") || OpaqueRef(b.Source) != b.Ref {
+	if !strings.HasPrefix(b.Ref, "src_") || strings.Contains(b.Ref, "s1") || author.OpaqueRef(b.Source) != b.Ref {
 		t.Errorf("ref %q must be opaque and stable", b.Ref)
 	}
 	dir := filepath.Join(t.TempDir(), "brief")
@@ -69,7 +71,7 @@ func TestBriefFromASelectedTaskEstablishesNothing(t *testing.T) {
 			t.Errorf("brief.json mode %v, want 0600", info.Mode().Perm())
 		}
 	}
-	if _, err := NewBrief(s, 7, nil); err == nil {
+	if _, err := author.NewBrief(s, 7, nil); err == nil {
 		t.Error("a request the session does not have must be refused")
 	}
 }
@@ -77,7 +79,7 @@ func TestBriefFromASelectedTaskEstablishesNothing(t *testing.T) {
 func TestBriefRedactsCredentials(t *testing.T) {
 	s := trace.Session{Client: "codex", ID: "x", Requests: []string{"deploy with Bearer abcdefghijklmnopqrstu"},
 		Calls: []trace.Call{{Tool: "shell", Command: "curl -H 'Authorization: Bearer abcdefghijklmnopqrstu' https://h", Output: "token glpat-abcdefghijklmnopqrstuv"}}}
-	b, err := NewBrief(s, 0, nil)
+	b, err := author.NewBrief(s, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,11 +110,11 @@ func TestBriefFromRecurringLogicShowsDifferentExecutions(t *testing.T) {
 	}
 	write("a", "Find failed build jobs", "81234567")
 	write("b", "Check the deploy pipeline", "91234567")
-	a, err := FindSession("claude-code", "a", home)
+	a, err := author.FindSession("claude-code", "a", home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := FindSession("claude-code", "b", home)
+	b, err := author.FindSession("claude-code", "b", home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,10 +130,10 @@ func TestBriefFromRecurringLogicShowsDifferentExecutions(t *testing.T) {
 	}
 	out := filepath.Join(t.TempDir(), "brief")
 	var stdout, stderr bytes.Buffer
-	if code := briefCommand([]string{"--logic", groups[0].ID, "--report", report, "--out", out}, home, &stdout, &stderr); code != 0 {
+	if code := author.BriefCommand([]string{"--logic", groups[0].ID, "--report", report, "--out", out}, home, &stdout, &stderr); code != 0 {
 		t.Fatalf("brief exit %d: %s", code, stderr.String())
 	}
-	var got Brief
+	var got author.Brief
 	briefRaw, err := os.ReadFile(filepath.Join(out, "brief.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +141,7 @@ func TestBriefFromRecurringLogicShowsDifferentExecutions(t *testing.T) {
 	if err := json.Unmarshal(briefRaw, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Selection != DiscoverLogic || got.Logic == nil || len(got.LogicExamples) != 2 ||
+	if got.Selection != author.DiscoverLogic || got.Logic == nil || len(got.LogicExamples) != 2 ||
 		len(got.LogicExamples[0].Evidence.Steps) != 2 || len(got.LogicExamples[1].Evidence.Steps) != 2 {
 		t.Fatalf("logic brief must compare two selected executions: %+v", got)
 	}
@@ -167,15 +169,15 @@ func TestBriefFromARejectedCandidate(t *testing.T) {
 
 	out := filepath.Join(t.TempDir(), "brief")
 	var so, se bytes.Buffer
-	if code := briefCommand([]string{"--candidate", "r1", "--report", report, "--out", out}, home, &so, &se); code != 0 {
+	if code := author.BriefCommand([]string{"--candidate", "r1", "--report", report, "--out", out}, home, &so, &se); code != 0 {
 		t.Fatalf("exit %d: %s", code, se.String())
 	}
-	var got Brief
+	var got author.Brief
 	raw, _ := os.ReadFile(filepath.Join(out, "brief.json"))
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Selection != DiscoverCandidate || got.Status != model.BriefStatus || got.Candidate == nil || got.Candidate.Decision != "removed" {
+	if got.Selection != author.DiscoverCandidate || got.Status != model.BriefStatus || got.Candidate == nil || got.Candidate.Decision != "removed" {
 		t.Errorf("brief does not carry the rejected candidate as a proposal: %+v", got)
 	}
 	if !strings.Contains(got.Contract.Output.EstablishedBy, "unverified") {
@@ -189,10 +191,10 @@ func TestBriefFromARejectedCandidate(t *testing.T) {
 	if contains(got.Missing, "output") {
 		t.Errorf("output was proposed by discover and is not missing: %v", got.Missing)
 	}
-	if code := briefCommand([]string{"--candidate", "nope", "--report", report, "--out", out}, home, &so, &se); code == 0 {
+	if code := author.BriefCommand([]string{"--candidate", "nope", "--report", report, "--out", out}, home, &so, &se); code == 0 {
 		t.Error("an unknown routine must be refused")
 	}
-	if code := briefCommand([]string{"--task", "claude-code/s1/0", "--candidate", "r1", "--report", report, "--out", out}, home, &so, &se); code != 2 {
+	if code := author.BriefCommand([]string{"--task", "claude-code/s1/0", "--candidate", "r1", "--report", report, "--out", out}, home, &so, &se); code != 2 {
 		t.Error("--task and --candidate together must be refused")
 	}
 }
@@ -220,23 +222,23 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 func TestPackageDirDigestAndPlaceholders(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{"primitive.yaml": "a: 1\n", "main.py": "print(1)\n"})
-	_, d1, err := PackageDir(dir)
+	_, d1, err := author.PackageDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, d2, _ := PackageDir(dir)
+	_, d2, _ := author.PackageDir(dir)
 	if d1 != d2 {
 		t.Error("the same bytes must have the same digest")
 	}
 	writeFiles(t, dir, map[string]string{"main.py": "print(2)\n"})
-	if _, d3, _ := PackageDir(dir); d3 == d1 {
+	if _, d3, _ := author.PackageDir(dir); d3 == d1 {
 		t.Error("a changed byte must change the digest")
 	}
-	if marks, _ := FindPlaceholders(dir); len(marks) != 0 {
+	if marks, _ := author.FindPlaceholders(dir); len(marks) != 0 {
 		t.Errorf("no placeholders yet, got %v", marks)
 	}
 	writeFiles(t, dir, map[string]string{"main.py": "# TODO: finish\n"})
-	if marks, _ := FindPlaceholders(dir); len(marks) != 1 {
+	if marks, _ := author.FindPlaceholders(dir); len(marks) != 1 {
 		t.Errorf("a TODO: marker must be found, got %v", marks)
 	}
 }
@@ -269,9 +271,9 @@ func validateFixture(t *testing.T, mode, canned string) (pkg, cases, runner stri
 	runner = filepath.Join(root, "tap-stub")
 	os.WriteFile(runner, []byte(stubRunner), 0o755)
 	writeFiles(t, root, map[string]string{"oracle.sh": `echo '{"n": 1, "args": "'"$*"'"}'` + "\n"})
-	cf := CaseFile{Package: "p", Oracle: []string{"sh", "oracle.sh"}, Cases: []Case{{
+	cf := author.CaseFile{Package: "p", Oracle: []string{"sh", "oracle.sh"}, Cases: []author.Case{{
 		ID: "c1", Kind: "normal", Args: []string{"a"},
-		Setup: []SetupStep{{Write: "in/x.txt", Text: "x\n"}, {Run: []string{"git", "init", "-q", "repo"}}},
+		Setup: []author.SetupStep{{Write: "in/x.txt", Text: "x\n"}, {Run: []string{"git", "init", "-q", "repo"}}},
 	}}}
 	b, _ := json.Marshal(cf)
 	cases = filepath.Join(root, "cases.json")
@@ -292,11 +294,11 @@ func TestValidatePassesOnlyWhatMatchesTheOracleWithoutEffects(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pkg, cases, runner := validateFixture(t, tc.mode, tc.canned)
-			rec, err := Validate(ValidateOptions{Package: pkg, Cases: cases, Runner: runner})
+			rec, err := author.Validate(author.ValidateOptions{Package: pkg, Cases: cases, Runner: runner})
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, digest, _ := PackageDir(pkg)
+			_, digest, _ := author.PackageDir(pkg)
 			if rec.PackageDigest != digest || rec.RunnerSHA256 == "" || rec.CasesSHA256 == "" || rec.OracleSHA256["oracle.sh"] == "" {
 				t.Errorf("receipts must name the exact package, runner, cases and oracle: %+v", rec)
 			}
@@ -316,13 +318,13 @@ func TestValidatePassesOnlyWhatMatchesTheOracleWithoutEffects(t *testing.T) {
 
 func TestFreezeAndOracleDrift(t *testing.T) {
 	pkg, cases, runner := validateFixture(t, "ok", `{"args":"a","n":1}`)
-	if n, err := Freeze(cases); err != nil || n != 1 {
+	if n, err := author.Freeze(cases); err != nil || n != 1 {
 		t.Fatalf("freeze: %d %v", n, err)
 	}
-	if n, err := Freeze(cases); err != nil || n != 0 {
+	if n, err := author.Freeze(cases); err != nil || n != 0 {
 		t.Fatalf("a frozen case must be left as it is: %d %v", n, err)
 	}
-	cf, _, _ := LoadCases(cases)
+	cf, _, _ := author.LoadCases(cases)
 	if cf.Cases[0].Expect == nil || cf.Cases[0].Expect.Exit != 0 {
 		t.Fatalf("expectation not recorded: %+v", cf.Cases[0])
 	}
@@ -330,7 +332,7 @@ func TestFreezeAndOracleDrift(t *testing.T) {
 	// package agrees with the new oracle.
 	os.WriteFile(filepath.Join(filepath.Dir(cases), "oracle.sh"), []byte(`echo '{"n": 2}'`+"\n"), 0o644)
 	os.WriteFile(filepath.Join(pkg, "canned.json"), []byte(`{"n":2}`), 0o644)
-	rec, err := Validate(ValidateOptions{Package: pkg, Cases: cases, Runner: runner})
+	rec, err := author.Validate(author.ValidateOptions{Package: pkg, Cases: cases, Runner: runner})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,12 +344,12 @@ func TestFreezeAndOracleDrift(t *testing.T) {
 func TestValidateRefusesUnfinishedPackagesAndUnsafeSetup(t *testing.T) {
 	pkg, cases, runner := validateFixture(t, "ok", `{}`)
 	os.WriteFile(filepath.Join(pkg, "main.py"), []byte("x = 'REPLACE_ME'\n"), 0o644)
-	if _, err := Validate(ValidateOptions{Package: pkg, Cases: cases, Runner: runner}); err == nil || !strings.Contains(err.Error(), "not finished") {
+	if _, err := author.Validate(author.ValidateOptions{Package: pkg, Cases: cases, Runner: runner}); err == nil || !strings.Contains(err.Error(), "not finished") {
 		t.Errorf("a package with a placeholder must not be validated: %v", err)
 	}
-	for _, st := range []SetupStep{{Run: []string{"rm", "-rf", "x"}}, {Write: "../../escape", Text: "x"}, {Write: "/abs", Text: "x"}, {Write: "a", Mkdir: "b"}} {
-		if f, err := newFixture(Case{ID: "s", Setup: []SetupStep{st}}); err == nil {
-			f.remove()
+	for _, st := range []author.SetupStep{{Run: []string{"rm", "-rf", "x"}}, {Write: "../../escape", Text: "x"}, {Write: "/abs", Text: "x"}, {Write: "a", Mkdir: "b"}} {
+		if f, err := author.NewFixture(author.Case{ID: "s", Setup: []author.SetupStep{st}}); err == nil {
+			f.Remove()
 			t.Errorf("setup step %+v must be refused", st)
 		}
 	}
@@ -356,12 +358,12 @@ func TestValidateRefusesUnfinishedPackagesAndUnsafeSetup(t *testing.T) {
 func authoredPackage(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "pkg")
-	contract := map[string]BriefField{}
-	for _, f := range contractFields {
-		contract[f] = BriefField{Value: "the " + f, EstablishedBy: "source request text and its git calls"}
+	contract := map[string]author.BriefField{}
+	for _, f := range author.ContractFields {
+		contract[f] = author.BriefField{Value: "the " + f, EstablishedBy: "source request text and its git calls"}
 	}
-	a := Authoring{Kind: "tap.authoring/v1", Name: "repo-changes", Publisher: "dev.local", Author: "host-agent",
-		Agent: "claude-code", Selection: SelectedTask, Sources: []string{"src_0123456789ab"}, BriefDigest: "sha256:00",
+	a := author.Authoring{Kind: "tap.authoring/v1", Name: "repo-changes", Publisher: "dev.local", Author: "host-agent",
+		Agent: "claude-code", Selection: author.SelectedTask, Sources: []string{"src_0123456789ab"}, BriefDigest: "sha256:00",
 		Contract: contract, Interface: json.RawMessage(`{"args":[{"name":"script","type":"path"}]}`)}
 	b, _ := json.MarshalIndent(a, "", "  ")
 	writeFiles(t, dir, map[string]string{"AUTHORING.json": string(b), "primitive.yaml": "x: 1\n", "main.py": "print(1)\n"})
@@ -370,35 +372,35 @@ func authoredPackage(t *testing.T) string {
 
 func TestSavePackageBindsValidationToTheDigest(t *testing.T) {
 	pkg := authoredPackage(t)
-	_, digest, _ := PackageDir(pkg)
+	_, digest, _ := author.PackageDir(pkg)
 	root := t.TempDir()
 
-	path, v, unchanged, err := SavePackage(pkg, root, nil, "")
+	path, v, unchanged, err := author.SavePackage(pkg, root, nil, "")
 	if err != nil || v != model.ValidationNotRun || unchanged {
 		t.Fatalf("save without receipts: %q %v %v", v, unchanged, err)
 	}
-	if _, _, _, err := SavePackage(pkg, root, &Receipts{PackageDigest: "sha256:other", AllPassed: true, Cases: []CaseReceipt{{}}}, "r"); err == nil {
+	if _, _, _, err := author.SavePackage(pkg, root, &author.Receipts{PackageDigest: "sha256:other", AllPassed: true, Cases: []author.CaseReceipt{{}}}, "r"); err == nil {
 		t.Error("receipts for another digest must be refused")
 	}
-	pass := &Receipts{PackageDigest: digest, AllPassed: true, Cases: make([]CaseReceipt, 5)}
-	if _, v, unchanged, err = SavePackage(pkg, root, pass, "sha256:r"); err != nil || v != model.ValidationPassed || unchanged {
+	pass := &author.Receipts{PackageDigest: digest, AllPassed: true, Cases: make([]author.CaseReceipt, 5)}
+	if _, v, unchanged, err = author.SavePackage(pkg, root, pass, "sha256:r"); err != nil || v != model.ValidationPassed || unchanged {
 		t.Fatalf("passing receipts must mark it passed and replace the not_run save: %q %v %v", v, unchanged, err)
 	}
 	var m pack.Marker
 	b, _ := os.ReadFile(filepath.Join(path, pack.SavedMarker))
 	json.Unmarshal(b, &m)
-	if m.Origin != OriginAgentAuthored || m.Digest != digest || m.Validation != model.ValidationPassed || m.Cases != 5 || m.Receipts != "sha256:r" {
+	if m.Origin != author.OriginAgentAuthored || m.Digest != digest || m.Validation != model.ValidationPassed || m.Cases != 5 || m.Receipts != "sha256:r" {
 		t.Errorf("marker %+v", m)
 	}
 	skill, _ := os.ReadFile(filepath.Join(path, "SKILL.md"))
 	if !strings.Contains(string(skill), "not a\nrecommendation made by `tap discover`") || !strings.Contains(string(skill), "**passed**") {
 		t.Errorf("SKILL.md must say who wrote it and its status:\n%s", skill)
 	}
-	if _, _, unchanged, _ := SavePackage(pkg, root, pass, "sha256:r"); !unchanged {
+	if _, _, unchanged, _ := author.SavePackage(pkg, root, pass, "sha256:r"); !unchanged {
 		t.Error("saving the same package with the same receipts must change nothing")
 	}
-	fail := &Receipts{PackageDigest: digest, AllPassed: false, Cases: make([]CaseReceipt, 5)}
-	if _, v, _, _ := SavePackage(pkg, root, fail, "sha256:f"); v != model.ValidationFailed {
+	fail := &author.Receipts{PackageDigest: digest, AllPassed: false, Cases: make([]author.CaseReceipt, 5)}
+	if _, v, _, _ := author.SavePackage(pkg, root, fail, "sha256:f"); v != model.ValidationFailed {
 		t.Errorf("failing receipts must mark it failed, got %q", v)
 	}
 }
@@ -410,7 +412,7 @@ func TestReadAuthoringRefusesAnIncompleteLineage(t *testing.T) {
 		},
 		"session location":   func(a map[string]any) { a["sources"] = []string{"claude-code/6bd4cdcf/0"} },
 		"not agent-authored": func(a map[string]any) { a["author"] = "discover" },
-		"candidate unnamed":  func(a map[string]any) { a["selection"] = DiscoverCandidate },
+		"candidate unnamed":  func(a map[string]any) { a["selection"] = author.DiscoverCandidate },
 	} {
 		t.Run(name, func(t *testing.T) {
 			pkg := authoredPackage(t)
@@ -420,7 +422,7 @@ func TestReadAuthoringRefusesAnIncompleteLineage(t *testing.T) {
 			edit(a)
 			b, _ = json.Marshal(a)
 			os.WriteFile(filepath.Join(pkg, "AUTHORING.json"), b, 0o644)
-			if _, err := ReadAuthoring(pkg); err == nil {
+			if _, err := author.ReadAuthoring(pkg); err == nil {
 				t.Error("must be refused")
 			}
 		})
@@ -430,18 +432,18 @@ func TestReadAuthoringRefusesAnIncompleteLineage(t *testing.T) {
 func TestReadAuthoringAcceptsParameterizedLogicLineage(t *testing.T) {
 	pkg := authoredPackage(t)
 	path := filepath.Join(pkg, "AUTHORING.json")
-	var a Authoring
+	var a author.Authoring
 	b, _ := os.ReadFile(path)
 	if err := json.Unmarshal(b, &a); err != nil {
 		t.Fatal(err)
 	}
-	a.Selection, a.Candidate = DiscoverLogic, "lc_0123456789ab"
+	a.Selection, a.Candidate = author.DiscoverLogic, "lc_0123456789ab"
 	a.Sources = []string{"src_0123456789ab", "src_abcdef012345"}
 	b, _ = json.Marshal(a)
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadAuthoring(pkg); err != nil {
+	if _, err := author.ReadAuthoring(pkg); err != nil {
 		t.Fatalf("validated logic package lineage rejected: %v", err)
 	}
 	a.Candidate = ""
@@ -449,7 +451,7 @@ func TestReadAuthoringAcceptsParameterizedLogicLineage(t *testing.T) {
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadAuthoring(pkg); err == nil {
+	if _, err := author.ReadAuthoring(pkg); err == nil {
 		t.Fatal("logic selection without candidate id must be rejected")
 	}
 }
@@ -470,10 +472,10 @@ func TestOracleIsFoundFromARelativeCasesPathAndMustReport(t *testing.T) {
 	defer os.Chdir(wd)
 	os.Chdir(filepath.Dir(filepath.Dir(cases)))
 	rel := filepath.Join(filepath.Base(filepath.Dir(cases)), "cases.json")
-	if n, err := Freeze(rel); err != nil || n != 1 {
+	if n, err := author.Freeze(rel); err != nil || n != 1 {
 		t.Fatalf("freeze from a relative path: %d %v", n, err)
 	}
-	cf, _, _ := LoadCases(rel)
+	cf, _, _ := author.LoadCases(rel)
 	if cf.Cases[0].Expect.Exit != 0 || cf.Cases[0].Expect.Output == nil {
 		t.Errorf("the oracle did not run: %+v", cf.Cases[0].Expect)
 	}
@@ -481,7 +483,7 @@ func TestOracleIsFoundFromARelativeCasesPathAndMustReport(t *testing.T) {
 	cf.Oracle = []string{"sh", "no-such-oracle.sh"}
 	b, _ := json.Marshal(cf)
 	os.WriteFile(rel, b, 0o644)
-	if _, err := Freeze(rel); err == nil || !strings.Contains(err.Error(), "printed nothing") {
+	if _, err := author.Freeze(rel); err == nil || !strings.Contains(err.Error(), "printed nothing") {
 		t.Errorf("an oracle that never ran must be an error, got %v", err)
 	}
 }
@@ -498,19 +500,19 @@ func TestBriefFromASurfacedOpportunity(t *testing.T) {
 	os.WriteFile(report, b, 0o644)
 	out := filepath.Join(t.TempDir(), "brief")
 	var so, se bytes.Buffer
-	if code := briefCommand([]string{"--opportunity", op.ID, "--report", report, "--out", out}, home, &so, &se); code != 0 {
+	if code := author.BriefCommand([]string{"--opportunity", op.ID, "--report", report, "--out", out}, home, &so, &se); code != 0 {
 		t.Fatalf("exit %d: %s", code, se.String())
 	}
-	var got Brief
+	var got author.Brief
 	raw, _ := os.ReadFile(filepath.Join(out, "brief.json"))
 	json.Unmarshal(raw, &got)
-	if got.Selection != DiscoverOpportunity || got.Status != model.BriefStatus || got.Opportunity == nil || got.Opportunity.Route != model.RouteParamLoop {
+	if got.Selection != author.DiscoverOpportunity || got.Status != model.BriefStatus || got.Opportunity == nil || got.Opportunity.Route != model.RouteParamLoop {
 		t.Errorf("brief does not carry the opportunity as a proposal: %+v", got)
 	}
-	if len(got.Missing) != len(contractFields) {
+	if len(got.Missing) != len(author.ContractFields) {
 		t.Errorf("an opportunity establishes no contract field, missing %v", got.Missing)
 	}
-	if code := briefCommand([]string{"--opportunity", "ep_nope", "--report", report, "--out", out}, home, &so, &se); code == 0 {
+	if code := author.BriefCommand([]string{"--opportunity", "ep_nope", "--report", report, "--out", out}, home, &so, &se); code == 0 {
 		t.Error("an unknown opportunity must be refused")
 	}
 }
