@@ -4,6 +4,8 @@ import (
 	"math"
 	"math/bits"
 	"sort"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
 // SkillProcedure is a pattern that sessions loading one skill run far more
@@ -165,7 +167,7 @@ func skillProcedures(corpus []normSession, seqs [][]int, ps []pattern, names []s
 		}
 	}
 	out := make([]SkillReport, len(skills))
-	parallelFor(len(skills), func(si int) {
+	util.ParallelFor(len(skills), func(si int) {
 		sk := skills[si]
 		ns := len(skillSessions[sk])
 		ts := sig[sk]

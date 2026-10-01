@@ -13,6 +13,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
+
 	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
 	"gopkg.in/yaml.v3"
 )
@@ -283,7 +285,7 @@ func (d *drafter) fileAccess(p slotPlan, n int) {
 // ref is a placeholder for input k in a generated line. finish replaces it
 // with the argument ("${3}") or, for a value taken from an earlier step's
 // output, that shell variable.
-func (d *drafter) ref(k int) string { return "\x01" + itoa(k) + "\x01" }
+func (d *drafter) ref(k int) string { return "\x01" + util.Itoa(k) + "\x01" }
 
 func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
 	if opt.Publisher == "" {
@@ -1260,11 +1262,11 @@ func (d *drafter) compound(i, j int) {
 			human("its heredoc body differs between runs")
 			return
 		}
-		name := prog + "_arg" + itoa(p)
+		name := prog + "_arg" + util.Itoa(p)
 		if p > 0 && strings.HasPrefix(first.words[p-1].text, "-") {
 			name = prog + "_" + strings.TrimLeft(first.words[p-1].text, "-")
 		}
-		in := d.input(name, Slot{Key: "w" + itoa(p), Type: typeOf(word{Text: w.text, Quoted: w.quoted}), Value: w.text}, vec, sensitive, i)
+		in := d.input(name, Slot{Key: "w" + util.Itoa(p), Type: typeOf(word{Text: w.text, Quoted: w.quoted}), Value: w.text}, vec, sensitive, i)
 		out.WriteString(first.raw[last:w.s])
 		out.WriteString(`"` + d.ref(in) + `"`)
 		last = w.e
@@ -1468,7 +1470,7 @@ func (d *drafter) finish() {
 		}
 		pos++
 		in.Position = pos
-		refs[k] = "${" + itoa(pos) + "}"
+		refs[k] = "${" + util.Itoa(pos) + "}"
 	}
 	resolve := func(l string) string {
 		if !strings.Contains(l, "\x01") {
@@ -1499,7 +1501,7 @@ func (d *drafter) finish() {
 			out = append(out, l)
 			continue
 		}
-		v := "out" + itoa(step)
+		v := "out" + util.Itoa(step)
 		out = append(out, v+"=$("+l+")", `printf '%s\n' "$`+v+`"`)
 		for _, k := range ks {
 			in := d.inputs[k]
