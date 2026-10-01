@@ -1,4 +1,6 @@
-package discover
+// Package eval is the evaluation corpus: reproducible samples of task episodes from a frozen
+// corpus, labeled from their own evidence, and the request-level episode selection.
+package eval
 
 import (
 	"crypto/sha256"
@@ -10,19 +12,185 @@ import (
 	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
-
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
-
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-// The evaluation corpus is a reproducible sample of task episodes from a
-// frozen corpus. An episode is one request and the calls that answered it.
-// Episodes are labeled from their own evidence (request, calls, results)
-// without the program's decision, then split by lineage so resumed copies
-// and templated prompts never sit on both sides of the split.
-//
-// Everything here reads this machine's history and writes local files only.
+// EpisodeClaim is the single-request judgment.
+type EpisodeClaim struct {
+	ID          string   `json:"id"`
+	Client      string   `json:"client"`
+	Session     string   `json:"session"`
+	Request     int      `json:"request"`
+	Suitability string   `json:"suitability"`
+	Reasons     []string `json:"reasons"`
+	Steps       []string `json:"steps"`
+	// Unexplained lists values no source accounts for (step: value kind).
+	Unexplained []string `json:"unexplained,omitempty"`
+	// Accounted is, per step, whether every value of it has a source (a
+	// judgment step is false).
+	Accounted []bool `json:"accounted,omitempty"`
+}
+
+// AssessEpisodes judges each episode on its own contract.
+func (c *Corpus) AssessEpisodes(eps []Episode) []EpisodeClaim {
+	norm := trace.Normalize(c.Sessions)
+	byKey := map[string]*trace.NormSession{}
+	for i := range norm {
+		byKey[norm[i].Client+"/"+norm[i].ID] = &norm[i]
+	}
+	var out []EpisodeClaim
+	for _, e := range eps {
+		ec := EpisodeClaim{ID: e.ID, Client: e.Client, Session: e.Session, Request: e.Request}
+		ns := byKey[e.Client+"/"+e.Session]
+		if ns == nil {
+			ec.Suitability, ec.Reasons = model.SuitInsufficient, []string{"no_steps"}
+			out = append(out, ec)
+			continue
+		}
+		AssessEpisode(ns, e.Request, &ec)
+		out = append(out, ec)
+	}
+	return out
+}
+
+func AssessEpisode(ns *trace.NormSession, req int, ec *EpisodeClaim) {
+	text := ""
+	if req < len(ns.Requests) {
+		text = ns.Requests[req]
+	}
+	var all []trace.Step
+	for _, st := range ns.Steps {
+		if st.Request == req {
+			all = append(all, st)
+		}
+	}
+	reason := func(s string) { ec.Reasons = append(ec.Reasons, s) }
+	if strings.TrimSpace(text) == "" || trace.IsHarness(text) {
+		ec.Suitability = model.SuitInvalid
+		reason("no_request_text")
+		return
+	}
+	// The work: replayable steps that are not the agent's bookkeeping, and
+	// edits (judgment) in their position.
+	type item struct {
+		st    trace.Step
+		human bool
+	}
+	var work []item
+	book := 0
+	for _, st := range all {
+		switch {
+		case trace.BookkeepingTools[st.Label]:
+			book++
+		case trace.EditTools[st.Label] || strings.HasPrefix(st.Label, "patch:"):
+			work = append(work, item{st, true})
+		case trace.Replayable(st.Label):
+			work = append(work, item{st, false})
+		}
+	}
+	for _, w := range work {
+		ec.Steps = append(ec.Steps, w.st.Label)
+	}
+	plain := 0
+	for _, w := range work {
+		if !w.human {
+			plain++
+		}
+	}
+	switch {
+	case plain == 0 && book > 0:
+		ec.Suitability = model.SuitInsufficient
+		reason("infrastructure_only")
+		return
+	case plain < 2:
+		ec.Suitability = model.SuitInsufficient
+		reason("fewer_than_two_steps")
+		return
+	}
+	long := len(work) > 25
+	// Judgment: human steps only at the end are the hand-back boundary.
+	lastPlain, firstHuman := -1, -1
+	for k, w := range work {
+		if w.human {
+			if firstHuman < 0 {
+				firstHuman = k
+			}
+		} else {
+			lastPlain = k
+		}
+	}
+	judged := firstHuman >= 0 && firstHuman < lastPlain
+	// Every value must have a source.
+	chosenSteps, readChosen := 0, 0
+	ec.Accounted = make([]bool, len(work))
+	defer func() {
+		for k := range ec.Accounted {
+			ec.Accounted[k] = !work[k].human && !strings.Contains(strings.Join(ec.Unexplained, " "), fmt.Sprintf("step%d:", k+1))
+		}
+	}()
+	for k, w := range work {
+		if w.human {
+			continue
+		}
+		prog := strings.Fields(strings.TrimPrefix(w.st.Label, "sh:"))[0]
+		unexplained := false
+		for _, sl := range w.st.Slots {
+			if sl.Sub || sl.Type == trace.SlotFlag || sl.Type == trace.SlotNumber || trace.Derived(sl.Key) || sl.Key == "recv" || len(sl.Value) < 3 {
+				continue
+			}
+			if sl.Type == trace.SlotWord && !(strings.HasPrefix(w.st.Label, "sh:") && trace.SearchPrograms[prog]) {
+				continue // a fixed word of the command: a resource kind, a branch
+			}
+			v := sl.Value
+			if trace.InRequest(v, text) || routine.ComposedFromRequest(v, text) {
+				continue
+			}
+			from := false
+			for _, prev := range all {
+				if prev.Call >= w.st.Call {
+					break
+				}
+				if trace.InResult(v, prev) {
+					from = true
+					break
+				}
+			}
+			if from {
+				continue
+			}
+			unexplained = true
+			ec.Unexplained = append(ec.Unexplained, fmt.Sprintf("step%d:%s", k+1, sl.Type))
+		}
+		if unexplained {
+			chosenSteps++
+			if trace.StepEffect(w.st) != "write" {
+				readChosen++
+			}
+		}
+	}
+	switch {
+	case long:
+		ec.Suitability = model.SuitInvestigation
+		reason(fmt.Sprintf("unbounded_length:%d", len(work)))
+	case judged:
+		ec.Suitability = model.SuitInsufficient
+		reason("judgment_step")
+	case readChosen > 0 && 2*chosenSteps > plain:
+		ec.Suitability = model.SuitInvestigation
+		reason("values_chosen_during_run")
+	case chosenSteps > 0:
+		ec.Suitability = model.SuitInsufficient
+		reason("unexplained_values")
+	default:
+		ec.Suitability = model.SuitUseful
+		reason("single_episode_contract")
+		if firstHuman >= 0 {
+			reason("hands_back_before_judgment")
+		}
+	}
+}
 
 // Episode is one request of one session.
 type Episode struct {
@@ -52,8 +220,8 @@ type EpisodeKey struct {
 // Corpus indexes the frozen sessions for sampling and rendering.
 type Corpus struct {
 	Sessions []trace.Session
-	byKey    map[string]int // client/session -> index
-	lineage  map[string]string
+	ByKey    map[string]int    `json:"-"` // client/session -> index
+	Lineage  map[string]string `json:"-"`
 }
 
 // NewCorpus drops copied calls, as Run does, and computes lineages.
@@ -128,19 +296,19 @@ func NewCorpus(ss []trace.Session) *Corpus {
 		cp[i].Calls = append([]trace.Call(nil), cp[i].Calls...)
 	}
 	trace.DropCopiedCalls(cp)
-	c := &Corpus{Sessions: cp, byKey: map[string]int{}, lineage: map[string]string{}}
+	c := &Corpus{Sessions: cp, ByKey: map[string]int{}, Lineage: map[string]string{}}
 	for i, s := range cp {
 		k := s.Client + "/" + s.ID
-		c.byKey[k] = i
+		c.ByKey[k] = i
 		h := sha256.Sum256([]byte(find(k)))
-		c.lineage[k] = "ln_" + hex.EncodeToString(h[:5])
+		c.Lineage[k] = "ln_" + hex.EncodeToString(h[:5])
 	}
 	return c
 }
 
 // Session returns the session a key names.
 func (c *Corpus) Session(client, id string) (trace.Session, bool) {
-	i, ok := c.byKey[client+"/"+id]
+	i, ok := c.ByKey[client+"/"+id]
 	if !ok {
 		return trace.Session{}, false
 	}
@@ -166,7 +334,7 @@ func (c *Corpus) Episodes() []Episode {
 		sort.Ints(reqs)
 		for _, r := range reqs {
 			out = append(out, Episode{ID: trace.EpisodeID(s.Client, s.ID, r), Client: s.Client, Session: s.ID, Request: r,
-				Calls: n[r], Start: first[r], Lineage: c.lineage[s.Client+"/"+s.ID]})
+				Calls: n[r], Start: first[r], Lineage: c.Lineage[s.Client+"/"+s.ID]})
 		}
 	}
 	return out
@@ -307,7 +475,7 @@ func (c *Corpus) RenderEpisode(e Episode) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Episode %s\n\nclient: %s\nstarted: %s\n\n", e.ID, e.Client, e.Start.UTC().Format(time.RFC3339))
 	if e.Request > 0 && e.Request-1 < len(s.Requests) {
-		fmt.Fprintf(&b, "## Previous message (context only)\n\n%s\n\n", indent(trace.TruncateUTF8(redact.Redact(s.Requests[e.Request-1]), 600)))
+		fmt.Fprintf(&b, "## Previous message (context only)\n\n%s\n\n", Indent(trace.TruncateUTF8(redact.Redact(s.Requests[e.Request-1]), 600)))
 	}
 	req := ""
 	if e.Request < len(s.Requests) {
@@ -316,9 +484,9 @@ func (c *Corpus) RenderEpisode(e Episode) string {
 	if req == "" {
 		req = "(no user message before these calls)"
 	}
-	fmt.Fprintf(&b, "## Request\n\n%s\n\n", indent(trace.TruncateUTF8(redact.Redact(req), 3000)))
+	fmt.Fprintf(&b, "## Request\n\n%s\n\n", Indent(trace.TruncateUTF8(redact.Redact(req), 3000)))
 	if e.Request+1 < len(s.Requests) {
-		fmt.Fprintf(&b, "## Next message (context only)\n\n%s\n\n", indent(trace.TruncateUTF8(redact.Redact(s.Requests[e.Request+1]), 400)))
+		fmt.Fprintf(&b, "## Next message (context only)\n\n%s\n\n", Indent(trace.TruncateUTF8(redact.Redact(s.Requests[e.Request+1]), 400)))
 	}
 	var calls []trace.Call
 	for _, cl := range s.Calls {
@@ -348,7 +516,7 @@ func (c *Corpus) RenderEpisode(e Episode) string {
 			what = strings.Join(parts, " ")
 		}
 		outcome := map[trace.Outcome]string{trace.OutcomeUnknown: "unknown", trace.OutcomeOK: "ok", trace.OutcomeFailed: "failed"}[cl.Outcome]
-		fmt.Fprintf(&b, "%d. [%s] (outcome: %s)\n%s\n", i+1, cl.Tool, outcome, indent(trace.TruncateUTF8(redact.Redact(what), 700)))
+		fmt.Fprintf(&b, "%d. [%s] (outcome: %s)\n%s\n", i+1, cl.Tool, outcome, Indent(trace.TruncateUTF8(redact.Redact(what), 700)))
 		if cl.Output != "" {
 			fmt.Fprintf(&b, "   result: %s\n", strings.ReplaceAll(trace.TruncateUTF8(redact.Redact(cl.Output), 300), "\n", " ⏎ "))
 		}
@@ -357,7 +525,7 @@ func (c *Corpus) RenderEpisode(e Episode) string {
 	return b.String()
 }
 
-func indent(s string) string {
+func Indent(s string) string {
 	return "    " + strings.ReplaceAll(s, "\n", "\n    ")
 }
 
@@ -372,10 +540,10 @@ type HoldoutOptions struct {
 	Exclude []EpisodeKey
 }
 
-// templateKey is a session's first substantive request with digits and
+// TemplateKey is a session's first substantive request with digits and
 // spacing normalized, so a scheduled prompt that differs only in its run
 // stamp is one template.
-func templateKey(s trace.Session) string {
+func TemplateKey(s trace.Session) string {
 	for _, t := range s.Requests {
 		t = strings.Join(strings.Fields(strings.ToLower(t)), " ")
 		if t == "" || strings.ContainsAny(t[:1], "#<[") {
@@ -401,9 +569,9 @@ func SampleHoldout(c *Corpus, o HoldoutOptions) []Episode {
 	exLineage := map[string]bool{}
 	exTemplate := map[string]bool{}
 	for _, k := range o.Exclude {
-		exLineage[c.lineage[k.Client+"/"+k.Session]] = true
+		exLineage[c.Lineage[k.Client+"/"+k.Session]] = true
 		if s, ok := c.Session(k.Client, k.Session); ok {
-			if t := templateKey(s); t != "" {
+			if t := TemplateKey(s); t != "" {
 				exTemplate[t] = true
 			}
 		}
@@ -411,7 +579,7 @@ func SampleHoldout(c *Corpus, o HoldoutOptions) []Episode {
 	var pool []Episode
 	for _, e := range c.Episodes() {
 		s, _ := c.Session(e.Client, e.Session)
-		if exLineage[e.Lineage] || exTemplate[templateKey(s)] {
+		if exLineage[e.Lineage] || exTemplate[TemplateKey(s)] {
 			continue
 		}
 		pool = append(pool, e)
