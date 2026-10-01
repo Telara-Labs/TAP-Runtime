@@ -425,6 +425,30 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 	if f.ReadToDecide > 0 {
 		fmt.Fprintln(out, s.dim(fmt.Sprintf("  In %d of %d uses the agent built its next step from this output, so it needed to see it; those uses save less.", f.ReadToDecide, f.ExecutionCount)))
 	}
+	if f.APIMode == "needs_refinement" {
+		section(out, s, "Opportunity by continuation")
+		for _, fu := range f.FollowUps {
+			assessment := "exact chain"
+			switch fu.APIMode {
+			case "needs_refinement":
+				assessment = "needs refinement"
+			case "synthesis_pending":
+				assessment = "synthesis pending"
+			case "":
+				assessment = "not assessed"
+			}
+			line := fmt.Sprintf("%s: %d runs · ~%s potential tokens · %s", followUpText(fu), fu.Runs, tokensText(fu.PotentialTokens), assessment)
+			for _, part := range wrapText(line, max(20, min(s.cols(), screen)-6)) {
+				fmt.Fprintln(out, "  "+part)
+			}
+			if fu.APIReason != "" {
+				for _, part := range wrapText("Reason: "+fu.APIReason, max(20, min(s.cols(), screen)-8)) {
+					fmt.Fprintln(out, "    "+s.dim(part))
+				}
+			}
+		}
+		fmt.Fprintln(out, s.dim("  Token figures are modeled from recorded follow-up turns; they are conditional opportunity, not measured savings. Options may share a first call."))
+	}
 
 	if len(f.Inputs) > 0 {
 		section(out, s, "What you provide")
@@ -689,8 +713,8 @@ func bindingSummary(p Primitive) string {
 // row (-1 for none).
 func listTable(out io.Writer, s style, shown []Family, choice []string, cursor int) {
 	if s.cols() < 105 {
-		t := table{head: []string{" ", "#", "Proposal", "Uses", "API", "Choice"},
-			widths: []int{1, 3, 31, 5, 6, 6}, right: map[int]bool{1: true, 3: true}, flex: 2, oneLine: true}
+		t := table{head: []string{" ", "#", "Proposal", "Uses", "Est.*", "API", "Choice"},
+			widths: []int{1, 3, 23, 5, 8, 6, 6}, right: map[int]bool{1: true, 3: true, 4: true}, flex: 2, oneLine: true}
 		for i, f := range shown {
 			sel := " "
 			if i == cursor {
@@ -703,12 +727,14 @@ func listTable(out io.Writer, s style, shown []Family, choice []string, cursor i
 			case "needs_refinement":
 				api = "refine"
 			}
-			t.rows = append(t.rows, []string{sel, fmt.Sprint(i + 1), title(f), count(f.ExecutionCount), api, s.choice(choice[i])})
+			t.rows = append(t.rows, []string{sel, fmt.Sprint(i + 1), title(f), count(f.ExecutionCount),
+				"~" + tokensText(inputEquivalent(f.Saved)), api, s.choice(choice[i])})
 		}
 		t.render(out, s)
+		fmt.Fprintln(out, s.dim("  * Modeled from historical follow-up turns; refine rows are conditional, not measured savings."))
 		return
 	}
-	t := table{head: []string{" ", "#", "Primitive", "Uses", "Turns saved", "Tokens saved", "Open", "Choice"},
+	t := table{head: []string{" ", "#", "Primitive", "Uses", "Turns*", "Est. tokens*", "Open", "Choice"},
 		widths: []int{1, 3, 46, 5, 11, 12, 4, 8}, right: map[int]bool{1: true, 3: true, 4: true, 5: true, 6: true}, flex: 3, oneLine: true}
 	for i, f := range shown {
 		sel := " "
@@ -723,14 +749,11 @@ func listTable(out io.Writer, s style, shown []Family, choice []string, cursor i
 			name += " · re-evaluated"
 		}
 		c := s.choice(choice[i])
-		turns, tokens := count(f.TurnsSaved), "~"+tokensText(inputEquivalent(f.Saved))
-		if f.APIMode == "needs_refinement" {
-			turns, tokens = "—", "—"
-		}
-		t.rows = append(t.rows, []string{sel, fmt.Sprint(i + 1), name, count(f.ExecutionCount), turns,
-			tokens, fmt.Sprint(f.OpenQuestions), c})
+		t.rows = append(t.rows, []string{sel, fmt.Sprint(i + 1), name, count(f.ExecutionCount), count(f.TurnsSaved),
+			"~" + tokensText(inputEquivalent(f.Saved)), fmt.Sprint(f.OpenQuestions), c})
 	}
 	t.render(out, s)
+	fmt.Fprintln(out, s.dim("  * Modeled from historical follow-up turns; refine rows are conditional, not measured savings."))
 }
 
 func pastTense(d string) string {

@@ -12,11 +12,10 @@ import (
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-// Family is what the menu proposes: one reusable procedure. Its head step
-// produces a value; its follow-ups act on it. Each follow-up is optional when
-// some runs skipped it, and runs only when the caller supplies its inputs.
-// The head can come from alternative sources when different calls supplied
-// the same value to the same follow-ups.
+// Family is a group of observed result-linked chains. It becomes a reusable
+// procedure only when an executable API is established. Follow-ups can share
+// the same head call; their counts and token opportunity are not independent
+// predictions of savings. The head can come from alternative sources.
 type Family struct {
 	ID string `json:"id"`
 	// Fingerprint names the family across runs, whatever its members: the
@@ -40,8 +39,9 @@ type Family struct {
 	Effect         string   `json:"effect"`
 	SessionCount   int      `json:"sessionCount"`
 	ExecutionCount int      `json:"executionCount"`
-	// SavedTokens are the model-turn tokens the counted runs spent after
-	// their first call: what running the family as one call would remove.
+	// SavedTokens and Saved are the historical model-turn cost after the
+	// first call. They estimate an opportunity, not realized savings unless
+	// the complete program contract is executable and later reused.
 	SavedTokens float64     `json:"savedTokens"`
 	Saved       trace.Usage `json:"saved"`
 	// Confidence is the members' scores weighted by their runs; Weakest is
@@ -52,8 +52,8 @@ type Family struct {
 	// Values are the distinct arguments across the family's chains; Traced
 	// are those whose source is known in every run (an earlier step's
 	// result, or the caller). OpenQuestions are the points to resolve.
-	// TurnsSaved counts the follow-up calls across the counted runs: each
-	// is a model turn the primitive would not need.
+	// TurnsSaved counts historical follow-up calls. For an unresolved family
+	// these are an opportunity estimate, not turns an installed program saves.
 	TurnsSaved    int `json:"turnsSaved"`
 	Values        int `json:"values"`
 	Traced        int `json:"traced"`
@@ -75,9 +75,14 @@ type Family struct {
 
 // FollowUp is one chain after the head.
 type FollowUp struct {
-	Steps    []string `json:"steps"`
-	Runs     int      `json:"runs"`
-	Optional bool     `json:"optional"`
+	Steps           []string `json:"steps"`
+	Runs            int      `json:"runs"`
+	Optional        bool     `json:"optional"`
+	Members         []string `json:"members,omitempty"`
+	PotentialTurns  int      `json:"potentialTurns,omitempty"`
+	PotentialTokens float64  `json:"potentialTokens,omitempty"`
+	APIMode         string   `json:"apiMode,omitempty"`
+	APIReason       string   `json:"apiReason,omitempty"`
 }
 
 func execKey(ex Execution) string {
@@ -303,7 +308,13 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 	questions := map[string]bool{}
 	readable := map[string]bool{}
 	inputs := map[string]map[string]bool{} // step:op -> arg keys
+	tailMembers := map[string][]string{}
+	tailTurns := map[string]int{}
+	tailTokens := map[string]float64{}
 	for _, p := range members {
+		t := tail(p)
+		tailMembers[t] = append(tailMembers[t], p.ID)
+		tailTokens[t] += inputEquivalent(p.Saved)
 		f.Members = append(f.Members, p.ID)
 		f.SavedTokens += p.SavedTokens
 		f.Saved = f.Saved.Add(p.Saved)
@@ -347,6 +358,7 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 			}
 			runs[ex.Session+"/"+strconv.Itoa(ex.Calls[0].Index)] = true
 			f.TurnsSaved += len(ex.Calls) - 1
+			tailTurns[t] += len(ex.Calls) - 1
 			sessions[ex.Session] = true
 		}
 		for _, in := range p.Inputs {
@@ -390,7 +402,8 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 		if t == "" {
 			continue
 		}
-		f.FollowUps = append(f.FollowUps, FollowUp{Steps: strings.Split(t, " > "), Runs: n, Optional: n < total})
+		f.FollowUps = append(f.FollowUps, FollowUp{Steps: strings.Split(t, " > "), Runs: n, Optional: n < total,
+			Members: tailMembers[t], PotentialTurns: tailTurns[t], PotentialTokens: tailTokens[t]})
 	}
 	sort.Slice(f.FollowUps, func(i, j int) bool { return f.FollowUps[i].Runs > f.FollowUps[j].Runs })
 	var ops []string

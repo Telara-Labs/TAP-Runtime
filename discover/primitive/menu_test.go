@@ -96,6 +96,10 @@ func TestUnresolvedPatternIsShownButCannotBeAccepted(t *testing.T) {
 	res := twoFamilies()
 	res.Families[0].APIMode = "needs_refinement"
 	res.Families[0].APIReason = "no branch predicate"
+	res.Families[0].Saved = trace.Usage{Fresh: 1234}
+	res.Families[0].FollowUps[0].PotentialTokens = 1234
+	res.Families[0].FollowUps[0].APIMode = "needs_refinement"
+	res.Families[0].FollowUps[0].APIReason = "one recorded path needs a decision"
 	var out bytes.Buffer
 	dir := t.TempDir()
 	err := Menu(strings.NewReader("i\na\nq\n"), &out, res, MenuConfig{StateDir: dir, Home: t.TempDir(), Clients: "claude-code"})
@@ -103,8 +107,14 @@ func TestUnresolvedPatternIsShownButCannotBeAccepted(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "No executable API established") || !strings.Contains(got, "no branch predicate") || !strings.Contains(got, "Choose agent eval or continue") {
+	if !strings.Contains(got, "No executable API established") || !strings.Contains(got, "no branch predicate") || !strings.Contains(got, "Choose agent eval or continue") ||
+		!strings.Contains(got, "~1.2k potential tokens") || !strings.Contains(got, "one recorded path needs a decision") {
 		t.Fatalf("unresolved contract was hidden or accept was allowed: %s", got)
+	}
+	var listing bytes.Buffer
+	listTable(&listing, style{width: 140}, res.Families, make([]string, len(res.Families)), -1)
+	if !strings.Contains(listing.String(), "~1.2k") || strings.Contains(listing.String(), "│      —") {
+		t.Fatalf("unresolved opportunity disappeared from list: %s", listing.String())
 	}
 	files, _ := filepath.Glob(filepath.Join(dir, "accepted", "families", "*.json"))
 	if len(files) != 0 {
