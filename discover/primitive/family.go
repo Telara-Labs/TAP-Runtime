@@ -2,6 +2,7 @@ package primitive
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"math"
 	"encoding/hex"
 	"sort"
@@ -41,6 +42,12 @@ type Family struct {
 	// claims.
 	Confidence    int    `json:"confidence"`
 	Weakest       int    `json:"weakest"`
+	// Values are the distinct arguments across the family's chains; Traced
+	// are those whose source is known in every run (an earlier step's
+	// result, or the caller). OpenQuestions are the points to resolve.
+	Values        int `json:"values"`
+	Traced        int `json:"traced"`
+	OpenQuestions int `json:"openQuestions"`
 	NeedsDecision int    `json:"needsDecision"`
 	Readiness     string `json:"readiness"`
 }
@@ -271,6 +278,8 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 	// or found value are one execution of the family.
 	runs := map[string]bool{}
 	sessions := map[string]bool{}
+	traced := map[string]bool{} // op|arg -> traced in every chain
+	questions := map[string]bool{}
 	inputs := map[string]map[string]bool{} // step:op -> arg keys
 	for _, p := range members {
 		f.Members = append(f.Members, p.ID)
@@ -288,6 +297,24 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 			f.NeedsDecision++
 			f.Readiness = "needs_decision"
 		}
+		for _, cl := range p.Confidence.Claims {
+			if cl.Dimension != "bindings" {
+				continue
+			}
+			var step int
+			var arg string
+			if _, err := fmt.Sscanf(cl.Subject, "step %d %s", &step, &arg); err != nil || step < 1 || step > len(p.Steps) {
+				continue
+			}
+			k := headKey(p.Steps[step-1]) + "|" + normKey(arg)
+			var got, of int
+			fmt.Sscanf(cl.Support, "%d/%d", &got, &of)
+			ok, seen := traced[k]
+			traced[k] = (ok || !seen) && got == of
+		}
+		for _, q := range p.Confidence.NeedsReview {
+			questions[p.ID+" "+q] = true
+		}
 		for _, ex := range p.Executions {
 			if ex.Overlaps != "" || len(ex.Calls) == 0 {
 				continue
@@ -304,6 +331,12 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 		}
 	}
 	f.ExecutionCount, f.SessionCount = len(runs), len(sessions)
+	f.Values, f.OpenQuestions = len(traced), len(questions)
+	for _, ok := range traced {
+		if ok {
+			f.Traced++
+		}
+	}
 	if weight > 0 {
 		f.Confidence = int(math.Round(weighted / float64(weight)))
 	}

@@ -7,21 +7,20 @@ import (
 	"strings"
 )
 
-// Rubric names how confidence is calculated. Each claim scores how
+// Rubric names how the detail scores are calculated. Each claim scores how
 // consistently the runs that show it support it: every run's observation
-// gets a quality, and the claim's score is their mean. The primitive's score
-// takes its weakest dimension and discounts it by how many runs stand behind
-// the primitive (the 95% Wilson lower bound), so the same flow seen twice
-// scores lower than seen ninety times. It is not a probability that a
-// generated program will work, and not permission to run it.
-const Rubric = "run-consistency score v2"
+// gets a quality, and the claim's score is their mean; a primitive's score is
+// its weakest area. It describes the evidence for refinement. It is not a
+// probability that the chain is a primitive or that a program will work, so
+// the menu never shows it as one: it shows values traced and open questions,
+// and the run count separately.
+const Rubric = "run consistency v3"
 
 // Observation quality: how strongly one run supports a binding.
 const (
 	qExplicit  = 1.0  // a structured field of the producer's result
 	qInferred  = 0.8  // a whole output line, or its first field
 	qInput     = 1.0  // the caller supplies it (typed in the request, or no source)
-	qAmbiguous = 0.25 // only mentioned inside text
 	qConflict  = 0.0  // taken from a different step than in most runs
 )
 
@@ -66,20 +65,6 @@ type Confidence struct {
 }
 
 var dimensionOrder = []string{"bindings", "transformations", "control", "completion"}
-
-// wilson is the lower bound of a 95% Wilson interval for a mean of n
-// observations in [0,1].
-func wilson(mean float64, n int) float64 {
-	if n == 0 {
-		return 0
-	}
-	const z = 1.96
-	nf := float64(n)
-	den := 1 + z*z/nf
-	centre := mean + z*z/(2*nf)
-	margin := z * math.Sqrt(mean*(1-mean)/nf+z*z/(4*nf*nf))
-	return math.Max(0, (centre-margin)/den)
-}
 
 func pct(x float64) int { return int(math.Round(100 * x)) }
 
@@ -157,7 +142,10 @@ func score(p Primitive) Confidence {
 				sum += qInferred
 				inferred++
 			case o.Label == Ambiguous:
-				sum += qAmbiguous
+				// No proven source: by rule a caller input. It also appeared in
+				// an earlier output's text, which refinement may turn into a
+				// binding.
+				sum += qInput
 				ambiguous++
 			case o.Label == Inferred: // given in the request
 				sum += qInput
@@ -172,18 +160,15 @@ func score(p Primitive) Confidence {
 			n    int
 			what string
 		}{{explicit, fmt.Sprintf("a structured field of step %d", modal)}, {inferred, fmt.Sprintf("an output line of step %d", modal)},
-			{typed, "typed in the request"}, {input, "a caller input"}, {ambiguous, "only mentioned in text"}, {conflict, "taken from another step"}} {
+			{typed, "typed in the request"}, {input, "a caller input"}, {ambiguous, "a caller input that also appeared in earlier output text"}, {conflict, "taken from another step"}} {
 			if x.n > 0 {
 				parts = append(parts, fmt.Sprintf("%d %s", x.n, x.what))
 			}
 		}
 		subject := fmt.Sprintf("step %d %s", k.step, k.arg)
-		add("bindings", subject, sum/float64(len(os)), len(os)-ambiguous-conflict, len(os), strings.Join(parts, ", "))
-		switch {
-		case conflict > 0:
+		add("bindings", subject, sum/float64(len(os)), len(os)-conflict, len(os), strings.Join(parts, ", "))
+		if conflict > 0 {
 			unresolved(fmt.Sprintf("%s: taken from different steps in %d of %d runs", subject, conflict, len(os)))
-		case 2*ambiguous > len(os):
-			unresolved(fmt.Sprintf("%s: in most runs only mentioned in text, no proven source", subject))
 		}
 	}
 
@@ -288,7 +273,7 @@ func score(p Primitive) Confidence {
 		c.Notes = append(c.Notes, fmt.Sprintf("%d of %d runs have no recorded call times", untimed, n))
 	}
 
-	weakest := 100
+	c.Overall = 100
 	for _, name := range dimensionOrder {
 		d := Dimension{Name: name, Score: 100}
 		for _, cl := range c.Claims {
@@ -301,12 +286,15 @@ func score(p Primitive) Confidence {
 		}
 		if !d.Applicable {
 			d.Score = 0
-		} else if d.Score < weakest {
-			weakest = d.Score
+		} else if d.Score < c.Overall {
+			c.Overall = d.Score
 		}
 		c.Dimensions = append(c.Dimensions, d)
 	}
-	c.Overall = pct(wilson(float64(weakest)/100, n))
+	// A long gap is a point to check, listed with the open questions.
+	if long > 0 {
+		c.NeedsReview = append(c.NeedsReview, fmt.Sprintf("%d of %d runs: 20 minutes or more between two calls; check it is one operation", long, n))
+	}
 	sort.Strings(c.NeedsReview)
 	return c
 }
@@ -319,5 +307,5 @@ func (c Confidence) Summary() string {
 			parts = append(parts, fmt.Sprintf("%s %d", d.Name, d.Score))
 		}
 	}
-	return fmt.Sprintf("%d/100 (%s) · %s · %s", c.Overall, c.Rubric, strings.Join(parts, " | "), c.Readiness)
+	return fmt.Sprintf("weakest area %d/100 (%s) · %s · %s", c.Overall, c.Rubric, strings.Join(parts, " | "), c.Readiness)
 }
