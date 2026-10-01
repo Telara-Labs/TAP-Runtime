@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/history"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -841,7 +843,7 @@ func TestC21NestedVaryingCredentialsNeverLeak(t *testing.T) {
 // TestDashUIsACredentialOnlyForUserFlagPrograms and TestCopiedCallsAreReadOnce;
 // this case checks they still hold together in one run.
 func TestC22RepairedBehaviorsHoldTogether(t *testing.T) {
-	c := cursorCall(cursorRow{Name: "mcp-telara-telara_task_create", Args: `{"name":"x","args":{"title":"t"},"toolCallId":"1"}`})
+	c := history.CursorCall(history.CursorRow{Name: "mcp-telara-telara_task_create", Args: `{"name":"x","args":{"title":"t"},"toolCallId":"1"}`})
 	if c.Args["title"] != "t" || len(c.Args) != 1 {
 		t.Fatalf("cursor envelope: %v", c.Args)
 	}

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/history"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -20,7 +22,7 @@ func TestCursorMCPEnvelopeIsUnwrapped(t *testing.T) {
 		"string":  `{"name":"x","args":"{\"title\":\"t\",\"summary\":\"s\"}","serverIdentifier":"user-telara"}`,
 		"params":  `{"tools":[{"name":"telara_task_create","parameters":"{\"title\":\"t\",\"summary\":\"s\"}","serverName":"telara"}]}`,
 	} {
-		c := cursorCall(cursorRow{Name: "mcp-telara-telara_task_create", Args: raw})
+		c := history.CursorCall(history.CursorRow{Name: "mcp-telara-telara_task_create", Args: raw})
 		if len(c.Args) != 2 || c.Args["title"] != "t" || c.Args["summary"] != "s" {
 			t.Errorf("%s: args = %v", name, c.Args)
 		}
@@ -28,7 +30,7 @@ func TestCursorMCPEnvelopeIsUnwrapped(t *testing.T) {
 	// A tool whose own argument is called "args" keeps it.
 	var own map[string]json.RawMessage
 	_ = json.Unmarshal([]byte(`{"args":["-l"],"cmd":"ls"}`), &own)
-	if got := cursorMCPArgs(own); len(got) != 2 {
+	if got := history.CursorMCPArgs(own); len(got) != 2 {
 		t.Errorf("own args argument was unwrapped: %v", got)
 	}
 }
@@ -146,7 +148,7 @@ func TestCodexSessionIdentityIsTheFilesOwnAndUnique(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "a-parent.jsonl"), []byte(parent), 0o600)
 	os.WriteFile(filepath.Join(dir, "b-child.jsonl"), []byte(fork), 0o600)
 	os.WriteFile(filepath.Join(dir, "c-parent_sub.jsonl"), []byte(sub), 0o600)
-	ss, err := Codex{Dir: dir}.Read(time.Time{})
+	ss, err := history.Codex{Dir: dir}.Read(time.Time{})
 	if err != nil || len(ss) != 3 {
 		t.Fatalf("read %d: %v", len(ss), err)
 	}

@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/history"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -53,14 +55,14 @@ func TestFrozenReaderDropsChangedSessionsOnlyWhenAsked(t *testing.T) {
 	t0 := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
 	a := trace.Session{Client: "claude-code", ID: "a", Start: t0, Calls: []trace.Call{{Tool: "shell", Command: "ls"}}}
 	b := trace.Session{Client: "claude-code", ID: "b", Start: t0, Calls: []trace.Call{{Tool: "shell", Command: "pwd"}}}
-	m := BuildManifest([]trace.Session{a, b}, t0.Add(time.Hour))
+	m := history.BuildManifest([]trace.Session{a, b}, t0.Add(time.Hour))
 	b.Calls = append(b.Calls, trace.Call{Tool: "shell", Command: "date"}) // appended after the freeze
 	inner := fakeReader{sessions: []trace.Session{a, b}, name: "claude-code"}
-	if _, err := (FrozenReader{Inner: inner, Manifest: m}).Read(time.Time{}); err == nil {
+	if _, err := (history.FrozenReader{Inner: inner, Manifest: m}).Read(time.Time{}); err == nil {
 		t.Fatal("a changed session must fail the read by default")
 	}
 	var dropped []string
-	got, err := FrozenReader{Inner: inner, Manifest: m, DropChanged: true, Dropped: &dropped}.Read(time.Time{})
+	got, err := history.FrozenReader{Inner: inner, Manifest: m, DropChanged: true, Dropped: &dropped}.Read(time.Time{})
 	if err != nil || len(got) != 1 || got[0].ID != "a" || len(dropped) != 1 {
 		t.Fatalf("got %v %v, dropped %v", got, err, dropped)
 	}

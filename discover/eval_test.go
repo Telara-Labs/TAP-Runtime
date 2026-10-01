@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/history"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -14,25 +16,25 @@ func TestFrozenReaderRefusesAChangedCorpus(t *testing.T) {
 	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	a := trace.Session{Client: "fake", ID: "a", Start: t0, Calls: []trace.Call{{Tool: "shell", Command: "ls", Time: t0}}}
 	b := trace.Session{Client: "fake", ID: "b", Start: t0, Calls: []trace.Call{{Tool: "shell", Command: "pwd", Time: t0.Add(48 * time.Hour)}}}
-	m := BuildManifest([]trace.Session{a, b}, t0.Add(24*time.Hour))
+	m := history.BuildManifest([]trace.Session{a, b}, t0.Add(24*time.Hour))
 	if len(m.Sessions) != 1 || m.Sessions[0].ID != "a" {
 		t.Fatalf("a session still active at the cutoff must not be frozen: %+v", m.Sessions)
 	}
-	ss, err := FrozenReader{Inner: fakeReader{sessions: []trace.Session{a, b}}, Manifest: m}.Read(time.Time{})
+	ss, err := history.FrozenReader{Inner: fakeReader{sessions: []trace.Session{a, b}}, Manifest: m}.Read(time.Time{})
 	if err != nil || len(ss) != 1 {
 		t.Fatalf("read %d, %v", len(ss), err)
 	}
 	a2 := a
 	a2.Calls = append(append([]trace.Call(nil), a.Calls...), trace.Call{Tool: "shell", Command: "date"})
-	if _, err := (FrozenReader{Inner: fakeReader{sessions: []trace.Session{a2}}, Manifest: m}).Read(time.Time{}); !errors.Is(err, ErrCorpusChanged) {
+	if _, err := (history.FrozenReader{Inner: fakeReader{sessions: []trace.Session{a2}}, Manifest: m}).Read(time.Time{}); !errors.Is(err, history.ErrCorpusChanged) {
 		t.Fatalf("a changed session must stop the run: %v", err)
 	}
-	if _, err := (FrozenReader{Inner: fakeReader{sessions: nil}, Manifest: m}).Read(time.Time{}); !errors.Is(err, ErrCorpusChanged) {
+	if _, err := (history.FrozenReader{Inner: fakeReader{sessions: nil}, Manifest: m}).Read(time.Time{}); !errors.Is(err, history.ErrCorpusChanged) {
 		t.Fatalf("a missing session must stop the run: %v", err)
 	}
 	dup := m
-	dup.Sessions = append(append([]ManifestEntry(nil), m.Sessions...), m.Sessions[0])
-	if _, err := (FrozenReader{Inner: fakeReader{sessions: []trace.Session{a}}, Manifest: dup}).Read(time.Time{}); !errors.Is(err, ErrCorpusChanged) {
+	dup.Sessions = append(append([]history.ManifestEntry(nil), m.Sessions...), m.Sessions[0])
+	if _, err := (history.FrozenReader{Inner: fakeReader{sessions: []trace.Session{a}}, Manifest: dup}).Read(time.Time{}); !errors.Is(err, history.ErrCorpusChanged) {
 		t.Fatalf("a manifest naming one session twice must stop the run: %v", err)
 	}
 }
@@ -92,18 +94,18 @@ func TestSampleIsReproducibleAndCarriesNoDecision(t *testing.T) {
 func TestSourceDigestSurvivesParserChanges(t *testing.T) {
 	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	a := trace.Session{Client: "fake", ID: "a", Start: t0, SourceDigest: "abc", Calls: []trace.Call{{Tool: "shell", Command: "ls", Time: t0}}}
-	m := BuildManifest([]trace.Session{a}, t0.Add(time.Hour))
+	m := history.BuildManifest([]trace.Session{a}, t0.Add(time.Hour))
 	if m.Sessions[0].Digest != "abc" {
 		t.Fatalf("digest %q", m.Sessions[0].Digest)
 	}
 	// A newer parser reads more out of the same bytes: same input.
 	b := a
 	b.Calls = []trace.Call{{Tool: "shell", Command: "ls", Time: t0, Output: "x", OutPaths: []string{".id"}}}
-	if _, err := (FrozenReader{Inner: fakeReader{sessions: []trace.Session{b}}, Manifest: m}).Read(time.Time{}); err != nil {
+	if _, err := (history.FrozenReader{Inner: fakeReader{sessions: []trace.Session{b}}, Manifest: m}).Read(time.Time{}); err != nil {
 		t.Fatalf("a parser change is not an input change: %v", err)
 	}
 	b.SourceDigest = "def"
-	if _, err := (FrozenReader{Inner: fakeReader{sessions: []trace.Session{b}}, Manifest: m}).Read(time.Time{}); !errors.Is(err, ErrCorpusChanged) {
+	if _, err := (history.FrozenReader{Inner: fakeReader{sessions: []trace.Session{b}}, Manifest: m}).Read(time.Time{}); !errors.Is(err, history.ErrCorpusChanged) {
 		t.Fatalf("changed source bytes must stop the run: %v", err)
 	}
 }

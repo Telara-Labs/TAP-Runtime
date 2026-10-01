@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/discover"
+	"gitlab.com/telara-labs/tap-runtime/discover/history"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -60,7 +61,7 @@ func readers() ([]trace.Reader, error) {
 	if err != nil {
 		return nil, err
 	}
-	return discover.DefaultReaders([]string{"claude-code", "codex", "cursor"}, home)
+	return history.DefaultReaders([]string{"claude-code", "codex", "cursor"}, home)
 }
 
 func readAll(rs []trace.Reader) ([]trace.Session, error) {
@@ -75,8 +76,8 @@ func readAll(rs []trace.Reader) ([]trace.Session, error) {
 	return all, nil
 }
 
-func frozenReaders(path string) ([]trace.Reader, discover.Manifest, error) {
-	var m discover.Manifest
+func frozenReaders(path string) ([]trace.Reader, history.Manifest, error) {
+	var m history.Manifest
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, m, err
@@ -90,7 +91,7 @@ func frozenReaders(path string) ([]trace.Reader, discover.Manifest, error) {
 	}
 	out := make([]trace.Reader, len(rs))
 	for i, r := range rs {
-		out[i] = discover.FrozenReader{Inner: r, Manifest: m}
+		out[i] = history.FrozenReader{Inner: r, Manifest: m}
 	}
 	return out, m, nil
 }
@@ -120,7 +121,7 @@ func freeze(args []string) error {
 	if err != nil {
 		return err
 	}
-	m := discover.BuildManifest(ss, t)
+	m := history.BuildManifest(ss, t)
 	fmt.Printf("froze %d of %d sessions before %s; digest %s\n", len(m.Sessions), len(ss), m.Cutoff.Format(time.RFC3339), m.Digest)
 	return writeJSON(*out, m)
 }
@@ -331,7 +332,7 @@ func holdout(args []string) error {
 	var dropped []string
 	if *dropChanged {
 		for i, r := range rs {
-			fr := r.(discover.FrozenReader)
+			fr := r.(history.FrozenReader)
 			fr.DropChanged, fr.Dropped = true, &dropped
 			rs[i] = fr
 		}
@@ -390,7 +391,7 @@ func opportunities(args []string) error {
 	var dropped []string
 	if *dropChanged {
 		for i, r := range rs {
-			fr := r.(discover.FrozenReader)
+			fr := r.(history.FrozenReader)
 			fr.DropChanged, fr.Dropped = true, &dropped
 			rs[i] = fr
 		}
@@ -438,7 +439,7 @@ func spans(args []string) error {
 	var dropped []string
 	if *dropChanged {
 		for i, r := range rs {
-			fr := r.(discover.FrozenReader)
+			fr := r.(history.FrozenReader)
 			fr.DropChanged, fr.Dropped = true, &dropped
 			rs[i] = fr
 		}
@@ -476,7 +477,7 @@ func packets(args []string) error {
 	}
 	var dropped []string
 	for i, r := range rs {
-		fr := r.(discover.FrozenReader)
+		fr := r.(history.FrozenReader)
 		fr.DropChanged, fr.Dropped = true, &dropped
 		rs[i] = fr
 	}

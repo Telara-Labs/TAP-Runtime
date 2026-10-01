@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/history"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -19,7 +21,7 @@ func TestClaudeReaderAttributesCompactionTextAsSynthetic(t *testing.T) {
 	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, err := readClaudeFile(path)
+	s, err := history.ReadClaudeFile(path)
 	if err != nil || len(s.Requests) != 2 || len(s.Calls) != 2 || s.Calls[0].Request != 0 || s.Calls[1].Request != 1 ||
 		s.RequestRoles[0] != "synthetic_context" || s.RequestRoles[1] != "user" {
 		t.Fatalf("compaction attribution lost: session=%+v error=%v", s, err)

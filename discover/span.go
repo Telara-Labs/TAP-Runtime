@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/history"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -332,7 +334,7 @@ func spanInText(value, kind, text string) bool {
 
 func spanPriorRequest(value, kind string, requests []string, before int) int {
 	for r := before - 1; r >= 0; r-- {
-		if !trace.IsHarness(requests[r]) && !isClaudeContinuationSummary(requests[r]) && spanInText(value, kind, requests[r]) {
+		if !trace.IsHarness(requests[r]) && !history.IsClaudeContinuationSummary(requests[r]) && spanInText(value, kind, requests[r]) {
 			return r
 		}
 	}
@@ -791,7 +793,7 @@ func spanDirectIntent(requests []string, req int, n spanNode) bool {
 	want := current
 	if req > 0 && spanHasReference(current) {
 		for r := req - 1; r >= 0; r-- {
-			if strings.TrimSpace(requests[r]) != "" && !trace.IsHarness(requests[r]) && !isClaudeContinuationSummary(requests[r]) {
+			if strings.TrimSpace(requests[r]) != "" && !trace.IsHarness(requests[r]) && !history.IsClaudeContinuationSummary(requests[r]) {
 				want = spanWords(requests[r] + " " + requests[req])
 				break
 			}

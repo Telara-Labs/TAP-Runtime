@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/history"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -304,7 +306,7 @@ func FindSession(client, id, home string) (trace.Session, error) {
 			return nil
 		})
 	case "cursor":
-		ss, err := Cursor{DB: CursorStateDB(home)}.Read(time.Time{})
+		ss, err := history.Cursor{DB: history.CursorStateDB(home)}.Read(time.Time{})
 		if err != nil {
 			return trace.Session{}, err
 		}
@@ -321,9 +323,9 @@ func FindSession(client, id, home string) (trace.Session, error) {
 		var s trace.Session
 		var err error
 		if client == "claude-code" {
-			s, err = readClaudeFile(f)
+			s, err = history.ReadClaudeFile(f)
 		} else {
-			s, err = readCodexFile(f)
+			s, err = history.ReadCodexFile(f)
 		}
 		if err == nil && (s.ID == id || strings.Contains(filepath.Base(f), id)) {
 			return s, nil

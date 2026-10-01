@@ -4,18 +4,20 @@ import (
 	"encoding/json"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/history"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 func TestCodexPatchInputsAreRead(t *testing.T) {
 	// Standalone apply_patch (freeform input) and tools.apply_patch(`...`)
 	// inside an exec body were both recorded without their patch before.
-	calls := jsToolCalls("await tools.apply_patch(`*** Begin Patch\n*** Update File: a/activity.log\n@@\n*** End Patch`);")
+	calls := history.JsToolCalls("await tools.apply_patch(`*** Begin Patch\n*** Update File: a/activity.log\n@@\n*** End Patch`);")
 	if len(calls) != 1 {
 		t.Fatalf("calls = %d", len(calls))
 	}
 	var in string
-	_ = json.Unmarshal(calls[0].args["input"], &in)
+	_ = json.Unmarshal(calls[0].Args["input"], &in)
 	steps := trace.StepsOf(trace.Call{Tool: "apply_patch", Args: map[string]string{"input": in}}, nil)
 	if len(steps) != 1 || steps[0].Label != "patch:update" {
 		t.Fatalf("steps = %+v", steps)
