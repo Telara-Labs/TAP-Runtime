@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -73,7 +75,7 @@ func GroupProgramVariants(c model.LogicCandidate, proposals []model.SpanProposal
 				return nil, fmt.Errorf("span %s call %d is unavailable", id, ordinal)
 			}
 			call := requestCalls[ordinal-1]
-			if spanCallHash(call) != p.CallHashes[i] {
+			if retrieval.SpanCallHash(call) != p.CallHashes[i] {
 				return nil, fmt.Errorf("span %s source call %d changed", id, ordinal)
 			}
 			sig := programCallSignature(call)
@@ -213,7 +215,7 @@ func variantIndependentExecutions(members []string, bySpan map[string]model.Span
 	for _, p := range spans {
 		overlap := false
 		for _, call := range p.Calls {
-			if used[logicCallID(p, call)] {
+			if used[retrieval.LogicCallID(p, call)] {
 				overlap = true
 				break
 			}
@@ -223,7 +225,7 @@ func variantIndependentExecutions(members []string, bySpan map[string]model.Span
 		}
 		count++
 		for _, call := range p.Calls {
-			used[logicCallID(p, call)] = true
+			used[retrieval.LogicCallID(p, call)] = true
 		}
 	}
 	return count

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -28,7 +30,7 @@ func selSession(id, req string, calls ...trace.Call) trace.Session {
 
 func judged(t *testing.T, ss []trace.Session, id string) model.Opportunity {
 	t.Helper()
-	for _, o := range SelectOpportunities(ss) {
+	for _, o := range retrieval.SelectOpportunities(ss) {
 		if o.Session == id {
 			return o
 		}
@@ -141,11 +143,11 @@ func TestParametricLoopNeedsIdentifiersNotSearchPhrasings(t *testing.T) {
 }
 
 func TestLoopListSourceRequiresWholeItems(t *testing.T) {
-	if containsItem("1812345679", "81234567") || !containsItem("jobs 81234567, 81234599", "81234567") {
+	if retrieval.ContainsItem("1812345679", "81234567") || !retrieval.ContainsItem("jobs 81234567, 81234599", "81234567") {
 		t.Fatal("item boundary mismatch")
 	}
 	steps := []trace.Step{{Output: "job 81234567 only", Outcome: trace.OutcomeOK}}
-	if source := loopListSource("", steps, 1, []string{"81234567", "81234599"}); source != "" {
+	if source := retrieval.LoopListSource("", steps, 1, []string{"81234567", "81234599"}); source != "" {
 		t.Fatalf("partial list should not establish provenance: %q", source)
 	}
 }
@@ -154,7 +156,7 @@ func TestLoopListSourceRequiresWholeItems(t *testing.T) {
 func TestSelectionRefusesHarnessAndSingleCalls(t *testing.T) {
 	h := selSession("h", "# AGENTS.md instructions for /repo", trace.Call{Tool: "shell", Command: "ls"}, trace.Call{Tool: "shell", Command: "pwd"})
 	one := selSession("one", "what time is it", trace.Call{Tool: "shell", Command: "date"})
-	for _, o := range SelectOpportunities([]trace.Session{h, one}) {
+	for _, o := range retrieval.SelectOpportunities([]trace.Session{h, one}) {
 		if o.Recommended {
 			t.Errorf("%s must not be recommended: %+v", o.Session, o)
 		}
@@ -198,7 +200,7 @@ func TestGroupOpportunitiesByContractRanksBySessions(t *testing.T) {
 	ss = append(ss, selSession("ids", "tail the failed jobs 81234567 and 81234599",
 		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "a"},
 		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "b"}))
-	ops := SelectOpportunities(ss)
+	ops := retrieval.SelectOpportunities(ss)
 	n := 0
 	for _, o := range ops {
 		if o.Recommended {
@@ -208,7 +210,7 @@ func TestGroupOpportunitiesByContractRanksBySessions(t *testing.T) {
 			}
 		}
 	}
-	gs := GroupOpportunities(ops)
+	gs := retrieval.GroupOpportunities(ops)
 	if len(gs) != 2 || gs[0].Route != model.RouteStatedTemplate || gs[0].Sessions != 3 || gs[0].Requests != 3 || gs[1].Sessions != 1 {
 		t.Fatalf("want the 3-session template group first, then the loop: %+v", gs)
 	}

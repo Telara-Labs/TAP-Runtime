@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -62,22 +64,22 @@ func Run(o model.Options) (*model.Report, error) {
 		return a.ID < b.ID
 	})
 	trace.DropCopiedCalls(raw)
-	for _, op := range SelectOpportunities(raw) {
+	for _, op := range retrieval.SelectOpportunities(raw) {
 		if op.Recommended {
 			rep.Opportunities = append(rep.Opportunities, op)
 		}
 	}
-	rep.OpportunityGroups = GroupOpportunities(rep.Opportunities)
+	rep.OpportunityGroups = retrieval.GroupOpportunities(rep.Opportunities)
 	if o.Spans {
-		rep.SpanProposals = SelectSpanProposals(raw)
-		rep.SpanGroups = GroupSpanProposals(rep.SpanProposals)
-		rep.CompositionGroups = GroupSpanCompositions(rep.SpanProposals)
-		rep.LogicCandidates = GroupLogicCandidates(rep.SpanProposals)
-		rep.LogicFunnels = GroupLogicFunnels(rep.LogicCandidates, rep.SpanProposals)
-		rep.ReviewSpans = ReviewSpanProposals(rep.SpanProposals)
-		rep.ReviewGroups = GroupSpanCompositions(rep.ReviewSpans)
-		rep.ComponentSpans = ReviewSpanComponents(rep.SpanProposals)
-		rep.ComponentGroups = GroupSpanCompositions(rep.ComponentSpans)
+		rep.SpanProposals = retrieval.SelectSpanProposals(raw)
+		rep.SpanGroups = retrieval.GroupSpanProposals(rep.SpanProposals)
+		rep.CompositionGroups = retrieval.GroupSpanCompositions(rep.SpanProposals)
+		rep.LogicCandidates = retrieval.GroupLogicCandidates(rep.SpanProposals)
+		rep.LogicFunnels = retrieval.GroupLogicFunnels(rep.LogicCandidates, rep.SpanProposals)
+		rep.ReviewSpans = retrieval.ReviewSpanProposals(rep.SpanProposals)
+		rep.ReviewGroups = retrieval.GroupSpanCompositions(rep.ReviewSpans)
+		rep.ComponentSpans = retrieval.ReviewSpanComponents(rep.SpanProposals)
+		rep.ComponentGroups = retrieval.GroupSpanCompositions(rep.ComponentSpans)
 	}
 	sessions := trace.Normalize(raw)
 

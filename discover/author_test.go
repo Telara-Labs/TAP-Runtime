@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -114,8 +116,8 @@ func TestBriefFromRecurringLogicShowsDifferentExecutions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spans := SelectSpanProposals([]trace.Session{a, b})
-	groups := GroupLogicCandidates(spans)
+	spans := retrieval.SelectSpanProposals([]trace.Session{a, b})
+	groups := retrieval.GroupLogicCandidates(spans)
 	if len(groups) != 1 {
 		t.Fatalf("want one parameterized flow, got %+v", groups)
 	}

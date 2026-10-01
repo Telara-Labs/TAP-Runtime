@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -62,8 +64,8 @@ func generateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		}
 		sessions = append(sessions, ss...)
 	}
-	spans := SelectSpanProposals(sessions)
-	candidates := GroupLogicCandidates(spans)
+	spans := retrieval.SelectSpanProposals(sessions)
+	candidates := retrieval.GroupLogicCandidates(spans)
 	if *logicID == "" {
 		if *generatedOnly {
 			configRoot, err := os.UserConfigDir()
@@ -352,7 +354,7 @@ func generatedCausalComponent(p model.SpanProposal) bool {
 		return false
 	}
 	for _, reason := range []string{"failed_or_oversized_call", "output_not_observed", "stop_condition_unproven", "synthetic_request"} {
-		if spanHasReason(p.Review.Reasons, reason) {
+		if retrieval.SpanHasReason(p.Review.Reasons, reason) {
 			return false
 		}
 	}

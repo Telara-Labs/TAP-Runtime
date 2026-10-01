@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover"
@@ -402,7 +404,7 @@ func opportunities(args []string) error {
 	if err != nil {
 		return err
 	}
-	ops := discover.SelectOpportunities(ss)
+	ops := retrieval.SelectOpportunities(ss)
 	n := map[string]int{}
 	for _, o := range ops {
 		if o.Recommended {
@@ -410,7 +412,7 @@ func opportunities(args []string) error {
 		}
 	}
 	fmt.Printf("judged %d requests; recommended %v; dropped %d changed session(s): %v\n", len(ops), n, len(dropped), dropped)
-	return writeJSON(*out, map[string]any{"manifest": *manifest, "dropped": dropped, "opportunities": ops, "groups": discover.GroupOpportunities(ops)})
+	return writeJSON(*out, map[string]any{"manifest": *manifest, "dropped": dropped, "opportunities": ops, "groups": retrieval.GroupOpportunities(ops)})
 }
 
 // spans runs model-free bounded-span retrieval on a frozen corpus. Its output
@@ -451,16 +453,16 @@ func spans(args []string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "read %d frozen sessions for span retrieval\n", len(ss))
-	ps := discover.SelectSpanProposals(ss)
+	ps := retrieval.SelectSpanProposals(ss)
 	fmt.Fprintf(os.Stderr, "extracted %d span proposals\n", len(ps))
-	groups := discover.GroupSpanProposals(ps)
-	compositions := discover.GroupSpanCompositions(ps)
-	logic := discover.GroupLogicCandidates(ps)
-	funnels := discover.GroupLogicFunnels(logic, ps)
-	review := discover.ReviewSpanProposals(ps)
-	reviewGroups := discover.GroupSpanCompositions(review)
-	components := discover.ReviewSpanComponents(ps)
-	componentGroups := discover.GroupSpanCompositions(components)
+	groups := retrieval.GroupSpanProposals(ps)
+	compositions := retrieval.GroupSpanCompositions(ps)
+	logic := retrieval.GroupLogicCandidates(ps)
+	funnels := retrieval.GroupLogicFunnels(logic, ps)
+	review := retrieval.ReviewSpanProposals(ps)
+	reviewGroups := retrieval.GroupSpanCompositions(review)
+	components := retrieval.ReviewSpanComponents(ps)
+	componentGroups := retrieval.GroupSpanCompositions(components)
 	fmt.Printf("found %d unassessed spans in %d composition groups; %d logic funnels and %d recurring logic candidates; dropped %d changed sessions\n", len(ps), len(compositions), len(funnels), len(logic), len(dropped))
 	return writeJSON(*out, map[string]any{"manifest": *manifest, "dropped": dropped, "span_proposals": ps, "span_groups": groups, "composition_groups": compositions, "logic_funnels": funnels, "logic_candidates": logic, "review_spans": review, "review_groups": reviewGroups, "component_spans": components, "component_groups": componentGroups})
 }

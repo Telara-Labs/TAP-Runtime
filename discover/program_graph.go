@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -105,7 +107,7 @@ type ProgramValue struct {
 var indexedResultPath = regexp.MustCompile(`\[[0-9]+\]`)
 
 type observedOp struct {
-	node   spanNode
+	node   retrieval.SpanNode
 	role   string
 	fields map[string]trace.ObservedField
 }
@@ -182,18 +184,18 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 				calls = append(calls, i)
 			}
 		}
-		nodes := buildSpanNodes(s, p.Request, calls, byCall)
-		byOrdinal := map[int]spanNode{}
+		nodes := retrieval.BuildSpanNodes(s, p.Request, calls, byCall)
+		byOrdinal := map[int]retrieval.SpanNode{}
 		for _, n := range nodes {
-			byOrdinal[n.ordinal] = n
+			byOrdinal[n.Ordinal] = n
 		}
 		var ops []observedOp
 		for i, ordinal := range p.Calls {
 			n, ok := byOrdinal[ordinal]
-			if !ok || i >= len(p.CallHashes) || spanCallHash(n.call) != p.CallHashes[i] {
+			if !ok || i >= len(p.CallHashes) || retrieval.SpanCallHash(n.Call) != p.CallHashes[i] {
 				return nil, fmt.Errorf("span %s source call %d changed", id, ordinal)
 			}
-			ops = append(ops, observedOp{node: n, role: logicRole(spanActionRole(n)), fields: trace.ObservedArgs(n.call)})
+			ops = append(ops, observedOp{node: n, role: retrieval.LogicRole(retrieval.SpanActionRole(n)), fields: trace.ObservedArgs(n.Call)})
 		}
 		if len(ops) == 0 {
 			continue
@@ -241,13 +243,13 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 	inputVectors := map[string]observedInputVector{}
 	for step, role := range roles {
 		first := traces[0].groups[step][0]
-		ps := ProgramStep{Role: role, Tool: first.node.call.Tool, Effect: first.node.effect}
+		ps := ProgramStep{Role: role, Tool: first.node.Call.Tool, Effect: first.node.Effect}
 		if ps.Tool == "shell" {
-			plan, err := shellparse.ProgramShellPlan(first.node.call.Command)
+			plan, err := shellparse.ProgramShellPlan(first.node.Call.Command)
 			if err != nil {
 				graph.Problems = append(graph.Problems, fmt.Sprintf("step %d: %v", step+1, err))
 			} else {
-				if len(plan) > 1 && len(first.node.steps) != len(plan) {
+				if len(plan) > 1 && len(first.node.Steps) != len(plan) {
 					graph.Problems = append(graph.Problems, fmt.Sprintf("step %d pipeline stage effects are not resolved", step+1))
 				}
 				for j, stage := range plan {
@@ -260,8 +262,8 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 						continue
 					}
 					effect := "unknown"
-					if j < len(first.node.steps) {
-						effect = trace.StepEffect(first.node.steps[j])
+					if j < len(first.node.Steps) {
+						effect = trace.StepEffect(first.node.Steps[j])
 					}
 					if effect != "read" && effect != "write" {
 						graph.Problems = append(graph.Problems, fmt.Sprintf("step %d stage %d has unknown effect", step+1, j+1))
@@ -269,8 +271,8 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 					ps.Pipeline = append(ps.Pipeline, ProgramCommand{Name: words[0], Effect: effect, Connector: stage.Connector})
 				}
 			}
-		} else if first.node.call.MCPServer != "" && first.node.call.MCPTool != "" {
-			ps.Binding = &ProgramToolBinding{Server: first.node.call.MCPServer, Tool: first.node.call.MCPTool}
+		} else if first.node.Call.MCPServer != "" && first.node.Call.MCPTool != "" {
+			ps.Binding = &ProgramToolBinding{Server: first.node.Call.MCPServer, Tool: first.node.Call.MCPTool}
 		} else {
 			graph.Problems = append(graph.Problems, fmt.Sprintf("step %d lacks an exact MCP server/tool binding", step+1))
 		}
@@ -284,22 +286,22 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 		loop := false
 		for _, tr := range traces {
 			for _, rep := range tr.span.Composition.Repetition {
-				if logicRole(rep.Action) == role && rep.Kind == "for_each" {
+				if retrieval.LogicRole(rep.Action) == role && rep.Kind == "for_each" {
 					loop = true
 				}
 			}
 			for _, op := range tr.groups[step] {
-				if op.node.call.Outcome == trace.OutcomeFailed {
+				if op.node.Call.Outcome == trace.OutcomeFailed {
 					graph.Problems = append(graph.Problems, fmt.Sprintf("step %d failed in a source execution", step+1))
 				}
-				if op.node.call.Tool != ps.Tool || op.role != ps.Role {
+				if op.node.Call.Tool != ps.Tool || op.role != ps.Role {
 					graph.Problems = append(graph.Problems, fmt.Sprintf("step %d uses incompatible actions", step+1))
 				}
-				if ps.Binding != nil && (op.node.call.MCPServer != ps.Binding.Server || op.node.call.MCPTool != ps.Binding.Tool) {
+				if ps.Binding != nil && (op.node.Call.MCPServer != ps.Binding.Server || op.node.Call.MCPTool != ps.Binding.Tool) {
 					graph.Problems = append(graph.Problems, fmt.Sprintf("step %d uses incompatible MCP bindings", step+1))
 				}
 				if ps.Tool == "shell" {
-					plan, err := shellparse.ProgramShellPlan(op.node.call.Command)
+					plan, err := shellparse.ProgramShellPlan(op.node.Call.Command)
 					if err != nil || len(plan) == 0 || len(plan) != max(1, len(ps.Pipeline)) {
 						graph.Problems = append(graph.Problems, fmt.Sprintf("step %d has incompatible or non-literal command syntax", step+1))
 					} else {
@@ -311,7 +313,7 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 								if stage.Connector != ps.Pipeline[j].Connector {
 									graph.Problems = append(graph.Problems, fmt.Sprintf("step %d compound connector changes", step+1))
 								}
-								if j >= len(op.node.steps) || trace.StepEffect(op.node.steps[j]) != ps.Pipeline[j].Effect {
+								if j >= len(op.node.Steps) || trace.StepEffect(op.node.Steps[j]) != ps.Pipeline[j].Effect {
 									graph.Problems = append(graph.Problems, fmt.Sprintf("step %d pipeline stage %d changes effect", step+1, j+1))
 								}
 							}
@@ -402,7 +404,7 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 			selection, selectionOK := observedUniqueSelection(traces, step, path)
 			indexedCollection, indexedCollectionOK := observedIndexedCollectionBinding(traces, step, path)
 			switch {
-			case trace.OperationSelector(first.node.call, path):
+			case trace.OperationSelector(first.node.Call, path):
 				if optional || !allSame(values) {
 					graph.Problems = append(graph.Problems, fmt.Sprintf("step %d selector %s changes", step+1, path))
 				} else {
@@ -598,7 +600,7 @@ func mergeProgramItemFields(graph *ProgramGraph, ps *ProgramStep, step int) {
 
 func observedForEach(p model.SpanProposal, role string) bool {
 	for _, r := range p.Composition.Repetition {
-		if logicRole(r.Action) == role && r.Kind == "for_each" {
+		if retrieval.LogicRole(r.Action) == role && r.Kind == "for_each" {
 			return true
 		}
 	}
@@ -625,12 +627,12 @@ func observedResultBinding(traces []observedTrace, step int, path string) (int, 
 			foundStep, foundPath := -1, ""
 			for prior := step - 1; prior >= 0; prior-- {
 				for _, parent := range tr.groups[prior] {
-					for i, id := range parent.node.call.OutIDs {
-						if id == value && i < len(parent.node.call.OutPaths) && parent.node.call.OutPaths[i] != "" && parent.node.call.OutPaths[i] != "*" {
+					for i, id := range parent.node.Call.OutIDs {
+						if id == value && i < len(parent.node.Call.OutPaths) && parent.node.Call.OutPaths[i] != "" && parent.node.Call.OutPaths[i] != "*" {
 							if foundStep >= 0 {
 								return 0, "", false // ambiguous producer
 							}
-							foundStep, foundPath = prior, parent.node.call.OutPaths[i]
+							foundStep, foundPath = prior, parent.node.Call.OutPaths[i]
 						}
 					}
 				}
@@ -702,7 +704,7 @@ func observedUniqueSelection(traces []observedTrace, step int, path string) (uni
 			if len(tr.groups[prior]) != 1 {
 				continue
 			}
-			call := tr.groups[prior][0].node.call
+			call := tr.groups[prior][0].node.Call
 			collections := call.OutCollections
 			if len(collections) == 0 {
 				collections = trace.ResultCollections(call.Output)
@@ -810,7 +812,7 @@ func observedCollectionBinding(traces []observedTrace, step int, path string) (i
 			if len(tr.groups[prior]) != 1 {
 				continue
 			}
-			call := tr.groups[prior][0].node.call
+			call := tr.groups[prior][0].node.Call
 			collections := call.OutCollections
 			if len(collections) == 0 {
 				collections = trace.ResultCollections(call.Output)
@@ -875,11 +877,11 @@ func observedParallelResultPath(producers []observedOp, values []trace.ObservedF
 		}
 		seen[value] = true
 		found := ""
-		for j, id := range producer.node.call.OutIDs {
-			if id != value || j >= len(producer.node.call.OutPaths) {
+		for j, id := range producer.node.Call.OutIDs {
+			if id != value || j >= len(producer.node.Call.OutPaths) {
 				continue
 			}
-			candidate := producer.node.call.OutPaths[j]
+			candidate := producer.node.Call.OutPaths[j]
 			if candidate == "" || candidate == "*" || found != "" {
 				return "", false
 			}
@@ -922,7 +924,7 @@ func observedIndexedCollectionBinding(traces []observedTrace, step int, path str
 			if len(tr.groups[prior]) != 1 {
 				continue
 			}
-			call := tr.groups[prior][0].node.call
+			call := tr.groups[prior][0].node.Call
 			collections := call.OutCollections
 			if len(collections) == 0 {
 				collections = trace.ResultCollections(call.Output)
@@ -998,7 +1000,7 @@ func possiblePriorResult(traces []observedTrace, step int, path string) bool {
 			digest := trace.ResultValueDigest(value)
 			for prior := 0; prior < step; prior++ {
 				for _, parent := range tr.groups[prior] {
-					for _, id := range parent.node.call.OutIDs {
+					for _, id := range parent.node.Call.OutIDs {
 						if id == value {
 							return true
 						}
@@ -1011,7 +1013,7 @@ func possiblePriorResult(traces []observedTrace, step int, path string) bool {
 					if priorField, echoed := parent.fields[path]; echoed && priorField.TypeName == field.TypeName && priorField.Value == value {
 						continue
 					}
-					for _, collection := range parent.node.call.OutCollections {
+					for _, collection := range parent.node.Call.OutCollections {
 						for _, itemField := range collection.Fields {
 							if itemField.Type != field.TypeName {
 								continue

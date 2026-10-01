@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
@@ -208,7 +210,7 @@ func NewBriefSpan(s trace.Session, p model.SpanProposal) (*Brief, error) {
 			continue
 		}
 		ordinal++
-		h := spanCallHash(c)
+		h := retrieval.SpanCallHash(c)
 		byHash[h] = append(byHash[h], ordinal)
 	}
 	want := map[int]bool{}
