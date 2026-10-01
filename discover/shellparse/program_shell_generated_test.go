@@ -199,7 +199,7 @@ func TestGeneratedPipelineRejectsUnboundArgumentAndLoop(t *testing.T) {
 func TestShellVariantIdentityIncludesExecutable(t *testing.T) {
 	git := trace.Call{Tool: "shell", Command: "git add src/a.go"}
 	gh := trace.Call{Tool: "shell", Command: "gh add src/a.go"}
-	if codegen.ProgramCallSignature(git) == codegen.ProgramCallSignature(gh) || codegen.ProgramCallCoreSignature(git) == codegen.ProgramCallCoreSignature(gh) {
+	if codegen.ProgramCallSignature(git, nil) == codegen.ProgramCallSignature(gh, nil) || codegen.ProgramCallCoreSignature(git, nil) == codegen.ProgramCallCoreSignature(gh, nil) {
 		t.Fatal("different host commands must not share a program variant")
 	}
 }

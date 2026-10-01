@@ -109,7 +109,7 @@ func TestCreatedIssueLinkFanoutReachesLogicQueue(t *testing.T) {
 	}
 	candidates := retrieval.GroupLogicCandidates(ps)
 	funnels := retrieval.GroupLogicFunnels(candidates, ps)
-	if len(candidates) == 0 || len(funnels) != 1 || funnels[0].Root != "jira.create_issue" || len(funnels[0].Branches) != 1 || !funnels[0].Branches[0].ForEach {
+	if len(candidates) == 0 || len(funnels) != 1 || funnels[0].Root != testkit.GatewayRole("create_issue")+"#params/summary=follow-up" || len(funnels[0].Branches) != 1 || !funnels[0].Branches[0].ForEach {
 		t.Fatalf("one-link and multi-link traces should share an authoring lead: candidates=%+v funnels=%+v", candidates, funnels)
 	}
 }

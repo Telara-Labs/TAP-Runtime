@@ -80,6 +80,12 @@ func WriteFiles(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
+// GatewayRole is the role of a CompositionNode call: the tool and its
+// choices.
+func GatewayRole(action string) string {
+	return "mcp:telara_execute_action#action=" + action + "#integration=jira"
+}
+
 func CompositionNode(ordinal int, action string, args map[string]string, inputs ...model.SpanInput) retrieval.SpanNode {
 	if args == nil {
 		args = map[string]string{}
@@ -88,7 +94,8 @@ func CompositionNode(ordinal int, action string, args map[string]string, inputs 
 	args["action"] = action
 	var slots []trace.Slot
 	for key, value := range args {
-		slots = append(slots, trace.Slot{Key: key, Value: value, Type: trace.SlotText})
+		// Typed as normalization types a recorded argument.
+		slots = append(slots, trace.ArgSlots(key, value)...)
 	}
 	return retrieval.SpanNode{Ordinal: ordinal, Call: trace.Call{Tool: "mcp:telara_execute_action", Args: args}, Steps: []trace.Step{{Label: "mcp:telara_execute_action", Slots: slots}}, Inputs: inputs}
 }

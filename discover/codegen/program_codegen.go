@@ -357,6 +357,13 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 	}
 	var readme strings.Builder
 	fmt.Fprintf(&readme, "# %s\n\nGenerated privately from %d disjoint execution(s) in %d session(s), represented by %d local span(s), including overlaps. Review the exact code and declared tool effects before accepting.\n\n", name, g.Executions, g.Sessions, len(g.Sources))
+	if len(g.Cautions) > 0 {
+		readme.WriteString("## Cautions\n\n")
+		for _, c := range g.Cautions {
+			fmt.Fprintf(&readme, "- %s\n", c)
+		}
+		readme.WriteString("\n")
+	}
 	readme.WriteString("## Inputs\n\n")
 	for _, in := range g.Inputs {
 		kind := in.Type
@@ -558,12 +565,6 @@ func ProgramCommandArgs(st ProgramStep) (string, []string, error) {
 	}
 	if shellparse.ProgramCommandRunsCode(st.Command, patterns) {
 		return "", nil, errors.New("command can run code outside declared argv reach")
-	}
-	switch st.Command {
-	case "git", "gh", "kubectl", "docker", "helm", "tap":
-		if len(patterns) == 0 || patterns[0] == "*" {
-			return "", nil, errors.New("command operation selector is not fixed")
-		}
 	}
 	return "[" + strings.Join(values, ", ") + "]", patterns, nil
 }

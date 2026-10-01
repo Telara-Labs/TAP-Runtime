@@ -52,7 +52,7 @@ func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
 		testkit.NewSession("first", "Create follow up and link TENG-2", create("one", "TENG-1"), link("one", "TENG-1", "TENG-2")),
 		testkit.NewSession("second", "Create follow up and link TENG-4", create("two", "TENG-3"), link("two", "TENG-3", "TENG-4")),
 	}
-	candidate, spans := testkit.GraphCandidateFor(t, sessions, "jira.create_issue", "jira.create_issue_link")
+	candidate, spans := testkit.GraphCandidateFor(t, sessions, testkit.GatewayRole("create_issue"), testkit.GatewayRole("create_issue_link"))
 	variants, err := codegen.GroupProgramVariants(candidate, spans, sessions)
 	if err != nil || len(variants) != 2 {
 		t.Fatalf("two exact tool bindings should remain separate variants: %+v %v", variants, err)

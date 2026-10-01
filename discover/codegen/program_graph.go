@@ -20,12 +20,15 @@ import (
 // resource values. Problems name the evidence that is still missing before
 // code can be offered for private acceptance.
 type ProgramGraph struct {
-	CandidateID       string             `json:"candidate_id"`
-	Executions        int                `json:"executions"`
-	Sessions          int                `json:"sessions"`
-	Inputs            []ProgramInput     `json:"inputs"`
-	Steps             []ProgramStep      `json:"steps"`
-	Problems          []string           `json:"problems,omitempty"`
+	CandidateID string         `json:"candidate_id"`
+	Executions  int            `json:"executions"`
+	Sessions    int            `json:"sessions"`
+	Inputs      []ProgramInput `json:"inputs"`
+	Steps       []ProgramStep  `json:"steps"`
+	Problems    []string       `json:"problems,omitempty"`
+	// Cautions do not block generation; they are shown on the card and in
+	// the README (an effect the trace cannot show, treated as write).
+	Cautions          []string           `json:"cautions,omitempty"`
 	Sources           []string           `json:"sources"`
 	InlineFileReplace *InlineFileReplace `json:"inline_file_replace,omitempty"`
 }
@@ -126,6 +129,15 @@ type ObservedInputVector struct {
 // from silently generating a program from different history. The classifier
 // is deliberately action-agnostic: it reads operation names, argument trees,
 // typed slots and structured result paths, not Jira/GitLab special cases.
+// DeclaredEffect is the effect a generated program declares for a recorded
+// one: an effect the trace cannot show is declared a write.
+func DeclaredEffect(effect string) string {
+	if effect != "read" {
+		return "write"
+	}
+	return effect
+}
+
 func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanProposal, sessions []trace.Session) (*ProgramGraph, error) {
 	bySpan := make(map[string]model.SpanProposal, len(proposals))
 	for _, p := range proposals {
@@ -157,6 +169,8 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 	for _, ns := range norm {
 		byNorm[ns.Client+"\x00"+ns.ID] = ns
 	}
+	// Choice evidence comes from the whole corpus, not only the members.
+	choices := trace.NewChoices(sessions)
 	graph := &ProgramGraph{CandidateID: c.ID, Executions: c.Executions, Sessions: c.Sessions}
 	var traces []ObservedTrace
 	for _, id := range c.Members {
@@ -183,7 +197,7 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 				calls = append(calls, i)
 			}
 		}
-		nodes := retrieval.BuildSpanNodes(s, p.Request, calls, byCall)
+		nodes := retrieval.BuildSpanNodes(s, p.Request, calls, byCall, choices)
 		byOrdinal := map[int]retrieval.SpanNode{}
 		for _, n := range nodes {
 			byOrdinal[n.Ordinal] = n
@@ -265,7 +279,10 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 						effect = trace.StepEffect(first.Node.Steps[j])
 					}
 					if effect != "read" && effect != "write" {
-						graph.Problems = append(graph.Problems, fmt.Sprintf("step %d stage %d has unknown effect", step+1, j+1))
+						// As for a tool: an effect the trace cannot show is
+						// declared a write, never guessed to be a read.
+						graph.Cautions = append(graph.Cautions, fmt.Sprintf("step %d stage %d effect is not declared by the program; treated as write (asks before each call)", step+1, j+1))
+						effect = "write"
 					}
 					ps.Pipeline = append(ps.Pipeline, ProgramCommand{Name: words[0], Effect: effect, Connector: stage.Connector})
 				}
@@ -275,12 +292,15 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 		} else {
 			graph.Problems = append(graph.Problems, fmt.Sprintf("step %d lacks an exact MCP server/tool binding", step+1))
 		}
-		if ps.Tool != "shell" && (!strings.HasPrefix(ps.Tool, "mcp:") || strings.Contains(role, "[unresolved]")) {
+		if ps.Tool != "shell" && !strings.HasPrefix(ps.Tool, "mcp:") {
 			graph.Problems = append(graph.Problems, fmt.Sprintf("step %d has no resolved MCP action binding", step+1))
 		}
 		if ps.Effect != "read" && ps.Effect != "write" {
-			graph.Problems = append(graph.Problems, fmt.Sprintf("step %d has unknown effect", step+1))
-			ps.Effect = "write" // conservative display, not approval to generate
+			// The trace does not show what the tool does. Declare it a write:
+			// the runner asks before every call, and its binder refuses a tool
+			// whose own annotation claims more. Never guess that it only reads.
+			graph.Cautions = append(graph.Cautions, fmt.Sprintf("step %d effect is not declared by the tool; treated as write (asks before each call)", step+1))
+			ps.Effect = "write"
 		}
 		loop := false
 		for _, tr := range traces {
@@ -312,7 +332,7 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 								if stage.Connector != ps.Pipeline[j].Connector {
 									graph.Problems = append(graph.Problems, fmt.Sprintf("step %d compound connector changes", step+1))
 								}
-								if j >= len(op.Node.Steps) || trace.StepEffect(op.Node.Steps[j]) != ps.Pipeline[j].Effect {
+								if j >= len(op.Node.Steps) || DeclaredEffect(trace.StepEffect(op.Node.Steps[j])) != ps.Pipeline[j].Effect {
 									graph.Problems = append(graph.Problems, fmt.Sprintf("step %d pipeline stage %d changes effect", step+1, j+1))
 								}
 							}
@@ -403,7 +423,7 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 			selection, selectionOK := ObservedUniqueSelection(traces, step, path)
 			indexedCollection, indexedCollectionOK := ObservedIndexedCollectionBinding(traces, step, path)
 			switch {
-			case trace.OperationSelector(first.Node.Call, path):
+			case choices.Selector(first.Node.Call, path):
 				if optional || !AllSame(values) {
 					graph.Problems = append(graph.Problems, fmt.Sprintf("step %d selector %s changes", step+1, path))
 				} else {

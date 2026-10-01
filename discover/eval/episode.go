@@ -71,11 +71,8 @@ func AssessEpisode(ns *trace.NormSession, req int, ec *EpisodeClaim) {
 		human bool
 	}
 	var work []item
-	book := 0
 	for _, st := range all {
 		switch {
-		case trace.BookkeepingTools[st.Label]:
-			book++
 		case trace.EditTools[st.Label] || strings.HasPrefix(st.Label, "patch:"):
 			work = append(work, item{st, true})
 		case trace.Replayable(st.Label):
@@ -92,10 +89,6 @@ func AssessEpisode(ns *trace.NormSession, req int, ec *EpisodeClaim) {
 		}
 	}
 	switch {
-	case plain == 0 && book > 0:
-		ec.Suitability = model.SuitInsufficient
-		reason("infrastructure_only")
-		return
 	case plain < 2:
 		ec.Suitability = model.SuitInsufficient
 		reason("fewer_than_two_steps")

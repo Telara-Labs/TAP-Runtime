@@ -32,6 +32,7 @@ func GroupProgramVariants(c model.LogicCandidate, proposals []model.SpanProposal
 		}
 		wanted[p.Client+"\x00"+p.Session] = true
 	}
+	choices := trace.NewChoices(sessions)
 	cp := make([]trace.Session, 0, len(wanted))
 	for _, s := range sessions {
 		if !wanted[s.Client+"\x00"+s.ID] {
@@ -76,11 +77,11 @@ func GroupProgramVariants(c model.LogicCandidate, proposals []model.SpanProposal
 			if retrieval.SpanCallHash(call) != p.CallHashes[i] {
 				return nil, fmt.Errorf("span %s source call %d changed", id, ordinal)
 			}
-			sig := ProgramCallSignature(call)
+			sig := ProgramCallSignature(call, choices)
 			if len(steps) == 0 || steps[len(steps)-1] != sig {
 				steps = append(steps, sig)
 			}
-			core := ProgramCallCoreSignature(call)
+			core := ProgramCallCoreSignature(call, choices)
 			if len(coreSteps) == 0 || coreSteps[len(coreSteps)-1] != core {
 				coreSteps = append(coreSteps, core)
 			}
@@ -229,14 +230,14 @@ func VariantIndependentExecutions(members []string, bySpan map[string]model.Span
 	return count
 }
 
-func ProgramCallSignature(call trace.Call) string {
+func ProgramCallSignature(call trace.Call, choices *trace.Choices) string {
 	var fields []string
 	for path, field := range trace.ObservedArgs(call) {
 		value := path + ":" + field.TypeName
 		if field.JsonString {
 			value += ":json_string"
 		}
-		if trace.OperationSelector(call, path) {
+		if choices.Selector(call, path) {
 			value += "=" + field.Value
 		}
 		fields = append(fields, value)
@@ -245,10 +246,10 @@ func ProgramCallSignature(call trace.Call) string {
 	return ProgramCallToolIdentity(call) + "@" + call.MCPServer + "/" + call.MCPTool + "(" + strings.Join(fields, ",") + ")"
 }
 
-func ProgramCallCoreSignature(call trace.Call) string {
+func ProgramCallCoreSignature(call trace.Call, choices *trace.Choices) string {
 	var selectors []string
 	for path, field := range trace.ObservedArgs(call) {
-		if trace.OperationSelector(call, path) {
+		if choices.Selector(call, path) {
 			selectors = append(selectors, path+"="+field.Value)
 		}
 	}

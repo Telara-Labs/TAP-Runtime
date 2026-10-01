@@ -108,7 +108,6 @@ func JudgeOpportunity(o *model.Opportunity, text string, steps []trace.Step, she
 		}
 		calls[st.Call] = true
 		switch {
-		case trace.BookkeepingTools[st.Label]:
 		case trace.EditTools[st.Label] || strings.HasPrefix(st.Label, "patch:"):
 			edits++
 			work++
@@ -230,7 +229,7 @@ func ParametricLoop(text string, steps []trace.Step) (string, int, string, bool)
 		if !(strings.HasPrefix(st.Label, "sh:") || strings.HasPrefix(st.Label, "mcp:") || strings.HasPrefix(st.Label, "js:")) {
 			continue
 		}
-		if trace.BookkeepingTools[st.Label] || trace.StepEffect(st) == "write" {
+		if trace.StepEffect(st) == "write" {
 			continue
 		}
 		if f := strings.Fields(strings.TrimPrefix(st.Label, "sh:")); strings.HasPrefix(st.Label, "sh:") && len(f) > 0 && (ViewPrograms[f[0]] || trace.SearchPrograms[f[0]] || f[0] == "sed") {
@@ -521,7 +520,7 @@ func NamedObject(text string, steps []trace.Step) (named, win, nav, edits int, d
 	dependent = true
 	calls := map[int]bool{}
 	for _, st := range steps[first : last+1] {
-		if calls[st.Call] || trace.BookkeepingTools[st.Label] {
+		if calls[st.Call] {
 			continue
 		}
 		calls[st.Call] = true

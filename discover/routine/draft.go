@@ -804,7 +804,7 @@ func DraftName(c model.Candidate) string {
 	var words []string
 	for _, s := range c.Steps {
 		l := strings.ToLower(s.Label)
-		for _, p := range []string{"sh:", "mcp:", "js:", "patch:", "telara_"} {
+		for _, p := range []string{"sh:", "mcp:", "js:", "patch:"} {
 			l = strings.ReplaceAll(l, p, "")
 		}
 		for _, w := range NameWord.FindAllString(l, -1) {
@@ -880,10 +880,11 @@ func JqKey(k string) string {
 var CapChars = regexp.MustCompile(`[^a-z0-9_.-]+`)
 
 // CapName writes a tool's name as the provider.resource.verb capability the
-// runner binds (tap-runtime bind.Candidates): the first word is the
-// provider, the first word that is a known verb (else the last) the verb,
-// and the words between the resource (the provider again when none are
-// left). gmail_search_emails -> gmail.emails.search.
+// runner binds (tap-runtime bind.Candidates) by position alone: the first
+// word is the provider, the last word the final part, and the words between
+// the resource (the provider again when none are left). The binder requires
+// the final part to be one of the tool's own words, not a known verb, so no
+// vocabulary is needed: gmail_search_emails -> gmail.search.emails.
 func CapName(tool string) string {
 	n := strings.Trim(CapChars.ReplaceAllString(strings.ToLower(tool), "_"), "_.-")
 	words := strings.FieldsFunc(n, func(r rune) bool { return r == '_' || r == '.' || r == '-' })
@@ -895,16 +896,7 @@ func CapName(tool string) string {
 	}
 	provider := words[0]
 	rest := words[1:]
-	verbAt := -1
-	for k, w := range rest {
-		if trace.ReadVerbs[w] || trace.WriteVerbs[w] {
-			verbAt = k
-			break
-		}
-	}
-	if verbAt < 0 {
-		verbAt = len(rest) - 1
-	}
+	verbAt := len(rest) - 1
 	if verbAt < 0 {
 		return provider + "." + provider + ".run"
 	}

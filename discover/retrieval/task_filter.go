@@ -5,8 +5,19 @@ import (
 
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
+
+// SpanInlineCode reports a shell call that hands a program that runs code
+// (an interpreter or shell) a multi-line script written into the command.
+func SpanInlineCode(c trace.Call) bool {
+	if c.Tool != "shell" || !strings.Contains(c.Command, "\n") {
+		return false
+	}
+	f := strings.Fields(c.Command)
+	return len(f) > 0 && shellparse.ProgramCommandRunsCode(f[0], f[1:])
+}
 
 func SpanSyntheticRequest(s trace.Session, req int) bool {
 	return req >= 0 && req < len(s.Requests) &&
@@ -23,31 +34,29 @@ func AssessSpanTask(s trace.Session, req int, nodes []SpanNode, set []int, input
 		r.Source = "synthetic_context"
 		r.Reasons = append(r.Reasons, "synthetic_request")
 	}
-	request := s.Requests[req]
-	if SpanOpenEndedTask(request) {
-		r.Reasons = append(r.Reasons, "judgment_boundary_unresolved")
-	}
 	if len(set) == 1 {
 		// A direct tool invocation with its raw result is already available
 		// to the agent. It contains no captured composition or transformation.
 		r.Reasons = append(r.Reasons, "single_tool_passthrough")
 	}
-	if SpanHasReference(SpanWords(request)) {
-		for i := req - 1; i >= 0; i-- {
-			if !SpanSyntheticRequest(s, i) && !trace.IsHarness(s.Requests[i]) && strings.TrimSpace(s.Requests[i]) != "" {
-				request = s.Requests[i] + " " + request
-				break
-			}
-		}
-	}
-	userIntent := false
 	for _, i := range set {
-		if SpanDirectIntent(s.Requests, req, nodes[i]) || SpanOperationIntent(request, SpanActionRole(nodes[i])) {
-			userIntent = true
+		if SpanInlineCode(nodes[i].Call) {
+			// Code written into the call for this run is a decision the
+			// agent made, like an edit: a judgment step, not a replay.
+			r.Reasons = append(r.Reasons, "inline_code_written_per_run")
+			break
 		}
 	}
-	if !userIntent {
-		r.Reasons = append(r.Reasons, "no_requested_operation")
+	named := false
+	for _, i := range set {
+		if SpanDirectIntent(s.Requests, req, nodes[i]) {
+			named = true
+		}
+	}
+	if !named {
+		// The request names nothing the calls act on: they may be the
+		// agent's own work inside a larger task (a component, not a task).
+		r.Reasons = append(r.Reasons, "request_names_no_target")
 	}
 	known, unknown := false, false
 	for _, in := range inputs {
@@ -113,48 +122,10 @@ func SpanHasReason(reasons []string, want string) bool {
 	return false
 }
 
-// Match the requested operation and resource, rather than a provider name or
-// concrete identifier alone. This extends direct-intent matching to result
-// chains whose first call may obtain the input for later calls.
-func SpanOperationIntent(request, action string) bool {
-	want, actual := SpanWords(request), SpanWords(action)
-	verb := false
-	for w := range want {
-		if SpanVerb(w) != "" && SpanVerb(w) == SpanOperationVerb(actual, SpanNode{}) {
-			verb = true
-			break
-		}
-	}
-	if !verb {
-		return false
-	}
-	for w := range actual {
-		if want[w] && !SpanGenericWord(w) && SpanVerb(w) == "" {
-			return true
-		}
-	}
-	return false
-}
-
 func SpanOversizeResult(output string) bool {
 	text := strings.ToLower(output)
 	return strings.Contains(text, "response exceeded") || strings.Contains(text, "output exceeds") ||
 		strings.Contains(text, "result too large")
-}
-
-func SpanOpenEndedTask(request string) bool {
-	w := SpanWords(request)
-	for _, cue := range []string{"why", "how", "investigate", "diagnose", "debug", "fix", "implement", "build", "design"} {
-		if w[cue] {
-			// A named collection step can still be a bounded subtask of a
-			// larger investigation. The label must make that step explicit.
-			if (cue == "investigate" || cue == "diagnose") && (w["collect"] || w["list"] || w["fetch"]) {
-				continue
-			}
-			return true
-		}
-	}
-	return false
 }
 
 // ReviewSpanProposals keeps the broad causal inventory available for audits

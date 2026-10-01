@@ -120,7 +120,8 @@ func TestKindsAndMerging(t *testing.T) {
 			t.Errorf("a request routine must not claim pattern statistics: %s", b)
 		}
 	}
-	if !kinds["bookkeeping"] || !kinds["scheduled"] {
+	// Kind comes from the request's format, never from tool names.
+	if kinds["bookkeeping"] || !kinds["scheduled"] || !kinds["user"] {
 		t.Fatalf("kinds = %v", kinds)
 	}
 	rs := []model.Routine{
