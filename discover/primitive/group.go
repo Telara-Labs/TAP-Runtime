@@ -182,19 +182,21 @@ func condense(ss []trace.Session, graphs [][]node) []Primitive {
 		perExec map[string]Observed
 	}
 	type agg struct {
-		ops, edges []string
-		execs      []Execution
-		used       map[string]bool // "session/call" already counted
-		disjoint   int
-		sessions   map[int]bool
-		values     map[string]map[string]bool
-		given      map[string]Input
-		loops      map[int]bool
-		variants   map[string]bool
-		control    map[string]bool
-		unresolved map[string]bool
-		binds      map[string]*bindAgg
-		effect     string
+		ops, edges  []string
+		execs       []Execution
+		used        map[string]bool // "session/call" already counted
+		disjoint    int
+		sessions    map[int]bool
+		values      map[string]map[string]bool
+		given       map[string]Input
+		loops       map[int]bool
+		variants    map[string]bool
+		control     map[string]bool
+		unresolved  map[string]bool
+		binds       map[string]*bindAgg
+		effect      string
+		stepEffects []string
+		saved       float64
 	}
 	by := map[string]*agg{}
 	var order []string
@@ -287,7 +289,16 @@ func condense(ss []trace.Session, graphs [][]node) []Primitive {
 			}
 			for _, k := range st.members {
 				n := g[k]
-				ref := CallRef{Step: p + 1, Index: n.call, ID: n.c.ID, Op: n.op, OK: n.c.Outcome == trace.OutcomeOK}
+				ref := CallRef{Step: p + 1, Index: n.call, ID: n.c.ID, Op: n.op, OK: n.c.Outcome == trace.OutcomeOK, Tokens: n.c.Tokens.Total()}
+				if len(ex.Calls) > 0 {
+					ex.SavedTokens += ref.Tokens
+				}
+				for len(a.stepEffects) <= p {
+					a.stepEffects = append(a.stepEffects, "read")
+				}
+				if rankEffect(n.effect) > rankEffect(a.stepEffects[p]) {
+					a.stepEffects[p] = n.effect
+				}
 				if !n.c.Time.IsZero() {
 					ref.Time = n.c.Time.UTC().Format("2006-01-02T15:04:05Z")
 				}
@@ -367,6 +378,7 @@ func condense(ss []trace.Session, graphs [][]node) []Primitive {
 			ex.Overlaps = overlap
 		} else {
 			a.disjoint++
+			a.saved += ex.SavedTokens
 			a.sessions[si] = true
 			for _, k := range members {
 				a.used[strconv.Itoa(si)+"/"+strconv.Itoa(g[k].call)] = true
@@ -393,7 +405,7 @@ func condense(ss []trace.Session, graphs [][]node) []Primitive {
 		if a.disjoint < 2 {
 			continue
 		}
-		p := Primitive{ID: id, Steps: a.ops, Effect: a.effect, SessionCount: len(a.sessions), ExecutionCount: a.disjoint, Executions: a.execs}
+		p := Primitive{ID: id, Steps: a.ops, Effect: a.effect, StepEffects: a.stepEffects, SavedTokens: a.saved, SessionCount: len(a.sessions), ExecutionCount: a.disjoint, Executions: a.execs}
 		for pos := range a.loops {
 			p.Loops = append(p.Loops, pos+1)
 		}
@@ -542,4 +554,14 @@ func subsequence(small, big []string) bool {
 		}
 	}
 	return i == len(small)
+}
+
+func rankEffect(e string) int {
+	switch e {
+	case "write":
+		return 2
+	case "unknown":
+		return 1
+	}
+	return 0
 }

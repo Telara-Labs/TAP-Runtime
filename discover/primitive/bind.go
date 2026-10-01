@@ -2,6 +2,7 @@ package primitive
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -175,6 +176,66 @@ func tookFrom(n node, v string) bool {
 func requested(v string, requests []string, upto int) bool {
 	for r := 0; r <= upto && r < len(requests); r++ {
 		if trace.InRequest(v, requests[r]) {
+			return true
+		}
+	}
+	return false
+}
+
+// digitToken finds the number-bearing pieces of a value (120 in "120,160p").
+var digitToken = regexp.MustCompile(`[A-Za-z0-9_.-]*[0-9][A-Za-z0-9_.-]*`)
+
+// decide marks calls whose arguments the agent constructed from what an
+// earlier call just returned: an argument that is not itself a value of that
+// output, yet carries a number from it (sed -n 120,160p after grep printed
+// line 120). The turn between the calls was a decision, not a hand-off, so
+// the call starts a new chain: its sources are not linked. It returns how
+// many calls were decisions.
+func decide(nodes []node) int {
+	n := 0
+	for j := range nodes {
+		if constructed(nodes, j) {
+			nodes[j].decided = true
+			nodes[j].parents = nil
+			for a := range nodes[j].args {
+				if nodes[j].args[a].given == "step" {
+					nodes[j].args[a].given = "unknown"
+				}
+				if o := nodes[j].args[a].obs; o != nil && o.Source == "step" {
+					o.Source, o.Label = "input", Missing
+					o.Reason = "decided from an earlier output in the same turn sequence; starts a new chain"
+				}
+			}
+			n++
+		}
+	}
+	return n
+}
+
+func constructed(nodes []node, j int) bool {
+	n := nodes[j]
+	for _, a := range n.args {
+		if a.given != "unknown" || a.typ == trace.SlotText || a.typ == trace.SlotFlag {
+			continue
+		}
+		for i := j - 1; i >= 0 && nodes[i].request == n.request; i-- {
+			if l, _ := match(a.value, nodes[i].c); l != "" {
+				return false // a value the output held: a selection, not a construction
+			}
+			for _, tok := range digitToken.FindAllString(a.value, -1) {
+				if len(tok) >= 2 && tok != a.value && containsToken(nodes[i].c.Output, tok) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// containsToken reports tok as a whole token of text.
+func containsToken(text, tok string) bool {
+	for _, t := range digitToken.FindAllString(text, -1) {
+		if t == tok {
 			return true
 		}
 	}

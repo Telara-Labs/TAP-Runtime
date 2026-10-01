@@ -45,6 +45,11 @@ type Primitive struct {
 	Loops []int `json:"loops,omitempty"`
 	// Effect is read, write or unknown (unknown is treated as write).
 	Effect string `json:"effect"`
+	// StepEffects are each step's effect.
+	StepEffects []string `json:"stepEffects"`
+	// SavedTokens totals the model-turn tokens the counted runs spent after
+	// their first call.
+	SavedTokens float64 `json:"savedTokens"`
 	// Variants are choices seen at a step ("step:key=value"): values that
 	// change what follows.
 	Variants []string `json:"variants,omitempty"`
@@ -92,6 +97,9 @@ type Execution struct {
 	Calls   []CallRef `json:"calls"`
 	// Observed are this run's argument sources.
 	Observed []Observed `json:"observed,omitempty"`
+	// SavedTokens are the model-turn tokens of every call after the first:
+	// the turns a primitive running this chain would remove.
+	SavedTokens float64 `json:"savedTokens"`
 	// MaxGapSeconds is the longest start-to-start time between two of its
 	// calls (a command's own running time is included; the client does
 	// not record when a call ended). -1 when times were not recorded.
@@ -111,6 +119,8 @@ type CallRef struct {
 	// OK is true when the client recorded the call as succeeding; false
 	// when it recorded nothing (failed calls are never steps).
 	OK bool `json:"ok"`
+	// Tokens is the call's share of the model turn that issued it.
+	Tokens float64 `json:"tokens"`
 }
 
 // Observed is one argument's source in one execution.
@@ -154,11 +164,21 @@ type Summary struct {
 	Composed        int `json:"composed"`
 	RouteMerged     int `json:"routeMergedCalls"`
 	SettingsAsInput int `json:"settingsAsInputs"`
+	// DecisionCalls are calls whose arguments the agent built from an
+	// earlier output: each starts a new chain.
+	DecisionCalls int `json:"decisionCalls"`
+	// Fragments are primitives dropped because every run of theirs is part
+	// of a run of a longer primitive.
+	Fragments int `json:"fragments"`
+	Families  int `json:"families"`
 }
 
 // Result is the condensed discovery.
 type Result struct {
-	Summary    Summary     `json:"summary"`
+	Summary Summary `json:"summary"`
+	// Families are the proposed procedures, ranked by the model-turn tokens
+	// their follow-up calls cost; Primitives are the exact chains they group.
+	Families   []Family    `json:"families"`
 	Primitives []Primitive `json:"primitives"`
 }
 
@@ -173,6 +193,7 @@ type node struct {
 	parents []edge
 	c       trace.Call // the recorded call and its result
 	control []string   // && dependencies inside the call
+	decided bool       // its arguments were constructed from an earlier output
 	shape   string     // the primitive this call was grouped into
 }
 
@@ -242,6 +263,7 @@ func Discover(ss []trace.Session, known []Known) Result {
 			nodes = append(nodes, n)
 		}
 		link(nodes, s.Requests)
+		res.Summary.DecisionCalls += decide(nodes)
 		graphs[si] = nodes
 		res.Summary.Operations += len(nodes)
 	}
@@ -255,6 +277,12 @@ func Discover(ss []trace.Session, known []Known) Result {
 	res.Summary.DistinctOps = len(ops)
 	res.Primitives = condense(cp, graphs)
 	compose(res.Primitives, graphs, known)
+	for i := range res.Primitives {
+		res.Primitives[i].Confidence = score(res.Primitives[i])
+	}
+	res.Primitives, res.Summary.Fragments = dropFragments(res.Primitives)
+	res.Families = families(res.Primitives)
+	res.Summary.Families = len(res.Families)
 	for _, p := range res.Primitives {
 		if len(p.Steps) > 1 {
 			res.Summary.MultiStep++
@@ -262,9 +290,6 @@ func Discover(ss []trace.Session, known []Known) Result {
 		if len(p.ComposedOf) > 0 {
 			res.Summary.Composed++
 		}
-	}
-	for i := range res.Primitives {
-		res.Primitives[i].Confidence = score(res.Primitives[i])
 	}
 	res.Summary.Primitives = len(res.Primitives)
 	return res
@@ -387,7 +412,52 @@ func resolve(sel map[string]string, inner map[string]bool, direct map[string]map
 	if best != "" && !tie {
 		return best, true
 	}
+	// No tool is named by every selecting word: match by shape instead. A
+	// direct tool that takes every dispatched argument (keys compared without
+	// case or separators) and shares a selecting word is the same operation,
+	// when exactly one tool fits.
+	if len(inner) > 0 {
+		match, n := "", 0
+		for tool, args := range direct {
+			have := map[string]bool{}
+			for k := range args {
+				have[normKey(k)] = true
+			}
+			fits := true
+			for k := range inner {
+				fits = fits && have[normKey(k)]
+			}
+			if !fits {
+				continue
+			}
+			shared := false
+			name := map[string]bool{}
+			for _, t := range tokens(strings.TrimPrefix(tool, "mcp:")) {
+				name[t] = true
+			}
+			for _, t := range want {
+				shared = shared || name[t]
+			}
+			if shared {
+				match, n = tool, n+1
+			}
+		}
+		if n == 1 {
+			return match, true
+		}
+	}
 	return "op:" + strings.Join(vals, "."), false
+}
+
+// normKey compares argument names without case or separators
+// (maxResults, max_results).
+func normKey(k string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '_' || r == '-' {
+			return -1
+		}
+		return r
+	}, strings.ToLower(k))
 }
 
 func buildNode(c trace.Call, ci int, steps []trace.Step, direct map[string]map[string]bool) (node, bool) {
