@@ -27,6 +27,24 @@ type SpanNode struct {
 	Inputs  []model.SpanInput `json:"-"`
 	Deps    []int             `json:"-"`
 	Anchors []string          `json:"-"`
+	// Choices is the corpus evidence that decides which plain-word
+	// arguments choose the operation; nil means none (every one does).
+	Choices *trace.Choices `json:"-"`
+}
+
+// SpanSelectorSlot reports an argument that is part of the node's operation:
+// on a shell step that may write, a flag's plain-word value (the authority
+// it acts under is never shared); on a tool call, a plain-word value the
+// corpus evidence calls a choice. Never decided by a name.
+func SpanSelectorSlot(call trace.Call, ch *trace.Choices, st trace.Step, sl trace.Slot) bool {
+	if sl.Sub || trace.Derived(sl.Key) || !trace.PlainChoiceValue(sl.Value) {
+		return false
+	}
+	if strings.HasPrefix(st.Label, "sh:") {
+		return strings.HasSuffix(sl.Key, "=") && trace.StepEffect(st) != "read"
+	}
+	id, ok := trace.ArgIdentity(call, sl.Key)
+	return ok && ch.Choice(id)
 }
 
 // SelectSpanProposals extracts bounded pieces of work without requiring the
@@ -39,6 +57,7 @@ func SelectSpanProposals(ss []trace.Session) []model.SpanProposal {
 	}
 	trace.DropCopiedCalls(cp)
 	norm := trace.Normalize(cp)
+	choices := trace.NewChoices(cp)
 	normBySession := make(map[string]*trace.NormSession, len(norm))
 	for i := range norm {
 		normBySession[norm[i].Client+"\x00"+norm[i].ID] = &norm[i]
@@ -73,7 +92,7 @@ func SelectSpanProposals(ss []trace.Session) []model.SpanProposal {
 			if r >= len(s.Requests) || strings.TrimSpace(s.Requests[r]) == "" || trace.IsHarness(s.Requests[r]) {
 				continue
 			}
-			nodes := BuildSpanNodes(*s, r, byReq[r], byCall)
+			nodes := BuildSpanNodes(*s, r, byReq[r], byCall, choices)
 			if len(nodes) == 0 {
 				continue
 			}
@@ -119,7 +138,7 @@ func SelectSpanProposals(ss []trace.Session) []model.SpanProposal {
 	return out
 }
 
-func BuildSpanNodes(s trace.Session, req int, calls []int, byCall map[int][]trace.Step) []SpanNode {
+func BuildSpanNodes(s trace.Session, req int, calls []int, byCall map[int][]trace.Step, ch *trace.Choices) []SpanNode {
 	var nodes []SpanNode
 	for ordinal, ci := range calls {
 		steps := byCall[ci]
@@ -130,13 +149,10 @@ func BuildSpanNodes(s trace.Session, req int, calls []int, byCall map[int][]trac
 		effect := "unknown"
 		var labels []string
 		for _, st := range steps {
-			if trace.BookkeepingTools[st.Label] {
-				continue
-			}
 			work = true
 			label := st.Label
 			for _, sl := range st.Slots {
-				if trace.SelectorKeys[sl.Key] && sl.Value != "" {
+				if !strings.HasPrefix(st.Label, "sh:") && SpanSelectorSlot(s.Calls[ci], ch, st, sl) {
 					label += "#" + sl.Key + "=" + trace.OneLine(strings.ToLower(sl.Value), 40)
 				}
 			}
@@ -154,7 +170,7 @@ func BuildSpanNodes(s trace.Session, req int, calls []int, byCall map[int][]trac
 			continue
 		}
 		n := SpanNode{Call: s.Calls[ci], Ordinal: ordinal + 1, Steps: steps,
-			Label: strings.Join(labels, "+"), Effect: effect}
+			Label: strings.Join(labels, "+"), Effect: effect, Choices: ch}
 		for _, st := range steps {
 			for _, slot := range SpanExpandedSlots(st.Slots) {
 				if !SpanVariable(slot) {
@@ -498,7 +514,8 @@ func SpanPairCovered(sets [][]int, first, second int) bool {
 }
 
 func SpanAdjacentPairKey(a, b SpanNode) string {
-	if a.Effect != "read" && a.Effect != "write" || b.Effect != "read" && b.Effect != "write" || a.Effect != "write" && b.Effect != "write" || a.Call.Outcome == trace.OutcomeFailed || b.Call.Outcome == trace.OutcomeFailed {
+	// Two reads are an investigation; an unknown effect may write.
+	if a.Effect == "read" && b.Effect == "read" || a.Call.Outcome == trace.OutcomeFailed || b.Call.Outcome == trace.OutcomeFailed {
 		return ""
 	}
 	// Repeated order alone is not a process: an issue comment followed by a
@@ -720,67 +737,95 @@ func SpanDistinctOperations(nodes []SpanNode, set []int) int {
 	return len(seen)
 }
 
-// SpanDirectIntent requires a requested operation and a concrete object of
-// that operation. A shared product name or tool name alone is not intent.
-// This is retrieval evidence, never a useful-procedure judgment.
+// SpanDirectIntent reports that the request names what the call acts on:
+// the request, or the previous substantive request, literally contains one
+// of the call's identifier, path or URL values, or names the command and its
+// subcommand. This is literal grounding in the user's own text, not a
+// vocabulary of verbs or products, and it is retrieval evidence, never a
+// useful-procedure judgment.
 func SpanDirectIntent(requests []string, req int, n SpanNode) bool {
-	if n.Call.Tool == "shell" {
-		fields := strings.Fields(n.Call.Command)
-		if len(fields) == 0 {
-			return false
-		}
-		switch fields[0] {
-		case "git", "kubectl", "gh", "docker", "helm", "tap":
-		default:
-			return false
-		}
-	}
-	current := SpanWords(requests[req])
-	want := current
-	if req > 0 && SpanHasReference(current) {
-		for r := req - 1; r >= 0; r-- {
-			if strings.TrimSpace(requests[r]) != "" && !trace.IsHarness(requests[r]) && !history.IsClaudeContinuationSummary(requests[r]) {
-				want = SpanWords(requests[r] + " " + requests[req])
-				break
-			}
-		}
-	}
-	operation := n.Label
-	if n.Call.Tool == "shell" {
-		// Include only the command head: arbitrary grep patterns and file
-		// arguments often copy words from the request but say nothing about
-		// whether the call performs its requested operation.
-		for i, w := range strings.Fields(n.Call.Command) {
-			if i >= 3 {
-				break
-			}
-			operation += " " + w
-		}
+	text := SpanContextText(requests, req)
+	if SpanExplicitCommand(text, n) || SpanNamesOperation(text, n) {
+		return true
 	}
 	for _, st := range n.Steps {
-		for _, slot := range st.Slots {
-			if !slot.Sub && !trace.Derived(slot.Key) && trace.SelectorKeys[slot.Key] && len(slot.Value) >= 4 {
-				operation += " " + slot.Value
+		for _, sl := range SpanExpandedSlots(st.Slots) {
+			if sl.Sub || trace.Derived(sl.Key) || len(sl.Value) < 4 {
+				continue
 			}
-		}
-	}
-	actual := SpanWords(operation)
-	verbMatch := false
-	for w := range current {
-		if SpanVerb(w) != "" && SpanVerb(w) == SpanOperationVerb(actual, n) {
-			verbMatch = true
-			break
-		}
-	}
-	if !verbMatch {
-		return false
-	}
-	for w := range actual {
-		if SpanVerb(w) == "" && !SpanGenericWord(w) && want[w] {
-			return true
+			if sl.Type != trace.SlotID && sl.Type != trace.SlotPath && sl.Type != trace.SlotURL && sl.Type != trace.SlotNumber {
+				continue
+			}
+			if trace.InRequest(sl.Value, text) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// SpanNamesOperation reports that the request uses one of the call's own
+// operation words: a shell command's leading subcommand words, or an MCP
+// tool's name after its first (provider) part, and the plain-word choices
+// passed to it. The words come from the recorded call, never from a list;
+// a request word matches when it equals one or extends it by an inflection
+// (jobs, issues).
+func SpanNamesOperation(text string, n SpanNode) bool {
+	var ops []string
+	split := func(s string) []string {
+		return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool { return r < 'a' || r > 'z' })
+	}
+	if n.Call.Tool == "shell" {
+		words, err := shellparse.ProgramShellWords(n.Call.Command)
+		if err != nil || len(words) < 2 {
+			return false
+		}
+		for _, w := range words[1:] {
+			if trace.TypeOf(shellparse.Word{Text: w}) != trace.SlotWord {
+				break
+			}
+			ops = append(ops, split(w)...)
+		}
+	} else if strings.HasPrefix(n.Call.Tool, "mcp:") {
+		if parts := split(strings.TrimPrefix(n.Call.Tool, "mcp:")); len(parts) > 1 {
+			ops = append(ops, parts[1:]...)
+		}
+		for _, st := range n.Steps {
+			for _, sl := range SpanExpandedSlots(st.Slots) {
+				if SpanSelectorSlot(n.Call, n.Choices, st, sl) && !redact.SensitiveSlot(st.Label, sl) {
+					ops = append(ops, split(sl.Value)...)
+				}
+			}
+		}
+	}
+	said := SpanWords(text)
+	for _, op := range ops {
+		if len(op) < 3 {
+			continue
+		}
+		for w := range said {
+			short, long := op, w
+			if len(short) > len(long) {
+				short, long = long, short
+			}
+			if strings.HasPrefix(long, short) && len(long)-len(short) <= 2 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// SpanContextText is the request with the previous substantive request in
+// front of it: a value given one turn earlier is still the caller's input.
+func SpanContextText(requests []string, req int) string {
+	text := requests[req]
+	for r := req - 1; r >= 0; r-- {
+		if strings.TrimSpace(requests[r]) != "" && !trace.IsHarness(requests[r]) && !history.IsClaudeContinuationSummary(requests[r]) {
+			return requests[r] + "\n" + text
+		}
+	}
+	return text
 }
 
 func SpanWords(text string) map[string]bool {
@@ -801,63 +846,6 @@ func SpanWords(text string) map[string]bool {
 	return out
 }
 
-func SpanHasReference(words map[string]bool) bool {
-	for _, w := range []string{"this", "that", "these", "those", "them", "its", "again", "same"} {
-		if words[w] {
-			return true
-		}
-	}
-	return false
-}
-
-func SpanGenericWord(w string) bool {
-	switch w {
-	case "telara", "jira", "gitlab", "github", "codex", "claude", "mcp", "sh", "shell", "tool", "call", "command", "action", "execute", "file", "repo", "project", "work", "task", "result", "output", "input", "status", "test", "script":
-		return true
-	}
-	return false
-}
-
-// Verbs are semantic classes declared in code, rather than a text-similarity
-// score. Unknown operations do not qualify for the direct one-call route.
-func SpanVerb(w string) string {
-	switch w {
-	case "list", "show", "report", "get", "read", "fetch", "view", "check", "inspect", "find", "search", "query", "describe", "look", "status", "count", "grep":
-		return "read"
-	case "add", "create", "make", "write", "post", "send", "insert":
-		return "create"
-	case "close", "transition", "resolve":
-		return "transition"
-	case "update", "edit", "change", "set", "modify", "patch":
-		return "update"
-	case "delete", "remove", "archive":
-		return "delete"
-	case "run", "execute", "trigger", "start", "test":
-		return "run"
-	case "push", "publish", "deploy":
-		return "publish"
-	case "commit":
-		return "commit"
-	}
-	return ""
-}
-
-func SpanOperationVerb(words map[string]bool, n SpanNode) string {
-	// A tool name can contain both "get" and "status"; prefer its actual
-	// operation over nouns that also happen to be verbs.
-	for _, w := range []string{"commit", "transition", "close", "delete", "remove", "archive", "publish", "deploy", "push", "update", "edit", "patch", "create", "add", "post", "send", "run", "trigger", "test", "list", "search", "get", "read", "fetch", "view", "check", "show", "status", "grep"} {
-		if words[w] {
-			return SpanVerb(w)
-		}
-	}
-	if n.Effect == "read" && strings.HasPrefix(n.Label, "sh:") {
-		// Shell readers without an explicit operation (for example, ls) still
-		// need a named object match below.
-		return "read"
-	}
-	return ""
-}
-
 func MakeSpanProposal(s trace.Session, req int, nodes []SpanNode, set []int, kind string) model.SpanProposal {
 	var calls []int
 	var callHashes []string
@@ -871,9 +859,7 @@ func MakeSpanProposal(s trace.Session, req int, nodes []SpanNode, set []int, kin
 		callHashes = append(callHashes, SpanCallHash(n.Call))
 		labels = append(labels, n.Label)
 		for _, st := range n.Steps {
-			if !trace.BookkeepingTools[st.Label] {
-				tools = append(tools, st.Label)
-			}
+			tools = append(tools, st.Label)
 		}
 		if n.Effect == "write" {
 			effect = "write"

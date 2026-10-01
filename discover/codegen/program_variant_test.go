@@ -42,9 +42,19 @@ func TestGroupProgramVariantsSeparatesBindingsAndArgumentShapes(t *testing.T) {
 			testkit.SpanRefs(trace.Call{Tool: "mcp:get", MCPServer: "one", MCPTool: "get", Args: map[string]string{"id": "TENG-5", "scope": "narrow"}, Output: `{"id":"TENG-6"}`, Outcome: trace.OutcomeOK}),
 			trace.Call{Tool: "mcp:next", MCPServer: "one", MCPTool: "next", Args: map[string]string{"id": "TENG-6"}, Outcome: trace.OutcomeOK}),
 	}
+	// A choice the caller never supplied (scope=narrow, once) is part of
+	// the operation by the corpus evidence: its own family. Bindings split
+	// within a family as variants.
 	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:get", "mcp:next")
 	variants, err := codegen.GroupProgramVariants(c, ps, ss)
-	if err != nil || len(variants) != 3 {
-		t.Fatalf("different binding or typed argument shape must be explicit: %+v %v", variants, err)
+	if err != nil || len(variants) != 2 {
+		t.Fatalf("different bindings must be explicit variants: %+v %v", variants, err)
+	}
+	for _, id := range c.Members {
+		for _, p := range ps {
+			if p.ID == id && p.Session == "c" {
+				t.Fatalf("a different argument shape must not merge: %+v", c)
+			}
+		}
 	}
 }

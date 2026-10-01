@@ -1,6 +1,8 @@
 package testkit
 
 import (
+	"strings"
+
 	"testing"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -19,7 +21,9 @@ func GraphCandidateFor(t *testing.T, ss []trace.Session, actions ...string) (mod
 		}
 		match := true
 		for i := range actions {
-			match = match && c.Actions[i] == actions[i]
+			// An action matches its name, or its name followed by the
+			// choices the corpus evidence made part of it.
+			match = match && (c.Actions[i] == actions[i] || strings.HasPrefix(c.Actions[i], actions[i]+"#"))
 		}
 		if match {
 			return c, ps

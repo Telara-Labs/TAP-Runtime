@@ -46,11 +46,11 @@ func TestSpanCompositionFoldsIndependentRepeatedSteps(t *testing.T) {
 	repeated[3].Steps[0].Slots = append(repeated[3].Steps[0].Slots, trace.Slot{Key: "issue_key", Type: trace.SlotID, Value: "TENG-2"})
 	a := retrieval.SpanComposition(single, []int{0, 1})
 	b := retrieval.SpanComposition(repeated, []int{0, 1, 2, 3})
-	if a.Key != b.Key || !reflect.DeepEqual(a.Actions, []string{"jira.create_issue", "jira.transition_issue"}) || len(b.Repetition) != 2 {
+	if a.Key != b.Key || !reflect.DeepEqual(a.Actions, []string{testkit.GatewayRole("create_issue"), testkit.GatewayRole("transition_issue")}) || len(b.Repetition) != 2 {
 		t.Fatalf("composition did not fold same-role fanout: %+v / %+v", a, b)
 	}
 	for _, repeat := range b.Repetition {
-		if repeat.Action == "jira.transition_issue" && repeat.Kind != "for_each" {
+		if repeat.Action == testkit.GatewayRole("transition_issue") && repeat.Kind != "for_each" {
 			t.Fatalf("transitions of separate created issues should form a loop: %+v", b)
 		}
 	}
@@ -115,7 +115,7 @@ func TestSpanCompositionKeepsOrderedTransitionsAndDependencies(t *testing.T) {
 		testkit.CompositionNode(2, "create_issue", nil, model.SpanInput{Key: "parent_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
 	}
 	d := retrieval.SpanComposition(sequential, []int{0, 1})
-	if len(d.Actions) != 2 || !strings.Contains(d.Key, "jira.create_issue -> jira.create_issue") {
+	if len(d.Actions) != 2 || !strings.Contains(d.Key, testkit.GatewayRole("create_issue")+" -> "+testkit.GatewayRole("create_issue")) {
 		t.Fatalf("dependent same-action chain was collapsed: %+v", d)
 	}
 }
@@ -168,6 +168,17 @@ func TestSpanCompositionParameterizesIssueTypeAndNestedGatewayKey(t *testing.T) 
 	nested := []retrieval.SpanNode{
 		testkit.CompositionNode(1, "create_issue", map[string]string{"issue_type": "Task"}),
 		testkit.CompositionNode(2, "transition_issue", nil, model.SpanInput{Key: "params/issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
+	}
+	// Whether issue_type is data is corpus evidence, not its name: here the
+	// caller gave a different type each time.
+	typed := func(id, kind string) trace.Session {
+		return testkit.NewSession(id, "create a "+kind+" issue", trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"issue_type": kind}})
+	}
+	choices := trace.NewChoices([]trace.Session{typed("t1", "Task"), typed("t2", "Bug"), typed("t3", "Story")})
+	for _, ns := range [][]retrieval.SpanNode{direct, nested} {
+		for i := range ns {
+			ns[i].Choices = choices
+		}
 	}
 	if a, b := retrieval.SpanComposition(direct, []int{0, 1}), retrieval.SpanComposition(nested, []int{0, 1}); a.Key != b.Key {
 		t.Fatalf("equivalent direct/nested flow or variable issue type split: %q vs %q", a.Key, b.Key)

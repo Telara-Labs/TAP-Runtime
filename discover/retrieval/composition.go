@@ -172,10 +172,6 @@ func SpanTargetSlots(n SpanNode) map[string]string {
 			if sl.Value == "" || (sl.Type != trace.SlotID && sl.Type != trace.SlotPath && sl.Type != trace.SlotURL && sl.Type != trace.SlotNumber) {
 				continue
 			}
-			switch key {
-			case "project_id", "project_key", "namespace", "cluster", "context", "transition_id", "priority":
-				continue
-			}
 			out[key] = sl.Value
 		}
 	}
@@ -251,7 +247,7 @@ func SpanRepeatedArgumentVariation(nodes []SpanNode, set []int, roles []string, 
 	present := map[string]int{}
 	for _, op := range operations {
 		for path, field := range trace.ObservedArgs(op.Call) {
-			if trace.OperationSelector(op.Call, path) {
+			if op.Choices.Selector(op.Call, path) {
 				continue
 			}
 			key := path + "\x00" + field.TypeName
@@ -273,14 +269,10 @@ func SpanRepeatedArgumentVariation(nodes []SpanNode, set []int, roles []string, 
 func SpanActionRole(n SpanNode) string {
 	tool := strings.ToLower(n.Call.Tool)
 	role := n.Label
+	// A tool that dispatches by an argument (a gateway's action and
+	// integration names) is resolved by the selectors below, by value type,
+	// like any other tool: no tool is special-cased by name.
 	switch {
-	case tool == "mcp:telara_execute_action":
-		integration, action := strings.ToLower(n.Call.Args["integration"]), strings.ToLower(n.Call.Args["action"])
-		if integration != "" && action != "" {
-			role = integration + "." + action
-		} else {
-			role = "telara.execute_action[unresolved]"
-		}
 	case tool == "shell":
 		role = n.Label
 	case tool != "":
@@ -288,28 +280,29 @@ func SpanActionRole(n SpanNode) string {
 	}
 	// State and relationship choices can change the operation. Preserve
 	// these declared selectors, but never use variable resource IDs or text.
-	var selectors []string
+	// An enumerated choice is part of the operation; identifiers, paths,
+	// URLs, numbers, text and data words are runtime values. Decided by
+	// value type and corpus evidence, never by the argument's name. A tool
+	// call's choices name its operation (they stay in the broad family);
+	// a shell flag's authority scope is bracketed (the family strips it and
+	// program variants split on it).
+	var choices, selectors []string
 	for _, st := range n.Steps {
 		for _, sl := range SpanExpandedSlots(st.Slots) {
-			if redact.SensitiveSlot(st.Label, sl) {
+			if redact.SensitiveSlot(st.Label, sl) || !SpanSelectorSlot(n.Call, n.Choices, st, sl) {
 				continue
 			}
-			k := strings.ToLower(sl.Key)
-			if trace.ScopeFlags[strings.SplitN(k, "#", 2)[0]] && sl.Value != "" && len(sl.Value) <= 40 {
-				selectors = append(selectors, k+"="+strings.ToLower(redact.Redact(sl.Value)))
-				continue
-			}
-			switch k {
-			case "status", "state", "transition", "transition_id", "resolution":
-				if sl.Value != "" && len(sl.Value) <= 40 {
-					selectors = append(selectors, k+"="+strings.ToLower(redact.Redact(sl.Value)))
-				}
-			case "environment", "env", "cluster", "namespace", "context", "profile":
-				if sl.Value != "" && len(sl.Value) <= 40 {
-					selectors = append(selectors, k+"="+strings.ToLower(redact.Redact(sl.Value)))
-				}
+			kv := strings.ToLower(sl.Key) + "=" + strings.ToLower(redact.Redact(sl.Value))
+			if strings.HasPrefix(st.Label, "sh:") {
+				selectors = append(selectors, kv)
+			} else {
+				choices = append(choices, kv)
 			}
 		}
+	}
+	if len(choices) > 0 {
+		sort.Strings(choices)
+		role += "#" + strings.Join(choices, "#")
 	}
 	if len(selectors) > 0 {
 		sort.Strings(selectors)

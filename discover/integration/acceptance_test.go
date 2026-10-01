@@ -268,8 +268,8 @@ func TestC04DifferentProvidersAreNotInterchangeable(t *testing.T) {
 	}
 }
 
-// C05: a bounded read-only check is useful; lacking a write is no reason
-// to reject it.
+// C05: a bounded check is useful; lacking a declared write is no reason
+// to reject it. git's effect is not declared, so it is not claimed read-only.
 func TestC05BoundedReadOnlyDiffCheckIsUseful(t *testing.T) {
 	ss := testkit.Episodes("diff", 6, func(i int) string {
 		return fmt.Sprintf("did we add tests without service changes between %07x and %07x?", 0xa1b2c00+i, 0xd4e5f00+i)
@@ -282,7 +282,7 @@ func TestC05BoundedReadOnlyDiffCheckIsUseful(t *testing.T) {
 		t.Fatalf("want one routine:\n%s", dump(rep))
 	}
 	r := rep.Routines[0]
-	if r.Suitability != model.SuitUseful || r.DraftStatus != model.DraftComplete || r.Contract.Effect != model.EffectReadOnly {
+	if r.Suitability != model.SuitUseful || r.DraftStatus != model.DraftComplete || r.Contract.Effect == model.EffectReadOnly {
 		t.Fatalf("suit %q draft %q effect %q reasons %v:\n%s", r.Suitability, r.DraftStatus, r.Contract.Effect, r.Reasons, dump(rep))
 	}
 	callers := 0
@@ -453,8 +453,8 @@ func TestC10PreWriteCheckIsPreservedAndStopsOnFailure(t *testing.T) {
 		t.Fatalf("want one routine:\n%s", dump(rep))
 	}
 	r := rep.Routines[0]
-	if r.Contract.Effect != model.EffectWrites {
-		t.Fatalf("set image writes: effect %q", r.Contract.Effect)
+	if r.Contract.Effect == model.EffectReadOnly {
+		t.Fatalf("an undeclared kubectl effect must not be claimed read-only: effect %q", r.Contract.Effect)
 	}
 	main := string(routine.RoutineDraft(&r).Files["main.sh"])
 	if g, s := strings.Index(main, "get deploy"), strings.Index(main, "set image"); g < 0 || s < 0 || g > s {
@@ -465,9 +465,8 @@ func TestC10PreWriteCheckIsPreservedAndStopsOnFailure(t *testing.T) {
 	}
 }
 
-// C11: task bookkeeping around real work is not a procedure: a program that
-// creates, checkpoints and completes a task without the work would claim
-// work that never happened.
+// C11: steps around an edit decided per run are not a procedure: a program
+// that replays them without the edit would claim work that never happened.
 func TestC11BookkeepingIsNotCollapsedIntoAFakeCompletion(t *testing.T) {
 	ss := testkit.Episodes("bk", 8, func(i int) string { return fmt.Sprintf("fix the flaky test in package p%d", i) }, func(i int) []trace.Call {
 		create := trace.Call{Tool: "mcp:telara_task_create", Args: map[string]string{"name": fmt.Sprintf("fix flaky p%d", i)}}
@@ -487,15 +486,6 @@ func TestC11BookkeepingIsNotCollapsedIntoAFakeCompletion(t *testing.T) {
 	for _, r := range rep.Routines {
 		if hasStep(r, "mcp:telara_task_complete") && r.Suitability == model.SuitUseful {
 			t.Fatalf("a routine that completes a task was claimed useful without the work:\n%s", dump(rep))
-		}
-		only := true
-		for _, s := range r.Steps {
-			if !strings.HasPrefix(s.Label, "mcp:telara_task_") {
-				only = false
-			}
-		}
-		if only && r.SourceRole != model.RoleInfrastructure {
-			t.Fatalf("task bookkeeping is infrastructure, got %q:\n%s", r.SourceRole, dump(rep))
 		}
 	}
 }

@@ -31,7 +31,7 @@ func TestSynthesizeProgramGraphUsesRolesAndResultFlow(t *testing.T) {
 		testkit.NewSession("one", "Create follow up and link TENG-2", created("TENG-1"), link("TENG-1", "TENG-2")),
 		testkit.NewSession("many", "Create follow up and link TENG-8 and TENG-9", created("TENG-7"), link("TENG-7", "TENG-8"), link("TENG-7", "TENG-9")),
 	}
-	c, ps := testkit.GraphCandidateFor(t, ss, "jira.create_issue", "jira.create_issue_link")
+	c, ps := testkit.GraphCandidateFor(t, ss, testkit.GatewayRole("create_issue"), testkit.GatewayRole("create_issue_link"))
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("graph should be determined: graph=%+v err=%v", g, err)
@@ -103,8 +103,8 @@ func TestSynthesizeProgramGraphSharesStableInputAcrossLoopSteps(t *testing.T) {
 			Args: map[string]string{"project_id": project, "record_id": id, "target_id": target}, Outcome: trace.OutcomeOK}
 	}
 	ss := []trace.Session{
-		testkit.NewSession("one", "Create and link one", create("project-one", "NEW-1"), link("project-one", "NEW-1", "TENG-1")),
-		testkit.NewSession("many", "Create and link two", create("project-two", "NEW-2"), link("project-two", "NEW-2", "TENG-2"), link("project-two", "NEW-2", "TENG-3")),
+		testkit.NewSession("one", "Create and link one in project-one", create("project-one", "NEW-1"), link("project-one", "NEW-1", "TENG-1")),
+		testkit.NewSession("many", "Create and link two in project-two", create("project-two", "NEW-2"), link("project-two", "NEW-2", "TENG-2"), link("project-two", "NEW-2", "TENG-3")),
 	}
 	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:records_create", "mcp:records_create_link")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
@@ -180,7 +180,7 @@ func TestSynthesizeProgramGraphKeepsOptionalArgument(t *testing.T) {
 	}
 	ss := []trace.Session{
 		testkit.NewSession("plain", "Create follow up and link TENG-2", create("TENG-1", false), link("TENG-1", "TENG-2")),
-		testkit.NewSession("priority", "Create priority follow up and link TENG-4", create("TENG-3", true), link("TENG-3", "TENG-4")),
+		testkit.NewSession("priority", "Create a high priority follow up and link TENG-4", create("TENG-3", true), link("TENG-3", "TENG-4")),
 	}
 	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:records_create", "mcp:records_create_link")
 	variants, err := codegen.GroupProgramVariants(c, ps, ss)
@@ -325,7 +325,7 @@ func TestSynthesizeProgramGraphSelectsLargeListByPositionWithoutCopyingIDs(t *te
 	if got := fields["params/job_id"].Value; got != "16438397790" {
 		t.Fatalf("numeric ID lost exact decimal form: %q", got)
 	}
-	c, ps := testkit.GraphCandidateFor(t, ss, "gitlab.list_jobs", "gitlab.get_job")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:telara_execute_action#action=list_jobs", "mcp:telara_execute_action#action=get_job")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)

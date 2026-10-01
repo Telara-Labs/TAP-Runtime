@@ -144,3 +144,20 @@ func TestSpanReportShowsComponentQueueWhenTaskQueueEmpty(t *testing.T) {
 		t.Fatalf("component queue hidden behind empty strict queue: %s", out.String())
 	}
 }
+
+// A script written into the call for one run is the agent's judgment, like
+// an edit: the chain around it is not a ready task, whatever the request says.
+func TestTaskReviewTreatsInlineScriptAsJudgment(t *testing.T) {
+	s := testkit.NewSession("inline", "Run gofmt on cmd/main.go and build cmd/main.go",
+		trace.Call{Tool: "shell", Command: "python3 - <<'EOF'\nopen('cmd/main.go','a').write('x')\nEOF", Output: "ok", Outcome: trace.OutcomeOK},
+		trace.Call{Tool: "shell", Command: "gofmt -l cmd/main.go", Output: "cmd/main.go", Outcome: trace.OutcomeOK},
+		trace.Call{Tool: "shell", Command: "go build cmd/main.go", Output: "ok", Outcome: trace.OutcomeOK})
+	for _, p := range retrieval.SelectSpanProposals([]trace.Session{s}) {
+		if p.Review.Ready && len(p.Calls) > 1 && p.Calls[0] == 1 {
+			t.Fatalf("a chain starting with an inline script must not be ready: %+v", p)
+		}
+	}
+	if !retrieval.SpanInlineCode(s.Calls[0]) || retrieval.SpanInlineCode(s.Calls[1]) {
+		t.Fatal("inline script detection is wrong")
+	}
+}

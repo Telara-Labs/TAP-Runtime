@@ -57,6 +57,9 @@ func ReviewGenerated(in io.Reader, out io.Writer, graph *codegen.ProgramGraph, s
 	fmt.Fprintf(out, "Discover proposal %s\n", graph.CandidateID)
 	fmt.Fprintf(out, "Does: %s\n", ProgramSummary(graph))
 	fmt.Fprintf(out, "Evidence: %d disjoint execution(s) in %d session(s); %d source span(s), including overlaps\n", graph.Executions, graph.Sessions, len(graph.Sources))
+	for _, c := range graph.Cautions {
+		fmt.Fprintf(out, "Caution: %s\n", c)
+	}
 	if len(evidence) > 0 {
 		directSessions := map[string]bool{}
 		causalSessions := map[string]bool{}

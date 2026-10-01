@@ -13,9 +13,12 @@ import (
 )
 
 // SplitKey is what a request's run of the group's common steps must agree
-// on to be the same procedure: the operation each tool call named and,
-// when a step writes, the authority scope it wrote to.
-func SplitKey(steps []trace.Step, common map[string]bool) string {
+// on to be the same procedure: the enumerated choices its calls made
+// (choices, from Choices) and, for a shell step that may write (its effect
+// is not known to be a read), the scope flags it acted under, since
+// authority is never shared. Nothing is decided from an argument's or a
+// tool's name.
+func SplitKey(steps []trace.Step, common, choices map[string]bool) string {
 	var parts []string
 	seen := map[string]bool{}
 	for _, st := range steps {
@@ -23,21 +26,71 @@ func SplitKey(steps []trace.Step, common map[string]bool) string {
 			continue
 		}
 		seen[st.Label] = true
-		write := trace.StepEffect(st) == "write"
+		mayWrite := trace.StepEffect(st) != "read"
 		for _, sl := range st.Slots {
-			if sl.Sub {
+			if sl.Sub || !choices[ChoiceKey(st, sl)] {
 				continue
 			}
-			if !strings.HasPrefix(st.Label, "sh:") && trace.SelectorKeys[sl.Key] {
-				parts = append(parts, st.Label+"|"+sl.Key+"="+sl.Value)
+			if strings.HasPrefix(st.Label, "sh:") {
+				if mayWrite && strings.HasSuffix(sl.Key, "=") {
+					parts = append(parts, st.Label+"|"+sl.Key+sl.Value)
+				}
+				continue
 			}
-			if write && trace.IsScopeSlot(st, sl) {
-				parts = append(parts, st.Label+"|"+sl.Key+sl.Value)
-			}
+			parts = append(parts, st.Label+"|"+sl.Key+"="+sl.Value)
 		}
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, "\x1f")
+}
+
+// ChoiceKey names one argument value of one step kind.
+func ChoiceKey(st trace.Step, sl trace.Slot) string {
+	return st.Label + "|" + sl.Key + "=" + sl.Value
+}
+
+// Choices are the argument values that choose a step's operation across
+// the runs, by the corpus rule shared with retrieval and code generation
+// (trace.ChoiceStats.Choice): reuse of a few values, whether the request
+// supplied them, and how often the value is new. texts[i] is run i's
+// request text, or "" when unknown. Never decided from names.
+func Choices(runs [][]trace.Step, texts []string) map[string]bool {
+	type arg struct{ label, key string }
+	stats := map[arg]*trace.ChoiceStats{}
+	for i, run := range runs {
+		text := ""
+		if i < len(texts) {
+			text = texts[i]
+		}
+		seen := map[string]bool{}
+		for _, st := range run {
+			for _, sl := range st.Slots {
+				if sl.Sub || !trace.PlainChoiceValue(sl.Value) || seen[ChoiceKey(st, sl)] {
+					continue
+				}
+				seen[ChoiceKey(st, sl)] = true
+				a := arg{st.Label, sl.Key}
+				if stats[a] == nil {
+					stats[a] = &trace.ChoiceStats{Values: map[string]int{}}
+				}
+				stats[a].Seen++
+				stats[a].Values[sl.Value]++
+				if trace.InRequest(sl.Value, text) {
+					stats[a].Supplied++
+				}
+			}
+		}
+	}
+	out := map[string]bool{}
+	for a, cs := range stats {
+		if !cs.Choice() {
+			continue
+		}
+		for v := range cs.Values {
+			out[a.label+"|"+a.key+"="+v] = true
+		}
+	}
+	return out
 }
 
 // SplitGroup separates a group's requests by splitKey over the steps at
@@ -60,15 +113,22 @@ func SplitGroup(corpus []trace.NormSession, inst []ReqInstance, g []int) [][]int
 			common[l] = true
 		}
 	}
+	runs := make([][]trace.Step, len(g))
+	for k, i := range g {
+		s := corpus[inst[i].Session]
+		for _, si := range inst[i].Steps {
+			runs[k] = append(runs[k], s.Steps[si])
+		}
+	}
+	texts := make([]string, len(g))
+	for k, i := range g {
+		texts[k] = inst[i].Text
+	}
+	choices := Choices(runs, texts)
 	byKey := map[string][]int{}
 	var order []string
-	for _, i := range g {
-		s := corpus[inst[i].Session]
-		steps := make([]trace.Step, 0, len(inst[i].Steps))
-		for _, si := range inst[i].Steps {
-			steps = append(steps, s.Steps[si])
-		}
-		k := SplitKey(steps, common)
+	for n, i := range g {
+		k := SplitKey(runs[n], common, choices)
 		if _, ok := byKey[k]; !ok {
 			order = append(order, k)
 		}
@@ -254,7 +314,9 @@ func BuildContract(rt *model.Routine, d *model.Draft, runs []ContractRun, loops 
 				// selection rule is missing. On a write it is the action's
 				// parameter, which a caller supplies when the goal is stated.
 				ci.Source = InputUnresolved
-				if stepEff(in.Pos) == "write" {
+				// A step whose effect is unknown may write; only a step
+				// known to read makes the value a selection the agent made.
+				if stepEff(in.Pos) != "read" {
 					unresolvedWrite++
 				} else {
 					unresolvedRead++
@@ -292,6 +354,14 @@ func BuildContract(rt *model.Routine, d *model.Draft, runs []ContractRun, loops 
 				}
 			}
 		}
+	}
+	// An edit the routine leaves out but that most runs made between the
+	// routine's first and last steps is a decision inside the procedure: the
+	// steps after it depend on it. It is judgment with no boundary, whatever
+	// the surrounding tools are called.
+	if label := InteriorEdit(runs); label != "" {
+		c.Judgment = append(c.Judgment, "interior:"+label)
+		firstJudg, lastPlain = 0, len(d.Steps)
 	}
 	c.Boundary = ""
 	// Only a human step (drafted as an explicit stop) can be the boundary.
@@ -558,4 +628,45 @@ func EphemeralConstant(d *model.Draft) bool {
 		}
 	}
 	return false
+}
+
+// InteriorEdit returns an edit tool that most runs called strictly between
+// the first and last of the routine's own steps, or "". Identity of steps is
+// by position in the request, not by name.
+func InteriorEdit(runs []ContractRun) string {
+	count := map[string]int{}
+	for _, r := range runs {
+		if len(r.Steps) < 2 {
+			continue
+		}
+		first, last := -1, -1
+		for k, st := range r.All {
+			for _, rs := range r.Steps {
+				if st.Call == rs.Call && st.Label == rs.Label {
+					if first < 0 {
+						first = k
+					}
+					last = k
+				}
+			}
+		}
+		seen := map[string]bool{}
+		for k := first + 1; first >= 0 && k < last; k++ {
+			st := r.All[k]
+			if (trace.EditTools[st.Label] || strings.HasPrefix(st.Label, "patch:")) && !seen[st.Label] {
+				seen[st.Label] = true
+				count[st.Label]++
+			}
+		}
+	}
+	best, n := "", 0
+	for l, c := range count {
+		if c > n || (c == n && l < best) {
+			best, n = l, c
+		}
+	}
+	if 2*n > len(runs) {
+		return best
+	}
+	return ""
 }

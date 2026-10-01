@@ -9,27 +9,22 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"unicode"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
 
-// SelectorKeys are tool arguments whose value names the operation to run.
-// A routine whose runs used different operations is not one procedure.
-var SelectorKeys = map[string]bool{"action": true, "operation": true, "op": true, "method": true, "verb": true, "tool": true, "tool_name": true, "command": true}
+// SelectorSlot reports an argument whose value is a short plain word: an
+// enumerated choice such as an operation, state or context name, rather than
+// an identifier, path, URL, number or free text. It is decided by the value's
+// type, never by the argument's name or the tool's name.
+func SelectorSlot(sl Slot) bool {
+	return !sl.Sub && sl.Type == SlotWord && sl.Value != "" && len(sl.Value) <= 40
+}
 
-// ScopeFlags and scopeArgs carry authority: which cluster, namespace,
-// project or environment a call acts on.
-var (
-	ScopeFlags = map[string]bool{"--context=": true, "--kube-context=": true, "-n=": true, "--namespace=": true, "--project=": true, "--profile=": true, "--region=": true, "--cluster=": true, "--env=": true, "--environment=": true, "-C=": true}
-	ScopeArgs  = map[string]bool{"integration": true, "project": true, "project_id": true, "project_key": true, "namespace": true, "context": true, "cluster": true, "environment": true, "env": true}
-)
-
+// IsScopeSlot reports a flag or argument that selects where a call acts (a
+// context, namespace or environment name): a selector by its value type.
 func IsScopeSlot(st Step, sl Slot) bool {
-	if strings.HasPrefix(st.Label, "sh:") {
-		return ScopeFlags[strings.SplitN(sl.Key, "#", 2)[0]]
-	}
-	return ScopeArgs[sl.Key]
+	return SelectorSlot(sl)
 }
 
 // Effect evidence.
@@ -37,28 +32,7 @@ var (
 	ReadPrograms = map[string]bool{"cat": true, "head": true, "tail": true, "grep": true, "rg": true, "find": true, "ls": true, "wc": true, "awk": true, "jq": true, "sort": true, "uniq": true,
 		"diff": true, "stat": true, "file": true, "du": true, "df": true, "date": true, "pwd": true, "shasum": true, "sha256sum": true, "md5": true, "md5sum": true, "tree": true, "which": true,
 		"nl": true, "cut": true, "tr": true, "column": true, "less": true, "realpath": true, "basename": true, "dirname": true, "[": true, "test": true}
-	ReadSub = map[string]map[string]bool{
-		"git":     {"status": true, "diff": true, "log": true, "show": true, "rev-parse": true, "ls-files": true, "blame": true, "describe": true, "shortlog": true, "grep": true, "cat-file": true, "ls-remote": true, "rev-list": true, "merge-base": true},
-		"kubectl": {"get": true, "describe": true, "logs": true, "top": true, "explain": true, "version": true, "api-resources": true, "auth": true},
-		"gh":      {"view": true, "list": true, "status": true, "diff": true, "checks": true},
-		"go":      {"test": true, "vet": true, "build": true, "list": true, "version": true, "env": true},
-		"helm":    {"list": true, "status": true, "get": true, "history": true, "template": true, "show": true},
-		"docker":  {"ps": true, "images": true, "logs": true, "inspect": true},
-		"npm":     {"test": true, "ls": true, "view": true},
-	}
-	WriteSub = map[string]map[string]bool{
-		"git":     {"push": true, "commit": true, "tag": true, "merge": true, "rebase": true, "reset": true, "checkout": true, "add": true, "rm": true, "mv": true, "stash": true, "cherry-pick": true, "revert": true, "switch": true, "restore": true, "clean": true},
-		"kubectl": {"apply": true, "create": true, "delete": true, "set": true, "patch": true, "scale": true, "rollout": true, "edit": true, "label": true, "annotate": true, "replace": true, "cordon": true, "drain": true},
-		"helm":    {"install": true, "upgrade": true, "uninstall": true, "rollback": true},
-		"docker":  {"push": true, "rm": true, "rmi": true, "run": true, "build": true},
-		"npm":     {"publish": true, "install": true},
-	}
 	WritePrograms = map[string]bool{"rm": true, "mv": true, "cp": true, "mkdir": true, "touch": true, "tee": true, "chmod": true, "chown": true, "ln": true, "rsync": true, "scp": true}
-	ToolWord      = regexp.MustCompile(`[a-z]+`)
-	ReadVerbs     = map[string]bool{"get": true, "list": true, "search": true, "read": true, "describe": true, "fetch": true, "show": true, "view": true, "count": true, "query": true, "find": true, "lookup": true, "download": true, "status": true}
-	WriteVerbs    = map[string]bool{"create": true, "update": true, "delete": true, "add": true, "send": true, "post": true, "set": true, "transition": true, "merge": true, "complete": true, "checkpoint": true,
-		"write": true, "remove": true, "publish": true, "upload": true, "edit": true, "assign": true, "move": true, "archive": true, "close": true, "reply": true, "forward": true, "trash": true, "share": true,
-		"comment": true, "approve": true, "trigger": true, "run": true, "execute": true, "retry": true, "cancel": true, "restart": true, "deploy": true, "push": true, "apply": true, "patch": true, "store": true, "save": true, "insert": true}
 )
 
 // StepEffect is what one recorded step does by declared evidence: "read",
@@ -75,18 +49,6 @@ func StepEffect(st Step) string {
 		}
 		f := strings.Fields(strings.TrimPrefix(st.Label, "sh:"))
 		prog := f[0]
-		sub := ""
-		if len(f) > 1 {
-			sub = f[1]
-		}
-		if prog == "git" && sub == "branch" {
-			for _, sl := range st.Slots {
-				if sl.Value == "-d" || sl.Value == "-D" || sl.Value == "--delete" || sl.Value == "-m" {
-					return "write"
-				}
-			}
-			return "read"
-		}
 		if prog == "sed" {
 			for _, sl := range st.Slots {
 				if strings.HasPrefix(sl.Value, "-i") {
@@ -108,89 +70,22 @@ func StepEffect(st Step) string {
 			}
 			return "read"
 		}
-		if WritePrograms[prog] || WriteSub[prog][sub] {
+		// Only single-purpose programs, whose effect never depends on their
+		// arguments, are classified. A program with subcommands (git,
+		// kubectl, ...) is unknown: its effect is not inferred from a table.
+		if len(f) == 1 && WritePrograms[prog] {
 			return "write"
 		}
-		if ReadPrograms[prog] || ReadSub[prog][sub] {
+		if len(f) == 1 && ReadPrograms[prog] {
 			return "read"
-		}
-		// A subcommand the label does not carry (a one-off word): look at the
-		// recorded words for a known subcommand.
-		for _, sl := range st.Slots {
-			if WriteSub[prog][sl.Value] {
-				return "write"
-			}
-			if ReadSub[prog][sl.Value] && sl.Key == "p0" {
-				return "read"
-			}
 		}
 		return "unknown"
 	case strings.HasPrefix(st.Label, "mcp:"):
-		name := strings.TrimPrefix(st.Label, "mcp:")
-		if strings.HasPrefix(name, "browser_") || name == "js" {
-			return "unknown"
-		}
-		var action string
-		for _, sl := range st.Slots {
-			if SelectorKeys[sl.Key] {
-				action = sl.Value
-			}
-		}
-		if action != "" {
-			if effect, found := OperationNameEffect(action); found {
-				return effect
-			}
-			// The gateway's own name describes dispatch, not the selected
-			// operation. An opaque action cannot inherit its wrapper's effect.
-			return "unknown"
-		}
-		if effect, found := OperationNameEffect(name); found {
-			return effect
-		}
+		// An MCP tool's effect is whatever the tool declares; a session log
+		// does not record that, and a verb in its name is not evidence.
 		return "unknown"
 	}
 	return "unknown"
-}
-
-// An operation's leading verb determines its effect. A later noun may also be
-// a verb in another context (get_comment, list_updates), so scanning for any
-// write word first mislabels reads. Explicit compound operation names with
-// different effects remain unknown rather than guessed.
-func OperationNameEffect(name string) (string, bool) {
-	var separated strings.Builder
-	runes := []rune(name)
-	for i, r := range runes {
-		if i > 0 && unicode.IsUpper(r) && (unicode.IsLower(runes[i-1]) || unicode.IsDigit(runes[i-1]) ||
-			unicode.IsUpper(runes[i-1]) && i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
-			separated.WriteByte('_')
-		}
-		separated.WriteRune(r)
-	}
-	words := ToolWord.FindAllString(strings.ToLower(separated.String()), -1)
-	effect := ""
-	connected := false
-	for _, w := range words {
-		if w == "and" || w == "or" || w == "then" {
-			connected = true
-			continue
-		}
-		current := ""
-		if ReadVerbs[w] {
-			current = "read"
-		} else if WriteVerbs[w] {
-			current = "write"
-		}
-		if current == "" {
-			continue
-		}
-		if effect == "" {
-			effect = current
-		} else if connected && current != effect {
-			return "unknown", true
-		}
-		connected = false
-	}
-	return effect, effect != ""
 }
 
 var FileRedirectRe = regexp.MustCompile(`(^|[^0-9&<>])>>?\s*([^\s&|;]+)`)
@@ -393,50 +288,6 @@ func ObservedArgs(c Call) map[string]ObservedField {
 	return out
 }
 
-func OperationSelector(c Call, path string) bool {
-	if c.Tool == "shell" {
-		commands, err := shellparse.ProgramShellCommands(c.Command)
-		if err != nil {
-			return false
-		}
-		stage, i := 0, -1
-		if len(commands) > 1 {
-			if _, err := fmt.Sscanf(path, "pipe_%d_argv_%d", &stage, &i); err != nil || fmt.Sprintf("pipe_%d_argv_%d", stage, i) != path {
-				return false
-			}
-		} else if _, err := fmt.Sscanf(path, "argv_%d", &i); err != nil || fmt.Sprintf("argv_%d", i) != path {
-			return false
-		}
-		if stage < 0 || stage >= len(commands) || i < 0 || i+1 >= len(commands[stage]) {
-			return false
-		}
-		words := commands[stage]
-		value := words[i+1]
-		if strings.HasPrefix(value, "-") && !strings.Contains(value, "=") {
-			return true
-		}
-		if i != 0 || TypeOf(shellparse.Word{Text: value}) != SlotWord {
-			return false
-		}
-		// The first word is structural only for command families whose
-		// first argument selects the operation. Otherwise a stable word
-		// may still be a user's value and must not be embedded in code.
-		switch words[0] {
-		case "git", "gh", "kubectl", "docker", "helm", "tap":
-			return true
-		}
-		return false
-	}
-	if !strings.HasPrefix(c.Tool, "mcp:") || strings.Contains(path, "/") {
-		return false
-	}
-	switch strings.ToLower(path) {
-	case "action", "operation", "integration", "provider", "method", "tool", "service":
-		return true
-	}
-	return false
-}
-
 // unexplained names the first input whose values were mostly not in the
 // request, or "".
 // InRequest reports whether a value was given in the request: the value
@@ -458,15 +309,6 @@ func InRequest(v, text string) bool {
 		return true
 	}
 	return false
-}
-
-// BookkeepingTools are Telara's own recording and tool-discovery calls,
-// which agent instructions make every agent run around its work.
-var BookkeepingTools = map[string]bool{
-	"mcp:telara_task_list": true, "mcp:telara_task_create": true, "mcp:telara_task_resume": true,
-	"mcp:telara_task_checkpoint": true, "mcp:telara_task_complete": true, "mcp:telara_task_pause": true,
-	"mcp:telara_tool_search": true, "mcp:telara_tool_describe": true, "mcp:telara_annotate": true,
-	"mcp:telara_link": true, "get_mcp_tools": true, "ToolSearch": true,
 }
 
 var Digits = regexp.MustCompile(`\d+`)

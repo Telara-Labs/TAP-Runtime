@@ -1,39 +1,13 @@
 package codegen
 
 import (
-	"bytes"
-	"context"
-	_ "embed"
 	"fmt"
-	"os/exec"
 	"strings"
-	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 	"gitlab.com/telara-labs/tap-runtime/discover/pyparse"
 )
-
-//go:embed inline_file_replace_ast.py
-var InlineFileReplaceAST []byte
-
-// This parser reads code as data. It never executes a recorded script and
-// returns no recorded path or replacement text to the compiler.
-func StrictInlineFileReplacePy(body string) bool {
-	if len(body) > 16<<10 {
-		return false
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "python3", "-c", string(InlineFileReplaceAST))
-	cmd.Stdin = strings.NewReader(body)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if cmd.Run() != nil {
-		return false
-	}
-	return out.String() == "yes\n"
-}
 
 func SynthesizeInlineFileReplace(g *ProgramGraph, traces []ObservedTrace) {
 	shape := traces[0].Span.CodeShape

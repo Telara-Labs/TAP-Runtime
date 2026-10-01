@@ -159,13 +159,15 @@ func TestR6FileReadsAreDeclaredOrBlocked(t *testing.T) {
 }
 
 // R7: the runner binds a capability written provider.resource.verb and
-// refuses anything else at admission, even when publish checks pass.
+// refuses anything else at admission. The binder matches the last part
+// against the tool's own words, so the parts are positional: no word is
+// guessed to be a verb.
 func TestR7CapabilityLabelsAreProviderResourceVerb(t *testing.T) {
 	for tool, want := range map[string]string{
-		"gmail_search_emails":     "gmail.emails.search",
+		"gmail_search_emails":     "gmail.search.emails",
 		"records_create":          "records.records.create",
-		"telara_jira_add_comment": "telara.jira_comment.add",
-		"ci_list_build_steps":     "ci.build_steps.list",
+		"telara_jira_add_comment": "telara.jira_add.comment",
+		"ci_list_build_steps":     "ci.list_build.steps",
 		"tap_run":                 "tap.tap.run",
 		"weird":                   "weird.weird.run",
 	} {

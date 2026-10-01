@@ -652,7 +652,11 @@ func BuildRoutine(corpus []trace.NormSession, inst []ReqInstance, g []int, names
 	for _, l := range tmpl {
 		common[l] = true
 	}
-	sum := sha256.Sum256([]byte(rt.SourceRole + "\x00" + strings.Join(tmpl, "\x1f") + "\x00" + SplitKey(occ[0], common)))
+	occText := make([]string, len(occReq))
+	for k, r := range occReq {
+		occText[k] = inst[r].Text
+	}
+	sum := sha256.Sum256([]byte(rt.SourceRole + "\x00" + strings.Join(tmpl, "\x1f") + "\x00" + SplitKey(occ[0], common, Choices(occ, occText))))
 	rt.ID = hex.EncodeToString(sum[:6])
 	cruns := make([]ContractRun, len(occ))
 	for j := range occ {
@@ -789,17 +793,7 @@ func LoopSpecs(loops []string, occAll [][]trace.Step, occReq []int, inst []ReqIn
 // RoutineKind says who a routine's work is for. Scheduled: most requests are
 // Codex automation prompts. Automated: most requests carry the same prompt
 // (digits aside), each alone in its session, so a program sent it.
-// Bookkeeping: every step is a Telara recording or discovery call.
 func RoutineKind(corpus []trace.NormSession, inst []ReqInstance, g []int, tmpl []string) string {
-	book := true
-	for _, l := range tmpl {
-		if !trace.BookkeepingTools[l] {
-			book = false
-		}
-	}
-	if book {
-		return "bookkeeping"
-	}
 	scheduled, single, harness, long := 0, 0, 0, 0
 	texts := map[string]int{}
 	for _, i := range g {
