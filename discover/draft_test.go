@@ -5,7 +5,8 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
-	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 
@@ -22,7 +23,7 @@ func runAndFind(t *testing.T, ss []trace.Session, labels string) (*model.Report,
 	t.Helper()
 	o := DefaultOptions()
 	o.Patterns = true
-	o.Readers = []trace.Reader{fakeReader{sessions: ss}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +38,7 @@ func runAndFind(t *testing.T, ss []trace.Session, labels string) (*model.Report,
 }
 
 func TestDraftReplaysThePlantedProcedure(t *testing.T) {
-	rep, i := runAndFind(t, plantedCorpus(), "sh:make build → sh:go test → sh:git push")
+	rep, i := runAndFind(t, testkit.PlantedCorpus(), "sh:make build → sh:go test → sh:git push")
 	d, err := routine.ReportDraft(rep, i, model.DraftOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +72,7 @@ func TestDraftReplaysThePlantedProcedure(t *testing.T) {
 }
 
 func TestDraftReadOnlyIsTheUsersCall(t *testing.T) {
-	rep, i := runAndFind(t, plantedCorpus(), "sh:make build → sh:go test → sh:git push")
+	rep, i := runAndFind(t, testkit.PlantedCorpus(), "sh:make build → sh:go test → sh:git push")
 	d, err := routine.ReportDraft(rep, i, model.DraftOptions{ReadOnly: map[int]bool{2: true}})
 	if err != nil {
 		t.Fatal(err)
@@ -81,30 +82,8 @@ func TestDraftReadOnlyIsTheUsersCall(t *testing.T) {
 	}
 }
 
-// toolCorpus: 20 sessions pick up a ticket through two MCP tools, passing the
-// same ticket id to both, among random noise.
-func toolCorpus() []trace.Session {
-	var out []trace.Session
-	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
-	noise := []string{"ls", "pwd", "date", "whoami", "uptime", "df -h", "id", "hostname"}
-	for i := 0; i < 60; i++ {
-		s := trace.Session{Client: "fake", ID: fmt.Sprintf("t%02d", i), Start: t0.AddDate(0, 0, 7*(i%20))}
-		for j := 0; j < 20; j++ {
-			s.Calls = append(s.Calls, trace.Call{Tool: "shell", Command: noise[(i*7+j*3)%len(noise)] + fmt.Sprintf(" %d", j)})
-			if i < 20 && j == 8 {
-				id := fmt.Sprintf("TENG-%d", 3000+i)
-				s.Calls = append(s.Calls,
-					trace.Call{Tool: "mcp:telara_task_create", Args: map[string]string{"goal": fmt.Sprintf("work on %s part %d", id, i), "ticket": id}},
-					trace.Call{Tool: "mcp:telara_jira_transition_issue", Args: map[string]string{"issue_key": id, "transition_id": "11"}})
-			}
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
 func TestDraftMCPToolsCarryContractsThatPassPublishChecks(t *testing.T) {
-	rep, i := runAndFind(t, toolCorpus(), "mcp:telara_task_create → mcp:telara_jira_transition_issue")
+	rep, i := runAndFind(t, testkit.ToolCorpus(), "mcp:telara_task_create → mcp:telara_jira_transition_issue")
 	d, err := routine.ReportDraft(rep, i, model.DraftOptions{Publisher: "dev.example"})
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +113,7 @@ func TestDraftMCPToolsCarryContractsThatPassPublishChecks(t *testing.T) {
 }
 
 func TestDraftKeepsRecordedArgumentTypes(t *testing.T) {
-	ss := toolCorpus()
+	ss := testkit.ToolCorpus()
 	for i := range ss {
 		for j := range ss[i].Calls {
 			if ss[i].Calls[j].Tool == "mcp:telara_jira_transition_issue" {
@@ -264,7 +243,7 @@ func TestDraftArgumentOrderDoesNotMakeFlagsInputs(t *testing.T) {
 func TestRoutinesAreOnePerTask(t *testing.T) {
 	o := DefaultOptions()
 	o.Patterns = true
-	o.Readers = []trace.Reader{fakeReader{sessions: plantedCorpus()}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.PlantedCorpus()}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)

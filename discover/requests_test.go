@@ -3,12 +3,13 @@ package discover
 import (
 	"bytes"
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 
@@ -19,48 +20,9 @@ import (
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-// requestCorpus: 30 sessions over 10 weeks. Each carries a few requests:
-//   - "move TENG-<n> to done": transition then comment on that ticket (the
-//     ticket id is in the request: a primitive)
-//   - "deploy the gateway": set image to a tag the agent chose, then watch
-//     the rollout (the tag is never in the request; the agent chooses it and a primitive takes it as an input)
-//   - noise requests of random reads.
-func requestCorpus() []trace.Session {
-	rng := rand.New(rand.NewSource(21))
-	noise := []string{"ls", "pwd", "date", "uptime", "hostname", "id", "df -h", "du -sh ."}
-	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
-	var out []trace.Session
-	for i := 0; i < 30; i++ {
-		s := trace.Session{Client: "fake", ID: fmt.Sprintf("r%02d", i), Start: t0.AddDate(0, 0, 2*i)}
-		call := func(c trace.Call) {
-			c.Request = len(s.Requests) - 1
-			c.Time = s.Start
-			s.Calls = append(s.Calls, c)
-		}
-		s.AddRequest("look around the repo")
-		for j := 0; j < 4; j++ {
-			call(trace.Call{Tool: "shell", Command: noise[rng.Intn(len(noise))] + fmt.Sprint(" ", j)})
-		}
-		if i%3 != 2 {
-			ticket := fmt.Sprintf("TENG-%d", 3100+i)
-			s.AddRequest("please move " + ticket + " to done and say it shipped")
-			call(trace.Call{Tool: "mcp:telara_jira_transition_issue", Args: map[string]string{"issue_key": ticket, "transition_id": "21"}})
-			call(trace.Call{Tool: "mcp:telara_jira_add_comment", Args: map[string]string{"issue_key": ticket, "body": "shipped"}})
-		}
-		if i%3 != 0 {
-			s.AddRequest("deploy the gateway to minikube")
-			tag := fmt.Sprintf("teng%d-v%d", 3000+i, rng.Intn(9))
-			call(trace.Call{Tool: "shell", Command: "kubectl --context minikube -n telara-middleware set image deploy/gateway gateway=telara/gateway:" + tag})
-			call(trace.Call{Tool: "shell", Command: "kubectl --context minikube -n telara-middleware rollout status deploy/gateway"})
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
 func TestRecurringRequestsBecomePrimitives(t *testing.T) {
 	o := DefaultOptions()
-	o.Readers = []trace.Reader{fakeReader{sessions: requestCorpus()}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.RequestCorpus()}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +72,7 @@ func TestRecurringRequestsBecomePrimitives(t *testing.T) {
 
 func TestSaveInstallsOnceAndNeverReplacesAForeignFolder(t *testing.T) {
 	o := DefaultOptions()
-	o.Readers = []trace.Reader{fakeReader{sessions: requestCorpus()}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.RequestCorpus()}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +100,7 @@ func TestSaveInstallsOnceAndNeverReplacesAForeignFolder(t *testing.T) {
 
 func TestReviewWithoutARegistryOnlySaves(t *testing.T) {
 	o := DefaultOptions()
-	o.Readers = []trace.Reader{fakeReader{sessions: requestCorpus()}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.RequestCorpus()}}
 	rep, _ := Run(o)
 	var saved []string
 	var out bytes.Buffer
@@ -194,7 +156,7 @@ func TestExplorationIsNotAPrimitive(t *testing.T) {
 		ss = append(ss, s)
 	}
 	o := DefaultOptions()
-	o.Readers = []trace.Reader{fakeReader{sessions: ss}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -206,7 +168,7 @@ func TestExplorationIsNotAPrimitive(t *testing.T) {
 
 func TestFixedShareIsAFractionOfTheRoutine(t *testing.T) {
 	o := DefaultOptions()
-	o.Readers = []trace.Reader{fakeReader{sessions: requestCorpus()}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.RequestCorpus()}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)

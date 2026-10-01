@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/eval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
@@ -59,7 +61,7 @@ func TestFrozenReaderDropsChangedSessionsOnlyWhenAsked(t *testing.T) {
 	b := trace.Session{Client: "claude-code", ID: "b", Start: t0, Calls: []trace.Call{{Tool: "shell", Command: "pwd"}}}
 	m := history.BuildManifest([]trace.Session{a, b}, t0.Add(time.Hour))
 	b.Calls = append(b.Calls, trace.Call{Tool: "shell", Command: "date"}) // appended after the freeze
-	inner := fakeReader{sessions: []trace.Session{a, b}, name: "claude-code"}
+	inner := testkit.FakeReader{Sessions: []trace.Session{a, b}, Name: "claude-code"}
 	if _, err := (history.FrozenReader{Inner: inner, Manifest: m}).Read(time.Time{}); err == nil {
 		t.Fatal("a changed session must fail the read by default")
 	}

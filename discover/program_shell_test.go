@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/genreview"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
@@ -87,8 +89,8 @@ func TestGeneratedPipelinePassesStdoutAsStdinAndStopsOnFailure(t *testing.T) {
 
 func TestSynthesizePipelineFromIndependentExecutions(t *testing.T) {
 	ss := []trace.Session{
-		selSession("pipe-one", "Filter one log", trace.Call{Tool: "shell", Command: "cat logs/one.txt | grep ERROR", Outcome: trace.OutcomeOK}),
-		selSession("pipe-two", "Filter another log", trace.Call{Tool: "shell", Command: "cat logs/two.txt | grep WARN", Outcome: trace.OutcomeOK}),
+		testkit.NewSession("pipe-one", "Filter one log", trace.Call{Tool: "shell", Command: "cat logs/one.txt | grep ERROR", Outcome: trace.OutcomeOK}),
+		testkit.NewSession("pipe-two", "Filter another log", trace.Call{Tool: "shell", Command: "cat logs/two.txt | grep WARN", Outcome: trace.OutcomeOK}),
 	}
 	var spans []model.SpanProposal
 	for i, s := range ss {
@@ -110,8 +112,8 @@ func TestSynthesizePipelineFromIndependentExecutions(t *testing.T) {
 
 func TestSynthesizeSuccessChainAndKeepConnectorsDistinct(t *testing.T) {
 	ss := []trace.Session{
-		selSession("chain-one", "Stage one file", trace.Call{Tool: "shell", Command: "git add src/one.go && git status --short", Outcome: trace.OutcomeOK}),
-		selSession("chain-two", "Stage another file", trace.Call{Tool: "shell", Command: "git add src/two.go && git status --short", Outcome: trace.OutcomeOK}),
+		testkit.NewSession("chain-one", "Stage one file", trace.Call{Tool: "shell", Command: "git add src/one.go && git status --short", Outcome: trace.OutcomeOK}),
+		testkit.NewSession("chain-two", "Stage another file", trace.Call{Tool: "shell", Command: "git add src/two.go && git status --short", Outcome: trace.OutcomeOK}),
 	}
 	var spans []model.SpanProposal
 	for i, s := range ss {
@@ -287,10 +289,10 @@ func TestGeneratedCommandRejectsUndeclaredShape(t *testing.T) {
 
 func TestSynthesizeLiteralCommandChain(t *testing.T) {
 	ss := []trace.Session{
-		selSession("shell-one", "Run git add on the changed file, then git status",
+		testkit.NewSession("shell-one", "Run git add on the changed file, then git status",
 			trace.Call{Tool: "shell", Command: "git add src/one.go", Outcome: trace.OutcomeOK},
 			trace.Call{Tool: "shell", Command: "git status --short", Outcome: trace.OutcomeOK}),
-		selSession("shell-two", "Run git add on the changed file, then git status",
+		testkit.NewSession("shell-two", "Run git add on the changed file, then git status",
 			trace.Call{Tool: "shell", Command: "git add src/two.go", Outcome: trace.OutcomeOK},
 			trace.Call{Tool: "shell", Command: "git status --short", Outcome: trace.OutcomeOK}),
 	}
@@ -327,10 +329,10 @@ func TestSynthesizeLiteralCommandChain(t *testing.T) {
 
 func TestRepeatedCommandOrderSurfacesWithoutPromptWording(t *testing.T) {
 	ss := []trace.Session{
-		selSession("implicit-one", "Prepare the change",
+		testkit.NewSession("implicit-one", "Prepare the change",
 			trace.Call{Tool: "shell", Command: "git add src/one.go", Outcome: trace.OutcomeOK},
 			trace.Call{Tool: "shell", Command: "git status src/one.go --short", Outcome: trace.OutcomeOK}),
-		selSession("implicit-two", "Prepare another change",
+		testkit.NewSession("implicit-two", "Prepare another change",
 			trace.Call{Tool: "shell", Command: "git add src/two.go", Outcome: trace.OutcomeOK},
 			trace.Call{Tool: "shell", Command: "git status src/two.go --short", Outcome: trace.OutcomeOK}),
 	}

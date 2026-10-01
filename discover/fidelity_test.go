@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 
@@ -13,29 +14,10 @@ import (
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-// requestSessions builds n sessions, each one request running the calls
-// make(i) returns, a few days apart.
-func requestSessions(n int, text func(i int) string, calls func(i int) []trace.Call) []trace.Session {
-	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
-	var out []trace.Session
-	for i := 0; i < n; i++ {
-		s := trace.Session{Client: "fake", ID: fmt.Sprintf("f%02d", i), Start: t0.AddDate(0, 0, 4*i)}
-		s.AddRequest(text(i))
-		for _, c := range calls(i) {
-			c.Request, c.Time = 0, s.Start
-			s.Calls = append(s.Calls, c)
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
-func sh(cmd string) trace.Call { return trace.Call{Tool: "shell", Command: cmd} }
-
 func firstRoutine(t *testing.T, ss []trace.Session) *model.Routine {
 	t.Helper()
 	o := DefaultOptions()
-	o.Readers = []trace.Reader{fakeReader{sessions: ss}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -47,11 +29,11 @@ func firstRoutine(t *testing.T, ss []trace.Session) *model.Routine {
 }
 
 func TestPipelinesAndCdAreReplayedAsRecorded(t *testing.T) {
-	ss := requestSessions(8, func(i int) string { return "test the package" }, func(i int) []trace.Call {
+	ss := testkit.RequestSessions(8, func(i int) string { return "test the package" }, func(i int) []trace.Call {
 		dir := fmt.Sprintf("services/svc%d", i)
 		return []trace.Call{
-			sh("cd " + dir + " && go test ./... -count=1 2>&1 | tail -20"),
-			sh("git status --short"),
+			testkit.ShellCall("cd " + dir + " && go test ./... -count=1 2>&1 | tail -20"),
+			testkit.ShellCall("git status --short"),
 		}
 	})
 	r := firstRoutine(t, ss)
@@ -65,10 +47,10 @@ func TestPipelinesAndCdAreReplayedAsRecorded(t *testing.T) {
 }
 
 func TestDifferingHeredocBodiesNeedAuthoring(t *testing.T) {
-	ss := requestSessions(8, func(i int) string { return "count the rows" }, func(i int) []trace.Call {
+	ss := testkit.RequestSessions(8, func(i int) string { return "count the rows" }, func(i int) []trace.Call {
 		return []trace.Call{
-			sh("git status --short"),
-			sh(fmt.Sprintf("python3 - <<'PY'\nimport csv\nprint(%d * len(list(csv.reader(open('data.csv')))))\nPY", i)),
+			testkit.ShellCall("git status --short"),
+			testkit.ShellCall(fmt.Sprintf("python3 - <<'PY'\nimport csv\nprint(%d * len(list(csv.reader(open('data.csv')))))\nPY", i)),
 		}
 	})
 	r := firstRoutine(t, ss)
@@ -86,11 +68,11 @@ func TestDifferingHeredocBodiesNeedAuthoring(t *testing.T) {
 func TestDraftFollowsARecordedOrder(t *testing.T) {
 	// Five runs do status, diff, log; three do log, status, diff. The draft
 	// must be one of those orders, never a mix.
-	ss := requestSessions(8, func(i int) string { return "what changed" }, func(i int) []trace.Call {
+	ss := testkit.RequestSessions(8, func(i int) string { return "what changed" }, func(i int) []trace.Call {
 		if i < 5 {
-			return []trace.Call{sh("git status --short"), sh("git diff --stat"), sh("git log --oneline -3")}
+			return []trace.Call{testkit.ShellCall("git status --short"), testkit.ShellCall("git diff --stat"), testkit.ShellCall("git log --oneline -3")}
 		}
-		return []trace.Call{sh("git log --oneline -3"), sh("git status --short"), sh("git diff --stat")}
+		return []trace.Call{testkit.ShellCall("git log --oneline -3"), testkit.ShellCall("git status --short"), testkit.ShellCall("git diff --stat")}
 	})
 	r := firstRoutine(t, ss)
 	got := model.LabelsOf(r.Candidate)
@@ -103,11 +85,11 @@ func TestDraftFollowsARecordedOrder(t *testing.T) {
 }
 
 func TestDistinctCallsWithTheSameLabelAreKept(t *testing.T) {
-	ss := requestSessions(8, func(i int) string { return "compare the two configs" }, func(i int) []trace.Call {
+	ss := testkit.RequestSessions(8, func(i int) string { return "compare the two configs" }, func(i int) []trace.Call {
 		return []trace.Call{
 			{Tool: "Read", Args: map[string]string{"file_path": "config/a.yaml"}},
 			{Tool: "Read", Args: map[string]string{"file_path": "config/b.yaml"}},
-			sh("git diff --stat"),
+			testkit.ShellCall("git diff --stat"),
 		}
 	})
 	r := firstRoutine(t, ss)
@@ -117,9 +99,9 @@ func TestDistinctCallsWithTheSameLabelAreKept(t *testing.T) {
 }
 
 func TestFailedRunsAreNotEvidence(t *testing.T) {
-	ss := requestSessions(10, func(i int) string { return "ship it" }, func(i int) []trace.Call {
-		status := sh("git status --short")
-		push := sh(fmt.Sprintf("git push origin feature-%d", i))
+	ss := testkit.RequestSessions(10, func(i int) string { return "ship it" }, func(i int) []trace.Call {
+		status := testkit.ShellCall("git status --short")
+		push := testkit.ShellCall(fmt.Sprintf("git push origin feature-%d", i))
 		status.Outcome, push.Outcome = trace.OutcomeOK, trace.OutcomeOK
 		if i >= 4 {
 			push.Outcome = trace.OutcomeFailed // six of ten pushes failed
@@ -138,7 +120,7 @@ func TestFailedRunsAreNotEvidence(t *testing.T) {
 func TestAValueFromAnEarlierOutputIsTakenFromIt(t *testing.T) {
 	// Every run read the thread the search returned, and the id always sat
 	// after the same text: the draft takes it from the search's output.
-	ss := requestSessions(8, func(i int) string { return "reply to the intro email" }, func(i int) []trace.Call {
+	ss := testkit.RequestSessions(8, func(i int) string { return "reply to the intro email" }, func(i int) []trace.Call {
 		thread := fmt.Sprintf("18c%013x", 0xabc0+i)
 		search := trace.Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"}, Outcome: trace.OutcomeOK}
 		search.OutIDs, search.OutCtx, search.OutPaths = trace.OutputRefsPaths(fmt.Sprintf(`{"count":%d,"threads":[{"id":"%s","subject":"hi"}]}`, 3+i, thread))
@@ -170,7 +152,7 @@ func TestAValueFromAnEarlierOutputIsTakenFromIt(t *testing.T) {
 }
 
 func TestAValueWithNoCommonAnchorNeedsAuthoring(t *testing.T) {
-	ss := requestSessions(8, func(i int) string { return "reply to the intro email" }, func(i int) []trace.Call {
+	ss := testkit.RequestSessions(8, func(i int) string { return "reply to the intro email" }, func(i int) []trace.Call {
 		thread := fmt.Sprintf("18c%013x", 0xabc0+i)
 		search := trace.Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"}, Outcome: trace.OutcomeOK}
 		// The id sits after different text each run.
@@ -190,7 +172,7 @@ func TestAValueWithNoCommonAnchorNeedsAuthoring(t *testing.T) {
 }
 
 func TestTenOrMoreArgumentsAreBraced(t *testing.T) {
-	ss := requestSessions(6, func(i int) string { return "file the report" }, func(i int) []trace.Call {
+	ss := testkit.RequestSessions(6, func(i int) string { return "file the report" }, func(i int) []trace.Call {
 		args := map[string]string{}
 		for k := 0; k < 11; k++ {
 			args[fmt.Sprintf("f%02d", k)] = fmt.Sprintf("v%d-%d", i, k)
@@ -204,12 +186,12 @@ func TestTenOrMoreArgumentsAreBraced(t *testing.T) {
 }
 
 func TestAStepRepeatedWithDifferentValuesIsALoop(t *testing.T) {
-	ss := requestSessions(9, func(i int) string { return "compare the configs" }, func(i int) []trace.Call {
+	ss := testkit.RequestSessions(9, func(i int) string { return "compare the configs" }, func(i int) []trace.Call {
 		var cs []trace.Call
 		for f := 0; f < 2+i%3; f++ { // 2, 3 or 4 files per run
 			cs = append(cs, trace.Call{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("config/%d-%d.yaml", i, f)}})
 		}
-		return append(cs, sh("git diff --stat"))
+		return append(cs, testkit.ShellCall("git diff --stat"))
 	})
 	r := firstRoutine(t, ss)
 	if model.LabelsOf(r.Candidate) != "Read → sh:git diff" || len(r.Loops) != 1 || r.Loops[0] != "Read" {
@@ -225,7 +207,7 @@ func TestAStepRepeatedWithDifferentValuesIsALoop(t *testing.T) {
 
 func TestFunnelCountsMatchDecisions(t *testing.T) {
 	o := DefaultOptions()
-	o.Readers = []trace.Reader{fakeReader{sessions: append(requestCorpus(), credCorpus()...)}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: append(testkit.RequestCorpus(), testkit.CredCorpus()...)}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)

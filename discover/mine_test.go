@@ -11,7 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 
@@ -92,53 +93,10 @@ func TestBenjaminiHochberg(t *testing.T) {
 	}
 }
 
-// fakeReader serves synthetic sessions as if they were a client's history.
-type fakeReader struct {
-	sessions []trace.Session
-	name     string
-}
-
-func (f fakeReader) Client() string {
-	if f.name == "" {
-		return "fake"
-	}
-	return f.name
-}
-
-func (f fakeReader) Read(time.Time) ([]trace.Session, error) { return f.sessions, nil }
-
-// plantedCorpus has 60 sessions of random tool calls. Twenty of them also
-// run one procedure (build, test, push with a changing branch name) and load
-// the "ship" skill. A procedure that is really there must qualify; random
-// co-occurrence must not.
-func plantedCorpus() []trace.Session {
-	rng := rand.New(rand.NewSource(42))
-	noise := []string{"ls", "cat a", "grep x y", "head -3", "wc -l", "tail -5", "sed -n 1p", "find .", "du -sh", "pwd", "whoami", "date"}
-	var out []trace.Session
-	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
-	for i := 0; i < 60; i++ {
-		s := trace.Session{Client: "fake", ID: fmt.Sprintf("s%02d", i), Start: t0.AddDate(0, 0, 7*(i%20))}
-		call := func(cmd string) {
-			s.Calls = append(s.Calls, trace.Call{Client: "fake", Session: s.ID, Tool: "shell", Command: cmd, Time: s.Start})
-		}
-		for j := 0; j < 25; j++ {
-			call(noise[rng.Intn(len(noise))] + fmt.Sprintf(" %d", rng.Intn(1000)))
-			if i < 20 && j == 10 {
-				s.Calls = append(s.Calls, trace.Call{Client: "fake", Session: s.ID, Tool: "Skill", Args: map[string]string{"skill": "ship"}})
-				call("make build")
-				call("go test ./... -count=1")
-				call(fmt.Sprintf("git push origin feature-%d", i))
-			}
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
 func TestRunFindsPlantedProcedureAndNotNoise(t *testing.T) {
 	o := DefaultOptions()
 	o.Patterns = true
-	o.Readers = []trace.Reader{fakeReader{sessions: plantedCorpus()}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.PlantedCorpus()}}
 	o.Permutations = 30
 	rep, err := Run(o)
 	if err != nil {
@@ -183,7 +141,7 @@ func TestDuplicateSessionsCountOnce(t *testing.T) {
 	d.ID = "b"
 	o := DefaultOptions()
 	o.Patterns = true
-	o.Readers = []trace.Reader{fakeReader{sessions: []trace.Session{s, d}}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: []trace.Session{s, d}}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -305,7 +263,7 @@ func TestClientVocabulariesAreNotRecurrence(t *testing.T) {
 	}
 	o := DefaultOptions()
 	o.Patterns = true
-	o.Readers = []trace.Reader{fakeReader{alpha, "alpha"}, fakeReader{beta, "beta"}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: alpha, Name: "alpha"}, testkit.FakeReader{Sessions: beta, Name: "beta"}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -345,7 +303,7 @@ func TestHypergeomUpper(t *testing.T) {
 func TestSkillComparisonFindsThePlantedProcedure(t *testing.T) {
 	o := DefaultOptions()
 	o.Patterns = true
-	o.Readers = []trace.Reader{fakeReader{sessions: plantedCorpus()}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.PlantedCorpus()}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)

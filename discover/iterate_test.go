@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -59,8 +61,8 @@ func TestALineRepeatedInOneSessionIsNotFixed(t *testing.T) {
 		"python3 remaining.py --all | head -20",
 		"python3 other.py > out.txt; head out.txt",
 	}
-	ss := requestSessions(4, func(i int) string { return "how much is left" }, func(i int) []trace.Call {
-		return []trace.Call{sh(lines[i]), sh("git status --short")}
+	ss := testkit.RequestSessions(4, func(i int) string { return "how much is left" }, func(i int) []trace.Call {
+		return []trace.Call{testkit.ShellCall(lines[i]), testkit.ShellCall("git status --short")}
 	})
 	ss[0].AddRequest("deploy the gateway to staging")
 	ss[0].AddRequest("how much is left")
@@ -70,7 +72,7 @@ func TestALineRepeatedInOneSessionIsNotFixed(t *testing.T) {
 	}
 	ss = append(ss[:1], ss[2:]...)
 	o := DefaultOptions()
-	o.Readers = []trace.Reader{fakeReader{sessions: ss}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +105,7 @@ func TestCopiedCallsAreReadOnce(t *testing.T) {
 }
 
 func TestAnArgumentAnyRunSentAsJSONIsJSON(t *testing.T) {
-	ss := requestSessions(6, func(i int) string { return "run the action" }, func(i int) []trace.Call {
+	ss := testkit.RequestSessions(6, func(i int) string { return "run the action" }, func(i int) []trace.Call {
 		params := fmt.Sprintf(`{"issue_key":"TENG-%d"}`, 100+i)
 		c := trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"action": "jira_get_issue", "params": params}}
 		if i%2 == 1 { // the first run recorded it as text
@@ -176,11 +178,11 @@ func TestCodexSessionIdentityIsTheFilesOwnAndUnique(t *testing.T) {
 func TestIncidentalStepsAreNotTheProcedureForAStatedGoal(t *testing.T) {
 	// Ten requests say the same thing; three of them happened to run the
 	// same two constant commands, the rest did other things.
-	ss := eps("la", 10, func(i int) string { return "look around the repo" }, func(i int) []trace.Call {
+	ss := testkit.Episodes("la", 10, func(i int) string { return "look around the repo" }, func(i int) []trace.Call {
 		if i < 3 {
-			return []trace.Call{sh("pwd"), sh("id")}
+			return []trace.Call{testkit.ShellCall("pwd"), testkit.ShellCall("id")}
 		}
-		return []trace.Call{sh(fmt.Sprintf("ls dir%d", i)), sh(fmt.Sprintf("cat f%d.txt", i))}
+		return []trace.Call{testkit.ShellCall(fmt.Sprintf("ls dir%d", i)), testkit.ShellCall(fmt.Sprintf("cat f%d.txt", i))}
 	})
 	rep := runOn(t, ss)
 	for _, r := range rep.Routines {
@@ -193,9 +195,9 @@ func TestIncidentalStepsAreNotTheProcedureForAStatedGoal(t *testing.T) {
 func TestConstantScaffoldingIsNotABoundedPart(t *testing.T) {
 	// Every run opens the browser the same way, then explores pages the
 	// agent chose: the opening is not a procedure of its own.
-	ss := eps("sc", 8, func(i int) string { return fmt.Sprintf("why is page %d slow", i) }, func(i int) []trace.Call {
+	ss := testkit.Episodes("sc", 8, func(i int) string { return fmt.Sprintf("why is page %d slow", i) }, func(i int) []trace.Call {
 		return []trace.Call{
-			sh("pwd"), sh("git status --short"),
+			testkit.ShellCall("pwd"), testkit.ShellCall("git status --short"),
 			{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("web/p%d/page.tsx", i*7)}},
 			{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("web/p%d/layout.tsx", i*5)}},
 		}

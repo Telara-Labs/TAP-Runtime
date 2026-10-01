@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/genreview"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
@@ -37,7 +39,7 @@ func TestGeneratedReviewOrderUsesGraphEffectsAndBindings(t *testing.T) {
 
 func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
 	create := func(server, key string) trace.Call {
-		return spanRefs(trace.Call{Tool: "mcp:telara_execute_action", MCPServer: server, MCPTool: "telara_execute_action",
+		return testkit.SpanRefs(trace.Call{Tool: "mcp:telara_execute_action", MCPServer: server, MCPTool: "telara_execute_action",
 			Args:   map[string]string{"integration": "jira", "action": "create_issue", "params": `{"summary":"follow up"}`},
 			Output: `{"key":"` + key + `"}`, Outcome: trace.OutcomeOK})
 	}
@@ -47,8 +49,8 @@ func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
 				"params": `{"inward_issue_key":"` + created + `","outward_issue_key":"` + target + `"}`}, Outcome: trace.OutcomeOK}
 	}
 	sessions := []trace.Session{
-		selSession("first", "Create follow up and link TENG-2", create("one", "TENG-1"), link("one", "TENG-1", "TENG-2")),
-		selSession("second", "Create follow up and link TENG-4", create("two", "TENG-3"), link("two", "TENG-3", "TENG-4")),
+		testkit.NewSession("first", "Create follow up and link TENG-2", create("one", "TENG-1"), link("one", "TENG-1", "TENG-2")),
+		testkit.NewSession("second", "Create follow up and link TENG-4", create("two", "TENG-3"), link("two", "TENG-3", "TENG-4")),
 	}
 	candidate, spans := graphCandidateFor(t, sessions, "jira.create_issue", "jira.create_issue_link")
 	variants, err := codegen.GroupProgramVariants(candidate, spans, sessions)
@@ -154,7 +156,7 @@ func TestGeneratedCandidateTaskEvidenceDoesNotPromoteIncidentalRecurrence(t *tes
 
 func TestGeneratedCausalComponentsRemainReviewableInsideLargerTasks(t *testing.T) {
 	create := func(id string) trace.Call {
-		return spanRefs(trace.Call{Tool: "mcp:telara_jira_create_issue", MCPServer: "telara", MCPTool: "telara_jira_create_issue",
+		return testkit.SpanRefs(trace.Call{Tool: "mcp:telara_jira_create_issue", MCPServer: "telara", MCPTool: "telara_jira_create_issue",
 			Args:   map[string]string{"project_key": "TENG", "summary": "follow up " + id, "issue_type": "Task"},
 			Output: `{"key":"` + id + `"}`, Outcome: trace.OutcomeOK})
 	}
@@ -163,8 +165,8 @@ func TestGeneratedCausalComponentsRemainReviewableInsideLargerTasks(t *testing.T
 			Args: map[string]string{"issue_key": id, "transition_id": "in-progress"}, Output: `{"ok":true}`, Outcome: trace.OutcomeOK}
 	}
 	sessions := []trace.Session{
-		selSession("one", "Implement feature A", create("TENG-101"), transition("TENG-101")),
-		selSession("two", "Implement feature B", create("TENG-202"), transition("TENG-202")),
+		testkit.NewSession("one", "Implement feature A", create("TENG-101"), transition("TENG-101")),
+		testkit.NewSession("two", "Implement feature B", create("TENG-202"), transition("TENG-202")),
 	}
 	c, spans := graphCandidateFor(t, sessions, "mcp:telara_jira_create_issue", "mcp:telara_jira_transition_issue")
 	bySpan := map[string]model.SpanProposal{}

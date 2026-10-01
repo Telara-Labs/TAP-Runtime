@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
@@ -39,7 +41,7 @@ func TestR1CancelledToolCallIsAFailedOutcome(t *testing.T) {
 // (a test scratchpad) cannot be rerun anywhere else: not a reusable
 // procedure, however consistently it recurred.
 func TestR2EphemeralConstantsAreNotAReusableProcedure(t *testing.T) {
-	ss := eps("tmp", 6, func(i int) string {
+	ss := testkit.Episodes("tmp", 6, func(i int) string {
 		return "Call the MCP tool tap_run twice with the two packages. Do nothing else. Report each result verbatim."
 	}, func(i int) []trace.Call {
 		return []trace.Call{
@@ -65,7 +67,7 @@ func TestR2EphemeralConstantsAreNotAReusableProcedure(t *testing.T) {
 // README, the review list (with the digest that was not validated) and the
 // saved folder's marker.
 func TestUnvalidatedDraftsSayUnvalidated(t *testing.T) {
-	rep := runOn(t, requestCorpus())
+	rep := runOn(t, testkit.RequestCorpus())
 	prims := routine.ReportPrimitives(rep)
 	if len(prims) == 0 {
 		t.Fatal("no recommended procedure to review")
@@ -100,10 +102,10 @@ func TestUnvalidatedDraftsSayUnvalidated(t *testing.T) {
 // steps, not only the ones in this group.
 func TestR3FragmentedGroupsStillShareTheirGoal(t *testing.T) {
 	noise := []string{"ls", "pwd", "date", "uptime", "hostname"}
-	ss := eps("mv", 20, func(i int) string { return fmt.Sprintf("move TENG-%d to done", 3200+i) }, func(i int) []trace.Call {
+	ss := testkit.Episodes("mv", 20, func(i int) string { return fmt.Sprintf("move TENG-%d to done", 3200+i) }, func(i int) []trace.Call {
 		k := fmt.Sprintf("TENG-%d", 3200+i)
 		return []trace.Call{
-			sh(noise[i%len(noise)]), sh(noise[(i/len(noise))%len(noise)] + " -a"),
+			testkit.ShellCall(noise[i%len(noise)]), testkit.ShellCall(noise[(i/len(noise))%len(noise)] + " -a"),
 			{Tool: "mcp:telara_jira_transition_issue", Args: map[string]string{"issue_key": k, "transition_id": "21"}},
 			{Tool: "mcp:telara_jira_add_comment", Args: map[string]string{"issue_key": k, "body": "done"}},
 		}
@@ -118,7 +120,7 @@ func TestR3FragmentedGroupsStillShareTheirGoal(t *testing.T) {
 // that passes them a file would print a count of nothing. Such a draft is
 // not structurally complete.
 func TestR5GuestBuiltinsThatIgnoreFilesBlockTheDraft(t *testing.T) {
-	ss := eps("wc", 9, func(i int) string {
+	ss := testkit.Episodes("wc", 9, func(i int) string {
 		var fs []string
 		for f := 0; f < 2+i%3; f++ {
 			fs = append(fs, fmt.Sprintf("logs/r%d-%d.txt", i, f))
@@ -127,7 +129,7 @@ func TestR5GuestBuiltinsThatIgnoreFilesBlockTheDraft(t *testing.T) {
 	}, func(i int) []trace.Call {
 		var cs []trace.Call
 		for f := 0; f < 2+i%3; f++ {
-			cs = append(cs, sh(fmt.Sprintf("wc -l logs/r%d-%d.txt", i, f)))
+			cs = append(cs, testkit.ShellCall(fmt.Sprintf("wc -l logs/r%d-%d.txt", i, f)))
 		}
 		return cs
 	})
@@ -140,15 +142,15 @@ func TestR5GuestBuiltinsThatIgnoreFilesBlockTheDraft(t *testing.T) {
 // R6: a file the program reads must be declared for the host to allow it;
 // a fixed path is declared, a varying one blocks the draft.
 func TestR6FileReadsAreDeclaredOrBlocked(t *testing.T) {
-	fixed := eps("rf", 6, func(i int) string { return fmt.Sprintf("summarize release %d", i) }, func(i int) []trace.Call {
-		return []trace.Call{{Tool: "Read", Args: map[string]string{"file_path": "docs/RELEASES.md"}}, sh(fmt.Sprintf("git log --oneline v%d..HEAD", i))}
+	fixed := testkit.Episodes("rf", 6, func(i int) string { return fmt.Sprintf("summarize release %d", i) }, func(i int) []trace.Call {
+		return []trace.Call{{Tool: "Read", Args: map[string]string{"file_path": "docs/RELEASES.md"}}, testkit.ShellCall(fmt.Sprintf("git log --oneline v%d..HEAD", i))}
 	})
 	d := routine.RoutineDraft(&runOn(t, fixed).Routines[0])
 	if !strings.Contains(string(d.Files["primitive.yaml"]), "path: docs/RELEASES.md") {
 		t.Fatalf("a fixed read must be declared:\n%s", d.Files["primitive.yaml"])
 	}
-	varying := eps("rv", 6, func(i int) string { return fmt.Sprintf("summarize notes/day%d.md", i) }, func(i int) []trace.Call {
-		return []trace.Call{{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("notes/day%d.md", i)}}, sh("git status --short")}
+	varying := testkit.Episodes("rv", 6, func(i int) string { return fmt.Sprintf("summarize notes/day%d.md", i) }, func(i int) []trace.Call {
+		return []trace.Call{{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("notes/day%d.md", i)}}, testkit.ShellCall("git status --short")}
 	})
 	r := runOn(t, varying).Routines[0]
 	if r.DraftStatus == model.DraftComplete || !strings.Contains(strings.Join(r.Blockers, " "), "file_access_undeclared") {

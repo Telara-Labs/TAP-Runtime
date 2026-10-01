@@ -8,6 +8,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -73,11 +75,11 @@ func TestTypingOfQuotedURLsAndNumericFlags(t *testing.T) {
 }
 
 func TestReportTextIsValidUTF8(t *testing.T) {
-	ss := requestSessions(6, func(i int) string { return strings.Repeat("→ déploiement ", 20) }, func(i int) []trace.Call {
-		return []trace.Call{sh("git status --short"), sh("git diff --stat"), sh("git log --oneline -3"), sh("git branch --show-current")}
+	ss := testkit.RequestSessions(6, func(i int) string { return strings.Repeat("→ déploiement ", 20) }, func(i int) []trace.Call {
+		return []trace.Call{testkit.ShellCall("git status --short"), testkit.ShellCall("git diff --stat"), testkit.ShellCall("git log --oneline -3"), testkit.ShellCall("git branch --show-current")}
 	})
 	o := DefaultOptions()
-	o.Readers = []trace.Reader{fakeReader{sessions: ss}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -90,17 +92,17 @@ func TestReportTextIsValidUTF8(t *testing.T) {
 }
 
 func TestKindsAndMerging(t *testing.T) {
-	book := requestSessions(6, func(i int) string { return fmt.Sprintf("work on ticket %d", i) }, func(i int) []trace.Call {
+	book := testkit.RequestSessions(6, func(i int) string { return fmt.Sprintf("work on ticket %d", i) }, func(i int) []trace.Call {
 		return []trace.Call{{Tool: "mcp:telara_task_list"}, {Tool: "mcp:telara_task_create", Args: map[string]string{"goal": fmt.Sprint("g", i)}}}
 	})
-	sched := requestSessions(6, func(i int) string { return "Automation: hourly monitor\nAutomation ID: m-1" }, func(i int) []trace.Call {
-		return []trace.Call{sh("git fetch --all"), sh(fmt.Sprintf("git log --oneline -%d", i+2))}
+	sched := testkit.RequestSessions(6, func(i int) string { return "Automation: hourly monitor\nAutomation ID: m-1" }, func(i int) []trace.Call {
+		return []trace.Call{testkit.ShellCall("git fetch --all"), testkit.ShellCall(fmt.Sprintf("git log --oneline -%d", i+2))}
 	})
 	for i := range sched {
 		sched[i].ID = "s" + sched[i].ID
 	}
 	o := DefaultOptions()
-	o.Readers = []trace.Reader{fakeReader{sessions: append(book, sched...)}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: append(book, sched...)}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
