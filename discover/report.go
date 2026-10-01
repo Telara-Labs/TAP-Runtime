@@ -278,3 +278,81 @@ func WriteOpportunities(w io.Writer, r *Report, n int) {
 			i+1, g.Route, g.Sessions, g.Requests, g.Last.Format("2006-01-02"), g.Example.ID, oneLine(g.Contract, 110))
 	}
 }
+
+// WriteSpanProposals lists structural retrieval candidates separately from
+// recommendations. A group is a review aid, not a certified procedure.
+func WriteSpanProposals(w io.Writer, r *Report, n int) {
+	if len(r.LogicFunnels) > 0 {
+		fmt.Fprintf(w, "\nFound %d result-flow funnels. A root's branches are observed follow-up operations; repeated branches can become loops over runtime inputs. Funnels are structural, not validated primitives.\n", len(r.LogicFunnels))
+		for i, f := range r.LogicFunnels {
+			if i == n {
+				break
+			}
+			var branches []string
+			for _, b := range f.Branches {
+				name := b.Action
+				if b.ForEach {
+					name += "[*]"
+				}
+				branches = append(branches, name)
+			}
+			fmt.Fprintf(w, "  %3d. %3d sessions  %s  %s -> {%s}\n       raw candidate IDs %s\n", i+1, f.Sessions, f.ID, f.Root, strings.Join(branches, ", "), oneLine(strings.Join(f.CandidateIDs, ", "), 100))
+		}
+	}
+	if len(r.LogicCandidates) > 0 {
+		fmt.Fprintf(w, "\nFound %d raw execution-logic candidates from %d diagnostic spans. Concrete inputs and outputs are parameters, not admission gates. Candidates still need authoring and validation.\n", len(r.LogicCandidates), len(r.SpanProposals))
+		fmt.Fprintln(w, "Brief a candidate with `tap discover brief --logic <id> --report <file> --out <private-dir>`; the brief compares up to three independent executions.")
+		for i, c := range r.LogicCandidates {
+			if i == n {
+				break
+			}
+			fmt.Fprintf(w, "  %3d. %3d sessions %4d executions  %s  %s\n       possible parameters %s; evidence %s\n",
+				i+1, c.Sessions, c.Executions, c.ID, oneLine(strings.Join(c.Actions, " > "), 85),
+				oneLine(strings.Join(c.Parameters, ", "), 85), strings.Join(c.Evidence, ", "))
+			if len(c.Cautions) > 0 {
+				fmt.Fprintf(w, "       check %s\n", strings.Join(c.Cautions, ", "))
+			}
+		}
+		return
+	}
+	if len(r.SpanProposals) > 0 && r.SpanProposals[0].Review.Source != "" {
+		fmt.Fprintf(w, "\nTask-first queue: %d unassessed spans in %d groups; component queue: %d spans in %d groups (missing task contract); diagnostic inventory: %d spans in %d groups. Queue membership is not a useful-procedure verdict.\n", len(r.ReviewSpans), len(r.ReviewGroups), len(r.ComponentSpans), len(r.ComponentGroups), len(r.SpanProposals), len(r.CompositionGroups))
+		fmt.Fprintln(w, "Brief an example with `tap discover brief --span <id> --report <file> --out <private-dir>`.")
+		queue := r.ReviewGroups
+		if len(queue) == 0 {
+			queue = r.ComponentGroups
+		}
+		for i, g := range queue {
+			if i == n {
+				break
+			}
+			p := g.Example
+			fmt.Fprintf(w, "  %3d. %3d sessions %4d proposals  %-13s %-7s calls %v  %s  %s\n",
+				i+1, g.Sessions, g.Proposals, p.Kind, p.Effect, p.Calls, p.ID, oneLine(strings.Join(p.Composition.Actions, " > "), 85))
+		}
+		return
+	}
+	if len(r.CompositionGroups) == 0 && len(r.SpanGroups) > 0 {
+		fmt.Fprintf(w, "\nFound %d unassessed bounded-span proposals in %d exact-shape groups (older report). These have not passed the useful-procedure gate.\n", len(r.SpanProposals), len(r.SpanGroups))
+		fmt.Fprintln(w, "Brief an example with `tap discover brief --span <id> --report <file> --out <private-dir>`.")
+		for i, g := range r.SpanGroups {
+			if i == n {
+				break
+			}
+			p := g.Example
+			fmt.Fprintf(w, "  %3d. %3d sessions %4d proposals  %-13s %-7s calls %v  %s  %s\n",
+				i+1, g.Sessions, g.Proposals, p.Kind, p.Effect, p.Calls, p.ID, oneLine(strings.Join(p.Tools, " > "), 85))
+		}
+		return
+	}
+	fmt.Fprintf(w, "\nFound %d unassessed bounded-span proposals in %d composition groups (%d exact-shape groups). These have not passed the useful-procedure gate.\n", len(r.SpanProposals), len(r.CompositionGroups), len(r.SpanGroups))
+	fmt.Fprintln(w, "Brief an example with `tap discover brief --span <id> --report <file> --out <private-dir>`.")
+	for i, g := range r.CompositionGroups {
+		if i == n {
+			break
+		}
+		p := g.Example
+		fmt.Fprintf(w, "  %3d. %3d sessions %4d proposals  %-13s %-7s calls %v  %s  %s\n",
+			i+1, g.Sessions, g.Proposals, p.Kind, p.Effect, p.Calls, p.ID, oneLine(strings.Join(p.Composition.Actions, " > "), 85))
+	}
+}

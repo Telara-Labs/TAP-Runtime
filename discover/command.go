@@ -20,6 +20,8 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	// The author path (author.go, validate.go, save.go).
 	if len(args) > 0 {
 		switch args[0] {
+		case "generate":
+			return generateCommand(args[1:], in, out, errOut)
 		case "brief", "save":
 			home, err := os.UserHomeDir()
 			if err != nil {
@@ -46,6 +48,7 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	rejected := fs.Bool("rejected", false, "also list what each check removed, and why")
 	patterns := fs.Bool("patterns", false, "also run the pattern search (slower)")
 	nOps := fs.Int("opportunities", 0, "also list this many surfaced opportunities with their task references")
+	nSpans := fs.Int("span-proposals", 0, "also find and list this many model-free bounded-span proposal groups")
 	saveClient := fs.String("save-client", "claude-code", "where saved primitives go: claude-code or codex")
 	saveProject := fs.Bool("save-project", false, "save into this project's skills directory instead of your home")
 	fs.IntVar(&d.Window, "window", d.Window, "most steps allowed between two steps of a pattern")
@@ -58,6 +61,7 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 2
 	}
 	d.Patterns = *patterns
+	d.Spans = *nSpans > 0
 	d.Progress = errOut
 	if *days > 0 {
 		d.Since = time.Now().AddDate(0, 0, -*days)
@@ -100,6 +104,9 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	WriteFunnel(out, rep, *top, *rejected)
 	WriteOpportunities(out, rep, *nOps)
+	if d.Spans {
+		WriteSpanProposals(out, rep, *nSpans)
+	}
 	if *patterns {
 		fmt.Fprintln(out)
 		WriteText(out, rep, *top)

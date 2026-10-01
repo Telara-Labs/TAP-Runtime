@@ -97,7 +97,11 @@ func readClaudeFile(path string) (s Session, err error) {
 		}
 		if ln.Type == "user" && !ln.IsMeta {
 			if text := claudeUserText(ln.Message.Content); isRequest(text) {
-				s.addRequest(text)
+				role := "user"
+				if isClaudeContinuationSummary(text) {
+					role = "synthetic_context"
+				}
+				s.addRequestWithRole(text, role)
 			}
 			// Results of earlier tool calls: whether they failed, and the
 			// identifiers they returned.
@@ -119,6 +123,7 @@ func readClaudeFile(path string) (s Session, err error) {
 						s.Calls[ci].Outcome = OutcomeFailed
 					}
 					s.Calls[ci].OutIDs, s.Calls[ci].OutCtx, s.Calls[ci].OutPaths = outputRefsPaths(text)
+					s.Calls[ci].OutCollections = resultCollections(text)
 					s.Calls[ci].Output = truncateUTF8(text, 600)
 					s.Calls[ci].OutTokens = outputTokens(text)
 				}
@@ -155,6 +160,7 @@ func readClaudeFile(path string) (s Session, err error) {
 				c.Tool, c.Command = "shell", rawString(b.Input["command"])
 			case strings.HasPrefix(b.Name, "mcp__"):
 				c.Tool, c.Args, c.RawArgs = "mcp:"+lastSegment(b.Name), flatten(b.Input), rawKeys(b.Input)
+				c.MCPServer, c.MCPTool, _ = strings.Cut(strings.TrimPrefix(b.Name, "mcp__"), "__")
 			default:
 				c.Tool, c.Args, c.RawArgs = b.Name, flatten(b.Input), rawKeys(b.Input)
 			}
@@ -172,6 +178,12 @@ func readClaudeFile(path string) (s Session, err error) {
 		}
 	}
 	return s, sc.Err()
+}
+
+// Claude inserts this line on context compaction. Its contents describe earlier
+// work but are not a new instruction from the user.
+func isClaudeContinuationSummary(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), "This session is being continued from a previous conversation that ran out of context.")
 }
 
 // claudeUserText is the typed text of a user line: the string content, or

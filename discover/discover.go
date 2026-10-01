@@ -14,7 +14,7 @@ import (
 
 // RulesVersion changes whenever a rule changes, so two reports are only
 // compared when they were produced by the same rules.
-const RulesVersion = "tap-discover/2"
+const RulesVersion = "tap-discover/4"
 
 // Options control a run. Window, MinSupport, MaxLen and MaxPatterns bound the
 // search (compute), Permutations sets how well the null is estimated, Alpha
@@ -37,6 +37,9 @@ type Options struct {
 	// Patterns also runs the pattern search (fragments, families, skill
 	// comparison): slower, and not needed for the request-level result.
 	Patterns bool
+	// Spans computes unassessed bounded-call proposals from task context and
+	// result provenance. It is opt-in while its review cost is measured.
+	Spans bool
 	// Progress, when set, receives one line per phase.
 	Progress io.Writer
 }
@@ -147,6 +150,20 @@ type Report struct {
 	Opportunities []Opportunity `json:"opportunities,omitempty"`
 	// OpportunityGroups are the opportunities grouped by contract, ranked.
 	OpportunityGroups []OpportunityGroup `json:"opportunity_groups,omitempty"`
+	// SpanProposals are bounded pieces of work, including pieces of long
+	// requests and single calls. They are retrieval candidates, never a
+	// useful-procedure recommendation or a Gate D true positive.
+	SpanProposals     []SpanProposal         `json:"span_proposals,omitempty"`
+	SpanGroups        []SpanGroup            `json:"span_groups,omitempty"`
+	CompositionGroups []SpanCompositionGroup `json:"composition_groups,omitempty"`
+	// LogicCandidates are recurring parameterized execution shapes. They are
+	// the authoring queue; task-completeness checks below are diagnostics only.
+	LogicCandidates []LogicCandidate       `json:"logic_candidates,omitempty"`
+	LogicFunnels    []LogicFunnel          `json:"logic_funnels,omitempty"`
+	ReviewSpans     []SpanProposal         `json:"review_spans,omitempty"`
+	ReviewGroups    []SpanCompositionGroup `json:"review_groups,omitempty"`
+	ComponentSpans  []SpanProposal         `json:"component_spans,omitempty"`
+	ComponentGroups []SpanCompositionGroup `json:"component_groups,omitempty"`
 
 	// Kept in memory so a candidate can be drafted from its real
 	// occurrences; never written out.
@@ -165,6 +182,7 @@ type optionsOut struct {
 	Permutations int       `json:"permutations"`
 	Alpha        float64   `json:"alpha"`
 	Seed         int64     `json:"seed"`
+	Spans        bool      `json:"spans"`
 }
 
 // Run reads every client, mines, tests and ranks. It makes no network call
@@ -173,7 +191,7 @@ func Run(o Options) (*Report, error) {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	rep := &Report{RulesVersion: RulesVersion, GeneratedAt: o.Now().UTC(), Options: optionsOut{o.Since, o.Window, o.MinSupport, o.MaxLen, o.MaxPatterns, o.Permutations, o.Alpha, o.Seed}}
+	rep := &Report{RulesVersion: RulesVersion, GeneratedAt: o.Now().UTC(), Options: optionsOut{o.Since, o.Window, o.MinSupport, o.MaxLen, o.MaxPatterns, o.Permutations, o.Alpha, o.Seed, o.Spans}}
 
 	var raw []Session
 	for _, r := range o.Readers {
@@ -209,6 +227,17 @@ func Run(o Options) (*Report, error) {
 		}
 	}
 	rep.OpportunityGroups = GroupOpportunities(rep.Opportunities)
+	if o.Spans {
+		rep.SpanProposals = SelectSpanProposals(raw)
+		rep.SpanGroups = GroupSpanProposals(rep.SpanProposals)
+		rep.CompositionGroups = GroupSpanCompositions(rep.SpanProposals)
+		rep.LogicCandidates = GroupLogicCandidates(rep.SpanProposals)
+		rep.LogicFunnels = GroupLogicFunnels(rep.LogicCandidates, rep.SpanProposals)
+		rep.ReviewSpans = ReviewSpanProposals(rep.SpanProposals)
+		rep.ReviewGroups = GroupSpanCompositions(rep.ReviewSpans)
+		rep.ComponentSpans = ReviewSpanComponents(rep.SpanProposals)
+		rep.ComponentGroups = GroupSpanCompositions(rep.ComponentSpans)
+	}
 	sessions := normalize(raw)
 
 	// Identical step sequences are one piece of work run twice (a replayed

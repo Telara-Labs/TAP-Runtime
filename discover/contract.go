@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // This file decides what a routine is: its task contract (where each input
@@ -141,25 +142,61 @@ func stepEffect(st Step) string {
 				action = sl.Value
 			}
 		}
-		for _, text := range []string{action, name} {
-			if text == "" {
-				continue
+		if action != "" {
+			if effect, found := operationNameEffect(action); found {
+				return effect
 			}
-			words := toolWord.FindAllString(strings.ToLower(text), -1)
-			for _, w := range words {
-				if writeVerbs[w] {
-					return "write"
-				}
-			}
-			for _, w := range words {
-				if readVerbs[w] {
-					return "read"
-				}
-			}
+			// The gateway's own name describes dispatch, not the selected
+			// operation. An opaque action cannot inherit its wrapper's effect.
+			return "unknown"
+		}
+		if effect, found := operationNameEffect(name); found {
+			return effect
 		}
 		return "unknown"
 	}
 	return "unknown"
+}
+
+// An operation's leading verb determines its effect. A later noun may also be
+// a verb in another context (get_comment, list_updates), so scanning for any
+// write word first mislabels reads. Explicit compound operation names with
+// different effects remain unknown rather than guessed.
+func operationNameEffect(name string) (string, bool) {
+	var separated strings.Builder
+	runes := []rune(name)
+	for i, r := range runes {
+		if i > 0 && unicode.IsUpper(r) && (unicode.IsLower(runes[i-1]) || unicode.IsDigit(runes[i-1]) ||
+			unicode.IsUpper(runes[i-1]) && i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
+			separated.WriteByte('_')
+		}
+		separated.WriteRune(r)
+	}
+	words := toolWord.FindAllString(strings.ToLower(separated.String()), -1)
+	effect := ""
+	connected := false
+	for _, w := range words {
+		if w == "and" || w == "or" || w == "then" {
+			connected = true
+			continue
+		}
+		current := ""
+		if readVerbs[w] {
+			current = "read"
+		} else if writeVerbs[w] {
+			current = "write"
+		}
+		if current == "" {
+			continue
+		}
+		if effect == "" {
+			effect = current
+		} else if connected && current != effect {
+			return "unknown", true
+		}
+		connected = false
+	}
+	return effect, effect != ""
 }
 
 var fileRedirectRe = regexp.MustCompile(`(^|[^0-9&<>])>>?\s*([^\s&|;]+)`)

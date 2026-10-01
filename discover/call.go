@@ -11,9 +11,12 @@
 package discover
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -31,6 +34,10 @@ type Call struct {
 	// Tool is the client-neutral tool name: "shell" for a shell command,
 	// "mcp:<tool>" for an MCP tool, otherwise the client's own tool name.
 	Tool string
+	// MCPServer and MCPTool retain the exact inventory identity where the
+	// client records it. A normalized tool label alone cannot pin a TAP call.
+	MCPServer string
+	MCPTool   string
 	// Command is the raw command line when Tool is "shell".
 	Command string
 	// Args are the structured arguments of a non-shell call, values
@@ -66,9 +73,137 @@ type Call struct {
 	// pod, a file name): at most 128, from its first 8 KB. They show that a
 	// later value, or a list a later step loops over, came from this result.
 	OutTokens []string `json:",omitempty"`
+	// OutCollections summarizes complete structured result lists while the
+	// original result is in the reader. Only paths, types, counts, and value
+	// digests are retained; incomplete or oversized results yield no proof.
+	OutCollections []ResultCollection `json:",omitempty"`
 	// Output is the start of the result as the client recorded it (at most
 	// 600 bytes), kept for reviewing a task's evidence on this machine.
 	Output string `json:",omitempty"`
+}
+
+type ResultCollection struct {
+	Path   string                           `json:"path"`
+	Count  int                              `json:"count"`
+	Fields map[string]ResultCollectionField `json:"fields"`
+}
+
+type ResultCollectionField struct {
+	Type    string   `json:"type"`
+	Digests []string `json:"digests"`
+}
+
+// resultCollections retains bounded equality evidence for complete JSON
+// arrays. It never stores the raw list items in a Discover report or graph.
+func resultCollections(text string) []ResultCollection {
+	text = strings.TrimSpace(text)
+	if len(text) == 0 || len(text) > 64<<10 || !strings.Contains(text, "[") || !json.Valid([]byte(text)) {
+		return nil
+	}
+	var value any
+	dec := json.NewDecoder(strings.NewReader(text))
+	dec.UseNumber()
+	if dec.Decode(&value) != nil {
+		return nil
+	}
+	var out []ResultCollection
+	var walk func(any, string, int)
+	walk = func(v any, path string, depth int) {
+		if depth > 12 || len(out) >= 64 {
+			return
+		}
+		switch node := v.(type) {
+		case map[string]any:
+			keys := make([]string, 0, len(node))
+			for key := range node {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				walk(node[key], path+jqKeyPath(key), depth+1)
+			}
+		case []any:
+			if len(node) > 0 && len(node) <= 512 {
+				fields := resultItemFields(node)
+				if len(fields) > 0 {
+					out = append(out, ResultCollection{Path: path, Count: len(node), Fields: fields})
+				}
+			}
+			for i, child := range node {
+				if len(out) >= 64 {
+					break
+				}
+				walk(child, fmt.Sprintf("%s[%d]", path, i), depth+1)
+			}
+		}
+	}
+	walk(value, "", 0)
+	return out
+}
+
+func resultItemFields(items []any) map[string]ResultCollectionField {
+	first := map[string]resultScalar{}
+	collectResultScalars(items[0], "", first, 0)
+	if len(first) == 0 || len(first) > 64 {
+		return nil
+	}
+	// Bound retained equality evidence independently of collection length.
+	// A 200-item tool result is common, while a large cross-product of item
+	// fields and values should remain unresolved instead of bloating reports.
+	if len(items)*len(first) > 8192 {
+		return nil
+	}
+	fields := map[string]ResultCollectionField{}
+	for path, scalar := range first {
+		fields[path] = ResultCollectionField{Type: scalar.typ, Digests: []string{resultValueDigest(scalar.value)}}
+	}
+	for _, item := range items[1:] {
+		leaves := map[string]resultScalar{}
+		collectResultScalars(item, "", leaves, 0)
+		for path, field := range fields {
+			scalar, ok := leaves[path]
+			if !ok || scalar.typ != field.Type {
+				delete(fields, path)
+				continue
+			}
+			field.Digests = append(field.Digests, resultValueDigest(scalar.value))
+			fields[path] = field
+		}
+	}
+	return fields
+}
+
+type resultScalar struct{ typ, value string }
+
+func collectResultScalars(value any, path string, leaves map[string]resultScalar, depth int) {
+	if depth > 12 || len(leaves) > 64 {
+		return
+	}
+	switch node := value.(type) {
+	case map[string]any:
+		for key, child := range node {
+			collectResultScalars(child, path+jqKeyPath(key), leaves, depth+1)
+		}
+	case []any:
+		for i, child := range node {
+			collectResultScalars(child, fmt.Sprintf("%s[%d]", path, i), leaves, depth+1)
+		}
+	case string:
+		leaves[path] = resultScalar{"string", node}
+	case json.Number:
+		typ := "integer"
+		if strings.ContainsAny(node.String(), ".eE") {
+			typ = "number"
+		}
+		leaves[path] = resultScalar{typ, node.String()}
+	case bool:
+		leaves[path] = resultScalar{"boolean", fmt.Sprint(node)}
+	}
+}
+
+func resultValueDigest(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 // Outcome of a call, as the client recorded it.
@@ -190,6 +325,9 @@ type Session struct {
 	// message. The text stays on this machine: it is used only to check
 	// whether a routine's inputs were given in the request.
 	Requests []string
+	// RequestRoles distinguishes real user turns from client-injected context.
+	// An absent entry means user, for readers that have no synthetic turns.
+	RequestRoles []string `json:",omitempty"`
 	// Approvals are acknowledgements the user gave in the middle of a
 	// request ("yes", "approved"): a human decision between two of its
 	// calls. None of them carries over to a new run.
@@ -238,6 +376,10 @@ func isHarness(text string) bool {
 // an acknowledgement ("yes, file", "continue", "already approved."), whose
 // calls belong to the request it answers.
 func (s *Session) addRequest(text string) {
+	s.addRequestWithRole(text, "user")
+}
+
+func (s *Session) addRequestWithRole(text, role string) {
 	text = truncateUTF8(requestText(text), 4000)
 	t := strings.TrimSpace(text)
 	if n := len(s.Requests); n > 0 && strings.TrimSpace(s.Requests[n-1]) != "" {
@@ -253,7 +395,11 @@ func (s *Session) addRequest(text string) {
 			return
 		}
 	}
+	for len(s.RequestRoles) < len(s.Requests) {
+		s.RequestRoles = append(s.RequestRoles, "user")
+	}
 	s.Requests = append(s.Requests, text)
+	s.RequestRoles = append(s.RequestRoles, role)
 }
 
 // requestText is what the user asked. Codex wraps it in context blocks
@@ -297,6 +443,7 @@ func truncateUTF8(s string, n int) string {
 func (s *Session) request() int {
 	if len(s.Requests) == 0 {
 		s.Requests = append(s.Requests, "")
+		s.RequestRoles = append(s.RequestRoles, "unknown")
 	}
 	return len(s.Requests) - 1
 }

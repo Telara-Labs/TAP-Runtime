@@ -72,18 +72,19 @@ type codexLine struct {
 	Timestamp time.Time `json:"timestamp"`
 	Type      string    `json:"type"`
 	Payload   struct {
-		Type      string          `json:"type"`
-		ID        string          `json:"id"`
-		Role      string          `json:"role"`
-		CallID    string          `json:"call_id"`
-		Output    json.RawMessage `json:"output"`
-		Content   json.RawMessage `json:"content"`
-		Message   string          `json:"message"`
-		Name      string          `json:"name"`
-		Namespace string          `json:"namespace"`
-		Arguments json.RawMessage `json:"arguments"`
-		Input     string          `json:"input"`
-		Action    struct {
+		Type         string          `json:"type"`
+		ID           string          `json:"id"`
+		ThreadSource string          `json:"thread_source"`
+		Role         string          `json:"role"`
+		CallID       string          `json:"call_id"`
+		Output       json.RawMessage `json:"output"`
+		Content      json.RawMessage `json:"content"`
+		Message      string          `json:"message"`
+		Name         string          `json:"name"`
+		Namespace    string          `json:"namespace"`
+		Arguments    json.RawMessage `json:"arguments"`
+		Input        string          `json:"input"`
+		Action       struct {
 			Command []string `json:"command"`
 		} `json:"action"`
 	} `json:"payload"`
@@ -104,7 +105,9 @@ func readCodexFile(path string) (s Session, err error) {
 	s = Session{Client: "codex", ID: strings.TrimSuffix(filepath.Base(path), ".jsonl")}
 	turn, turnStart := 0, 0
 	metaSeen := false
-	byCallID := map[string][]int{} // call_id -> calls it produced
+	automationSession := false
+	byCallID := map[string][]int{}    // call_id -> calls it produced
+	execInputs := map[string]string{} // functions.exec source, for result attribution
 	curID := ""
 	add := func(c Call) {
 		c.Request = s.request()
@@ -157,7 +160,11 @@ func readCodexFile(path string) (s Session, err error) {
 			_ = json.Unmarshal(p.Content, &blocks)
 			for _, bl := range blocks {
 				if bl.Type == "input_text" && isRequest(bl.Text) {
-					s.addRequest(bl.Text)
+					if automationSession && codexInjectedAutomationContext(bl.Text) {
+						s.addRequestWithRole(bl.Text, "synthetic_context")
+					} else {
+						s.addRequest(bl.Text)
+					}
 					break
 				}
 			}
@@ -166,18 +173,61 @@ func readCodexFile(path string) (s Session, err error) {
 			// later in the file; the first one is this file's own.
 			if p.ID != "" && !metaSeen {
 				s.ID, metaSeen = p.ID, true
+				automationSession = p.ThreadSource == "automation"
 			}
 			if s.Start.IsZero() {
 				s.Start = ln.Timestamp
 			}
 		case strings.HasSuffix(p.Type, "_call_output"):
-			text := codexOutputText(p.Output)
-			for _, ci := range byCallID[p.CallID] {
-				s.Calls[ci].Outcome = resultOutcome(text)
-				s.Calls[ci].OutIDs, s.Calls[ci].OutCtx, s.Calls[ci].OutPaths = outputRefsPaths(text)
-				s.Calls[ci].Output = truncateUTF8(text, 600)
-				s.Calls[ci].OutTokens = outputTokens(text)
+			// Scheduled runs receive their task in a pre-run automation record.
+			// The only user message before it can be an injected AGENTS.md
+			// wrapper. Keep the task at request zero so the calls and frozen
+			// episode identity still refer to the same work.
+			if p.Type == "function_call_output" && p.Name == "automation_update" && len(s.Calls) == 0 {
+				if prompt := codexAutomationPrompt(rawString(p.Output)); prompt != "" {
+					onlyHarness := true
+					for i, request := range s.Requests {
+						if !isHarness(request) && (i >= len(s.RequestRoles) || s.RequestRoles[i] != "synthetic_context") {
+							onlyHarness = false
+							break
+						}
+					}
+					if onlyHarness {
+						s.Requests = []string{truncateUTF8(prompt, 4000)}
+						s.RequestRoles = []string{"scheduled"}
+					}
+				}
 			}
+			indices := byCallID[p.CallID]
+			// Only a literal Promise.allSettled array with a direct indexed
+			// display proves which nested call produced each result. A combined
+			// or transformed display still leaves every nested result unknown.
+			if len(indices) > 1 {
+				if source, nested := execInputs[p.CallID]; nested {
+					if results, ok := codexExecIndexedResults(source, p.Output, len(indices)); ok {
+						for i, ci := range indices {
+							codexRecordResult(&s.Calls[ci], results[i].text, results[i].failed)
+						}
+					}
+				}
+				continue
+			}
+			if len(indices) != 1 {
+				continue
+			}
+			text := codexOutputText(p.Output)
+			failed := false
+			if source, nested := execInputs[p.CallID]; nested {
+				if !codexExecPassesThroughResult(source) {
+					continue
+				}
+				var ok bool
+				text, failed, ok = codexExecResultText(p.Output)
+				if !ok {
+					continue
+				}
+			}
+			codexRecordResult(&s.Calls[indices[0]], text, failed)
 		case p.Type == "function_call":
 			var args map[string]json.RawMessage
 			_ = json.Unmarshal([]byte(rawString(p.Arguments)), &args)
@@ -185,6 +235,7 @@ func readCodexFile(path string) (s Session, err error) {
 		case p.Type == "local_shell_call":
 			add(Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: "shell", Command: strings.Join(p.Action.Command, " ")})
 		case p.Type == "custom_tool_call" && p.Name == "exec":
+			execInputs[p.CallID] = p.Input
 			for _, inner := range jsToolCalls(p.Input) {
 				add(codexCall(s, ln.Timestamp, "", inner.name, inner.args))
 			}
@@ -203,6 +254,32 @@ func readCodexFile(path string) (s Session, err error) {
 		s.Requests = []string{""}
 	}
 	return s, sc.Err()
+}
+
+func codexAutomationPrompt(output string) string {
+	if !strings.HasPrefix(output, "Automation: ") || !strings.Contains(output, "\nAutomation ID: ") {
+		return ""
+	}
+	_, prompt, ok := strings.Cut(output, "\n\n")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(prompt)
+}
+
+// Codex can prepend plugin and environment context to an injected AGENTS.md
+// message. Classify only the complete envelope in an automation session; a
+// real user request following the envelope must remain a user request.
+func codexInjectedAutomationContext(text string) bool {
+	t := strings.TrimSpace(text)
+	if isHarness(t) {
+		return true
+	}
+	return strings.HasPrefix(t, "<recommended_plugins>") &&
+		strings.Contains(t, "# AGENTS.md instructions for ") &&
+		strings.Contains(t, "<environment_context>") &&
+		strings.HasSuffix(t, "</environment_context>") &&
+		!strings.Contains(t, "## My request for Codex:")
 }
 
 func jsonHasAny(b []byte, subs ...string) bool {
@@ -244,6 +321,7 @@ func codexCall(s Session, t time.Time, namespace, name string, args map[string]j
 		}
 	case strings.HasPrefix(full, "mcp__"):
 		c.Tool, c.Args, c.RawArgs = "mcp:"+undouble(strings.TrimPrefix(lastSegment(full), "_")), flatten(args), rawKeys(args)
+		c.MCPServer, c.MCPTool, _ = strings.Cut(strings.TrimPrefix(full, "mcp__"), "__")
 	default:
 		c.Tool, c.Args, c.RawArgs = name, flatten(args), rawKeys(args)
 	}
@@ -440,6 +518,384 @@ func codexOutputText(raw json.RawMessage) string {
 	}
 	return b.String()
 }
+
+var codexPassThroughPrefix = regexp.MustCompile(`(?s)^\s*(?:// @exec:[^\n]*\n\s*)?(?:const|let)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*await\s+`)
+var codexIndexedPrefix = regexp.MustCompile(`^(?:const|let)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*await\s+Promise\.allSettled\(\s*\[`)
+var codexIndexedTail = regexp.MustCompile(`^([A-Za-z_$][A-Za-z0-9_$]*)\.forEach\(\(([A-Za-z_$][A-Za-z0-9_$]*),([A-Za-z_$][A-Za-z0-9_$]*)\)=>text\(JSON\.stringify\(\{([^{}]+)\}\)\)\)$`)
+
+func codexRecordResult(call *Call, text string, failed bool) {
+	call.Outcome = resultOutcome(text)
+	if failed {
+		call.Outcome = OutcomeFailed
+	}
+	call.OutIDs, call.OutCtx, call.OutPaths = outputRefsPaths(text)
+	call.OutCollections = resultCollections(text)
+	call.Output = truncateUTF8(text, 600)
+	call.OutTokens = outputTokens(text)
+}
+
+type codexIndexedResult struct {
+	text   string
+	failed bool
+}
+
+// Prove that the source runs exactly one tool call per literal array item.
+// The display parsers below then prove how each stable array index is printed.
+func codexIndexedArray(src string) (int, string, string, bool) {
+	src = strings.TrimSpace(src)
+	if strings.HasPrefix(src, "// @exec:") {
+		_, rest, ok := strings.Cut(src, "\n")
+		if !ok {
+			return 0, "", "", false
+		}
+		src = strings.TrimSpace(rest)
+	}
+	prefix := codexIndexedPrefix.FindStringSubmatchIndex(src)
+	if prefix == nil || prefix[0] != 0 {
+		return 0, "", "", false
+	}
+	resultName := src[prefix[2]:prefix[3]]
+	pos, count := prefix[1], 0
+	for {
+		for pos < len(src) && (src[pos] == ' ' || src[pos] == '\t' || src[pos] == '\n' || src[pos] == '\r') {
+			pos++
+		}
+		if pos >= len(src) {
+			return 0, "", "", false
+		}
+		if src[pos] == ']' {
+			pos++
+			break
+		}
+		match := jsToolRe.FindStringIndex(src[pos:])
+		if match == nil || match[0] != 0 {
+			return 0, "", "", false
+		}
+		open := pos + match[1] - 1
+		end := codexJSCallEnd(src, open)
+		if end < 0 {
+			return 0, "", "", false
+		}
+		count++
+		pos = end
+		for pos < len(src) && (src[pos] == ' ' || src[pos] == '\t' || src[pos] == '\n' || src[pos] == '\r') {
+			pos++
+		}
+		if pos < len(src) && src[pos] == ',' {
+			pos++
+			continue
+		}
+		if pos < len(src) && src[pos] == ']' {
+			pos++
+			break
+		}
+		return 0, "", "", false
+	}
+	if count < 2 || count != len(jsToolRe.FindAllStringIndex(src, -1)) || pos >= len(src) || src[pos] != ')' {
+		return 0, "", "", false
+	}
+	tail := strings.TrimSpace(src[pos+1:])
+	tail = strings.TrimPrefix(tail, ";")
+	tail = strings.Join(strings.Fields(tail), "")
+	tail = strings.TrimSuffix(tail, ";")
+	return count, resultName, tail, true
+}
+
+// The two accepted displays retain the array index and either print the
+// settled record itself or its fulfilled tool value without transforming it.
+func codexIndexedSource(src string) (int, string, bool) {
+	count, resultName, tail, ok := codexIndexedArray(src)
+	if !ok {
+		return 0, "", false
+	}
+	return codexIndexedDisplay(count, resultName, tail, false)
+}
+
+func codexIndexedValueSource(src string) (int, string, bool) {
+	count, resultName, tail, ok := codexIndexedArray(src)
+	if !ok {
+		return 0, "", false
+	}
+	return codexIndexedDisplay(count, resultName, tail, true)
+}
+
+func codexIndexedDisplay(count int, resultName, tail string, valueOnly bool) (int, string, bool) {
+	match := codexIndexedTail.FindStringSubmatch(tail)
+	if match == nil || match[1] != resultName {
+		return 0, "", false
+	}
+	itemName, indexName := match[2], match[3]
+	fields := strings.Split(match[4], ",")
+	if len(fields) != 2 {
+		return 0, "", false
+	}
+	indexKey := ""
+	resultFound := false
+	for _, field := range fields {
+		resultExpr := itemName
+		if valueOnly {
+			resultExpr = itemName + `.status==="fulfilled"?` + itemName + `.value:` + itemName + `.reason`
+		}
+		if field == "result:"+resultExpr || valueOnly && field == "result:"+strings.Replace(resultExpr, `"fulfilled"`, `'fulfilled'`, 1) {
+			resultFound = true
+			continue
+		}
+		key, value, explicit := strings.Cut(field, ":")
+		if !explicit {
+			key, value = field, field
+		}
+		if value != indexName || key != "i" && key != "check" && key != "index" {
+			return 0, "", false
+		}
+		indexKey = key
+	}
+	if indexKey == "" || !resultFound {
+		return 0, "", false
+	}
+	return count, indexKey, true
+}
+
+// The cell display must have one header and exactly one unmodified JSON
+// result per array position. Missing, duplicated, or transformed blocks make
+// attribution fail for the whole cell.
+func codexExecIndexedResults(src string, raw json.RawMessage, want int) ([]codexIndexedResult, bool) {
+	count, indexKey, ok := codexIndexedSource(src)
+	valueOnly := false
+	if !ok {
+		count, indexKey, ok = codexIndexedValueSource(src)
+		valueOnly = ok
+	}
+	if !ok || count != want {
+		return nil, false
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) != nil || len(blocks) != count+1 || !codexTextBlock(blocks[0].Type) ||
+		!strings.HasPrefix(strings.TrimSpace(blocks[0].Text), "Script completed\n") {
+		return nil, false
+	}
+	out := make([]codexIndexedResult, count)
+	seen := make([]bool, count)
+	for _, block := range blocks[1:] {
+		if !codexTextBlock(block.Type) {
+			return nil, false
+		}
+		var row map[string]json.RawMessage
+		if json.Unmarshal([]byte(block.Text), &row) != nil || len(row) != 2 || len(row["result"]) == 0 {
+			return nil, false
+		}
+		var index int
+		if json.Unmarshal(row[indexKey], &index) != nil || index < 0 || index >= count || seen[index] {
+			return nil, false
+		}
+		if valueOnly {
+			var valueOK bool
+			out[index].text, out[index].failed, valueOK = codexStrictToolValueText(row["result"])
+			if !valueOK {
+				return nil, false
+			}
+			seen[index] = true
+			continue
+		}
+		var settled struct {
+			Status string          `json:"status"`
+			Value  json.RawMessage `json:"value"`
+		}
+		if json.Unmarshal(row["result"], &settled) != nil {
+			return nil, false
+		}
+		result := codexIndexedResult{}
+		switch settled.Status {
+		case "fulfilled":
+			if len(settled.Value) == 0 {
+				return nil, false
+			}
+			var valueOK bool
+			result.text, result.failed, valueOK = codexToolValueText(string(settled.Value))
+			if !valueOK {
+				return nil, false
+			}
+		case "rejected":
+			result.failed = true
+		default:
+			return nil, false
+		}
+		out[index], seen[index] = result, true
+	}
+	for _, present := range seen {
+		if !present {
+			return nil, false
+		}
+	}
+	return out, true
+}
+
+// codexExecPassesThroughResult accepts only a single awaited tool call whose
+// return value is printed directly. A cell that slices, summarizes, combines,
+// or otherwise transforms a result cannot prove per-call output provenance.
+func codexExecPassesThroughResult(src string) bool {
+	if len(jsToolRe.FindAllStringIndex(src, -1)) != 1 {
+		return false
+	}
+	prefix := codexPassThroughPrefix.FindStringSubmatchIndex(src)
+	if prefix == nil {
+		return false
+	}
+	name := src[prefix[2]:prefix[3]]
+	call := jsToolRe.FindStringIndex(src[prefix[1]:])
+	if call == nil || call[0] != 0 {
+		return false
+	}
+	open := prefix[1] + call[1] - 1
+	end := codexJSCallEnd(src, open)
+	if end < 0 {
+		return false
+	}
+	tail := strings.Join(strings.Fields(src[end:]), "")
+	tail = strings.TrimPrefix(tail, ";")
+	tail = strings.TrimSuffix(tail, ";")
+	return tail == "text("+name+")" || tail == "text(JSON.stringify("+name+"))"
+}
+
+// codexJSCallEnd finds the closing parenthesis of one tools.<name>(...) call.
+// Quotes are skipped; template literals are rejected because they may contain
+// executable substitutions that need a real JavaScript parser to assess.
+func codexJSCallEnd(src string, open int) int {
+	if open < 0 || open >= len(src) || src[open] != '(' {
+		return -1
+	}
+	depth := 0
+	quote := byte(0)
+	escaped := false
+	for i := open; i < len(src); i++ {
+		ch := src[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+			} else if ch == '\\' {
+				escaped = true
+			} else if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch ch {
+		case '`':
+			return -1
+		case '\'', '"':
+			quote = ch
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return -1
+}
+
+// codexExecResultText unwraps the cell's display envelope and then mirrors
+// the TAP bridge's resultText contract: structuredContent wins over text.
+func codexExecResultText(raw json.RawMessage) (string, bool, bool) {
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) != nil || len(blocks) < 1 || len(blocks) > 2 || !codexTextBlock(blocks[0].Type) {
+		return "", false, false
+	}
+	cell := strings.TrimSpace(blocks[0].Text)
+	if !strings.HasPrefix(cell, "Script completed\n") {
+		return "", false, false
+	}
+	body := ""
+	if len(blocks) == 2 {
+		if !codexTextBlock(blocks[1].Type) {
+			return "", false, false
+		}
+		body = blocks[1].Text
+	} else {
+		_, body, _ = strings.Cut(cell, "\nOutput:\n")
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "", false, false
+	}
+	return codexToolValueText(body)
+}
+
+func codexToolValueText(body string) (string, bool, bool) {
+	if strings.TrimSpace(body) == "" {
+		return "", false, false
+	}
+	var envelope struct {
+		StructuredContent json.RawMessage `json:"structuredContent"`
+		Content           []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+	if json.Unmarshal([]byte(body), &envelope) == nil {
+		if len(envelope.StructuredContent) > 0 && string(envelope.StructuredContent) != "null" {
+			return string(envelope.StructuredContent), envelope.IsError, true
+		}
+		if len(envelope.Content) > 0 {
+			var parts []string
+			for _, part := range envelope.Content {
+				if part.Type == "text" {
+					parts = append(parts, part.Text)
+				}
+			}
+			if len(parts) == 0 {
+				return "", false, false
+			}
+			return strings.Join(parts, "\n"), envelope.IsError, true
+		}
+	}
+	return body, false, true
+}
+
+// A fulfilled-value display has erased Promise status. Accept it only when
+// the displayed object still proves it is an unchanged tool-result envelope.
+// A rejected reason or arbitrary JSON value cannot establish that provenance.
+func codexStrictToolValueText(raw json.RawMessage) (string, bool, bool) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return "", false, false
+	}
+	if len(fields["structuredContent"]) > 0 && string(fields["structuredContent"]) != "null" {
+		return codexToolValueText(string(raw))
+	}
+	if len(fields["content"]) > 0 {
+		var content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(fields["content"], &content) != nil || len(content) == 0 {
+			return "", false, false
+		}
+		return codexToolValueText(string(raw))
+	}
+	if len(fields["output"]) > 0 && len(fields["exit_code"]) > 0 {
+		var output string
+		if json.Unmarshal(fields["output"], &output) != nil {
+			return "", false, false
+		}
+		var exitCode int
+		if json.Unmarshal(fields["exit_code"], &exitCode) != nil {
+			return "", false, false
+		}
+		return output, exitCode != 0, true
+	}
+	return "", false, false
+}
+
+func codexTextBlock(kind string) bool { return kind == "text" || kind == "input_text" }
 
 // undouble collapses an app name that Codex's app connectors prepend to a
 // tool whose name already starts with it: codex_apps' telara_telara_task_list

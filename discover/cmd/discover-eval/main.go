@@ -22,7 +22,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: discover-eval freeze|run|sample|show [flags]")
+		fmt.Fprintln(os.Stderr, "usage: discover-eval freeze|run|sample|show|opportunities|spans [flags]")
 		os.Exit(2)
 	}
 	var err error
@@ -37,6 +37,8 @@ func main() {
 		err = show(os.Args[2:])
 	case "opportunities":
 		err = opportunities(os.Args[2:])
+	case "spans":
+		err = spans(os.Args[2:])
 	case "packets":
 		err = packets(os.Args[2:])
 	case "holdout":
@@ -405,6 +407,58 @@ func opportunities(args []string) error {
 	}
 	fmt.Printf("judged %d requests; recommended %v; dropped %d changed session(s): %v\n", len(ops), n, len(dropped), dropped)
 	return writeJSON(*out, map[string]any{"manifest": *manifest, "dropped": dropped, "opportunities": ops, "groups": discover.GroupOpportunities(ops)})
+}
+
+// spans runs model-free bounded-span retrieval on a frozen corpus. Its output
+// is diagnostic and unassessed; it cannot be counted as Gate D recall.
+func spans(args []string) error {
+	fs := flag.NewFlagSet("spans", flag.ExitOnError)
+	manifest := fs.String("manifest", "manifest.json", "frozen corpus")
+	out := fs.String("out", "spans.json", "proposals to write")
+	client := fs.String("client", "", "optional single client to replay: claude-code, codex or cursor")
+	dropChanged := fs.Bool("drop-changed", false, "leave out sessions changed since the freeze")
+	fs.Parse(args)
+	rs, _, err := frozenReaders(*manifest)
+	if err != nil {
+		return err
+	}
+	if *client != "" {
+		var selected []discover.Reader
+		for _, r := range rs {
+			if r.Client() == *client {
+				selected = append(selected, r)
+			}
+		}
+		if len(selected) == 0 {
+			return fmt.Errorf("unknown client %q", *client)
+		}
+		rs = selected
+	}
+	var dropped []string
+	if *dropChanged {
+		for i, r := range rs {
+			fr := r.(discover.FrozenReader)
+			fr.DropChanged, fr.Dropped = true, &dropped
+			rs[i] = fr
+		}
+	}
+	ss, err := readAll(rs)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "read %d frozen sessions for span retrieval\n", len(ss))
+	ps := discover.SelectSpanProposals(ss)
+	fmt.Fprintf(os.Stderr, "extracted %d span proposals\n", len(ps))
+	groups := discover.GroupSpanProposals(ps)
+	compositions := discover.GroupSpanCompositions(ps)
+	logic := discover.GroupLogicCandidates(ps)
+	funnels := discover.GroupLogicFunnels(logic, ps)
+	review := discover.ReviewSpanProposals(ps)
+	reviewGroups := discover.GroupSpanCompositions(review)
+	components := discover.ReviewSpanComponents(ps)
+	componentGroups := discover.GroupSpanCompositions(components)
+	fmt.Printf("found %d unassessed spans in %d composition groups; %d logic funnels and %d recurring logic candidates; dropped %d changed sessions\n", len(ps), len(compositions), len(funnels), len(logic), len(dropped))
+	return writeJSON(*out, map[string]any{"manifest": *manifest, "dropped": dropped, "span_proposals": ps, "span_groups": groups, "composition_groups": compositions, "logic_funnels": funnels, "logic_candidates": logic, "review_spans": review, "review_groups": reviewGroups, "component_spans": components, "component_groups": componentGroups})
 }
 
 // packets renders the labeler view of the named episodes, for reviewing a
