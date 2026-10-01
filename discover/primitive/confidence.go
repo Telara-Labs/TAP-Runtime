@@ -2,15 +2,28 @@ package primitive
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 )
 
-// Rubric names the scoring rules below. Scores are an ordinal evidence
-// rubric, not probabilities: 0 missing or contradicted, 25 proposed, 50
-// inferred, 75 corroborated, 100 explicitly established (or required by the
-// user's own rule). Repetition alone never raises a claim to 100.
-const Rubric = "evidence rubric v1"
+// Rubric names how confidence is calculated. Each claim scores how
+// consistently the runs that show it support it: every run's observation
+// gets a quality, and the claim's score is their mean. The primitive's score
+// takes its weakest dimension and discounts it by how many runs stand behind
+// the primitive (the 95% Wilson lower bound), so the same flow seen twice
+// scores lower than seen ninety times. It is not a probability that a
+// generated program will work, and not permission to run it.
+const Rubric = "run-consistency score v2"
+
+// Observation quality: how strongly one run supports a binding.
+const (
+	qExplicit  = 1.0  // a structured field of the producer's result
+	qInferred  = 0.8  // a whole output line, or its first field
+	qInput     = 1.0  // the caller supplies it (typed in the request, or no source)
+	qAmbiguous = 0.25 // only mentioned inside text
+	qConflict  = 0.0  // taken from a different step than in most runs
+)
 
 // Claim is one scored statement about a primitive's flow.
 type Claim struct {
@@ -18,122 +31,267 @@ type Claim struct {
 	Dimension string `json:"dimension"`
 	Subject   string `json:"subject"`
 	Score     int    `json:"score"`
-	// Basis is observed, user_required or proposed.
-	Basis  string `json:"basis"`
-	Reason string `json:"reason"`
+	// Support is the runs behind the score ("38/40").
+	Support string `json:"support"`
+	Reason  string `json:"reason"`
 }
 
-// Dimension is the minimum score of its claims; it is not applicable when
-// the flow has no claim of that kind.
+// Dimension is the weakest of its claims' consistency; it is not applicable
+// when the flow has no claim of that kind.
 type Dimension struct {
 	Name       string `json:"name"`
 	Applicable bool   `json:"applicable"`
 	Score      int    `json:"score"`
 }
 
-// Confidence is a primitive's scored evidence and what needs review.
+// Confidence is a primitive's calculated support and what needs review.
 type Confidence struct {
 	Rubric     string      `json:"rubric"`
 	Overall    int         `json:"overall"`
 	Dimensions []Dimension `json:"dimensions"`
 	Claims     []Claim     `json:"claims"`
-	// NeedsReview are the required claims scored below 50, weakest first.
+	// Notes are facts that do not change the score yet: long gaps, whose
+	// cutoff is not validated.
+	Notes []string `json:"notes,omitempty"`
+	// NeedsReview are claims that are unresolved, weakest first.
 	NeedsReview []string `json:"needsReview,omitempty"`
-	// Readiness is needs_decision when any required claim is unresolved,
-	// otherwise candidate. Execution validation is separate and not run here.
+	// Readiness is needs_decision when a claim is unresolved (a value from
+	// different steps, a source only mentioned in text, a selection with no
+	// consistent rule), otherwise candidate. Execution validation is
+	// separate and not run here.
 	Readiness string `json:"readiness"`
-	// Requirements are execution capabilities the flow would need that the
-	// TAP runtime does not offer (it has no bounded reasoning step).
+	// Requirements are capabilities the flow would need that the TAP
+	// runtime does not offer (it has no bounded reasoning step).
 	Requirements []string `json:"requirements,omitempty"`
 }
 
-var dimensionOrder = []string{"bindings", "transformations", "boundaries", "control", "completion"}
+var dimensionOrder = []string{"bindings", "transformations", "control", "completion"}
 
-// score applies the rubric to a primitive. Each dimension is the minimum of
-// its claims and the overall score is the minimum applicable dimension, so
-// one weak claim is never averaged away.
-func score(p Primitive) Confidence {
-	var claims []Claim
-	add := func(dim, subject string, s int, basis, reason string) {
-		claims = append(claims, Claim{ID: fmt.Sprintf("C%02d", len(claims)+1), Dimension: dim, Subject: subject, Score: s, Basis: basis, Reason: reason})
+// wilson is the lower bound of a 95% Wilson interval for a mean of n
+// observations in [0,1].
+func wilson(mean float64, n int) float64 {
+	if n == 0 {
+		return 0
 	}
-	observed := map[string]int{}
+	const z = 1.96
+	nf := float64(n)
+	den := 1 + z*z/nf
+	centre := mean + z*z/(2*nf)
+	margin := z * math.Sqrt(mean*(1-mean)/nf+z*z/(4*nf*nf))
+	return math.Max(0, (centre-margin)/den)
+}
+
+func pct(x float64) int { return int(math.Round(100 * x)) }
+
+// score calculates a primitive's confidence from its counted runs.
+func score(p Primitive) Confidence {
+	c := Confidence{Rubric: Rubric, Readiness: "candidate"}
+	add := func(dim, subject string, s float64, k, n int, reason string) {
+		c.Claims = append(c.Claims, Claim{ID: fmt.Sprintf("C%02d", len(c.Claims)+1), Dimension: dim, Subject: subject,
+			Score: pct(s), Support: fmt.Sprintf("%d/%d", k, n), Reason: reason})
+	}
+	unresolved := func(text string) {
+		c.Readiness = "needs_decision"
+		c.NeedsReview = append(c.NeedsReview, text)
+	}
+	var runs []Execution
 	for _, ex := range p.Executions {
-		seen := map[string]bool{}
+		if ex.Overlaps == "" {
+			runs = append(runs, ex)
+		}
+	}
+	n := len(runs)
+
+	// Bindings: one observation per run for each argument.
+	type key struct {
+		step int
+		arg  string
+	}
+	obs := map[key][]Observed{}
+	var order []key
+	for _, ex := range runs {
+		seen := map[key]bool{}
 		for _, o := range ex.Observed {
-			k := fmt.Sprintf("%d:%s", o.Step, o.Arg)
-			if !seen[k] {
-				seen[k] = true
-				observed[k]++
+			k := key{o.Step, o.Arg}
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			if obs[k] == nil {
+				order = append(order, k)
+			}
+			obs[k] = append(obs[k], o)
+		}
+	}
+	sort.Slice(order, func(i, j int) bool {
+		if order[i].step != order[j].step {
+			return order[i].step < order[j].step
+		}
+		return order[i].arg < order[j].arg
+	})
+	for _, k := range order {
+		os := obs[k]
+		producers := map[int]int{}
+		for _, o := range os {
+			if o.Source == "step" && o.Label != Ambiguous {
+				producers[o.From]++
 			}
 		}
-	}
-	for _, b := range p.Bindings {
-		subject := fmt.Sprintf("step %d %s", b.Step, b.Arg)
-		n := observed[fmt.Sprintf("%d:%s", b.Step, b.Arg)]
+		modal, modalN := 0, 0
+		for f, m := range producers {
+			if m > modalN || m == modalN && f < modal {
+				modal, modalN = f, m
+			}
+		}
+		sum := 0.0
+		var explicit, inferred, typed, input, ambiguous, conflict int
+		for _, o := range os {
+			switch {
+			case o.Source == "step" && o.Label != Ambiguous && o.From != modal:
+				sum += qConflict
+				conflict++
+			case o.Source == "step" && o.Label == Explicit:
+				sum += qExplicit
+				explicit++
+			case o.Source == "step" && o.Label == Inferred:
+				sum += qInferred
+				inferred++
+			case o.Label == Ambiguous:
+				sum += qAmbiguous
+				ambiguous++
+			case o.Label == Inferred: // given in the request
+				sum += qInput
+				typed++
+			default:
+				sum += qInput
+				input++
+			}
+		}
+		var parts []string
+		for _, x := range []struct {
+			n    int
+			what string
+		}{{explicit, fmt.Sprintf("a structured field of step %d", modal)}, {inferred, fmt.Sprintf("an output line of step %d", modal)},
+			{typed, "typed in the request"}, {input, "a caller input"}, {ambiguous, "only mentioned in text"}, {conflict, "taken from another step"}} {
+			if x.n > 0 {
+				parts = append(parts, fmt.Sprintf("%d %s", x.n, x.what))
+			}
+		}
+		subject := fmt.Sprintf("step %d %s", k.step, k.arg)
+		add("bindings", subject, sum/float64(len(os)), len(os)-ambiguous-conflict, len(os), strings.Join(parts, ", "))
 		switch {
-		case len(b.Contradicting) > 0:
-			add("bindings", subject, 25, "observed", fmt.Sprintf("%d execution(s) contradict the majority source", len(b.Contradicting)))
-		case b.Source == "step" && b.Label == Explicit && n >= 2:
-			add("bindings", subject, 75, "observed", fmt.Sprintf("structured result field %s in %d executions", b.Selector, n))
-		case b.Source == "step" && b.Label == Explicit:
-			add("bindings", subject, 50, "observed", "structured result field in a single execution")
-		case b.Source == "step" && b.Label == Inferred:
-			add("bindings", subject, 50, "observed", "taken by "+b.Selector)
-		case b.Label == Ambiguous:
-			add("bindings", subject, 25, "proposed", "source ambiguous: "+strings.Join(b.Reasons, "; "))
-		case b.Source == "input" && b.Label == Inferred:
-			add("bindings", subject, 75, "observed", "given in the user's request")
-		case b.Source == "input":
-			add("bindings", subject, 100, "user_required", "no source in the execution: a declared invocation input")
+		case conflict > 0:
+			unresolved(fmt.Sprintf("%s: taken from different steps in %d of %d runs", subject, conflict, len(os)))
+		case 2*ambiguous > len(os):
+			unresolved(fmt.Sprintf("%s: in most runs only mentioned in text, no proven source", subject))
 		}
 	}
-	for _, u := range p.Unresolved {
-		if strings.Contains(u, "selection rule") {
-			add("transformations", u, 25, "proposed", "one item taken from a returned list; the rule that picks it is not known")
+
+	// Selections: which list item a step took, run by run.
+	type sel struct {
+		step int
+		arg  string
+		from int
+	}
+	picks := map[sel]map[string]int{}
+	var selOrder []sel
+	for _, ex := range runs {
+		for _, o := range ex.Observed {
+			m := listIndex.FindStringSubmatch(o.Selector)
+			if o.Source != "step" || o.Label != Explicit || m == nil {
+				continue
+			}
+			s := sel{o.Step, o.Arg, o.From}
+			if picks[s] == nil {
+				picks[s] = map[string]int{}
+				selOrder = append(selOrder, s)
+			}
+			picks[s][m[1]]++
 		}
 	}
-	timed, long := true, 0
-	for _, ex := range p.Executions {
-		if ex.MaxGapSeconds < 0 {
-			timed = false
+	loop := map[int]bool{}
+	for _, l := range p.Loops {
+		loop[l] = true
+	}
+	for _, s := range selOrder {
+		if loop[s.step] {
+			continue // a loop takes every item; nothing is selected
 		}
-		if ex.MaxGapSeconds >= 20*60 {
+		total, best, bestN := 0, "", 0
+		for idx, m := range picks[s] {
+			total += m
+			if m > bestN || m == bestN && idx < best {
+				best, bestN = idx, m
+			}
+		}
+		subject := fmt.Sprintf("step %d %s from step %d's list", s.step, s.arg, s.from)
+		reason := fmt.Sprintf("item [%s] in %d of %d runs", best, bestN, total)
+		if bestN == total {
+			reason += "; a fixed position, codeable without judgment"
+		} else {
+			unresolved(fmt.Sprintf("%s: different items taken (%s); the rule is not known", subject, reason))
+			c.Requirements = append(c.Requirements, "The TAP runtime has no bounded reasoning step: the rule choosing "+subject+" must become code or a caller input")
+		}
+		add("transformations", subject, float64(bestN)/float64(total), bestN, total, reason)
+	}
+
+	// Control: loops and && inside a call.
+	for _, l := range p.Loops {
+		k := 0
+		for _, ex := range runs {
+			items := 0
+			for _, cl := range ex.Calls {
+				if cl.Step == l {
+					items++
+				}
+			}
+			if items > 1 {
+				k++
+			}
+		}
+		// Every repetition took a different item of the same result (that is
+		// how loops are found); runs that took one item fit the same loop.
+		add("control", fmt.Sprintf("step %d loop", l), 1, k, n,
+			fmt.Sprintf("repeated over different items of one earlier result in %d of %d runs; the others took one item", k, n))
+	}
+	for _, ce := range p.ControlEdges {
+		add("control", ce, 1, n, n, "&& in the recorded command")
+	}
+
+	// Completion: every call in the run recorded as succeeding.
+	ok := 0
+	for _, ex := range runs {
+		all := true
+		for _, cl := range ex.Calls {
+			all = all && cl.OK
+		}
+		if all {
+			ok++
+		}
+	}
+	add("completion", "every call succeeded", float64(ok)/math.Max(1, float64(n)), ok, n, "runs with every call recorded as succeeding")
+
+	// Long gaps are a note: the cutoff is a proposal, not a validated rule.
+	long, untimed := 0, 0
+	for _, ex := range runs {
+		switch {
+		case ex.MaxGapSeconds < 0:
+			untimed++
+		case ex.MaxGapSeconds >= 20*60:
 			long++
 		}
 	}
-	switch {
-	case !timed:
-		add("boundaries", "execution timing", 0, "observed", "some executions have no recorded call times")
-	case long > 0:
-		add("boundaries", "execution boundary", 25, "proposed", fmt.Sprintf("%d execution(s) have a gap of 20 minutes or more; continuity unverified", long))
-	default:
-		add("boundaries", "execution boundary", 50, "observed", "each execution lies in one request with short gaps; the gap cutoff itself is not validated")
+	if long > 0 {
+		c.Notes = append(c.Notes, fmt.Sprintf("%d of %d runs have 20 minutes or more between two calls (a long command, a wait, or separate work); not scored until the cutoff is validated", long, n))
 	}
-	for _, l := range p.Loops {
-		add("control", fmt.Sprintf("step %d loop", l), 50, "observed", "each repetition takes a different item from the same earlier result")
-	}
-	for _, c := range p.ControlEdges {
-		add("control", c, 100, "observed", "&& in the recorded command")
-	}
-	ok := true
-	for _, ex := range p.Executions {
-		for _, c := range ex.Calls {
-			if !c.OK {
-				ok = false
-			}
-		}
-	}
-	if ok {
-		add("completion", "every call succeeded", 75, "observed", fmt.Sprintf("all calls in %d executions recorded as succeeding", len(p.Executions)))
-	} else {
-		add("completion", "every call succeeded", 50, "observed", "some calls have no recorded outcome")
+	if untimed > 0 {
+		c.Notes = append(c.Notes, fmt.Sprintf("%d of %d runs have no recorded call times", untimed, n))
 	}
 
-	c := Confidence{Rubric: Rubric, Claims: claims, Overall: 100, Readiness: "candidate"}
+	weakest := 100
 	for _, name := range dimensionOrder {
 		d := Dimension{Name: name, Score: 100}
-		for _, cl := range claims {
+		for _, cl := range c.Claims {
 			if cl.Dimension == name {
 				d.Applicable = true
 				if cl.Score < d.Score {
@@ -143,24 +301,13 @@ func score(p Primitive) Confidence {
 		}
 		if !d.Applicable {
 			d.Score = 0
-		} else if d.Score < c.Overall {
-			c.Overall = d.Score
+		} else if d.Score < weakest {
+			weakest = d.Score
 		}
 		c.Dimensions = append(c.Dimensions, d)
 	}
-	weak := append([]Claim(nil), claims...)
-	sort.SliceStable(weak, func(i, j int) bool { return weak[i].Score < weak[j].Score })
-	for _, cl := range weak {
-		if cl.Score < 50 {
-			c.NeedsReview = append(c.NeedsReview, fmt.Sprintf("%s %s (%d): %s", cl.ID, cl.Subject, cl.Score, cl.Reason))
-			c.Readiness = "needs_decision"
-		}
-	}
-	for _, cl := range claims {
-		if cl.Dimension == "transformations" {
-			c.Requirements = append(c.Requirements, "The TAP runtime has no bounded reasoning step: the selection rule must become deterministic code or a caller input ("+cl.Subject+")")
-		}
-	}
+	c.Overall = pct(wilson(float64(weakest)/100, n))
+	sort.Strings(c.NeedsReview)
 	return c
 }
 
@@ -172,5 +319,5 @@ func (c Confidence) Summary() string {
 			parts = append(parts, fmt.Sprintf("%s %d", d.Name, d.Score))
 		}
 	}
-	return fmt.Sprintf("%d/100 (heuristic; %s) · %s · %s", c.Overall, c.Rubric, strings.Join(parts, " | "), c.Readiness)
+	return fmt.Sprintf("%d/100 (%s) · %s · %s", c.Overall, c.Rubric, strings.Join(parts, " | "), c.Readiness)
 }

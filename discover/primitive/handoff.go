@@ -439,7 +439,10 @@ func handoffDoc(p Primitive, idx EvidenceIndex, skill Skill) string {
 	for _, r := range p.Confidence.Requirements {
 		fmt.Fprintf(&b, "- execution requirement: %s\n", r)
 	}
-	b.WriteString("Scores are an evidence rubric, not a probability that the flow is correct, and not permission to run it.\n\n")
+	for _, n := range p.Confidence.Notes {
+		fmt.Fprintf(&b, "- note: %s\n", n)
+	}
+	b.WriteString("Scores measure how consistently the recorded runs support each claim (a 95% lower bound over the runs). They are not a probability that a generated program works, and not permission to run it.\n\n")
 	b.WriteString("Read in this order:\n\n")
 	b.WriteString("1. `REFINE-PROMPT.md`: the rules for this refinement.\n")
 	fmt.Fprintf(&b, "2. `skill/SKILL.md`: snapshot of the maintained skill (%s, sha256 %s). Load and use it.\n", skill.Source, lineHash(string(skill.Content)))

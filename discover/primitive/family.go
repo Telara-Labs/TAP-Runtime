@@ -2,6 +2,7 @@ package primitive
 
 import (
 	"crypto/sha256"
+	"math"
 	"encoding/hex"
 	"sort"
 	"strconv"
@@ -35,9 +36,11 @@ type Family struct {
 	// their first call: what running the family as one call would remove.
 	SavedTokens float64     `json:"savedTokens"`
 	Saved       trace.Usage `json:"saved"`
-	// Confidence is the weakest member's; NeedsDecision counts members with
-	// unresolved required claims.
+	// Confidence is the members' scores weighted by their runs; Weakest is
+	// the lowest member score. NeedsDecision counts members with unresolved
+	// claims.
 	Confidence    int    `json:"confidence"`
+	Weakest       int    `json:"weakest"`
 	NeedsDecision int    `json:"needsDecision"`
 	Readiness     string `json:"readiness"`
 }
@@ -248,7 +251,8 @@ func headReads(p Primitive) bool {
 }
 
 func buildFamily(heads, tails map[string]int, members []Primitive) Family {
-	f := Family{Effect: "read", Readiness: "candidate", Confidence: 100}
+	f := Family{Effect: "read", Readiness: "candidate", Weakest: 100}
+	weighted, weight := 0.0, 0
 	best := -1
 	var hs []string
 	for h, n := range heads {
@@ -275,9 +279,11 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 		if rankEffect(p.Effect) > rankEffect(f.Effect) {
 			f.Effect = p.Effect
 		}
-		if p.Confidence.Overall < f.Confidence {
-			f.Confidence = p.Confidence.Overall
+		if p.Confidence.Overall < f.Weakest {
+			f.Weakest = p.Confidence.Overall
 		}
+		weighted += float64(p.Confidence.Overall * p.ExecutionCount)
+		weight += p.ExecutionCount
 		if p.Confidence.Readiness == "needs_decision" {
 			f.NeedsDecision++
 			f.Readiness = "needs_decision"
@@ -298,6 +304,9 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 		}
 	}
 	f.ExecutionCount, f.SessionCount = len(runs), len(sessions)
+	if weight > 0 {
+		f.Confidence = int(math.Round(weighted / float64(weight)))
+	}
 	total := 0
 	for _, n := range tails {
 		total += n

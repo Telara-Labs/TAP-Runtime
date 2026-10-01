@@ -402,7 +402,7 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 	if f.ExecutionCount > 0 {
 		per = inputEquivalent(f.Saved) / float64(f.ExecutionCount)
 	}
-	conf := fmt.Sprintf("%d/100 (weakest of %d exact chains; %s) · %s", f.Confidence, len(f.Members), Rubric, f.Readiness)
+	conf := fmt.Sprintf("%d/100 (%s, weighted by runs over %d exact chains; weakest %d) · %s", f.Confidence, Rubric, len(f.Members), f.Weakest, f.Readiness)
 	if f.NeedsDecision > 0 {
 		conf += fmt.Sprintf(", %d chains need a decision", f.NeedsDecision)
 	}
@@ -512,8 +512,8 @@ func WriteFamilyHandoff(dir, home string, f Family, byID map[string]Primitive, s
 		}
 		fmt.Fprintf(&b, "- %s%s, %d runs\n", strings.Join(fu.Steps, " > "), opt, fu.Runs)
 	}
-	fmt.Fprintf(&b, "\nSupport: %d runs across %d sessions; tokens the follow-up turns cost: %s. Confidence: %d/100 (weakest member, %s); %s.\n\n",
-		f.ExecutionCount, f.SessionCount, tokensText(f.SavedTokens), f.Confidence, Rubric, f.Readiness)
+	fmt.Fprintf(&b, "\nSupport: %d runs across %d sessions; tokens the follow-up turns cost: %s. Confidence: %d/100 (%s, weighted by runs; weakest chain %d); %s.\n\n",
+		f.ExecutionCount, f.SessionCount, tokensText(f.SavedTokens), f.Confidence, Rubric, f.Weakest, f.Readiness)
 	b.WriteString("Design one primitive: the head, then each follow-up runs only when the caller supplies its inputs. ")
 	b.WriteString("Each exact chain below has its own handoff (prompt, skill, questions, evidence); read them in order:\n\n")
 	for _, id := range f.Members {
