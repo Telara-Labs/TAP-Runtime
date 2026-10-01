@@ -1,4 +1,4 @@
-package discover
+package retrieval_test
 
 import (
 	"strings"

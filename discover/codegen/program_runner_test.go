@@ -1,4 +1,4 @@
-package discover
+package codegen_test
 
 import (
 	"bytes"
@@ -104,7 +104,7 @@ func TestGeneratedPackageRunsThroughHostWithFreshInputs(t *testing.T) {
 	defer server.Close()
 	bin := filepath.Join(t.TempDir(), "tap")
 	build := exec.Command("go", "build", "-o", bin, "./host")
-	build.Dir = ".."
+	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build TAP host: %v\n%s", err, output)
 	}
@@ -211,7 +211,7 @@ func TestGeneratedCollectionSubsetRunsThroughHost(t *testing.T) {
 	defer server.Close()
 	bin := filepath.Join(t.TempDir(), "tap")
 	build := exec.Command("go", "build", "-o", bin, "./host")
-	build.Dir = ".."
+	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build TAP host: %v\n%s", err, output)
 	}
@@ -317,7 +317,7 @@ func TestGeneratedRepeatedProducerJoinRunsThroughHost(t *testing.T) {
 	defer server.Close()
 	bin := filepath.Join(t.TempDir(), "tap")
 	build := exec.Command("go", "build", "-o", bin, "./host")
-	build.Dir = ".."
+	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build TAP host: %v\n%s", err, output)
 	}
@@ -421,7 +421,7 @@ func TestGeneratedLoopResultRolesRunThroughHost(t *testing.T) {
 	defer server.Close()
 	bin := filepath.Join(t.TempDir(), "tap")
 	build := exec.Command("go", "build", "-o", bin, "./host")
-	build.Dir = ".."
+	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build TAP host: %v\n%s", err, output)
 	}
@@ -483,7 +483,7 @@ func TestGeneratedPipelineRunsThroughHostWithFreshFile(t *testing.T) {
 	}
 	bin := filepath.Join(t.TempDir(), "tap")
 	build := exec.Command("go", "build", "-o", bin, "./host")
-	build.Dir = ".."
+	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build TAP host: %v\n%s", err, output)
 	}
@@ -536,7 +536,7 @@ func TestGeneratedSuccessChainRunsThroughHost(t *testing.T) {
 	}
 	bin := filepath.Join(t.TempDir(), "tap")
 	build := exec.Command("go", "build", "-o", bin, "./host")
-	build.Dir = ".."
+	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build TAP host: %v\n%s", err, output)
 	}

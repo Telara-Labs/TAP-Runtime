@@ -1,4 +1,4 @@
-package discover
+package trace_test
 
 import (
 	"encoding/json"

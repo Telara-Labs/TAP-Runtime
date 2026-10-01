@@ -1,4 +1,4 @@
-package discover
+package shellparse_test
 
 import (
 	"encoding/json"
@@ -296,7 +296,7 @@ func TestSynthesizeLiteralCommandChain(t *testing.T) {
 			trace.Call{Tool: "shell", Command: "git add src/two.go", Outcome: trace.OutcomeOK},
 			trace.Call{Tool: "shell", Command: "git status --short", Outcome: trace.OutcomeOK}),
 	}
-	c, ps := graphCandidateFor(t, ss, "sh:git add", "sh:git status")
+	c, ps := testkit.GraphCandidateFor(t, ss, "sh:git add", "sh:git status")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("command graph unresolved: %+v %v", g, err)

@@ -1,4 +1,4 @@
-package discover
+package genreview_test
 
 import (
 	"strings"
@@ -52,7 +52,7 @@ func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
 		testkit.NewSession("first", "Create follow up and link TENG-2", create("one", "TENG-1"), link("one", "TENG-1", "TENG-2")),
 		testkit.NewSession("second", "Create follow up and link TENG-4", create("two", "TENG-3"), link("two", "TENG-3", "TENG-4")),
 	}
-	candidate, spans := graphCandidateFor(t, sessions, "jira.create_issue", "jira.create_issue_link")
+	candidate, spans := testkit.GraphCandidateFor(t, sessions, "jira.create_issue", "jira.create_issue_link")
 	variants, err := codegen.GroupProgramVariants(candidate, spans, sessions)
 	if err != nil || len(variants) != 2 {
 		t.Fatalf("two exact tool bindings should remain separate variants: %+v %v", variants, err)
@@ -168,7 +168,7 @@ func TestGeneratedCausalComponentsRemainReviewableInsideLargerTasks(t *testing.T
 		testkit.NewSession("one", "Implement feature A", create("TENG-101"), transition("TENG-101")),
 		testkit.NewSession("two", "Implement feature B", create("TENG-202"), transition("TENG-202")),
 	}
-	c, spans := graphCandidateFor(t, sessions, "mcp:telara_jira_create_issue", "mcp:telara_jira_transition_issue")
+	c, spans := testkit.GraphCandidateFor(t, sessions, "mcp:telara_jira_create_issue", "mcp:telara_jira_transition_issue")
 	bySpan := map[string]model.SpanProposal{}
 	for _, span := range spans {
 		bySpan[span.ID] = span

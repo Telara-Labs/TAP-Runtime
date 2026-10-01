@@ -86,3 +86,24 @@ func TestPyparseNeverExecutesCode(t *testing.T) {
 		}
 	}
 }
+
+// internal/testkit is for tests only: no production file may import it.
+func TestProductionCodeNeverImportsTestkit(t *testing.T) {
+	files, _ := filepath.Glob("*/*.go")
+	more, _ := filepath.Glob("*.go")
+	for _, f := range append(files, more...) {
+		if strings.HasSuffix(f, "_test.go") || strings.HasPrefix(f, "internal/") {
+			continue
+		}
+		src, _ := os.ReadFile(f)
+		af, err := parser.ParseFile(token.NewFileSet(), f, src, parser.ImportsOnly)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, im := range af.Imports {
+			if strings.Contains(im.Path.Value, "/internal/testkit") {
+				t.Errorf("%s imports internal/testkit", f)
+			}
+		}
+	}
+}

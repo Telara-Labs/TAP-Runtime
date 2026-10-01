@@ -1,4 +1,4 @@
-package discover
+package shellparse_test
 
 import (
 	"testing"

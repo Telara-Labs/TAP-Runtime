@@ -1,4 +1,4 @@
-package discover
+package author_test
 
 import (
 	"bytes"

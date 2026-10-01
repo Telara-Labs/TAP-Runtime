@@ -1,4 +1,4 @@
-package discover
+package codegen_test
 
 import (
 	"testing"
@@ -23,7 +23,7 @@ func TestGroupProgramVariantsKeepsOneAndManyTogether(t *testing.T) {
 		testkit.NewSession("one", "Create record and link TENG-2", create("TENG-1"), link("TENG-1", "TENG-2")),
 		testkit.NewSession("many", "Create record and link TENG-4 and TENG-5", create("TENG-3"), link("TENG-3", "TENG-4"), link("TENG-3", "TENG-5")),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:create", "mcp:link")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:create", "mcp:link")
 	variants, err := codegen.GroupProgramVariants(c, ps, ss)
 	if err != nil || len(variants) != 1 || variants[0].Executions != 2 {
 		t.Fatalf("one and many should be one invocation contract: %+v %v", variants, err)
@@ -42,7 +42,7 @@ func TestGroupProgramVariantsSeparatesBindingsAndArgumentShapes(t *testing.T) {
 			testkit.SpanRefs(trace.Call{Tool: "mcp:get", MCPServer: "one", MCPTool: "get", Args: map[string]string{"id": "TENG-5", "scope": "narrow"}, Output: `{"id":"TENG-6"}`, Outcome: trace.OutcomeOK}),
 			trace.Call{Tool: "mcp:next", MCPServer: "one", MCPTool: "next", Args: map[string]string{"id": "TENG-6"}, Outcome: trace.OutcomeOK}),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:get", "mcp:next")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:get", "mcp:next")
 	variants, err := codegen.GroupProgramVariants(c, ps, ss)
 	if err != nil || len(variants) != 3 {
 		t.Fatalf("different binding or typed argument shape must be explicit: %+v %v", variants, err)

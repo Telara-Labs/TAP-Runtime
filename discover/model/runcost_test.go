@@ -1,4 +1,4 @@
-package discover
+package model_test
 
 import (
 	"math"

@@ -1,4 +1,4 @@
-package discover
+package codegen_test
 
 import (
 	"encoding/json"
@@ -12,29 +12,8 @@ import (
 
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
-
-func graphCandidateFor(t *testing.T, ss []trace.Session, actions ...string) (model.LogicCandidate, []model.SpanProposal) {
-	t.Helper()
-	ps := retrieval.SelectSpanProposals(ss)
-	for _, c := range retrieval.GroupLogicCandidates(ps) {
-		if len(c.Actions) != len(actions) {
-			continue
-		}
-		match := true
-		for i := range actions {
-			match = match && c.Actions[i] == actions[i]
-		}
-		if match {
-			return c, ps
-		}
-	}
-	t.Fatalf("no logic candidate %v among %+v", actions, retrieval.GroupLogicCandidates(ps))
-	return model.LogicCandidate{}, nil
-}
 
 func TestSynthesizeProgramGraphUsesRolesAndResultFlow(t *testing.T) {
 	created := func(key string) trace.Call {
@@ -52,7 +31,7 @@ func TestSynthesizeProgramGraphUsesRolesAndResultFlow(t *testing.T) {
 		testkit.NewSession("one", "Create follow up and link TENG-2", created("TENG-1"), link("TENG-1", "TENG-2")),
 		testkit.NewSession("many", "Create follow up and link TENG-8 and TENG-9", created("TENG-7"), link("TENG-7", "TENG-8"), link("TENG-7", "TENG-9")),
 	}
-	c, ps := graphCandidateFor(t, ss, "jira.create_issue", "jira.create_issue_link")
+	c, ps := testkit.GraphCandidateFor(t, ss, "jira.create_issue", "jira.create_issue_link")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("graph should be determined: graph=%+v err=%v", g, err)
@@ -94,7 +73,7 @@ func TestSynthesizeTwoCreatedResultsWithVariableRoleOrder(t *testing.T) {
 		testkit.NewSession("left-first", "Create Alpha and Beta then link them", create("Alpha", "TENG-101"), create("Beta", "TENG-102"), link("TENG-101", "TENG-102")),
 		testkit.NewSession("right-first", "Create Delta and Gamma then link them", create("Delta", "TENG-202"), create("Gamma", "TENG-201"), link("TENG-201", "TENG-202")),
 	}
-	c, spans := graphCandidateFor(t, ss, "mcp:records_create", "mcp:records_create_link")
+	c, spans := testkit.GraphCandidateFor(t, ss, "mcp:records_create", "mcp:records_create_link")
 	g, err := codegen.SynthesizeProgramGraph(c, spans, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("two-role result graph unresolved: %+v %v", g, err)
@@ -127,7 +106,7 @@ func TestSynthesizeProgramGraphSharesStableInputAcrossLoopSteps(t *testing.T) {
 		testkit.NewSession("one", "Create and link one", create("project-one", "NEW-1"), link("project-one", "NEW-1", "TENG-1")),
 		testkit.NewSession("many", "Create and link two", create("project-two", "NEW-2"), link("project-two", "NEW-2", "TENG-2"), link("project-two", "NEW-2", "TENG-3")),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:records_create", "mcp:records_create_link")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:records_create", "mcp:records_create_link")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("stable shared scope should produce a program: %+v %v", g, err)
@@ -157,7 +136,7 @@ func TestSynthesizeProgramGraphMakesUnobservedValuesInvocationInputs(t *testing.
 		testkit.NewSession("b", "Do the work", testkit.SpanRefs(trace.Call{Tool: "mcp:gitlab_list_pipelines", Args: map[string]string{"project_id": "789012"}, Output: `{"id":91234567}`, Outcome: trace.OutcomeOK}),
 			trace.Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "91234567"}, Outcome: trace.OutcomeOK}),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:gitlab_list_pipelines", "mcp:gitlab_list_jobs")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:gitlab_list_pipelines", "mcp:gitlab_list_jobs")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
@@ -179,7 +158,7 @@ func TestSynthesizeProgramGraphRejectsStaleSource(t *testing.T) {
 			testkit.SpanRefs(trace.Call{Tool: "mcp:gitlab_list_pipelines", Output: `{"id":91234567}`, Outcome: trace.OutcomeOK}),
 			trace.Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "91234567"}, Outcome: trace.OutcomeOK}),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:gitlab_list_pipelines", "mcp:gitlab_list_jobs")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:gitlab_list_pipelines", "mcp:gitlab_list_jobs")
 	ss[0].Calls[0].Output = `{"id":12345678}`
 	if _, err := codegen.SynthesizeProgramGraph(c, ps, ss); err == nil || !strings.Contains(err.Error(), "changed") {
 		t.Fatalf("stale source must refuse synthesis, got %v", err)
@@ -203,7 +182,7 @@ func TestSynthesizeProgramGraphKeepsOptionalArgument(t *testing.T) {
 		testkit.NewSession("plain", "Create follow up and link TENG-2", create("TENG-1", false), link("TENG-1", "TENG-2")),
 		testkit.NewSession("priority", "Create priority follow up and link TENG-4", create("TENG-3", true), link("TENG-3", "TENG-4")),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:records_create", "mcp:records_create_link")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:records_create", "mcp:records_create_link")
 	variants, err := codegen.GroupProgramVariants(c, ps, ss)
 	if err != nil || len(variants) != 1 || variants[0].Executions != 2 {
 		t.Fatalf("optional argument must not split one program: %+v %v", variants, err)
@@ -246,7 +225,7 @@ func TestSynthesizeProgramGraphLoopsOverEarlierResultList(t *testing.T) {
 		testkit.NewSession("one-list", "List the records and link each one", list("TENG-1"), act("TENG-1")),
 		testkit.NewSession("two-list", "List the records and link each one", list("TENG-2", "TENG-3"), act("TENG-2"), act("TENG-3")),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:records_list", "mcp:records_create_link")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:records_list", "mcp:records_create_link")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("result-list loop should be determined: %+v %v", g, err)
@@ -287,7 +266,7 @@ func TestSynthesizeProgramGraphExposesPartialResultListSelection(t *testing.T) {
 		testkit.NewSession("partial", "Link selected records", list("TENG-1", "TENG-2"), act("TENG-1")),
 		testkit.NewSession("full", "Link selected records", list("TENG-3", "TENG-4"), act("TENG-3"), act("TENG-4")),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:records_list", "mcp:records_create_link")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:records_list", "mcp:records_create_link")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
@@ -346,7 +325,7 @@ func TestSynthesizeProgramGraphSelectsLargeListByPositionWithoutCopyingIDs(t *te
 	if got := fields["params/job_id"].Value; got != "16438397790" {
 		t.Fatalf("numeric ID lost exact decimal form: %q", got)
 	}
-	c, ps := graphCandidateFor(t, ss, "gitlab.list_jobs", "gitlab.get_job")
+	c, ps := testkit.GraphCandidateFor(t, ss, "gitlab.list_jobs", "gitlab.get_job")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
@@ -373,7 +352,7 @@ func TestSynthesizeProgramGraphExposesReorderedResultListSelection(t *testing.T)
 		testkit.NewSession("reverse-a", "Link records in reverse", list("TENG-1", "TENG-2"), act("TENG-2"), act("TENG-1")),
 		testkit.NewSession("reverse-b", "Link records in reverse", list("TENG-3", "TENG-4"), act("TENG-4"), act("TENG-3")),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:records_list", "mcp:records_create_link")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:records_list", "mcp:records_create_link")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
@@ -399,7 +378,7 @@ func TestSynthesizeProgramGraphUsesCompleteCollectionBeyondPreview(t *testing.T)
 		testkit.NewSession("long-a", "List and link each record", list("TENG-1", "TENG-2"), act("TENG-1"), act("TENG-2")),
 		testkit.NewSession("long-b", "List and link each record", list("TENG-3", "TENG-4"), act("TENG-3"), act("TENG-4")),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:records_list", "mcp:records_create_link")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:records_list", "mcp:records_create_link")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) != 0 || len(g.Steps) != 2 || g.Steps[1].LoopResultPath != ".items" {
 		t.Fatalf("complete collection metadata must survive short preview: %+v %v", g, err)
@@ -427,7 +406,7 @@ func TestSynthesizeProgramGraphJoinsRepeatedProducerResults(t *testing.T) {
 		testkit.NewSession("one", "Create from TENG-1 then update it", create("TENG-1", "NEW-1"), update("NEW-1")),
 		testkit.NewSession("two", "Create from TENG-2 and TENG-3 then update each", create("TENG-2", "NEW-2"), create("TENG-3", "NEW-3"), update("NEW-2"), update("NEW-3")),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:records_create", "mcp:records_update")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:records_create", "mcp:records_update")
 	variants, err := codegen.GroupProgramVariants(c, ps, ss)
 	if err != nil || len(variants) != 1 || variants[0].Executions != 2 || variants[0].Proposals < 3 {
 		t.Fatalf("overlapping pairwise and combined spans must count two disjoint executions: %+v %v", variants, err)
@@ -463,7 +442,7 @@ func TestSynthesizeProgramGraphRejectsReorderedProducerResults(t *testing.T) {
 		testkit.NewSession("ordered", "Create from TENG-1 then update it", create("TENG-1", "NEW-1"), update("NEW-1")),
 		testkit.NewSession("reversed", "Create from TENG-2 and TENG-3 then update in reverse", create("TENG-2", "NEW-2"), create("TENG-3", "NEW-3"), update("NEW-3"), update("NEW-2")),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:records_create", "mcp:records_update")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:records_create", "mcp:records_update")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
@@ -480,7 +459,7 @@ func TestSynthesizeProgramGraphBlocksFailedSourceCall(t *testing.T) {
 			trace.Call{Tool: "mcp:records_update", MCPServer: "records", MCPTool: "update", Args: map[string]string{"record_id": child}, Outcome: outcome})
 	}
 	ss := []trace.Session{makeSession("good", "TENG-1", "TENG-2", trace.OutcomeOK), makeSession("failed", "TENG-3", "TENG-4", trace.OutcomeFailed)}
-	c, ps := graphCandidateFor(t, ss, "mcp:records_get", "mcp:records_update")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:records_get", "mcp:records_update")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
@@ -509,7 +488,7 @@ func TestSynthesizeProgramGraphSelectsUniqueResultField(t *testing.T) {
 		testkit.NewSession("middle", "Get the failed record", list([]string{"TENG-1", "TENG-2", "TENG-3"}, []string{"ok", "failed", "ok"}), get("TENG-2")),
 		testkit.NewSession("first", "Get the failed record", list([]string{"TENG-4", "TENG-5", "TENG-6"}, []string{"failed", "ok", "ok"}), get("TENG-4")),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:records_list", "mcp:records_get")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:records_list", "mcp:records_get")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) > 0 {
 		t.Fatalf("unique varying-position predicate should be determined: %+v %v", g, err)
@@ -542,7 +521,7 @@ func TestSynthesizeProgramGraphLeavesFirstVersusPredicateChoiceToCaller(t *testi
 		testkit.NewSession("a", "Get failed record", list("TENG-1", "TENG-2"), get("TENG-1")),
 		testkit.NewSession("b", "Get failed record", list("TENG-3", "TENG-4"), get("TENG-3")),
 	}
-	c, ps := graphCandidateFor(t, ss, "mcp:records_list", "mcp:records_get")
+	c, ps := testkit.GraphCandidateFor(t, ss, "mcp:records_list", "mcp:records_get")
 	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
