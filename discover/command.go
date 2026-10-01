@@ -235,6 +235,17 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 	}
 	cfg := primitive.MenuConfig{StateDir: stateDir, All: *all, Clients: *clients, Home: home, Sessions: sessions, Color: color,
 		Skill: primitive.Skill{Source: "tap-runtime/discover/genreview/skill/tap-primitive-refine/SKILL.md", Content: genreview.GeneratedRefineSkill}}
+	// A terminal on both ends gets the full-screen review; otherwise (a
+	// pipe, a test, --all) the line-by-line menu.
+	if fin, ok := in.(*os.File); ok && !*all && !*asJSON {
+		if fout, ok := out.(*os.File); ok && primitive.Interactive(fin, fout) {
+			if err := primitive.RunTUI(fin, fout, res, cfg); err != nil {
+				fmt.Fprintln(errOut, "discover:", err)
+				return 1
+			}
+			return 0
+		}
+	}
 	if err := primitive.Menu(in, out, res, cfg); err != nil {
 		fmt.Fprintln(errOut, "discover:", err)
 		return 1
