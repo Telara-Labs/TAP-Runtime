@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
@@ -165,7 +167,7 @@ func generateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 1
 	}
 	cwd, _ := os.Getwd()
-	skillRoot, err := SkillsDir(*saveClient, *saveProject, home, cwd)
+	skillRoot, err := pack.SkillsDir(*saveClient, *saveProject, home, cwd)
 	if err != nil {
 		fmt.Fprintln(errOut, "discover generate:", err)
 		return 2

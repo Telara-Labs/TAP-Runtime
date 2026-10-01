@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -113,21 +115,21 @@ func TestSaveInstallsOnceAndNeverReplacesAForeignFolder(t *testing.T) {
 	}
 	d := RoutineDraft(ReportPrimitives(rep)[0])
 	root := t.TempDir()
-	path, unchanged, err := SaveDraft(d, root)
+	path, unchanged, err := pack.SaveDraft(d, root)
 	if err != nil || unchanged {
 		t.Fatalf("save: %v %v", err, unchanged)
 	}
-	for _, f := range []string{"primitive.yaml", "main.sh", "README.md", "SKILL.md", SavedMarker} {
+	for _, f := range []string{"primitive.yaml", "main.sh", "README.md", "SKILL.md", pack.SavedMarker} {
 		if _, err := os.Stat(filepath.Join(path, f)); err != nil {
 			t.Errorf("saved folder lacks %s", f)
 		}
 	}
-	if _, unchanged, err := SaveDraft(d, root); err != nil || !unchanged {
+	if _, unchanged, err := pack.SaveDraft(d, root); err != nil || !unchanged {
 		t.Fatalf("saving the same draft again must change nothing: %v %v", err, unchanged)
 	}
 	foreign := filepath.Join(t.TempDir(), d.Name)
 	os.MkdirAll(foreign, 0o755)
-	if _, _, err := SaveDraft(d, filepath.Dir(foreign)); err == nil {
+	if _, _, err := pack.SaveDraft(d, filepath.Dir(foreign)); err == nil {
 		t.Fatal("a folder that is not a saved primitive must not be replaced")
 	}
 }

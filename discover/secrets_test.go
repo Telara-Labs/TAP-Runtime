@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
@@ -83,7 +85,7 @@ func TestDraftNeverWritesCredentials(t *testing.T) {
 	if len(d.Blocked) != 0 {
 		t.Fatalf("every credential became an input, so nothing should remain: %v", d.Blocked)
 	}
-	if _, _, err := PackageDraft(d); err != nil {
+	if _, _, err := pack.PackageDraft(d); err != nil {
 		t.Fatalf("a clean draft must package: %v", err)
 	}
 	var buf bytes.Buffer
@@ -99,13 +101,13 @@ func TestLeftoverCredentialBlocksEverything(t *testing.T) {
 	if len(d.Blocked) != 1 || strings.Contains(d.Blocked[0], "abcDEF") {
 		t.Fatalf("blocked = %v (it must say where, never what)", d.Blocked)
 	}
-	if _, err := DraftArtifacts(d); !errors.Is(err, model.ErrBlocked) {
+	if _, err := pack.DraftArtifacts(d); !errors.Is(err, model.ErrBlocked) {
 		t.Fatalf("artifacts: %v", err)
 	}
-	if _, _, err := PackageDraft(d); !errors.Is(err, model.ErrBlocked) {
+	if _, _, err := pack.PackageDraft(d); !errors.Is(err, model.ErrBlocked) {
 		t.Fatalf("package: %v", err)
 	}
-	if _, _, err := SaveDraft(d, t.TempDir()); err == nil {
+	if _, _, err := pack.SaveDraft(d, t.TempDir()); err == nil {
 		t.Fatal("save must refuse a blocked draft")
 	}
 }

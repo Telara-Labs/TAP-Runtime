@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
@@ -94,7 +96,7 @@ func Review(in io.Reader, out io.Writer, rep *model.Report, cfg ReviewConfig, ac
 			fmt.Fprintf(out, ", saves %s tokens per run", humanTokens(p.SavedPerRun.Total()))
 		}
 		fmt.Fprintf(out, ")\n   asked as: %s\n", trace.OneLine(redact.Redact(p.Example), 120))
-		if _, digest, err := PackageDraft(d); err == nil {
+		if _, digest, err := pack.PackageDraft(d); err == nil {
 			fmt.Fprintf(out, "   status: unvalidated (validation not run for %s)\n", digest)
 		}
 		var srcs []string
@@ -172,7 +174,7 @@ func Review(in io.Reader, out io.Writer, rep *model.Report, cfg ReviewConfig, ac
 	}
 	for _, i := range chosen {
 		d := RoutineDraftAs(prims[i], publisher, nil)
-		if _, err := DraftArtifacts(d); err != nil {
+		if _, err := pack.DraftArtifacts(d); err != nil {
 			fmt.Fprintf(out, "%d. %s not published: %v\n", i+1, d.Name, err)
 			continue
 		}

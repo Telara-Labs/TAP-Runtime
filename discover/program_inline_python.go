@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/pyparse"
 
 	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
@@ -74,7 +76,7 @@ func generateInlineFileReplace(g *ProgramGraph) (*GeneratedPackage, error) {
 		return nil, fmt.Errorf("invalid inline file replacement graph")
 	}
 	name := "discovered-" + strings.TrimPrefix(g.CandidateID, "lc_")
-	if !skillName.MatchString(name) {
+	if !pack.SkillName.MatchString(name) {
 		return nil, fmt.Errorf("candidate %q cannot name a package", g.CandidateID)
 	}
 	m := &manifest.Manifest{APIVersion: manifest.APIVersion, Kind: "Primitive",
@@ -109,7 +111,7 @@ print(json.dumps({'path': inputs['file_path'], 'replacements': before.count(inpu
 		readme += "\nEvery supporting snippet was embedded in a larger shell call; only the inner file transform is generated.\n"
 	}
 	files := map[string][]byte{"primitive.yaml": m.YAML(), "main.py": []byte(code), "README.md": []byte(readme)}
-	_, digest, err := packFiles(files, func(string) bool { return false })
+	_, digest, err := pack.PackFiles(files, func(string) bool { return false })
 	if err != nil {
 		return nil, err
 	}

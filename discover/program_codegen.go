@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 
 	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
@@ -95,7 +97,7 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 		}
 	}
 	name := "discovered-" + strings.TrimPrefix(g.CandidateID, "lc_")
-	if !skillName.MatchString(name) {
+	if !pack.SkillName.MatchString(name) {
 		return nil, fmt.Errorf("candidate %q cannot name a package", g.CandidateID)
 	}
 	m := &manifest.Manifest{APIVersion: manifest.APIVersion, Kind: "Primitive",
@@ -435,7 +437,7 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 		}
 	}
 	files := map[string][]byte{"primitive.yaml": m.YAML(), "main.py": []byte(code.String()), "README.md": []byte(readme.String())}
-	_, digest, err := packFiles(files, func(string) bool { return false })
+	_, digest, err := pack.PackFiles(files, func(string) bool { return false })
 	if err != nil {
 		return nil, err
 	}

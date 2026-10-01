@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 )
 
@@ -62,7 +64,7 @@ func ReadAuthoring(pkg string) (*Authoring, error) {
 	if a.Author != "host-agent" {
 		problems = append(problems, `author is not "host-agent"`)
 	}
-	if !skillName.MatchString(a.Name) {
+	if !pack.SkillName.MatchString(a.Name) {
 		problems = append(problems, fmt.Sprintf("name %q is not a usable folder name", a.Name))
 	}
 	if a.Selection != SelectedTask && a.Selection != DiscoverCandidate && a.Selection != DiscoverOpportunity && a.Selection != DiscoverSpan && a.Selection != DiscoverLogic {
@@ -129,16 +131,16 @@ func SavePackage(pkgDir, root string, rec *Receipts, receiptsDigest string) (pat
 	if err != nil {
 		return "", "", false, err
 	}
-	m := savedMarker{Name: a.Publisher + "/" + a.Name, Digest: digest, Validation: validation,
+	m := pack.Marker{Name: a.Publisher + "/" + a.Name, Digest: digest, Validation: validation,
 		Origin: OriginAgentAuthored, Receipts: receiptsDigest}
 	if rec != nil {
 		m.Cases = len(rec.Cases)
 	}
-	path, unchanged, err = install(root, a.Name, pkg, m, authoredSkillMD(a, m, filepath.Join(root, a.Name)))
+	path, unchanged, err = pack.Install(root, a.Name, pkg, m, authoredSkillMD(a, m, filepath.Join(root, a.Name)))
 	return path, validation, unchanged, err
 }
 
-func authoredSkillMD(a *Authoring, m savedMarker, dir string) string {
+func authoredSkillMD(a *Authoring, m pack.Marker, dir string) string {
 	desc := a.Name
 	if g, ok := a.Contract["goal"].Value.(string); ok && g != "" {
 		desc = g
@@ -221,7 +223,7 @@ func saveCommand(args []string, home string, out, errOut io.Writer) int {
 		}
 	}
 	cwd, _ := os.Getwd()
-	root, err := SkillsDir(*client, *project, home, cwd)
+	root, err := pack.SkillsDir(*client, *project, home, cwd)
 	if err != nil {
 		fmt.Fprintln(errOut, "discover save:", err)
 		return 2

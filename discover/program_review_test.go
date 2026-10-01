@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 )
 
 func reviewableGraph() *ProgramGraph {
@@ -42,7 +44,7 @@ func TestReviewGeneratedAcceptShowsExactPackageThenInstalls(t *testing.T) {
 		}
 	}
 	path := filepath.Join(root, pkg.Manifest.Metadata.Name)
-	for _, name := range []string{"main.py", "primitive.yaml", "README.md", "SKILL.md", SavedMarker} {
+	for _, name := range []string{"main.py", "primitive.yaml", "README.md", "SKILL.md", pack.SavedMarker} {
 		if _, err := os.Stat(filepath.Join(path, name)); err != nil {
 			t.Fatalf("accepted package missing %s: %v", name, err)
 		}

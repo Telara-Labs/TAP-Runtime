@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -380,8 +382,8 @@ func TestSavePackageBindsValidationToTheDigest(t *testing.T) {
 	if _, v, unchanged, err = SavePackage(pkg, root, pass, "sha256:r"); err != nil || v != model.ValidationPassed || unchanged {
 		t.Fatalf("passing receipts must mark it passed and replace the not_run save: %q %v %v", v, unchanged, err)
 	}
-	var m savedMarker
-	b, _ := os.ReadFile(filepath.Join(path, SavedMarker))
+	var m pack.Marker
+	b, _ := os.ReadFile(filepath.Join(path, pack.SavedMarker))
 	json.Unmarshal(b, &m)
 	if m.Origin != OriginAgentAuthored || m.Digest != digest || m.Validation != model.ValidationPassed || m.Cases != 5 || m.Receipts != "sha256:r" {
 		t.Errorf("marker %+v", m)
@@ -451,7 +453,7 @@ func TestReadAuthoringAcceptsParameterizedLogicLineage(t *testing.T) {
 }
 
 func TestSavedDraftMarkerIsUnchanged(t *testing.T) {
-	b, _ := json.Marshal(savedMarker{Name: "a/b", Digest: "sha256:x", Validation: model.ValidationNotRun})
+	b, _ := json.Marshal(pack.Marker{Name: "a/b", Digest: "sha256:x", Validation: model.ValidationNotRun})
 	if string(b) != `{"name":"a/b","digest":"sha256:x","validation":"not_run"}` {
 		t.Errorf("a saved draft's marker changed shape: %s", b)
 	}
