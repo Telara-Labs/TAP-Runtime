@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/genreview"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -25,7 +27,7 @@ func TestGeneratedReviewOrderUsesGraphEffectsAndBindings(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tier, shape := programReviewShape(&codegen.ProgramGraph{Steps: []codegen.ProgramStep{{Effect: "read"}, tc.step}})
+			tier, shape := genreview.ProgramReviewShape(&codegen.ProgramGraph{Steps: []codegen.ProgramStep{{Effect: "read"}, tc.step}})
 			if tier != tc.tier || shape != tc.shape {
 				t.Fatalf("tier=%d shape=%s, want %d %s", tier, shape, tc.tier, tc.shape)
 			}
@@ -53,11 +55,11 @@ func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
 	if err != nil || len(variants) != 2 {
 		t.Fatalf("two exact tool bindings should remain separate variants: %+v %v", variants, err)
 	}
-	rows, err := generatedProgramQueue([]model.LogicCandidate{candidate}, spans, sessions)
-	if err != nil || len(rows) != 1 || rows[0].candidate.ID != candidate.ID {
+	rows, err := genreview.GeneratedProgramQueue([]model.LogicCandidate{candidate}, spans, sessions)
+	if err != nil || len(rows) != 1 || rows[0].Candidate.ID != candidate.ID {
 		t.Fatalf("queue should show one reviewable variant for the broad family: %+v %v", rows, err)
 	}
-	if rows[0].variant.ID != variants[0].ID {
+	if rows[0].Variant.ID != variants[0].ID {
 		t.Fatalf("queue chose a different variant from the best-supported deterministic order: %+v", rows[0])
 	}
 	firstGraph, err := codegen.SynthesizeProgramGraph(variants[0], spans, sessions)
@@ -68,9 +70,9 @@ func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstDecision := generatedDecision{Candidate: firstGraph.CandidateID, Digest: firstPackage.Digest, Choice: "deny"}
-	remaining, err := generatedProgramQueue([]model.LogicCandidate{candidate}, spans, sessions, firstDecision)
-	if err != nil || len(remaining) != 1 || remaining[0].variant.ID != variants[1].ID {
+	firstDecision := genreview.GeneratedDecision{Candidate: firstGraph.CandidateID, Digest: firstPackage.Digest, Choice: "deny"}
+	remaining, err := genreview.GeneratedProgramQueue([]model.LogicCandidate{candidate}, spans, sessions, firstDecision)
+	if err != nil || len(remaining) != 1 || remaining[0].Variant.ID != variants[1].ID {
 		t.Fatalf("denied exact draft should not resurface; another variant may be reviewed: %+v %v", remaining, err)
 	}
 	secondGraph, err := codegen.SynthesizeProgramGraph(variants[1], spans, sessions)
@@ -81,8 +83,8 @@ func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondDecision := generatedDecision{Candidate: secondGraph.CandidateID, Digest: secondPackage.Digest, Choice: "refine"}
-	empty, err := generatedProgramQueue([]model.LogicCandidate{candidate}, spans, sessions, firstDecision, secondDecision)
+	secondDecision := genreview.GeneratedDecision{Candidate: secondGraph.CandidateID, Digest: secondPackage.Digest, Choice: "refine"}
+	empty, err := genreview.GeneratedProgramQueue([]model.LogicCandidate{candidate}, spans, sessions, firstDecision, secondDecision)
 	if err != nil || len(empty) != 0 {
 		t.Fatalf("reviewed exact drafts should leave the queue: %+v %v", empty, err)
 	}
@@ -94,28 +96,28 @@ func TestGeneratedQueueKeepsUnprovenRepeatedOrderForManualReview(t *testing.T) {
 		"a": {ID: "a", Client: "claude-code", Session: "one", Kind: "repeated_order"},
 		"b": {ID: "b", Client: "claude-code", Session: "two", Kind: "repeated_order"},
 	}
-	if generatedVariantHasTaskEvidence(v, spans) {
+	if genreview.GeneratedVariantHasTaskEvidence(v, spans) {
 		t.Fatal("repeated adjacency with no task contract entered the generated queue")
 	}
 	spans["a"] = model.SpanProposal{ID: "a", Client: "claude-code", Session: "one", Kind: "repeated_order", Review: model.SpanTaskReview{Ready: true}}
-	if generatedVariantHasTaskEvidence(v, spans) {
+	if genreview.GeneratedVariantHasTaskEvidence(v, spans) {
 		t.Fatal("one task-shaped execution is insufficient for a repeated-order queue entry")
 	}
 	spans["b"] = model.SpanProposal{ID: "b", Client: "claude-code", Session: "two", Kind: "repeated_order", Review: model.SpanTaskReview{Ready: true}}
-	if !generatedVariantHasTaskEvidence(v, spans) {
+	if !genreview.GeneratedVariantHasTaskEvidence(v, spans) {
 		t.Fatal("two independent task-shaped executions should remain reviewable")
 	}
 	spans["b"] = model.SpanProposal{ID: "b", Client: "claude-code", Session: "one", Kind: "repeated_order", Review: model.SpanTaskReview{Ready: true}}
-	if generatedVariantHasTaskEvidence(v, spans) {
+	if genreview.GeneratedVariantHasTaskEvidence(v, spans) {
 		t.Fatal("duplicate executions in one session counted as independent task evidence")
 	}
 	single := model.LogicCandidate{Members: []string{"c"}}
 	spans["c"] = model.SpanProposal{ID: "c", Client: "claude-code", Session: "one", Kind: "single_call"}
-	if generatedVariantHasTaskEvidence(single, spans) {
+	if genreview.GeneratedVariantHasTaskEvidence(single, spans) {
 		t.Fatal("one unassessed source call entered the generated queue")
 	}
 	spans["c"] = model.SpanProposal{ID: "c", Client: "claude-code", Session: "one", Kind: "single_call", Review: model.SpanTaskReview{Ready: true}}
-	if !generatedVariantHasTaskEvidence(single, spans) {
+	if !genreview.GeneratedVariantHasTaskEvidence(single, spans) {
 		t.Fatal("a task-shaped one-off execution should remain eligible")
 	}
 }
@@ -128,23 +130,23 @@ func TestGeneratedCandidateTaskEvidenceDoesNotPromoteIncidentalRecurrence(t *tes
 		"component_one":  {ID: "component_one", Client: "claude-code", Session: "three", Review: model.SpanTaskReview{Source: "user", Component: true}},
 		"component_two":  {ID: "component_two", Client: "claude-code", Session: "four", Review: model.SpanTaskReview{Source: "user", Component: true}},
 	}
-	if _, ok := generatedCandidateTaskEvidence(model.LogicCandidate{Members: c.Members[:2]}, spans); ok {
+	if _, ok := genreview.GeneratedCandidateTaskEvidence(model.LogicCandidate{Members: c.Members[:2]}, spans); ok {
 		t.Fatal("repeated incidental actions entered the generated queue")
 	}
-	if _, ok := generatedCandidateTaskEvidence(model.LogicCandidate{Members: c.Members[:3]}, spans); ok {
+	if _, ok := genreview.GeneratedCandidateTaskEvidence(model.LogicCandidate{Members: c.Members[:3]}, spans); ok {
 		t.Fatal("one component among incidental actions entered the generated queue")
 	}
-	qualified, ok := generatedCandidateTaskEvidence(c, spans)
+	qualified, ok := genreview.GeneratedCandidateTaskEvidence(c, spans)
 	if !ok || qualified.Proposals != 2 || qualified.Executions != 2 || qualified.Sessions != 2 ||
 		len(qualified.Members) != 2 || qualified.Members[0] != "component_one" || qualified.Members[1] != "component_two" {
 		t.Fatalf("qualified candidate included incidental evidence or lost independent components: %+v %v", qualified, ok)
 	}
 	spans["component_two"] = model.SpanProposal{ID: "component_two", Client: "claude-code", Session: "three", Review: model.SpanTaskReview{Source: "user", Component: true}}
-	if _, ok := generatedCandidateTaskEvidence(c, spans); ok {
+	if _, ok := genreview.GeneratedCandidateTaskEvidence(c, spans); ok {
 		t.Fatal("overlapping components in one session counted as independent support")
 	}
 	spans["component_one"] = model.SpanProposal{ID: "component_one", Client: "claude-code", Session: "three", Review: model.SpanTaskReview{Source: "user", Ready: true}}
-	qualified, ok = generatedCandidateTaskEvidence(c, spans)
+	qualified, ok = genreview.GeneratedCandidateTaskEvidence(c, spans)
 	if !ok || len(qualified.Members) != 1 || qualified.Members[0] != "component_one" {
 		t.Fatalf("explicit task-shaped execution was not eligible on its own: %+v %v", qualified, ok)
 	}
@@ -169,22 +171,22 @@ func TestGeneratedCausalComponentsRemainReviewableInsideLargerTasks(t *testing.T
 	for _, span := range spans {
 		bySpan[span.ID] = span
 	}
-	qualified, ok := generatedCandidateTaskEvidence(c, bySpan)
+	qualified, ok := genreview.GeneratedCandidateTaskEvidence(c, bySpan)
 	if !ok || qualified.Sessions != 2 || qualified.Executions != 2 || len(qualified.Members) != 2 {
 		t.Fatalf("result-linked agent component was lost: %+v %v", qualified, ok)
 	}
 	for _, id := range qualified.Members {
-		if bySpan[id].Review.Ready || !generatedCausalComponent(bySpan[id]) {
+		if bySpan[id].Review.Ready || !genreview.GeneratedCausalComponent(bySpan[id]) {
 			t.Fatalf("test did not exercise the internal-component route: %+v", bySpan[id])
 		}
 	}
-	rows, err := generatedProgramQueue([]model.LogicCandidate{c}, spans, sessions)
-	if err != nil || len(rows) != 1 || !generatedVariantIsInternalComponent(rows[0].variant, bySpan) || !strings.HasPrefix(rows[0].shape, "agent component") {
+	rows, err := genreview.GeneratedProgramQueue([]model.LogicCandidate{c}, spans, sessions)
+	if err != nil || len(rows) != 1 || !genreview.GeneratedVariantIsInternalComponent(rows[0].Variant, bySpan) || !strings.HasPrefix(rows[0].Shape, "agent component") {
 		t.Fatalf("result-linked component did not reach labeled review: %+v %v", rows, err)
 	}
 	one := c
 	one.Members = one.Members[:1]
-	if _, ok := generatedCandidateTaskEvidence(one, bySpan); ok {
+	if _, ok := genreview.GeneratedCandidateTaskEvidence(one, bySpan); ok {
 		t.Fatal("single incidental component entered review without independent support")
 	}
 }

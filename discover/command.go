@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/genreview"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/author"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
@@ -29,7 +31,7 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 {
 		switch args[0] {
 		case "generate":
-			return generateCommand(args[1:], in, out, errOut)
+			return genreview.GenerateCommand(args[1:], in, out, errOut)
 		case "brief", "save":
 			home, err := os.UserHomeDir()
 			if err != nil {

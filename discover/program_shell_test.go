@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/genreview"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
@@ -35,7 +37,7 @@ func TestGeneratedPipelinePassesStdoutAsStdinAndStopsOnFailure(t *testing.T) {
 		t.Fatalf("invalid pipeline manifest: %v", problems)
 	}
 	var review strings.Builder
-	if err := ReviewGenerated(strings.NewReader("q\n"), &review, g, t.TempDir(), t.TempDir()); err != nil {
+	if err := genreview.ReviewGenerated(strings.NewReader("q\n"), &review, g, t.TempDir(), t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(review.String(), "pipeline cat (read) | grep (read)") {
@@ -304,7 +306,7 @@ func TestSynthesizeLiteralCommandChain(t *testing.T) {
 		t.Fatalf("determined command graph did not compile: %v", err)
 	}
 	var review strings.Builder
-	if err := ReviewGenerated(strings.NewReader("q\n"), &review, g, t.TempDir(), t.TempDir()); err != nil {
+	if err := genreview.ReviewGenerated(strings.NewReader("q\n"), &review, g, t.TempDir(), t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(review.String(), "via command git (write)") || !strings.Contains(review.String(), "commands:") {
