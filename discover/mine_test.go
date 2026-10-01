@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 func TestMinePatternsRespectsWindow(t *testing.T) {
@@ -88,7 +90,7 @@ func TestBenjaminiHochberg(t *testing.T) {
 
 // fakeReader serves synthetic sessions as if they were a client's history.
 type fakeReader struct {
-	sessions []Session
+	sessions []trace.Session
 	name     string
 }
 
@@ -99,26 +101,26 @@ func (f fakeReader) Client() string {
 	return f.name
 }
 
-func (f fakeReader) Read(time.Time) ([]Session, error) { return f.sessions, nil }
+func (f fakeReader) Read(time.Time) ([]trace.Session, error) { return f.sessions, nil }
 
 // plantedCorpus has 60 sessions of random tool calls. Twenty of them also
 // run one procedure (build, test, push with a changing branch name) and load
 // the "ship" skill. A procedure that is really there must qualify; random
 // co-occurrence must not.
-func plantedCorpus() []Session {
+func plantedCorpus() []trace.Session {
 	rng := rand.New(rand.NewSource(42))
 	noise := []string{"ls", "cat a", "grep x y", "head -3", "wc -l", "tail -5", "sed -n 1p", "find .", "du -sh", "pwd", "whoami", "date"}
-	var out []Session
+	var out []trace.Session
 	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	for i := 0; i < 60; i++ {
-		s := Session{Client: "fake", ID: fmt.Sprintf("s%02d", i), Start: t0.AddDate(0, 0, 7*(i%20))}
+		s := trace.Session{Client: "fake", ID: fmt.Sprintf("s%02d", i), Start: t0.AddDate(0, 0, 7*(i%20))}
 		call := func(cmd string) {
-			s.Calls = append(s.Calls, Call{Client: "fake", Session: s.ID, Tool: "shell", Command: cmd, Time: s.Start})
+			s.Calls = append(s.Calls, trace.Call{Client: "fake", Session: s.ID, Tool: "shell", Command: cmd, Time: s.Start})
 		}
 		for j := 0; j < 25; j++ {
 			call(noise[rng.Intn(len(noise))] + fmt.Sprintf(" %d", rng.Intn(1000)))
 			if i < 20 && j == 10 {
-				s.Calls = append(s.Calls, Call{Client: "fake", Session: s.ID, Tool: "Skill", Args: map[string]string{"skill": "ship"}})
+				s.Calls = append(s.Calls, trace.Call{Client: "fake", Session: s.ID, Tool: "Skill", Args: map[string]string{"skill": "ship"}})
 				call("make build")
 				call("go test ./... -count=1")
 				call(fmt.Sprintf("git push origin feature-%d", i))
@@ -132,7 +134,7 @@ func plantedCorpus() []Session {
 func TestRunFindsPlantedProcedureAndNotNoise(t *testing.T) {
 	o := DefaultOptions()
 	o.Patterns = true
-	o.Readers = []Reader{fakeReader{sessions: plantedCorpus()}}
+	o.Readers = []trace.Reader{fakeReader{sessions: plantedCorpus()}}
 	o.Permutations = 30
 	rep, err := Run(o)
 	if err != nil {
@@ -172,12 +174,12 @@ func TestRunFindsPlantedProcedureAndNotNoise(t *testing.T) {
 }
 
 func TestDuplicateSessionsCountOnce(t *testing.T) {
-	s := Session{Client: "fake", ID: "a", Calls: []Call{{Tool: "shell", Command: "make"}, {Tool: "shell", Command: "go test"}}}
+	s := trace.Session{Client: "fake", ID: "a", Calls: []trace.Call{{Tool: "shell", Command: "make"}, {Tool: "shell", Command: "go test"}}}
 	d := s
 	d.ID = "b"
 	o := DefaultOptions()
 	o.Patterns = true
-	o.Readers = []Reader{fakeReader{sessions: []Session{s, d}}}
+	o.Readers = []trace.Reader{fakeReader{sessions: []trace.Session{s, d}}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -277,19 +279,19 @@ func TestPruningDropsNothingThatCouldQualify(t *testing.T) {
 // client, pairs of one client's tools qualified merely for sharing a client.
 func TestClientVocabulariesAreNotRecurrence(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
-	var ss []Session
+	var ss []trace.Session
 	for i := 0; i < 80; i++ {
 		client, tools := "alpha", []string{"a_read", "a_grep", "a_edit", "a_list", "a_run"}
 		if i%2 == 1 {
 			client, tools = "beta", []string{"b_read", "b_grep", "b_edit", "b_list", "b_run"}
 		}
-		s := Session{Client: client, ID: fmt.Sprintf("%s%d", client, i)}
+		s := trace.Session{Client: client, ID: fmt.Sprintf("%s%d", client, i)}
 		for j := 0; j < 30; j++ {
-			s.Calls = append(s.Calls, Call{Tool: tools[rng.Intn(len(tools))], Args: map[string]string{"n": fmt.Sprint(rng.Intn(1000))}})
+			s.Calls = append(s.Calls, trace.Call{Tool: tools[rng.Intn(len(tools))], Args: map[string]string{"n": fmt.Sprint(rng.Intn(1000))}})
 		}
 		ss = append(ss, s)
 	}
-	var alpha, beta []Session
+	var alpha, beta []trace.Session
 	for _, s := range ss {
 		if s.Client == "alpha" {
 			alpha = append(alpha, s)
@@ -299,7 +301,7 @@ func TestClientVocabulariesAreNotRecurrence(t *testing.T) {
 	}
 	o := DefaultOptions()
 	o.Patterns = true
-	o.Readers = []Reader{fakeReader{alpha, "alpha"}, fakeReader{beta, "beta"}}
+	o.Readers = []trace.Reader{fakeReader{alpha, "alpha"}, fakeReader{beta, "beta"}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -312,13 +314,13 @@ func TestClientVocabulariesAreNotRecurrence(t *testing.T) {
 }
 
 func TestTemplateCollapsesVariadicParameters(t *testing.T) {
-	occ := [][]Step{}
+	occ := [][]trace.Step{}
 	for _, files := range [][]string{{"a.go", "b.go", "c.go"}, {"x.go", "y.go", "z.go"}} {
-		st := Step{Label: "sh:git add", Skeleton: "sh:git add "}
+		st := trace.Step{Label: "sh:git add", Skeleton: "sh:git add "}
 		for i, f := range files {
-			st.Slots = append(st.Slots, Slot{Key: fmt.Sprint(i), Type: SlotPath, Value: f})
+			st.Slots = append(st.Slots, trace.Slot{Key: fmt.Sprint(i), Type: trace.SlotPath, Value: f})
 		}
-		occ = append(occ, []Step{st})
+		occ = append(occ, []trace.Step{st})
 	}
 	if got := templateOf("sh:git add", occ, 0).Template; got != "sh:git add <path>…" {
 		t.Fatalf("template = %q", got)
@@ -339,7 +341,7 @@ func TestHypergeomUpper(t *testing.T) {
 func TestSkillComparisonFindsThePlantedProcedure(t *testing.T) {
 	o := DefaultOptions()
 	o.Patterns = true
-	o.Readers = []Reader{fakeReader{sessions: plantedCorpus()}}
+	o.Readers = []trace.Reader{fakeReader{sessions: plantedCorpus()}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)

@@ -5,16 +5,18 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // requestSessions builds n sessions, each one request running the calls
 // make(i) returns, a few days apart.
-func requestSessions(n int, text func(i int) string, calls func(i int) []Call) []Session {
+func requestSessions(n int, text func(i int) string, calls func(i int) []trace.Call) []trace.Session {
 	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
-	var out []Session
+	var out []trace.Session
 	for i := 0; i < n; i++ {
-		s := Session{Client: "fake", ID: fmt.Sprintf("f%02d", i), Start: t0.AddDate(0, 0, 4*i)}
-		s.addRequest(text(i))
+		s := trace.Session{Client: "fake", ID: fmt.Sprintf("f%02d", i), Start: t0.AddDate(0, 0, 4*i)}
+		s.AddRequest(text(i))
 		for _, c := range calls(i) {
 			c.Request, c.Time = 0, s.Start
 			s.Calls = append(s.Calls, c)
@@ -24,12 +26,12 @@ func requestSessions(n int, text func(i int) string, calls func(i int) []Call) [
 	return out
 }
 
-func sh(cmd string) Call { return Call{Tool: "shell", Command: cmd} }
+func sh(cmd string) trace.Call { return trace.Call{Tool: "shell", Command: cmd} }
 
-func firstRoutine(t *testing.T, ss []Session) *Routine {
+func firstRoutine(t *testing.T, ss []trace.Session) *Routine {
 	t.Helper()
 	o := DefaultOptions()
-	o.Readers = []Reader{fakeReader{sessions: ss}}
+	o.Readers = []trace.Reader{fakeReader{sessions: ss}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -41,9 +43,9 @@ func firstRoutine(t *testing.T, ss []Session) *Routine {
 }
 
 func TestPipelinesAndCdAreReplayedAsRecorded(t *testing.T) {
-	ss := requestSessions(8, func(i int) string { return "test the package" }, func(i int) []Call {
+	ss := requestSessions(8, func(i int) string { return "test the package" }, func(i int) []trace.Call {
 		dir := fmt.Sprintf("services/svc%d", i)
-		return []Call{
+		return []trace.Call{
 			sh("cd " + dir + " && go test ./... -count=1 2>&1 | tail -20"),
 			sh("git status --short"),
 		}
@@ -59,8 +61,8 @@ func TestPipelinesAndCdAreReplayedAsRecorded(t *testing.T) {
 }
 
 func TestDifferingHeredocBodiesNeedAuthoring(t *testing.T) {
-	ss := requestSessions(8, func(i int) string { return "count the rows" }, func(i int) []Call {
-		return []Call{
+	ss := requestSessions(8, func(i int) string { return "count the rows" }, func(i int) []trace.Call {
+		return []trace.Call{
 			sh("git status --short"),
 			sh(fmt.Sprintf("python3 - <<'PY'\nimport csv\nprint(%d * len(list(csv.reader(open('data.csv')))))\nPY", i)),
 		}
@@ -80,11 +82,11 @@ func TestDifferingHeredocBodiesNeedAuthoring(t *testing.T) {
 func TestDraftFollowsARecordedOrder(t *testing.T) {
 	// Five runs do status, diff, log; three do log, status, diff. The draft
 	// must be one of those orders, never a mix.
-	ss := requestSessions(8, func(i int) string { return "what changed" }, func(i int) []Call {
+	ss := requestSessions(8, func(i int) string { return "what changed" }, func(i int) []trace.Call {
 		if i < 5 {
-			return []Call{sh("git status --short"), sh("git diff --stat"), sh("git log --oneline -3")}
+			return []trace.Call{sh("git status --short"), sh("git diff --stat"), sh("git log --oneline -3")}
 		}
-		return []Call{sh("git log --oneline -3"), sh("git status --short"), sh("git diff --stat")}
+		return []trace.Call{sh("git log --oneline -3"), sh("git status --short"), sh("git diff --stat")}
 	})
 	r := firstRoutine(t, ss)
 	got := labelsOf(r.Candidate)
@@ -97,8 +99,8 @@ func TestDraftFollowsARecordedOrder(t *testing.T) {
 }
 
 func TestDistinctCallsWithTheSameLabelAreKept(t *testing.T) {
-	ss := requestSessions(8, func(i int) string { return "compare the two configs" }, func(i int) []Call {
-		return []Call{
+	ss := requestSessions(8, func(i int) string { return "compare the two configs" }, func(i int) []trace.Call {
+		return []trace.Call{
 			{Tool: "Read", Args: map[string]string{"file_path": "config/a.yaml"}},
 			{Tool: "Read", Args: map[string]string{"file_path": "config/b.yaml"}},
 			sh("git diff --stat"),
@@ -111,14 +113,14 @@ func TestDistinctCallsWithTheSameLabelAreKept(t *testing.T) {
 }
 
 func TestFailedRunsAreNotEvidence(t *testing.T) {
-	ss := requestSessions(10, func(i int) string { return "ship it" }, func(i int) []Call {
+	ss := requestSessions(10, func(i int) string { return "ship it" }, func(i int) []trace.Call {
 		status := sh("git status --short")
 		push := sh(fmt.Sprintf("git push origin feature-%d", i))
-		status.Outcome, push.Outcome = OutcomeOK, OutcomeOK
+		status.Outcome, push.Outcome = trace.OutcomeOK, trace.OutcomeOK
 		if i >= 4 {
-			push.Outcome = OutcomeFailed // six of ten pushes failed
+			push.Outcome = trace.OutcomeFailed // six of ten pushes failed
 		}
-		return []Call{status, push}
+		return []trace.Call{status, push}
 	})
 	r := firstRoutine(t, ss)
 	if r.Runs != 10 || r.FailedRuns != 6 || len(r.Draft().Inputs) != 1 {
@@ -132,12 +134,12 @@ func TestFailedRunsAreNotEvidence(t *testing.T) {
 func TestAValueFromAnEarlierOutputIsTakenFromIt(t *testing.T) {
 	// Every run read the thread the search returned, and the id always sat
 	// after the same text: the draft takes it from the search's output.
-	ss := requestSessions(8, func(i int) string { return "reply to the intro email" }, func(i int) []Call {
+	ss := requestSessions(8, func(i int) string { return "reply to the intro email" }, func(i int) []trace.Call {
 		thread := fmt.Sprintf("18c%013x", 0xabc0+i)
-		search := Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"}, Outcome: OutcomeOK}
-		search.OutIDs, search.OutCtx, search.OutPaths = outputRefsPaths(fmt.Sprintf(`{"count":%d,"threads":[{"id":"%s","subject":"hi"}]}`, 3+i, thread))
-		read := Call{Tool: "mcp:gmail_read_email_thread", Args: map[string]string{"thread_id": thread}, Outcome: OutcomeOK}
-		return []Call{search, read}
+		search := trace.Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"}, Outcome: trace.OutcomeOK}
+		search.OutIDs, search.OutCtx, search.OutPaths = trace.OutputRefsPaths(fmt.Sprintf(`{"count":%d,"threads":[{"id":"%s","subject":"hi"}]}`, 3+i, thread))
+		read := trace.Call{Tool: "mcp:gmail_read_email_thread", Args: map[string]string{"thread_id": thread}, Outcome: trace.OutcomeOK}
+		return []trace.Call{search, read}
 	})
 	r := firstRoutine(t, ss)
 	d := r.Draft()
@@ -164,14 +166,14 @@ func TestAValueFromAnEarlierOutputIsTakenFromIt(t *testing.T) {
 }
 
 func TestAValueWithNoCommonAnchorNeedsAuthoring(t *testing.T) {
-	ss := requestSessions(8, func(i int) string { return "reply to the intro email" }, func(i int) []Call {
+	ss := requestSessions(8, func(i int) string { return "reply to the intro email" }, func(i int) []trace.Call {
 		thread := fmt.Sprintf("18c%013x", 0xabc0+i)
-		search := Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"}, Outcome: OutcomeOK}
+		search := trace.Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"}, Outcome: trace.OutcomeOK}
 		// The id sits after different text each run.
-		search.OutIDs, search.OutCtx = outputRefs(fmt.Sprintf("result %d: %s", i, thread)[len("result "):])
-		search.OutIDs, search.OutCtx = outputRefs(strings.Repeat("xy", i) + " " + thread)
-		read := Call{Tool: "mcp:gmail_read_email_thread", Args: map[string]string{"thread_id": thread}, Outcome: OutcomeOK}
-		return []Call{search, read}
+		search.OutIDs, search.OutCtx = trace.OutputRefs(fmt.Sprintf("result %d: %s", i, thread)[len("result "):])
+		search.OutIDs, search.OutCtx = trace.OutputRefs(strings.Repeat("xy", i) + " " + thread)
+		read := trace.Call{Tool: "mcp:gmail_read_email_thread", Args: map[string]string{"thread_id": thread}, Outcome: trace.OutcomeOK}
+		return []trace.Call{search, read}
 	})
 	r := firstRoutine(t, ss)
 	d := r.Draft()
@@ -184,12 +186,12 @@ func TestAValueWithNoCommonAnchorNeedsAuthoring(t *testing.T) {
 }
 
 func TestTenOrMoreArgumentsAreBraced(t *testing.T) {
-	ss := requestSessions(6, func(i int) string { return "file the report" }, func(i int) []Call {
+	ss := requestSessions(6, func(i int) string { return "file the report" }, func(i int) []trace.Call {
 		args := map[string]string{}
 		for k := 0; k < 11; k++ {
 			args[fmt.Sprintf("f%02d", k)] = fmt.Sprintf("v%d-%d", i, k)
 		}
-		return []Call{{Tool: "mcp:telara_tool_search", Args: map[string]string{"query": "x"}}, {Tool: "mcp:report_file", Args: args}}
+		return []trace.Call{{Tool: "mcp:telara_tool_search", Args: map[string]string{"query": "x"}}, {Tool: "mcp:report_file", Args: args}}
 	})
 	sh := string(firstRoutine(t, ss).Draft().Files["main.sh"])
 	if strings.Contains(sh, `"$10"`) || !strings.Contains(sh, `"${11}"`) {
@@ -198,10 +200,10 @@ func TestTenOrMoreArgumentsAreBraced(t *testing.T) {
 }
 
 func TestAStepRepeatedWithDifferentValuesIsALoop(t *testing.T) {
-	ss := requestSessions(9, func(i int) string { return "compare the configs" }, func(i int) []Call {
-		var cs []Call
+	ss := requestSessions(9, func(i int) string { return "compare the configs" }, func(i int) []trace.Call {
+		var cs []trace.Call
 		for f := 0; f < 2+i%3; f++ { // 2, 3 or 4 files per run
-			cs = append(cs, Call{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("config/%d-%d.yaml", i, f)}})
+			cs = append(cs, trace.Call{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("config/%d-%d.yaml", i, f)}})
 		}
 		return append(cs, sh("git diff --stat"))
 	})
@@ -219,7 +221,7 @@ func TestAStepRepeatedWithDifferentValuesIsALoop(t *testing.T) {
 
 func TestFunnelCountsMatchDecisions(t *testing.T) {
 	o := DefaultOptions()
-	o.Readers = []Reader{fakeReader{sessions: append(requestCorpus(), credCorpus()...)}}
+	o.Readers = []trace.Reader{fakeReader{sessions: append(requestCorpus(), credCorpus()...)}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)

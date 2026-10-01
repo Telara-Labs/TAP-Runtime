@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // ClaudeCode reads Claude Code transcripts: <Dir>/<project>/<session>.jsonl.
@@ -18,12 +20,12 @@ type ClaudeCode struct{ Dir string }
 
 func (ClaudeCode) Client() string { return "claude-code" }
 
-func (r ClaudeCode) Read(since time.Time) ([]Session, error) {
+func (r ClaudeCode) Read(since time.Time) ([]trace.Session, error) {
 	files, err := filepath.Glob(filepath.Join(r.Dir, "*", "*.jsonl"))
 	if err != nil {
 		return nil, err
 	}
-	var out []Session
+	var out []trace.Session
 	for _, f := range files {
 		if info, err := os.Stat(f); err != nil || info.ModTime().Before(since) {
 			continue
@@ -62,24 +64,24 @@ type claudeBlock struct {
 	Input map[string]json.RawMessage `json:"input"`
 }
 
-func readClaudeFile(path string) (s Session, err error) {
+func readClaudeFile(path string) (s trace.Session, err error) {
 	// One file the parser cannot follow is skipped, not the whole run.
 	defer func() {
 		if r := recover(); r != nil {
-			s, err = Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
+			s, err = trace.Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
 		}
 	}()
 	fh, err := os.Open(path)
 	if err != nil {
-		return Session{}, err
+		return trace.Session{}, err
 	}
 	defer fh.Close()
-	s = Session{Client: "claude-code", ID: strings.TrimSuffix(filepath.Base(path), ".jsonl")}
+	s = trace.Session{Client: "claude-code", ID: strings.TrimSuffix(filepath.Base(path), ".jsonl")}
 	// One model response is written as several lines (one per content
 	// block) that repeat its usage; it is counted once, split over the
 	// tool calls it made.
 	type turn struct {
-		usage Usage
+		usage trace.Usage
 		calls []int
 	}
 	turns := map[string]*turn{}
@@ -96,12 +98,12 @@ func readClaudeFile(path string) (s Session, err error) {
 			s.Start = ln.Timestamp
 		}
 		if ln.Type == "user" && !ln.IsMeta {
-			if text := claudeUserText(ln.Message.Content); isRequest(text) {
+			if text := claudeUserText(ln.Message.Content); trace.IsRequest(text) {
 				role := "user"
 				if isClaudeContinuationSummary(text) {
 					role = "synthetic_context"
 				}
-				s.addRequestWithRole(text, role)
+				s.AddRequestWithRole(text, role)
 			}
 			// Results of earlier tool calls: whether they failed, and the
 			// identifiers they returned.
@@ -118,14 +120,14 @@ func readClaudeFile(path string) (s Session, err error) {
 						continue
 					}
 					text := claudeUserText(r.Content)
-					s.Calls[ci].Outcome = OutcomeOK
-					if r.IsError || resultOutcome(text) == OutcomeFailed {
-						s.Calls[ci].Outcome = OutcomeFailed
+					s.Calls[ci].Outcome = trace.OutcomeOK
+					if r.IsError || trace.ResultOutcome(text) == trace.OutcomeFailed {
+						s.Calls[ci].Outcome = trace.OutcomeFailed
 					}
-					s.Calls[ci].OutIDs, s.Calls[ci].OutCtx, s.Calls[ci].OutPaths = outputRefsPaths(text)
-					s.Calls[ci].OutCollections = resultCollections(text)
-					s.Calls[ci].Output = truncateUTF8(text, 600)
-					s.Calls[ci].OutTokens = outputTokens(text)
+					s.Calls[ci].OutIDs, s.Calls[ci].OutCtx, s.Calls[ci].OutPaths = trace.OutputRefsPaths(text)
+					s.Calls[ci].OutCollections = trace.ResultCollections(text)
+					s.Calls[ci].Output = trace.TruncateUTF8(text, 600)
+					s.Calls[ci].OutTokens = trace.OutputTokens(text)
 				}
 			}
 			continue
@@ -141,7 +143,7 @@ func readClaudeFile(path string) (s Session, err error) {
 		if tr == nil {
 			tr = &turn{}
 			if u := ln.Message.Usage; u != nil {
-				tr.usage = Usage{Fresh: u.Input + u.CacheCreate, Cached: u.CacheRead, Output: u.Output}
+				tr.usage = trace.Usage{Fresh: u.Input + u.CacheCreate, Cached: u.CacheRead, Output: u.Output}
 			}
 			turns[ln.Message.ID] = tr
 			order = append(order, ln.Message.ID)
@@ -154,7 +156,7 @@ func readClaudeFile(path string) (s Session, err error) {
 			if b.ID != "" {
 				byUseID[b.ID] = len(s.Calls)
 			}
-			c := Call{Client: s.Client, Session: s.ID, ID: b.ID, Time: ln.Timestamp, Request: s.request()}
+			c := trace.Call{Client: s.Client, Session: s.ID, ID: b.ID, Time: ln.Timestamp, Request: s.Request()}
 			switch {
 			case b.Name == "Bash":
 				c.Tool, c.Command = "shell", rawString(b.Input["command"])
@@ -173,7 +175,7 @@ func readClaudeFile(path string) (s Session, err error) {
 			continue
 		}
 		for _, ci := range tr.calls {
-			s.Calls[ci].Tokens = tr.usage.scale(1 / float64(len(tr.calls)))
+			s.Calls[ci].Tokens = tr.usage.Scale(1 / float64(len(tr.calls)))
 			s.Calls[ci].Turn, s.Calls[ci].Measured = ti, true
 		}
 	}
@@ -232,7 +234,7 @@ func flatten(in map[string]json.RawMessage) map[string]string {
 	out := make(map[string]string, len(in))
 	for k, v := range in {
 		s := rawString(v)
-		s = truncateUTF8(s, maxArg)
+		s = trace.TruncateUTF8(s, maxArg)
 		out[k] = s
 	}
 	return out

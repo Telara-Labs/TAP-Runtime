@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/discover"
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 func main() {
@@ -54,7 +55,7 @@ func main() {
 	}
 }
 
-func readers() ([]discover.Reader, error) {
+func readers() ([]trace.Reader, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -62,8 +63,8 @@ func readers() ([]discover.Reader, error) {
 	return discover.DefaultReaders([]string{"claude-code", "codex", "cursor"}, home)
 }
 
-func readAll(rs []discover.Reader) ([]discover.Session, error) {
-	var all []discover.Session
+func readAll(rs []trace.Reader) ([]trace.Session, error) {
+	var all []trace.Session
 	for _, r := range rs {
 		ss, err := r.Read(time.Time{})
 		if err != nil {
@@ -74,7 +75,7 @@ func readAll(rs []discover.Reader) ([]discover.Session, error) {
 	return all, nil
 }
 
-func frozenReaders(path string) ([]discover.Reader, discover.Manifest, error) {
+func frozenReaders(path string) ([]trace.Reader, discover.Manifest, error) {
 	var m discover.Manifest
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -87,7 +88,7 @@ func frozenReaders(path string) ([]discover.Reader, discover.Manifest, error) {
 	if err != nil {
 		return nil, m, err
 	}
-	out := make([]discover.Reader, len(rs))
+	out := make([]trace.Reader, len(rs))
 	for i, r := range rs {
 		out[i] = discover.FrozenReader{Inner: r, Manifest: m}
 	}
@@ -217,7 +218,7 @@ func show(args []string) error {
 	if err != nil {
 		return err
 	}
-	var all []discover.Session
+	var all []trace.Session
 	for _, r := range rs {
 		ss, err := r.Read(time.Time{})
 		if err != nil {
@@ -226,7 +227,7 @@ func show(args []string) error {
 		all = append(all, ss...)
 	}
 	o := discover.DefaultOptions()
-	o.Readers = []discover.Reader{staticReader(all)}
+	o.Readers = []trace.Reader{staticReader(all)}
 	o.Now = func() time.Time { return time.Time{} }
 	rep, err := discover.Run(o)
 	if err != nil {
@@ -255,7 +256,7 @@ func show(args []string) error {
 			if k == *n {
 				break
 			}
-			e := discover.Episode{ID: discover.EpisodeID(s.Client, s.Session, s.Request), Client: s.Client, Session: s.Session, Request: s.Request}
+			e := discover.Episode{ID: trace.EpisodeID(s.Client, s.Session, s.Request), Client: s.Client, Session: s.Session, Request: s.Request}
 			for _, ep := range c.Episodes() {
 				if ep.ID == e.ID {
 					e = ep
@@ -269,11 +270,11 @@ func show(args []string) error {
 }
 
 // staticReader serves sessions already read, as one reader per client.
-type staticReaderT struct{ ss []discover.Session }
+type staticReaderT struct{ ss []trace.Session }
 
-func staticReader(ss []discover.Session) discover.Reader { return staticReaderT{ss} }
-func (s staticReaderT) Client() string                   { return "frozen" }
-func (s staticReaderT) Read(time.Time) ([]discover.Session, error) {
+func staticReader(ss []trace.Session) trace.Reader { return staticReaderT{ss} }
+func (s staticReaderT) Client() string             { return "frozen" }
+func (s staticReaderT) Read(time.Time) ([]trace.Session, error) {
 	return s.ss, nil
 }
 
@@ -423,7 +424,7 @@ func spans(args []string) error {
 		return err
 	}
 	if *client != "" {
-		var selected []discover.Reader
+		var selected []trace.Reader
 		for _, r := range rs {
 			if r.Client() == *client {
 				selected = append(selected, r)

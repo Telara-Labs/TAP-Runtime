@@ -6,7 +6,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"unicode"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // This file decides what a routine is: its task contract (where each input
@@ -20,202 +21,10 @@ import (
 // supply evidence for the contract. None of them decides suitability on its
 // own, and an unknown tool yields "unknown", never a guess.
 
-// selectorKeys are tool arguments whose value names the operation to run.
-// A routine whose runs used different operations is not one procedure.
-var selectorKeys = map[string]bool{"action": true, "operation": true, "op": true, "method": true, "verb": true, "tool": true, "tool_name": true, "command": true}
-
-// scopeFlags and scopeArgs carry authority: which cluster, namespace,
-// project or environment a call acts on.
-var (
-	scopeFlags = map[string]bool{"--context=": true, "--kube-context=": true, "-n=": true, "--namespace=": true, "--project=": true, "--profile=": true, "--region=": true, "--cluster=": true, "--env=": true, "--environment=": true, "-C=": true}
-	scopeArgs  = map[string]bool{"integration": true, "project": true, "project_id": true, "project_key": true, "namespace": true, "context": true, "cluster": true, "environment": true, "env": true}
-)
-
-func isScopeSlot(st Step, sl Slot) bool {
-	if strings.HasPrefix(st.Label, "sh:") {
-		return scopeFlags[strings.SplitN(sl.Key, "#", 2)[0]]
-	}
-	return scopeArgs[sl.Key]
-}
-
-// Effect evidence.
-var (
-	readPrograms = map[string]bool{"cat": true, "head": true, "tail": true, "grep": true, "rg": true, "find": true, "ls": true, "wc": true, "awk": true, "jq": true, "sort": true, "uniq": true,
-		"diff": true, "stat": true, "file": true, "du": true, "df": true, "date": true, "pwd": true, "shasum": true, "sha256sum": true, "md5": true, "md5sum": true, "tree": true, "which": true,
-		"nl": true, "cut": true, "tr": true, "column": true, "less": true, "realpath": true, "basename": true, "dirname": true, "[": true, "test": true}
-	readSub = map[string]map[string]bool{
-		"git":     {"status": true, "diff": true, "log": true, "show": true, "rev-parse": true, "ls-files": true, "blame": true, "describe": true, "shortlog": true, "grep": true, "cat-file": true, "ls-remote": true, "rev-list": true, "merge-base": true},
-		"kubectl": {"get": true, "describe": true, "logs": true, "top": true, "explain": true, "version": true, "api-resources": true, "auth": true},
-		"gh":      {"view": true, "list": true, "status": true, "diff": true, "checks": true},
-		"go":      {"test": true, "vet": true, "build": true, "list": true, "version": true, "env": true},
-		"helm":    {"list": true, "status": true, "get": true, "history": true, "template": true, "show": true},
-		"docker":  {"ps": true, "images": true, "logs": true, "inspect": true},
-		"npm":     {"test": true, "ls": true, "view": true},
-	}
-	writeSub = map[string]map[string]bool{
-		"git":     {"push": true, "commit": true, "tag": true, "merge": true, "rebase": true, "reset": true, "checkout": true, "add": true, "rm": true, "mv": true, "stash": true, "cherry-pick": true, "revert": true, "switch": true, "restore": true, "clean": true},
-		"kubectl": {"apply": true, "create": true, "delete": true, "set": true, "patch": true, "scale": true, "rollout": true, "edit": true, "label": true, "annotate": true, "replace": true, "cordon": true, "drain": true},
-		"helm":    {"install": true, "upgrade": true, "uninstall": true, "rollback": true},
-		"docker":  {"push": true, "rm": true, "rmi": true, "run": true, "build": true},
-		"npm":     {"publish": true, "install": true},
-	}
-	writePrograms = map[string]bool{"rm": true, "mv": true, "cp": true, "mkdir": true, "touch": true, "tee": true, "chmod": true, "chown": true, "ln": true, "rsync": true, "scp": true}
-	toolWord      = regexp.MustCompile(`[a-z]+`)
-	readVerbs     = map[string]bool{"get": true, "list": true, "search": true, "read": true, "describe": true, "fetch": true, "show": true, "view": true, "count": true, "query": true, "find": true, "lookup": true, "download": true, "status": true}
-	writeVerbs    = map[string]bool{"create": true, "update": true, "delete": true, "add": true, "send": true, "post": true, "set": true, "transition": true, "merge": true, "complete": true, "checkpoint": true,
-		"write": true, "remove": true, "publish": true, "upload": true, "edit": true, "assign": true, "move": true, "archive": true, "close": true, "reply": true, "forward": true, "trash": true, "share": true,
-		"comment": true, "approve": true, "trigger": true, "run": true, "execute": true, "retry": true, "cancel": true, "restart": true, "deploy": true, "push": true, "apply": true, "patch": true, "store": true, "save": true, "insert": true}
-)
-
-// stepEffect is what one recorded step does by declared evidence: "read",
-// "write" or "unknown".
-func stepEffect(st Step) string {
-	switch {
-	case readTools[st.Label] || fetchTools[st.Label]:
-		return "read"
-	case editTools[st.Label] || strings.HasPrefix(st.Label, "patch:"):
-		return "write"
-	case strings.HasPrefix(st.Label, "sh:"):
-		if st.Compound && hasFileRedirect(st.Raw) {
-			return "write"
-		}
-		f := strings.Fields(strings.TrimPrefix(st.Label, "sh:"))
-		prog := f[0]
-		sub := ""
-		if len(f) > 1 {
-			sub = f[1]
-		}
-		if prog == "git" && sub == "branch" {
-			for _, sl := range st.Slots {
-				if sl.Value == "-d" || sl.Value == "-D" || sl.Value == "--delete" || sl.Value == "-m" {
-					return "write"
-				}
-			}
-			return "read"
-		}
-		if prog == "sed" {
-			for _, sl := range st.Slots {
-				if strings.HasPrefix(sl.Value, "-i") {
-					return "write"
-				}
-			}
-			return "read"
-		}
-		if prog == "curl" {
-			for _, sl := range st.Slots {
-				v := strings.ToUpper(sl.Value)
-				k := strings.SplitN(sl.Key, "#", 2)[0]
-				if (k == "-X=" || k == "--request=") && v != "GET" && v != "HEAD" {
-					return "write"
-				}
-				if k == "-d" || k == "--data" || k == "-d=" || k == "--data=" || k == "-F=" || k == "--form=" || k == "--data-raw=" || k == "--data-binary=" {
-					return "write"
-				}
-			}
-			return "read"
-		}
-		if writePrograms[prog] || writeSub[prog][sub] {
-			return "write"
-		}
-		if readPrograms[prog] || readSub[prog][sub] {
-			return "read"
-		}
-		// A subcommand the label does not carry (a one-off word): look at the
-		// recorded words for a known subcommand.
-		for _, sl := range st.Slots {
-			if writeSub[prog][sl.Value] {
-				return "write"
-			}
-			if readSub[prog][sl.Value] && sl.Key == "p0" {
-				return "read"
-			}
-		}
-		return "unknown"
-	case strings.HasPrefix(st.Label, "mcp:"):
-		name := strings.TrimPrefix(st.Label, "mcp:")
-		if strings.HasPrefix(name, "browser_") || name == "js" {
-			return "unknown"
-		}
-		var action string
-		for _, sl := range st.Slots {
-			if selectorKeys[sl.Key] {
-				action = sl.Value
-			}
-		}
-		if action != "" {
-			if effect, found := operationNameEffect(action); found {
-				return effect
-			}
-			// The gateway's own name describes dispatch, not the selected
-			// operation. An opaque action cannot inherit its wrapper's effect.
-			return "unknown"
-		}
-		if effect, found := operationNameEffect(name); found {
-			return effect
-		}
-		return "unknown"
-	}
-	return "unknown"
-}
-
-// An operation's leading verb determines its effect. A later noun may also be
-// a verb in another context (get_comment, list_updates), so scanning for any
-// write word first mislabels reads. Explicit compound operation names with
-// different effects remain unknown rather than guessed.
-func operationNameEffect(name string) (string, bool) {
-	var separated strings.Builder
-	runes := []rune(name)
-	for i, r := range runes {
-		if i > 0 && unicode.IsUpper(r) && (unicode.IsLower(runes[i-1]) || unicode.IsDigit(runes[i-1]) ||
-			unicode.IsUpper(runes[i-1]) && i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
-			separated.WriteByte('_')
-		}
-		separated.WriteRune(r)
-	}
-	words := toolWord.FindAllString(strings.ToLower(separated.String()), -1)
-	effect := ""
-	connected := false
-	for _, w := range words {
-		if w == "and" || w == "or" || w == "then" {
-			connected = true
-			continue
-		}
-		current := ""
-		if readVerbs[w] {
-			current = "read"
-		} else if writeVerbs[w] {
-			current = "write"
-		}
-		if current == "" {
-			continue
-		}
-		if effect == "" {
-			effect = current
-		} else if connected && current != effect {
-			return "unknown", true
-		}
-		connected = false
-	}
-	return effect, effect != ""
-}
-
-var fileRedirectRe = regexp.MustCompile(`(^|[^0-9&<>])>>?\s*([^\s&|;]+)`)
-
-// hasFileRedirect reports a > or >> redirect to something other than
-// /dev/null or a file descriptor.
-func hasFileRedirect(raw string) bool {
-	for _, m := range fileRedirectRe.FindAllStringSubmatch(raw, -1) {
-		if m[2] != "/dev/null" && !strings.HasPrefix(m[2], "&") {
-			return true
-		}
-	}
-	return false
-}
-
 // splitKey is what a request's run of the group's common steps must agree
 // on to be the same procedure: the operation each tool call named and,
 // when a step writes, the authority scope it wrote to.
-func splitKey(steps []Step, common map[string]bool) string {
+func splitKey(steps []trace.Step, common map[string]bool) string {
 	var parts []string
 	seen := map[string]bool{}
 	for _, st := range steps {
@@ -223,15 +32,15 @@ func splitKey(steps []Step, common map[string]bool) string {
 			continue
 		}
 		seen[st.Label] = true
-		write := stepEffect(st) == "write"
+		write := trace.StepEffect(st) == "write"
 		for _, sl := range st.Slots {
 			if sl.Sub {
 				continue
 			}
-			if !strings.HasPrefix(st.Label, "sh:") && selectorKeys[sl.Key] {
+			if !strings.HasPrefix(st.Label, "sh:") && trace.SelectorKeys[sl.Key] {
 				parts = append(parts, st.Label+"|"+sl.Key+"="+sl.Value)
 			}
-			if write && isScopeSlot(st, sl) {
+			if write && trace.IsScopeSlot(st, sl) {
 				parts = append(parts, st.Label+"|"+sl.Key+sl.Value)
 			}
 		}
@@ -242,13 +51,13 @@ func splitKey(steps []Step, common map[string]bool) string {
 
 // splitGroup separates a group's requests by splitKey over the steps at
 // least half of them ran. Subgroups keep corpus order.
-func splitGroup(corpus []normSession, inst []reqInstance, g []int) [][]int {
+func splitGroup(corpus []trace.NormSession, inst []reqInstance, g []int) [][]int {
 	present := map[string]int{}
 	for _, i := range g {
 		s := corpus[inst[i].session]
 		seen := map[string]bool{}
 		for _, si := range inst[i].steps {
-			if l := s.Steps[si].Label; replayable(l) && !seen[l] {
+			if l := s.Steps[si].Label; trace.Replayable(l) && !seen[l] {
 				seen[l] = true
 				present[l]++
 			}
@@ -264,7 +73,7 @@ func splitGroup(corpus []normSession, inst []reqInstance, g []int) [][]int {
 	var order []string
 	for _, i := range g {
 		s := corpus[inst[i].session]
-		steps := make([]Step, 0, len(inst[i].steps))
+		steps := make([]trace.Step, 0, len(inst[i].steps))
 		for _, si := range inst[i].steps {
 			steps = append(steps, s.Steps[si])
 		}
@@ -327,8 +136,8 @@ func sharesRun(v, out string, n int) bool {
 
 // contractRun is one run of a routine with the evidence the contract needs.
 type contractRun struct {
-	steps     []Step
-	all       []Step // every call of the request, in order
+	steps     []trace.Step
+	all       []trace.Step // every call of the request, in order
 	text      string
 	approvals int
 }
@@ -342,7 +151,7 @@ func buildContract(rt *Routine, d *Draft, runs []contractRun, loops []string) {
 	effect := "read"
 	if len(runs) > 0 {
 		for _, st := range runs[0].steps {
-			switch stepEffect(st) {
+			switch trace.StepEffect(st) {
 			case "write":
 				effect = "write"
 			case "unknown":
@@ -367,7 +176,7 @@ func buildContract(rt *Routine, d *Draft, runs []contractRun, loops []string) {
 	if len(runs) > 0 {
 		for k, st := range runs[0].steps {
 			for _, sl := range st.Slots {
-				if !isScopeSlot(st, sl) {
+				if !trace.IsScopeSlot(st, sl) {
 					continue
 				}
 				same := true
@@ -407,7 +216,7 @@ func buildContract(rt *Routine, d *Draft, runs []contractRun, loops []string) {
 		if len(runs) == 0 || pos < 0 || pos >= len(runs[0].steps) {
 			return "unknown"
 		}
-		return stepEffect(runs[0].steps[pos])
+		return trace.StepEffect(runs[0].steps[pos])
 	}
 	for n, in := range d.Inputs {
 		ci := ContractInput{Name: in.Name, Type: in.Type}
@@ -427,7 +236,7 @@ func buildContract(rt *Routine, d *Draft, runs []contractRun, loops []string) {
 					continue
 				}
 				total++
-				if inRequest(v, runs[j].text) || composedFromRequest(v, runs[j].text) {
+				if trace.InRequest(v, runs[j].text) || composedFromRequest(v, runs[j].text) {
 					hit++
 					continue
 				}
@@ -571,7 +380,7 @@ func decide(rt *Routine, d *Draft, loops []string, unresolvedRead, unresolvedWri
 			if d != nil {
 				for p, st := range rt.Steps {
 					if st.Label == l && len(d.firstRun) > p {
-						eff = stepEffect(d.firstRun[p])
+						eff = trace.StepEffect(d.firstRun[p])
 					}
 				}
 			}
@@ -724,7 +533,7 @@ func composedFromRequest(v, text string) bool {
 		p = strings.TrimSpace(p)
 		switch {
 		case p == "":
-		case len(p) >= 3 && inRequest(p, text):
+		case len(p) >= 3 && trace.InRequest(p, text):
 			in++
 		case !strings.ContainsAny(p, "0123456789") && len(p) <= 40:
 			// a fixed key or keyword

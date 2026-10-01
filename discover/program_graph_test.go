@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-func graphCandidateFor(t *testing.T, ss []Session, actions ...string) (LogicCandidate, []SpanProposal) {
+func graphCandidateFor(t *testing.T, ss []trace.Session, actions ...string) (LogicCandidate, []SpanProposal) {
 	t.Helper()
 	ps := SelectSpanProposals(ss)
 	for _, c := range GroupLogicCandidates(ps) {
@@ -27,18 +29,18 @@ func graphCandidateFor(t *testing.T, ss []Session, actions ...string) (LogicCand
 }
 
 func TestSynthesizeProgramGraphUsesRolesAndResultFlow(t *testing.T) {
-	created := func(key string) Call {
-		return spanRefs(Call{Tool: "mcp:telara_execute_action", Args: map[string]string{
+	created := func(key string) trace.Call {
+		return spanRefs(trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{
 			"integration": "jira", "action": "create_issue", "params": `{"summary":"follow up"}`,
-		}, MCPServer: "telara", MCPTool: "telara_execute_action", Output: `{"key":"` + key + `"}`, Outcome: OutcomeOK})
+		}, MCPServer: "telara", MCPTool: "telara_execute_action", Output: `{"key":"` + key + `"}`, Outcome: trace.OutcomeOK})
 	}
-	link := func(root, child string) Call {
-		return Call{Tool: "mcp:telara_execute_action", Args: map[string]string{
+	link := func(root, child string) trace.Call {
+		return trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{
 			"integration": "jira", "action": "create_issue_link",
 			"params": `{"inward_issue_key":"` + root + `","outward_issue_key":"` + child + `"}`,
-		}, MCPServer: "telara", MCPTool: "telara_execute_action", Output: `{"linked":true}`, Outcome: OutcomeOK}
+		}, MCPServer: "telara", MCPTool: "telara_execute_action", Output: `{"linked":true}`, Outcome: trace.OutcomeOK}
 	}
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("one", "Create follow up and link TENG-2", created("TENG-1"), link("TENG-1", "TENG-2")),
 		selSession("many", "Create follow up and link TENG-8 and TENG-9", created("TENG-7"), link("TENG-7", "TENG-8"), link("TENG-7", "TENG-9")),
 	}
@@ -72,15 +74,15 @@ func TestSynthesizeProgramGraphUsesRolesAndResultFlow(t *testing.T) {
 }
 
 func TestSynthesizeTwoCreatedResultsWithVariableRoleOrder(t *testing.T) {
-	create := func(name, id string) Call {
-		return spanRefs(Call{Tool: "mcp:records_create", MCPServer: "records", MCPTool: "create",
-			Args: map[string]string{"name": name}, Output: `{"id":"` + id + `"}`, Outcome: OutcomeOK})
+	create := func(name, id string) trace.Call {
+		return spanRefs(trace.Call{Tool: "mcp:records_create", MCPServer: "records", MCPTool: "create",
+			Args: map[string]string{"name": name}, Output: `{"id":"` + id + `"}`, Outcome: trace.OutcomeOK})
 	}
-	link := func(inward, outward string) Call {
-		return Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
-			Args: map[string]string{"inward_id": inward, "outward_id": outward}, Outcome: OutcomeOK}
+	link := func(inward, outward string) trace.Call {
+		return trace.Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
+			Args: map[string]string{"inward_id": inward, "outward_id": outward}, Outcome: trace.OutcomeOK}
 	}
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("left-first", "Create Alpha and Beta then link them", create("Alpha", "TENG-101"), create("Beta", "TENG-102"), link("TENG-101", "TENG-102")),
 		selSession("right-first", "Create Delta and Gamma then link them", create("Delta", "TENG-202"), create("Gamma", "TENG-201"), link("TENG-201", "TENG-202")),
 	}
@@ -105,15 +107,15 @@ func TestSynthesizeTwoCreatedResultsWithVariableRoleOrder(t *testing.T) {
 }
 
 func TestSynthesizeProgramGraphSharesStableInputAcrossLoopSteps(t *testing.T) {
-	create := func(project, id string) Call {
-		return spanRefs(Call{Tool: "mcp:records_create", MCPServer: "records", MCPTool: "create",
-			Args: map[string]string{"project_id": project, "name": "follow up"}, Output: `{"id":"` + id + `"}`, Outcome: OutcomeOK})
+	create := func(project, id string) trace.Call {
+		return spanRefs(trace.Call{Tool: "mcp:records_create", MCPServer: "records", MCPTool: "create",
+			Args: map[string]string{"project_id": project, "name": "follow up"}, Output: `{"id":"` + id + `"}`, Outcome: trace.OutcomeOK})
 	}
-	link := func(project, id, target string) Call {
-		return Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
-			Args: map[string]string{"project_id": project, "record_id": id, "target_id": target}, Outcome: OutcomeOK}
+	link := func(project, id, target string) trace.Call {
+		return trace.Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
+			Args: map[string]string{"project_id": project, "record_id": id, "target_id": target}, Outcome: trace.OutcomeOK}
 	}
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("one", "Create and link one", create("project-one", "NEW-1"), link("project-one", "NEW-1", "TENG-1")),
 		selSession("many", "Create and link two", create("project-two", "NEW-2"), link("project-two", "NEW-2", "TENG-2"), link("project-two", "NEW-2", "TENG-3")),
 	}
@@ -141,11 +143,11 @@ func TestSynthesizeProgramGraphSharesStableInputAcrossLoopSteps(t *testing.T) {
 }
 
 func TestSynthesizeProgramGraphMakesUnobservedValuesInvocationInputs(t *testing.T) {
-	ss := []Session{
-		selSession("a", "Do the work", spanRefs(Call{Tool: "mcp:gitlab_list_pipelines", Args: map[string]string{"project_id": "123456"}, Output: `{"id":81234567}`, Outcome: OutcomeOK}),
-			Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "81234567"}, Outcome: OutcomeOK}),
-		selSession("b", "Do the work", spanRefs(Call{Tool: "mcp:gitlab_list_pipelines", Args: map[string]string{"project_id": "789012"}, Output: `{"id":91234567}`, Outcome: OutcomeOK}),
-			Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "91234567"}, Outcome: OutcomeOK}),
+	ss := []trace.Session{
+		selSession("a", "Do the work", spanRefs(trace.Call{Tool: "mcp:gitlab_list_pipelines", Args: map[string]string{"project_id": "123456"}, Output: `{"id":81234567}`, Outcome: trace.OutcomeOK}),
+			trace.Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "81234567"}, Outcome: trace.OutcomeOK}),
+		selSession("b", "Do the work", spanRefs(trace.Call{Tool: "mcp:gitlab_list_pipelines", Args: map[string]string{"project_id": "789012"}, Output: `{"id":91234567}`, Outcome: trace.OutcomeOK}),
+			trace.Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "91234567"}, Outcome: trace.OutcomeOK}),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:gitlab_list_pipelines", "mcp:gitlab_list_jobs")
 	g, err := SynthesizeProgramGraph(c, ps, ss)
@@ -161,13 +163,13 @@ func TestSynthesizeProgramGraphMakesUnobservedValuesInvocationInputs(t *testing.
 }
 
 func TestSynthesizeProgramGraphRejectsStaleSource(t *testing.T) {
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("a", "Get jobs for the latest pipeline",
-			spanRefs(Call{Tool: "mcp:gitlab_list_pipelines", Output: `{"id":81234567}`, Outcome: OutcomeOK}),
-			Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "81234567"}, Outcome: OutcomeOK}),
+			spanRefs(trace.Call{Tool: "mcp:gitlab_list_pipelines", Output: `{"id":81234567}`, Outcome: trace.OutcomeOK}),
+			trace.Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "81234567"}, Outcome: trace.OutcomeOK}),
 		selSession("b", "Get jobs for the latest pipeline",
-			spanRefs(Call{Tool: "mcp:gitlab_list_pipelines", Output: `{"id":91234567}`, Outcome: OutcomeOK}),
-			Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "91234567"}, Outcome: OutcomeOK}),
+			spanRefs(trace.Call{Tool: "mcp:gitlab_list_pipelines", Output: `{"id":91234567}`, Outcome: trace.OutcomeOK}),
+			trace.Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "91234567"}, Outcome: trace.OutcomeOK}),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:gitlab_list_pipelines", "mcp:gitlab_list_jobs")
 	ss[0].Calls[0].Output = `{"id":12345678}`
@@ -177,19 +179,19 @@ func TestSynthesizeProgramGraphRejectsStaleSource(t *testing.T) {
 }
 
 func TestSynthesizeProgramGraphKeepsOptionalArgument(t *testing.T) {
-	create := func(key string, priority bool) Call {
+	create := func(key string, priority bool) trace.Call {
 		args := map[string]string{"summary": "follow up"}
 		if priority {
 			args["priority"] = "high"
 		}
-		return spanRefs(Call{Tool: "mcp:records_create", MCPServer: "records", MCPTool: "create",
-			Args: args, Output: `{"key":"` + key + `"}`, Outcome: OutcomeOK})
+		return spanRefs(trace.Call{Tool: "mcp:records_create", MCPServer: "records", MCPTool: "create",
+			Args: args, Output: `{"key":"` + key + `"}`, Outcome: trace.OutcomeOK})
 	}
-	link := func(root, target string) Call {
-		return Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
-			Args: map[string]string{"root": root, "target": target}, Outcome: OutcomeOK}
+	link := func(root, target string) trace.Call {
+		return trace.Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
+			Args: map[string]string{"root": root, "target": target}, Outcome: trace.OutcomeOK}
 	}
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("plain", "Create follow up and link TENG-2", create("TENG-1", false), link("TENG-1", "TENG-2")),
 		selSession("priority", "Create priority follow up and link TENG-4", create("TENG-3", true), link("TENG-3", "TENG-4")),
 	}
@@ -219,20 +221,20 @@ func TestSynthesizeProgramGraphKeepsOptionalArgument(t *testing.T) {
 }
 
 func TestSynthesizeProgramGraphLoopsOverEarlierResultList(t *testing.T) {
-	list := func(ids ...string) Call {
+	list := func(ids ...string) trace.Call {
 		var items []map[string]string
 		for _, id := range ids {
 			items = append(items, map[string]string{"id": id})
 		}
 		body, _ := json.Marshal(map[string]any{"items": items})
-		return spanRefs(Call{Tool: "mcp:records_list", MCPServer: "records", MCPTool: "list",
-			Output: string(body), Outcome: OutcomeOK})
+		return spanRefs(trace.Call{Tool: "mcp:records_list", MCPServer: "records", MCPTool: "list",
+			Output: string(body), Outcome: trace.OutcomeOK})
 	}
-	act := func(id string) Call {
-		return Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
-			Args: map[string]string{"record_id": id}, Outcome: OutcomeOK}
+	act := func(id string) trace.Call {
+		return trace.Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
+			Args: map[string]string{"record_id": id}, Outcome: trace.OutcomeOK}
 	}
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("one-list", "List the records and link each one", list("TENG-1"), act("TENG-1")),
 		selSession("two-list", "List the records and link each one", list("TENG-2", "TENG-3"), act("TENG-2"), act("TENG-3")),
 	}
@@ -253,27 +255,27 @@ func TestSynthesizeProgramGraphLoopsOverEarlierResultList(t *testing.T) {
 }
 
 func TestObservedJSONNumbersKeepIntegerInputRoles(t *testing.T) {
-	call := Call{Tool: "mcp:example", Args: map[string]string{"params": `{"id":16438397790,"limit":10,"ratio":1.5}`}}
-	fields := observedArgs(call)
-	if fields["params/id"].typeName != "integer" || fields["params/limit"].typeName != "integer" || fields["params/ratio"].typeName != "number" {
+	call := trace.Call{Tool: "mcp:example", Args: map[string]string{"params": `{"id":16438397790,"limit":10,"ratio":1.5}`}}
+	fields := trace.ObservedArgs(call)
+	if fields["params/id"].TypeName != "integer" || fields["params/limit"].TypeName != "integer" || fields["params/ratio"].TypeName != "number" {
 		t.Fatalf("numeric argument roles lost JSON integer distinction: %+v", fields)
 	}
-	collections := resultCollections(`{"items":[{"id":16438397790,"ratio":1.5},{"id":16438397791,"ratio":2.5}]}`)
+	collections := trace.ResultCollections(`{"items":[{"id":16438397790,"ratio":1.5},{"id":16438397791,"ratio":2.5}]}`)
 	if len(collections) != 1 || collections[0].Fields[".id"].Type != "integer" || collections[0].Fields[".ratio"].Type != "number" {
 		t.Fatalf("numeric result roles lost JSON integer distinction: %+v", collections)
 	}
 }
 
 func TestSynthesizeProgramGraphExposesPartialResultListSelection(t *testing.T) {
-	list := func(a, b string) Call {
-		return spanRefs(Call{Tool: "mcp:records_list", MCPServer: "records", MCPTool: "list",
-			Output: `{"items":[{"id":"` + a + `"},{"id":"` + b + `"}]}`, Outcome: OutcomeOK})
+	list := func(a, b string) trace.Call {
+		return spanRefs(trace.Call{Tool: "mcp:records_list", MCPServer: "records", MCPTool: "list",
+			Output: `{"items":[{"id":"` + a + `"},{"id":"` + b + `"}]}`, Outcome: trace.OutcomeOK})
 	}
-	act := func(id string) Call {
-		return Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
-			Args: map[string]string{"record_id": id}, Outcome: OutcomeOK}
+	act := func(id string) trace.Call {
+		return trace.Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
+			Args: map[string]string{"record_id": id}, Outcome: trace.OutcomeOK}
 	}
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("partial", "Link selected records", list("TENG-1", "TENG-2"), act("TENG-1")),
 		selSession("full", "Link selected records", list("TENG-3", "TENG-4"), act("TENG-3"), act("TENG-4")),
 	}
@@ -292,25 +294,25 @@ func TestSynthesizeProgramGraphExposesPartialResultListSelection(t *testing.T) {
 }
 
 func TestSynthesizeProgramGraphSelectsLargeListByPositionWithoutCopyingIDs(t *testing.T) {
-	list := func(base int64) Call {
+	list := func(base int64) trace.Call {
 		items := make([]map[string]any, 200)
 		for i := range items {
 			items[i] = map[string]any{"id": base + int64(i), "status": "failed"}
 		}
 		body, _ := json.Marshal(map[string]any{"items": items})
-		call := spanRefs(Call{Tool: "mcp:telara_execute_action", MCPServer: "telara", MCPTool: "telara_execute_action",
+		call := spanRefs(trace.Call{Tool: "mcp:telara_execute_action", MCPServer: "telara", MCPTool: "telara_execute_action",
 			Args:   map[string]string{"integration": "gitlab", "action": "list_jobs", "params": `{"project_id":"example/repo"}`},
-			Output: string(body), Outcome: OutcomeOK})
-		call.OutCollections = resultCollections(string(body))
+			Output: string(body), Outcome: trace.OutcomeOK})
+		call.OutCollections = trace.ResultCollections(string(body))
 		if len(call.OutCollections) != 1 || call.OutCollections[0].Count != 200 {
 			t.Fatalf("large complete result must retain bounded collection proof: %+v", call.OutCollections)
 		}
 		return call
 	}
-	get := func(id int64) Call {
-		return Call{Tool: "mcp:telara_execute_action", MCPServer: "telara", MCPTool: "telara_execute_action",
+	get := func(id int64) trace.Call {
+		return trace.Call{Tool: "mcp:telara_execute_action", MCPServer: "telara", MCPTool: "telara_execute_action",
 			Args:    map[string]string{"integration": "gitlab", "action": "get_job", "params": fmt.Sprintf(`{"project_id":"example/repo","job_id":%d}`, id)},
-			Outcome: OutcomeOK}
+			Outcome: trace.OutcomeOK}
 	}
 	const base int64 = 16438397790
 	farList := list(base)
@@ -322,18 +324,18 @@ func TestSynthesizeProgramGraphSelectsLargeListByPositionWithoutCopyingIDs(t *te
 	}
 	farCall := get(base + 199)
 	farTrace := observedTrace{groups: [][]observedOp{
-		{{node: spanNode{call: farList}, fields: observedArgs(farList)}},
-		{{node: spanNode{call: farCall}, fields: observedArgs(farCall)}},
+		{{node: spanNode{call: farList}, fields: trace.ObservedArgs(farList)}},
+		{{node: spanNode{call: farCall}, fields: trace.ObservedArgs(farCall)}},
 	}}
 	if !possiblePriorResult([]observedTrace{farTrace}, 1, "params/job_id") {
 		t.Fatal("a selected item beyond the OutIDs prefix lost its result provenance")
 	}
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("first", "Inspect two failed jobs", list(base), get(base), get(base+1)),
 		selSession("second", "Inspect two failed jobs", list(base+1000), get(base+1000), get(base+1001)),
 	}
-	fields := observedArgs(get(base))
-	if got := fields["params/job_id"].value; got != "16438397790" {
+	fields := trace.ObservedArgs(get(base))
+	if got := fields["params/job_id"].Value; got != "16438397790" {
 		t.Fatalf("numeric ID lost exact decimal form: %q", got)
 	}
 	c, ps := graphCandidateFor(t, ss, "gitlab.list_jobs", "gitlab.get_job")
@@ -351,15 +353,15 @@ func TestSynthesizeProgramGraphSelectsLargeListByPositionWithoutCopyingIDs(t *te
 }
 
 func TestSynthesizeProgramGraphExposesReorderedResultListSelection(t *testing.T) {
-	list := func(a, b string) Call {
-		return spanRefs(Call{Tool: "mcp:records_list", MCPServer: "records", MCPTool: "list",
-			Output: `{"items":[{"id":"` + a + `"},{"id":"` + b + `"}]}`, Outcome: OutcomeOK})
+	list := func(a, b string) trace.Call {
+		return spanRefs(trace.Call{Tool: "mcp:records_list", MCPServer: "records", MCPTool: "list",
+			Output: `{"items":[{"id":"` + a + `"},{"id":"` + b + `"}]}`, Outcome: trace.OutcomeOK})
 	}
-	act := func(id string) Call {
-		return Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
-			Args: map[string]string{"record_id": id}, Outcome: OutcomeOK}
+	act := func(id string) trace.Call {
+		return trace.Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
+			Args: map[string]string{"record_id": id}, Outcome: trace.OutcomeOK}
 	}
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("reverse-a", "Link records in reverse", list("TENG-1", "TENG-2"), act("TENG-2"), act("TENG-1")),
 		selSession("reverse-b", "Link records in reverse", list("TENG-3", "TENG-4"), act("TENG-4"), act("TENG-3")),
 	}
@@ -374,18 +376,18 @@ func TestSynthesizeProgramGraphExposesReorderedResultListSelection(t *testing.T)
 }
 
 func TestSynthesizeProgramGraphUsesCompleteCollectionBeyondPreview(t *testing.T) {
-	list := func(a, b string) Call {
+	list := func(a, b string) trace.Call {
 		full := `{"padding":"` + strings.Repeat("x", 700) + `","items":[{"id":"` + a + `"},{"id":"` + b + `"}]}`
-		call := Call{Tool: "mcp:records_list", MCPServer: "records", MCPTool: "list",
-			Output: truncateUTF8(full, 600), OutCollections: resultCollections(full), Outcome: OutcomeOK}
-		call.OutIDs, call.OutCtx, call.OutPaths = outputRefsPaths(full)
+		call := trace.Call{Tool: "mcp:records_list", MCPServer: "records", MCPTool: "list",
+			Output: trace.TruncateUTF8(full, 600), OutCollections: trace.ResultCollections(full), Outcome: trace.OutcomeOK}
+		call.OutIDs, call.OutCtx, call.OutPaths = trace.OutputRefsPaths(full)
 		return call
 	}
-	act := func(id string) Call {
-		return Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
-			Args: map[string]string{"record_id": id}, Outcome: OutcomeOK}
+	act := func(id string) trace.Call {
+		return trace.Call{Tool: "mcp:records_create_link", MCPServer: "records", MCPTool: "create_link",
+			Args: map[string]string{"record_id": id}, Outcome: trace.OutcomeOK}
 	}
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("long-a", "List and link each record", list("TENG-1", "TENG-2"), act("TENG-1"), act("TENG-2")),
 		selSession("long-b", "List and link each record", list("TENG-3", "TENG-4"), act("TENG-3"), act("TENG-4")),
 	}
@@ -405,15 +407,15 @@ func TestSynthesizeProgramGraphUsesCompleteCollectionBeyondPreview(t *testing.T)
 }
 
 func TestSynthesizeProgramGraphJoinsRepeatedProducerResults(t *testing.T) {
-	create := func(source, created string) Call {
-		return spanRefs(Call{Tool: "mcp:records_create", MCPServer: "records", MCPTool: "create",
-			Args: map[string]string{"source_id": source, "name": "record-" + source}, Output: `{"id":"` + created + `"}`, Outcome: OutcomeOK})
+	create := func(source, created string) trace.Call {
+		return spanRefs(trace.Call{Tool: "mcp:records_create", MCPServer: "records", MCPTool: "create",
+			Args: map[string]string{"source_id": source, "name": "record-" + source}, Output: `{"id":"` + created + `"}`, Outcome: trace.OutcomeOK})
 	}
-	update := func(id string) Call {
-		return Call{Tool: "mcp:records_update", MCPServer: "records", MCPTool: "update",
-			Args: map[string]string{"record_id": id}, Outcome: OutcomeOK}
+	update := func(id string) trace.Call {
+		return trace.Call{Tool: "mcp:records_update", MCPServer: "records", MCPTool: "update",
+			Args: map[string]string{"record_id": id}, Outcome: trace.OutcomeOK}
 	}
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("one", "Create from TENG-1 then update it", create("TENG-1", "NEW-1"), update("NEW-1")),
 		selSession("two", "Create from TENG-2 and TENG-3 then update each", create("TENG-2", "NEW-2"), create("TENG-3", "NEW-3"), update("NEW-2"), update("NEW-3")),
 	}
@@ -441,15 +443,15 @@ func TestSynthesizeProgramGraphJoinsRepeatedProducerResults(t *testing.T) {
 }
 
 func TestSynthesizeProgramGraphRejectsReorderedProducerResults(t *testing.T) {
-	create := func(source, created string) Call {
-		return spanRefs(Call{Tool: "mcp:records_create", MCPServer: "records", MCPTool: "create",
-			Args: map[string]string{"source_id": source}, Output: `{"id":"` + created + `"}`, Outcome: OutcomeOK})
+	create := func(source, created string) trace.Call {
+		return spanRefs(trace.Call{Tool: "mcp:records_create", MCPServer: "records", MCPTool: "create",
+			Args: map[string]string{"source_id": source}, Output: `{"id":"` + created + `"}`, Outcome: trace.OutcomeOK})
 	}
-	update := func(id string) Call {
-		return Call{Tool: "mcp:records_update", MCPServer: "records", MCPTool: "update",
-			Args: map[string]string{"record_id": id}, Outcome: OutcomeOK}
+	update := func(id string) trace.Call {
+		return trace.Call{Tool: "mcp:records_update", MCPServer: "records", MCPTool: "update",
+			Args: map[string]string{"record_id": id}, Outcome: trace.OutcomeOK}
 	}
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("ordered", "Create from TENG-1 then update it", create("TENG-1", "NEW-1"), update("NEW-1")),
 		selSession("reversed", "Create from TENG-2 and TENG-3 then update in reverse", create("TENG-2", "NEW-2"), create("TENG-3", "NEW-3"), update("NEW-3"), update("NEW-2")),
 	}
@@ -464,12 +466,12 @@ func TestSynthesizeProgramGraphRejectsReorderedProducerResults(t *testing.T) {
 }
 
 func TestSynthesizeProgramGraphBlocksFailedSourceCall(t *testing.T) {
-	makeSession := func(id, root, child string, outcome Outcome) Session {
+	makeSession := func(id, root, child string, outcome trace.Outcome) trace.Session {
 		return selSession(id, "Get a record and act on the returned ID",
-			spanRefs(Call{Tool: "mcp:records_get", MCPServer: "records", MCPTool: "get", Args: map[string]string{"id": root}, Output: `{"id":"` + child + `"}`, Outcome: OutcomeOK}),
-			Call{Tool: "mcp:records_update", MCPServer: "records", MCPTool: "update", Args: map[string]string{"record_id": child}, Outcome: outcome})
+			spanRefs(trace.Call{Tool: "mcp:records_get", MCPServer: "records", MCPTool: "get", Args: map[string]string{"id": root}, Output: `{"id":"` + child + `"}`, Outcome: trace.OutcomeOK}),
+			trace.Call{Tool: "mcp:records_update", MCPServer: "records", MCPTool: "update", Args: map[string]string{"record_id": child}, Outcome: outcome})
 	}
-	ss := []Session{makeSession("good", "TENG-1", "TENG-2", OutcomeOK), makeSession("failed", "TENG-3", "TENG-4", OutcomeFailed)}
+	ss := []trace.Session{makeSession("good", "TENG-1", "TENG-2", trace.OutcomeOK), makeSession("failed", "TENG-3", "TENG-4", trace.OutcomeFailed)}
 	c, ps := graphCandidateFor(t, ss, "mcp:records_get", "mcp:records_update")
 	g, err := SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
@@ -484,18 +486,18 @@ func TestSynthesizeProgramGraphBlocksFailedSourceCall(t *testing.T) {
 }
 
 func TestSynthesizeProgramGraphSelectsUniqueResultField(t *testing.T) {
-	list := func(ids []string, statuses []string) Call {
+	list := func(ids []string, statuses []string) trace.Call {
 		items := make([]map[string]string, 0, len(ids))
 		for i, id := range ids {
 			items = append(items, map[string]string{"id": id, "status": statuses[i]})
 		}
 		body, _ := json.Marshal(map[string]any{"items": items})
-		return spanRefs(Call{Tool: "mcp:records_list", MCPServer: "records", MCPTool: "list", Output: string(body), Outcome: OutcomeOK})
+		return spanRefs(trace.Call{Tool: "mcp:records_list", MCPServer: "records", MCPTool: "list", Output: string(body), Outcome: trace.OutcomeOK})
 	}
-	get := func(id string) Call {
-		return Call{Tool: "mcp:records_get", MCPServer: "records", MCPTool: "get", Args: map[string]string{"id": id}, Outcome: OutcomeOK}
+	get := func(id string) trace.Call {
+		return trace.Call{Tool: "mcp:records_get", MCPServer: "records", MCPTool: "get", Args: map[string]string{"id": id}, Outcome: trace.OutcomeOK}
 	}
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("middle", "Get the failed record", list([]string{"TENG-1", "TENG-2", "TENG-3"}, []string{"ok", "failed", "ok"}), get("TENG-2")),
 		selSession("first", "Get the failed record", list([]string{"TENG-4", "TENG-5", "TENG-6"}, []string{"failed", "ok", "ok"}), get("TENG-4")),
 	}
@@ -521,14 +523,14 @@ func TestSynthesizeProgramGraphSelectsUniqueResultField(t *testing.T) {
 }
 
 func TestSynthesizeProgramGraphLeavesFirstVersusPredicateChoiceToCaller(t *testing.T) {
-	list := func(selected, other string) Call {
-		return spanRefs(Call{Tool: "mcp:records_list", MCPServer: "records", MCPTool: "list",
-			Output: `{"items":[{"id":"` + selected + `","status":"failed"},{"id":"` + other + `","status":"ok"}]}`, Outcome: OutcomeOK})
+	list := func(selected, other string) trace.Call {
+		return spanRefs(trace.Call{Tool: "mcp:records_list", MCPServer: "records", MCPTool: "list",
+			Output: `{"items":[{"id":"` + selected + `","status":"failed"},{"id":"` + other + `","status":"ok"}]}`, Outcome: trace.OutcomeOK})
 	}
-	get := func(id string) Call {
-		return Call{Tool: "mcp:records_get", MCPServer: "records", MCPTool: "get", Args: map[string]string{"id": id}, Outcome: OutcomeOK}
+	get := func(id string) trace.Call {
+		return trace.Call{Tool: "mcp:records_get", MCPServer: "records", MCPTool: "get", Args: map[string]string{"id": id}, Outcome: trace.OutcomeOK}
 	}
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("a", "Get failed record", list("TENG-1", "TENG-2"), get("TENG-1")),
 		selSession("b", "Get failed record", list("TENG-3", "TENG-4"), get("TENG-3")),
 	}

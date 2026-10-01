@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
 
@@ -63,7 +65,7 @@ func FuzzOutputRefs(f *testing.F) {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, text string) {
-		ids, ctx := outputRefs(text)
+		ids, ctx := trace.OutputRefs(text)
 		if len(ids) != len(ctx) {
 			t.Fatalf("%d ids, %d contexts", len(ids), len(ctx))
 		}

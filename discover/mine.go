@@ -177,31 +177,3 @@ func closedOnly(ps []pattern) []pattern {
 	}
 	return out
 }
-
-// matchAt returns the first gapped occurrence of items in seq (positions), or nil.
-func matchAt(seq, items []int, window int) []int {
-	for start := range seq {
-		if seq[start] != items[0] {
-			continue
-		}
-		if idx := matchFrom(seq, items, window, start); idx != nil {
-			return idx
-		}
-	}
-	return nil
-}
-
-func matchFrom(seq, items []int, window, start int) []int {
-	idx := []int{start}
-	if len(items) == 1 {
-		return idx
-	}
-	for j := start + 1; j < len(seq) && j <= start+window; j++ {
-		if seq[j] == items[1] {
-			if rest := matchFrom(seq, items[1:], window, j); rest != nil {
-				return append(idx, rest...)
-			}
-		}
-	}
-	return nil
-}

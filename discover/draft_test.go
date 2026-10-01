@@ -7,14 +7,16 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+
 	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
 )
 
-func runAndFind(t *testing.T, ss []Session, labels string) (*Report, int) {
+func runAndFind(t *testing.T, ss []trace.Session, labels string) (*Report, int) {
 	t.Helper()
 	o := DefaultOptions()
 	o.Patterns = true
-	o.Readers = []Reader{fakeReader{sessions: ss}}
+	o.Readers = []trace.Reader{fakeReader{sessions: ss}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +42,7 @@ func TestDraftReplaysThePlantedProcedure(t *testing.T) {
 			t.Errorf("main.sh lacks %q:\n%s", want, sh)
 		}
 	}
-	if len(d.Inputs) != 1 || d.Inputs[0].Type != SlotWord || !strings.HasPrefix(d.Inputs[0].Example, "feature-") {
+	if len(d.Inputs) != 1 || d.Inputs[0].Type != trace.SlotWord || !strings.HasPrefix(d.Inputs[0].Example, "feature-") {
 		t.Fatalf("inputs = %+v: the branch is the only thing that varied", d.Inputs)
 	}
 	m, err := manifest.Parse(d.Files["primitive.yaml"])
@@ -75,19 +77,19 @@ func TestDraftReadOnlyIsTheUsersCall(t *testing.T) {
 
 // toolCorpus: 20 sessions pick up a ticket through two MCP tools, passing the
 // same ticket id to both, among random noise.
-func toolCorpus() []Session {
-	var out []Session
+func toolCorpus() []trace.Session {
+	var out []trace.Session
 	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	noise := []string{"ls", "pwd", "date", "whoami", "uptime", "df -h", "id", "hostname"}
 	for i := 0; i < 60; i++ {
-		s := Session{Client: "fake", ID: fmt.Sprintf("t%02d", i), Start: t0.AddDate(0, 0, 7*(i%20))}
+		s := trace.Session{Client: "fake", ID: fmt.Sprintf("t%02d", i), Start: t0.AddDate(0, 0, 7*(i%20))}
 		for j := 0; j < 20; j++ {
-			s.Calls = append(s.Calls, Call{Tool: "shell", Command: noise[(i*7+j*3)%len(noise)] + fmt.Sprintf(" %d", j)})
+			s.Calls = append(s.Calls, trace.Call{Tool: "shell", Command: noise[(i*7+j*3)%len(noise)] + fmt.Sprintf(" %d", j)})
 			if i < 20 && j == 8 {
 				id := fmt.Sprintf("TENG-%d", 3000+i)
 				s.Calls = append(s.Calls,
-					Call{Tool: "mcp:telara_task_create", Args: map[string]string{"goal": fmt.Sprintf("work on %s part %d", id, i), "ticket": id}},
-					Call{Tool: "mcp:telara_jira_transition_issue", Args: map[string]string{"issue_key": id, "transition_id": "11"}})
+					trace.Call{Tool: "mcp:telara_task_create", Args: map[string]string{"goal": fmt.Sprintf("work on %s part %d", id, i), "ticket": id}},
+					trace.Call{Tool: "mcp:telara_jira_transition_issue", Args: map[string]string{"issue_key": id, "transition_id": "11"}})
 			}
 		}
 		out = append(out, s)
@@ -154,16 +156,16 @@ func TestDraftPatchIsAHumanStepNotAGuess(t *testing.T) {
 	// Random noise, so sessions differ (identical step sequences count once).
 	rng := rand.New(rand.NewSource(11))
 	noise := []string{"ls", "pwd", "date", "id", "uptime", "hostname", "df", "whoami"}
-	var ss []Session
+	var ss []trace.Session
 	for i := 0; i < 40; i++ {
-		s := Session{Client: "fake", ID: fmt.Sprintf("p%02d", i)}
+		s := trace.Session{Client: "fake", ID: fmt.Sprintf("p%02d", i)}
 		for j := 0; j < 15; j++ {
-			s.Calls = append(s.Calls, Call{Tool: "shell", Command: noise[rng.Intn(len(noise))] + fmt.Sprint(" ", j)})
+			s.Calls = append(s.Calls, trace.Call{Tool: "shell", Command: noise[rng.Intn(len(noise))] + fmt.Sprint(" ", j)})
 			if i < 15 && j == 5 {
 				s.Calls = append(s.Calls,
-					Call{Tool: "shell", Command: "tail -n 20 activity.log"},
-					Call{Tool: "apply_patch", Args: map[string]string{"input": fmt.Sprintf("*** Begin Patch\n*** Update File: notes/activity.log\n@@\n+entry %d\n*** End Patch", i)}},
-					Call{Tool: "shell", Command: "git commit -m 'log " + fmt.Sprint(i) + "'"})
+					trace.Call{Tool: "shell", Command: "tail -n 20 activity.log"},
+					trace.Call{Tool: "apply_patch", Args: map[string]string{"input": fmt.Sprintf("*** Begin Patch\n*** Update File: notes/activity.log\n@@\n+entry %d\n*** End Patch", i)}},
+					trace.Call{Tool: "shell", Command: "git commit -m 'log " + fmt.Sprint(i) + "'"})
 			}
 		}
 		ss = append(ss, s)
@@ -186,17 +188,17 @@ func TestDraftPatchIsAHumanStepNotAGuess(t *testing.T) {
 }
 
 func TestDraftBrowserKeepsObjectsAndDropsVariableNames(t *testing.T) {
-	var ss []Session
+	var ss []trace.Session
 	rng := rand.New(rand.NewSource(3))
 	noise := []string{"ls", "pwd", "date", "id", "uptime", "hostname"}
 	for i := 0; i < 40; i++ {
-		s := Session{Client: "fake", ID: fmt.Sprintf("b%02d", i)}
+		s := trace.Session{Client: "fake", ID: fmt.Sprintf("b%02d", i)}
 		for j := 0; j < 15; j++ {
-			s.Calls = append(s.Calls, Call{Tool: "shell", Command: noise[rng.Intn(len(noise))] + fmt.Sprint(" ", j)})
+			s.Calls = append(s.Calls, trace.Call{Tool: "shell", Command: noise[rng.Intn(len(noise))] + fmt.Sprint(" ", j)})
 			if i < 15 && j == 4 {
 				tab := fmt.Sprintf("tab%d", i) // a different variable name every run
 				code := fmt.Sprintf("await chrome.nameSession('Weekly check'); await %s.goto(\"https://partner.example.com/p/%d\"); await %s.playwright.evaluate(() => document.querySelector('h1').innerText);", tab, i, tab)
-				s.Calls = append(s.Calls, Call{Tool: "mcp:js", Args: map[string]string{"code": code}})
+				s.Calls = append(s.Calls, trace.Call{Tool: "mcp:js", Args: map[string]string{"code": code}})
 			}
 		}
 		ss = append(ss, s)
@@ -212,7 +214,7 @@ func TestDraftBrowserKeepsObjectsAndDropsVariableNames(t *testing.T) {
 			t.Errorf("main.sh lacks %q:\n%s", want, sh)
 		}
 	}
-	if len(d.Inputs) != 1 || d.Inputs[0].Type != SlotURL {
+	if len(d.Inputs) != 1 || d.Inputs[0].Type != trace.SlotURL {
 		t.Fatalf("inputs = %+v: only the page URL varied (the tab's variable name is not an input)", d.Inputs)
 	}
 	if len(d.Problems) != 0 {
@@ -221,20 +223,20 @@ func TestDraftBrowserKeepsObjectsAndDropsVariableNames(t *testing.T) {
 }
 
 func TestDraftArgumentOrderDoesNotMakeFlagsInputs(t *testing.T) {
-	var ss []Session
+	var ss []trace.Session
 	rng := rand.New(rand.NewSource(8))
 	noise := []string{"ls", "pwd", "date", "id", "uptime", "hostname"}
 	for i := 0; i < 40; i++ {
-		s := Session{Client: "fake", ID: fmt.Sprintf("g%02d", i)}
+		s := trace.Session{Client: "fake", ID: fmt.Sprintf("g%02d", i)}
 		for j := 0; j < 15; j++ {
-			s.Calls = append(s.Calls, Call{Tool: "shell", Command: noise[rng.Intn(len(noise))] + fmt.Sprint(" ", j)})
+			s.Calls = append(s.Calls, trace.Call{Tool: "shell", Command: noise[rng.Intn(len(noise))] + fmt.Sprint(" ", j)})
 			if i < 16 && j == 6 {
 				pkg := fmt.Sprintf("./internal/p%d/...", i)
 				cmd := "go test -count=1 -run TestX " + pkg
 				if i%2 == 1 {
 					cmd = "go test -run TestX -count=1 " + pkg // same command, other order
 				}
-				s.Calls = append(s.Calls, Call{Tool: "shell", Command: "gofmt -w " + pkg}, Call{Tool: "shell", Command: cmd})
+				s.Calls = append(s.Calls, trace.Call{Tool: "shell", Command: "gofmt -w " + pkg}, trace.Call{Tool: "shell", Command: cmd})
 			}
 		}
 		ss = append(ss, s)
@@ -244,7 +246,7 @@ func TestDraftArgumentOrderDoesNotMakeFlagsInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(d.Inputs) != 1 || d.Inputs[0].Type != SlotPath {
+	if len(d.Inputs) != 1 || d.Inputs[0].Type != trace.SlotPath {
 		t.Fatalf("inputs = %+v: only the package varied, and gofmt and go test share it", d.Inputs)
 	}
 	sh := string(d.Files["main.sh"])
@@ -256,7 +258,7 @@ func TestDraftArgumentOrderDoesNotMakeFlagsInputs(t *testing.T) {
 func TestRoutinesAreOnePerTask(t *testing.T) {
 	o := DefaultOptions()
 	o.Patterns = true
-	o.Readers = []Reader{fakeReader{sessions: plantedCorpus()}}
+	o.Readers = []trace.Reader{fakeReader{sessions: plantedCorpus()}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)

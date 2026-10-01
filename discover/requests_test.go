@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // requestCorpus: 30 sessions over 10 weeks. Each carries a few requests:
@@ -17,33 +19,33 @@ import (
 //   - "deploy the gateway": set image to a tag the agent chose, then watch
 //     the rollout (the tag is never in the request; the agent chooses it and a primitive takes it as an input)
 //   - noise requests of random reads.
-func requestCorpus() []Session {
+func requestCorpus() []trace.Session {
 	rng := rand.New(rand.NewSource(21))
 	noise := []string{"ls", "pwd", "date", "uptime", "hostname", "id", "df -h", "du -sh ."}
 	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
-	var out []Session
+	var out []trace.Session
 	for i := 0; i < 30; i++ {
-		s := Session{Client: "fake", ID: fmt.Sprintf("r%02d", i), Start: t0.AddDate(0, 0, 2*i)}
-		call := func(c Call) {
+		s := trace.Session{Client: "fake", ID: fmt.Sprintf("r%02d", i), Start: t0.AddDate(0, 0, 2*i)}
+		call := func(c trace.Call) {
 			c.Request = len(s.Requests) - 1
 			c.Time = s.Start
 			s.Calls = append(s.Calls, c)
 		}
-		s.addRequest("look around the repo")
+		s.AddRequest("look around the repo")
 		for j := 0; j < 4; j++ {
-			call(Call{Tool: "shell", Command: noise[rng.Intn(len(noise))] + fmt.Sprint(" ", j)})
+			call(trace.Call{Tool: "shell", Command: noise[rng.Intn(len(noise))] + fmt.Sprint(" ", j)})
 		}
 		if i%3 != 2 {
 			ticket := fmt.Sprintf("TENG-%d", 3100+i)
-			s.addRequest("please move " + ticket + " to done and say it shipped")
-			call(Call{Tool: "mcp:telara_jira_transition_issue", Args: map[string]string{"issue_key": ticket, "transition_id": "21"}})
-			call(Call{Tool: "mcp:telara_jira_add_comment", Args: map[string]string{"issue_key": ticket, "body": "shipped"}})
+			s.AddRequest("please move " + ticket + " to done and say it shipped")
+			call(trace.Call{Tool: "mcp:telara_jira_transition_issue", Args: map[string]string{"issue_key": ticket, "transition_id": "21"}})
+			call(trace.Call{Tool: "mcp:telara_jira_add_comment", Args: map[string]string{"issue_key": ticket, "body": "shipped"}})
 		}
 		if i%3 != 0 {
-			s.addRequest("deploy the gateway to minikube")
+			s.AddRequest("deploy the gateway to minikube")
 			tag := fmt.Sprintf("teng%d-v%d", 3000+i, rng.Intn(9))
-			call(Call{Tool: "shell", Command: "kubectl --context minikube -n telara-middleware set image deploy/gateway gateway=telara/gateway:" + tag})
-			call(Call{Tool: "shell", Command: "kubectl --context minikube -n telara-middleware rollout status deploy/gateway"})
+			call(trace.Call{Tool: "shell", Command: "kubectl --context minikube -n telara-middleware set image deploy/gateway gateway=telara/gateway:" + tag})
+			call(trace.Call{Tool: "shell", Command: "kubectl --context minikube -n telara-middleware rollout status deploy/gateway"})
 		}
 		out = append(out, s)
 	}
@@ -52,7 +54,7 @@ func requestCorpus() []Session {
 
 func TestRecurringRequestsBecomePrimitives(t *testing.T) {
 	o := DefaultOptions()
-	o.Readers = []Reader{fakeReader{sessions: requestCorpus()}}
+	o.Readers = []trace.Reader{fakeReader{sessions: requestCorpus()}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +85,7 @@ func TestRecurringRequestsBecomePrimitives(t *testing.T) {
 		t.Fatalf("funnel = %+v", f)
 	}
 	for _, in := range deploy.Inputs {
-		if in.Type == SlotPath && in.Explained != 0 {
+		if in.Type == trace.SlotPath && in.Explained != 0 {
 			t.Errorf("the image tag never appeared in a request, so explained must be 0: %+v", in)
 		}
 	}
@@ -102,7 +104,7 @@ func TestRecurringRequestsBecomePrimitives(t *testing.T) {
 
 func TestSaveInstallsOnceAndNeverReplacesAForeignFolder(t *testing.T) {
 	o := DefaultOptions()
-	o.Readers = []Reader{fakeReader{sessions: requestCorpus()}}
+	o.Readers = []trace.Reader{fakeReader{sessions: requestCorpus()}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +132,7 @@ func TestSaveInstallsOnceAndNeverReplacesAForeignFolder(t *testing.T) {
 
 func TestReviewWithoutARegistryOnlySaves(t *testing.T) {
 	o := DefaultOptions()
-	o.Readers = []Reader{fakeReader{sessions: requestCorpus()}}
+	o.Readers = []trace.Reader{fakeReader{sessions: requestCorpus()}}
 	rep, _ := Run(o)
 	var saved []string
 	var out bytes.Buffer
@@ -169,24 +171,24 @@ func TestCommandRunsWithNoHistory(t *testing.T) {
 func TestExplorationIsNotAPrimitive(t *testing.T) {
 	// Every request greps, heads and seds different files for different
 	// things: it recurs, but nothing in it is fixed.
-	var ss []Session
+	var ss []trace.Session
 	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	for i := 0; i < 20; i++ {
-		s := Session{Client: "fake", ID: fmt.Sprintf("x%02d", i), Start: t0.AddDate(0, 0, 3*i)}
+		s := trace.Session{Client: "fake", ID: fmt.Sprintf("x%02d", i), Start: t0.AddDate(0, 0, 3*i)}
 		// Nothing is fixed in these requests; the fixed-step rule must
 		// catch them.
-		s.addRequest(fmt.Sprintf("why does src/pkg%d/file%d.go fail? look in src/pkg%d", i, i, i))
+		s.AddRequest(fmt.Sprintf("why does src/pkg%d/file%d.go fail? look in src/pkg%d", i, i, i))
 		for _, c := range []string{
 			fmt.Sprintf("grep -rn 'needle%d' src/pkg%d", i, i),
 			fmt.Sprintf("head -%d src/pkg%d/file%d.go", 20+i, i, i),
 			fmt.Sprintf("sed -n '%d,%dp' src/pkg%d/file%d.go", i, i+40, i, i),
 		} {
-			s.Calls = append(s.Calls, Call{Tool: "shell", Command: c, Request: 0, Time: s.Start})
+			s.Calls = append(s.Calls, trace.Call{Tool: "shell", Command: c, Request: 0, Time: s.Start})
 		}
 		ss = append(ss, s)
 	}
 	o := DefaultOptions()
-	o.Readers = []Reader{fakeReader{sessions: ss}}
+	o.Readers = []trace.Reader{fakeReader{sessions: ss}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +200,7 @@ func TestExplorationIsNotAPrimitive(t *testing.T) {
 
 func TestFixedShareIsAFractionOfTheRoutine(t *testing.T) {
 	o := DefaultOptions()
-	o.Readers = []Reader{fakeReader{sessions: requestCorpus()}}
+	o.Readers = []trace.Reader{fakeReader{sessions: requestCorpus()}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)

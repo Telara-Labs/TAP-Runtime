@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // R1: a tool result that says the call was cancelled or rejected is a
@@ -18,11 +20,11 @@ func TestR1CancelledToolCallIsAFailedOutcome(t *testing.T) {
 		"Wall time: 0.0260 seconds\nOutput:\n[{\"type\":\"text\",\"text\":\"user cancelled MCP tool call\"}]",
 		"The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file).",
 	} {
-		if got := resultOutcome(text); got != OutcomeFailed {
+		if got := trace.ResultOutcome(text); got != trace.OutcomeFailed {
 			t.Errorf("%q: outcome %v, want failed", text[:40], got)
 		}
 	}
-	if got := resultOutcome("Exit code: 0\nOutput:\nok"); got != OutcomeOK {
+	if got := trace.ResultOutcome("Exit code: 0\nOutput:\nok"); got != trace.OutcomeOK {
 		t.Errorf("an ordinary result: %v", got)
 	}
 }
@@ -33,8 +35,8 @@ func TestR1CancelledToolCallIsAFailedOutcome(t *testing.T) {
 func TestR2EphemeralConstantsAreNotAReusableProcedure(t *testing.T) {
 	ss := eps("tmp", 6, func(i int) string {
 		return "Call the MCP tool tap_run twice with the two packages. Do nothing else. Report each result verbatim."
-	}, func(i int) []Call {
-		return []Call{
+	}, func(i int) []trace.Call {
+		return []trace.Call{
 			{Tool: "mcp:tap_run", Args: map[string]string{"package": "/private/tmp/claude-501/x/scratchpad/work/pkgs/hello-sh"}},
 			{Tool: "mcp:tap_run", Args: map[string]string{"package": "/private/tmp/claude-501/x/scratchpad/work/pkgs/hello-py"}},
 		}
@@ -92,9 +94,9 @@ func TestUnvalidatedDraftsSayUnvalidated(t *testing.T) {
 // steps, not only the ones in this group.
 func TestR3FragmentedGroupsStillShareTheirGoal(t *testing.T) {
 	noise := []string{"ls", "pwd", "date", "uptime", "hostname"}
-	ss := eps("mv", 20, func(i int) string { return fmt.Sprintf("move TENG-%d to done", 3200+i) }, func(i int) []Call {
+	ss := eps("mv", 20, func(i int) string { return fmt.Sprintf("move TENG-%d to done", 3200+i) }, func(i int) []trace.Call {
 		k := fmt.Sprintf("TENG-%d", 3200+i)
-		return []Call{
+		return []trace.Call{
 			sh(noise[i%len(noise)]), sh(noise[(i/len(noise))%len(noise)] + " -a"),
 			{Tool: "mcp:telara_jira_transition_issue", Args: map[string]string{"issue_key": k, "transition_id": "21"}},
 			{Tool: "mcp:telara_jira_add_comment", Args: map[string]string{"issue_key": k, "body": "done"}},
@@ -116,8 +118,8 @@ func TestR5GuestBuiltinsThatIgnoreFilesBlockTheDraft(t *testing.T) {
 			fs = append(fs, fmt.Sprintf("logs/r%d-%d.txt", i, f))
 		}
 		return "count lines in " + strings.Join(fs, " ")
-	}, func(i int) []Call {
-		var cs []Call
+	}, func(i int) []trace.Call {
+		var cs []trace.Call
 		for f := 0; f < 2+i%3; f++ {
 			cs = append(cs, sh(fmt.Sprintf("wc -l logs/r%d-%d.txt", i, f)))
 		}
@@ -132,15 +134,15 @@ func TestR5GuestBuiltinsThatIgnoreFilesBlockTheDraft(t *testing.T) {
 // R6: a file the program reads must be declared for the host to allow it;
 // a fixed path is declared, a varying one blocks the draft.
 func TestR6FileReadsAreDeclaredOrBlocked(t *testing.T) {
-	fixed := eps("rf", 6, func(i int) string { return fmt.Sprintf("summarize release %d", i) }, func(i int) []Call {
-		return []Call{{Tool: "Read", Args: map[string]string{"file_path": "docs/RELEASES.md"}}, sh(fmt.Sprintf("git log --oneline v%d..HEAD", i))}
+	fixed := eps("rf", 6, func(i int) string { return fmt.Sprintf("summarize release %d", i) }, func(i int) []trace.Call {
+		return []trace.Call{{Tool: "Read", Args: map[string]string{"file_path": "docs/RELEASES.md"}}, sh(fmt.Sprintf("git log --oneline v%d..HEAD", i))}
 	})
 	d := runOn(t, fixed).Routines[0].Draft()
 	if !strings.Contains(string(d.Files["primitive.yaml"]), "path: docs/RELEASES.md") {
 		t.Fatalf("a fixed read must be declared:\n%s", d.Files["primitive.yaml"])
 	}
-	varying := eps("rv", 6, func(i int) string { return fmt.Sprintf("summarize notes/day%d.md", i) }, func(i int) []Call {
-		return []Call{{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("notes/day%d.md", i)}}, sh("git status --short")}
+	varying := eps("rv", 6, func(i int) string { return fmt.Sprintf("summarize notes/day%d.md", i) }, func(i int) []trace.Call {
+		return []trace.Call{{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("notes/day%d.md", i)}}, sh("git status --short")}
 	})
 	r := runOn(t, varying).Routines[0]
 	if r.DraftStatus == DraftComplete || !strings.Contains(strings.Join(r.Blockers, " "), "file_access_undeclared") {

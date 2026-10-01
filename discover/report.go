@@ -7,6 +7,8 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // WriteText prints a report for a person: what was read, the qualified
@@ -117,7 +119,7 @@ func day(t time.Time) string {
 
 // fmtUsage prints fresh input, cached input and output separately: cached
 // input costs a small fraction of fresh.
-func fmtUsage(u Usage) string {
+func fmtUsage(u trace.Usage) string {
 	return fmt.Sprintf("%s (%s fresh, %s cached, %s out)", humanTokens(u.Total()), humanTokens(u.Fresh), humanTokens(u.Cached), humanTokens(u.Output))
 }
 
@@ -200,8 +202,8 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 		if len(rt.Blockers) > 0 {
 			draft += " (" + strings.Join(rt.Blockers, ", ") + ")"
 		}
-		fmt.Fprintf(tw, "%d\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n", shown, oneLine(draft, 40), rt.Requests, rt.Sessions, rt.Weeks, rt.Contract.Effect,
-			oneLine(strings.Join(ins, ","), 30), oneLine(labelsOf(rt.Candidate), 60), oneLine(rt.Example, 50))
+		fmt.Fprintf(tw, "%d\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n", shown, trace.OneLine(draft, 40), rt.Requests, rt.Sessions, rt.Weeks, rt.Contract.Effect,
+			trace.OneLine(strings.Join(ins, ","), 30), trace.OneLine(labelsOf(rt.Candidate), 60), trace.OneLine(rt.Example, 50))
 	}
 	tw.Flush()
 	if shown == 0 {
@@ -211,7 +213,7 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 		fmt.Fprintln(w, "\nScheduled work (already automated; listed as a baseline):")
 		for _, rt := range r.Routines {
 			if rt.Suitability == SuitUseful && rt.SourceRole == RoleScheduled && rt.MergedInto == "" {
-				fmt.Fprintf(w, "  %d runs: %s\n", rt.Requests, oneLine(labelsOf(rt.Candidate), 100))
+				fmt.Fprintf(w, "  %d runs: %s\n", rt.Requests, trace.OneLine(labelsOf(rt.Candidate), 100))
 			}
 		}
 	}
@@ -235,7 +237,7 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 	for _, k := range reasons {
 		fmt.Fprintf(w, "\n%s (%d):\n", k, len(byReason[k]))
 		for _, rt := range byReason[k] {
-			fmt.Fprintf(w, "  %d requests, %s: %s\n      %s\n", rt.Requests, rt.SourceRole, oneLine(labelsOf(rt.Candidate), 90), oneLine(strings.Join(rt.Reasons, "; "), 140))
+			fmt.Fprintf(w, "  %d requests, %s: %s\n      %s\n", rt.Requests, rt.SourceRole, trace.OneLine(labelsOf(rt.Candidate), 90), trace.OneLine(strings.Join(rt.Reasons, "; "), 140))
 		}
 	}
 }
@@ -275,7 +277,7 @@ func WriteOpportunities(w io.Writer, r *Report, n int) {
 			break
 		}
 		fmt.Fprintf(w, "  %3d. %-16s %3d sessions %4d requests  last %s  %s\n       %s\n",
-			i+1, g.Route, g.Sessions, g.Requests, g.Last.Format("2006-01-02"), g.Example.ID, oneLine(g.Contract, 110))
+			i+1, g.Route, g.Sessions, g.Requests, g.Last.Format("2006-01-02"), g.Example.ID, trace.OneLine(g.Contract, 110))
 	}
 }
 
@@ -296,7 +298,7 @@ func WriteSpanProposals(w io.Writer, r *Report, n int) {
 				}
 				branches = append(branches, name)
 			}
-			fmt.Fprintf(w, "  %3d. %3d sessions  %s  %s -> {%s}\n       raw candidate IDs %s\n", i+1, f.Sessions, f.ID, f.Root, strings.Join(branches, ", "), oneLine(strings.Join(f.CandidateIDs, ", "), 100))
+			fmt.Fprintf(w, "  %3d. %3d sessions  %s  %s -> {%s}\n       raw candidate IDs %s\n", i+1, f.Sessions, f.ID, f.Root, strings.Join(branches, ", "), trace.OneLine(strings.Join(f.CandidateIDs, ", "), 100))
 		}
 	}
 	if len(r.LogicCandidates) > 0 {
@@ -307,8 +309,8 @@ func WriteSpanProposals(w io.Writer, r *Report, n int) {
 				break
 			}
 			fmt.Fprintf(w, "  %3d. %3d sessions %4d executions  %s  %s\n       possible parameters %s; evidence %s\n",
-				i+1, c.Sessions, c.Executions, c.ID, oneLine(strings.Join(c.Actions, " > "), 85),
-				oneLine(strings.Join(c.Parameters, ", "), 85), strings.Join(c.Evidence, ", "))
+				i+1, c.Sessions, c.Executions, c.ID, trace.OneLine(strings.Join(c.Actions, " > "), 85),
+				trace.OneLine(strings.Join(c.Parameters, ", "), 85), strings.Join(c.Evidence, ", "))
 			if len(c.Cautions) > 0 {
 				fmt.Fprintf(w, "       check %s\n", strings.Join(c.Cautions, ", "))
 			}
@@ -328,7 +330,7 @@ func WriteSpanProposals(w io.Writer, r *Report, n int) {
 			}
 			p := g.Example
 			fmt.Fprintf(w, "  %3d. %3d sessions %4d proposals  %-13s %-7s calls %v  %s  %s\n",
-				i+1, g.Sessions, g.Proposals, p.Kind, p.Effect, p.Calls, p.ID, oneLine(strings.Join(p.Composition.Actions, " > "), 85))
+				i+1, g.Sessions, g.Proposals, p.Kind, p.Effect, p.Calls, p.ID, trace.OneLine(strings.Join(p.Composition.Actions, " > "), 85))
 		}
 		return
 	}
@@ -341,7 +343,7 @@ func WriteSpanProposals(w io.Writer, r *Report, n int) {
 			}
 			p := g.Example
 			fmt.Fprintf(w, "  %3d. %3d sessions %4d proposals  %-13s %-7s calls %v  %s  %s\n",
-				i+1, g.Sessions, g.Proposals, p.Kind, p.Effect, p.Calls, p.ID, oneLine(strings.Join(p.Tools, " > "), 85))
+				i+1, g.Sessions, g.Proposals, p.Kind, p.Effect, p.Calls, p.ID, trace.OneLine(strings.Join(p.Tools, " > "), 85))
 		}
 		return
 	}
@@ -353,6 +355,6 @@ func WriteSpanProposals(w io.Writer, r *Report, n int) {
 		}
 		p := g.Example
 		fmt.Fprintf(w, "  %3d. %3d sessions %4d proposals  %-13s %-7s calls %v  %s  %s\n",
-			i+1, g.Sessions, g.Proposals, p.Kind, p.Effect, p.Calls, p.ID, oneLine(strings.Join(p.Composition.Actions, " > "), 85))
+			i+1, g.Sessions, g.Proposals, p.Kind, p.Effect, p.Calls, p.ID, trace.OneLine(strings.Join(p.Composition.Actions, " > "), 85))
 	}
 }

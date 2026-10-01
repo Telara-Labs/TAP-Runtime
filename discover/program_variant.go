@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
 
@@ -15,7 +17,7 @@ import (
 // graph synthesis and code generation both succeed for their combined spans.
 // Values never enter identity. Different tool bindings remain separate;
 // optional arguments do not make one process look like several primitives.
-func GroupProgramVariants(c LogicCandidate, proposals []SpanProposal, sessions []Session) ([]LogicCandidate, error) {
+func GroupProgramVariants(c LogicCandidate, proposals []SpanProposal, sessions []trace.Session) ([]LogicCandidate, error) {
 	bySpan := map[string]SpanProposal{}
 	for _, p := range proposals {
 		bySpan[p.ID] = p
@@ -28,16 +30,16 @@ func GroupProgramVariants(c LogicCandidate, proposals []SpanProposal, sessions [
 		}
 		wanted[p.Client+"\x00"+p.Session] = true
 	}
-	cp := make([]Session, 0, len(wanted))
+	cp := make([]trace.Session, 0, len(wanted))
 	for _, s := range sessions {
 		if !wanted[s.Client+"\x00"+s.ID] {
 			continue
 		}
-		s.Calls = append([]Call(nil), s.Calls...)
+		s.Calls = append([]trace.Call(nil), s.Calls...)
 		cp = append(cp, s)
 	}
-	dropCopiedCalls(cp)
-	bySession := map[string]Session{}
+	trace.DropCopiedCalls(cp)
+	bySession := map[string]trace.Session{}
 	for _, s := range cp {
 		bySession[s.Client+"\x00"+s.ID] = s
 	}
@@ -56,7 +58,7 @@ func GroupProgramVariants(c LogicCandidate, proposals []SpanProposal, sessions [
 		if !ok {
 			return nil, fmt.Errorf("source for span %s is unavailable", id)
 		}
-		var requestCalls []Call
+		var requestCalls []trace.Call
 		for _, call := range s.Calls {
 			if call.Request == p.Request {
 				requestCalls = append(requestCalls, call)
@@ -225,15 +227,15 @@ func variantIndependentExecutions(members []string, bySpan map[string]SpanPropos
 	return count
 }
 
-func programCallSignature(call Call) string {
+func programCallSignature(call trace.Call) string {
 	var fields []string
-	for path, field := range observedArgs(call) {
-		value := path + ":" + field.typeName
-		if field.jsonString {
+	for path, field := range trace.ObservedArgs(call) {
+		value := path + ":" + field.TypeName
+		if field.JsonString {
 			value += ":json_string"
 		}
-		if operationSelector(call, path) {
-			value += "=" + field.value
+		if trace.OperationSelector(call, path) {
+			value += "=" + field.Value
 		}
 		fields = append(fields, value)
 	}
@@ -241,18 +243,18 @@ func programCallSignature(call Call) string {
 	return programCallToolIdentity(call) + "@" + call.MCPServer + "/" + call.MCPTool + "(" + strings.Join(fields, ",") + ")"
 }
 
-func programCallCoreSignature(call Call) string {
+func programCallCoreSignature(call trace.Call) string {
 	var selectors []string
-	for path, field := range observedArgs(call) {
-		if operationSelector(call, path) {
-			selectors = append(selectors, path+"="+field.value)
+	for path, field := range trace.ObservedArgs(call) {
+		if trace.OperationSelector(call, path) {
+			selectors = append(selectors, path+"="+field.Value)
 		}
 	}
 	sort.Strings(selectors)
 	return programCallToolIdentity(call) + "@" + call.MCPServer + "/" + call.MCPTool + "(" + strings.Join(selectors, ",") + ")"
 }
 
-func programCallToolIdentity(call Call) string {
+func programCallToolIdentity(call trace.Call) string {
 	if call.Tool == "shell" {
 		if plan, err := shellparse.ProgramShellPlan(call.Command); err == nil {
 			var names []string

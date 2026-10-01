@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // Codex reads Codex CLI rollouts: <Dir>/YYYY/MM/DD/rollout-*.jsonl.
@@ -22,7 +24,7 @@ type Codex struct{ Dir string }
 
 func (Codex) Client() string { return "codex" }
 
-func (r Codex) Read(since time.Time) ([]Session, error) {
+func (r Codex) Read(since time.Time) ([]trace.Session, error) {
 	var files []string
 	err := filepath.WalkDir(r.Dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -42,7 +44,7 @@ func (r Codex) Read(since time.Time) ([]Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []Session
+	var out []trace.Session
 	ids := map[string]bool{}
 	for _, f := range files {
 		if info, err := os.Stat(f); err != nil || info.ModTime().Before(since) {
@@ -90,27 +92,27 @@ type codexLine struct {
 	} `json:"payload"`
 }
 
-func readCodexFile(path string) (s Session, err error) {
+func readCodexFile(path string) (s trace.Session, err error) {
 	// One file the parser cannot follow is skipped, not the whole run.
 	defer func() {
 		if r := recover(); r != nil {
-			s, err = Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
+			s, err = trace.Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
 		}
 	}()
 	fh, err := os.Open(path)
 	if err != nil {
-		return Session{}, err
+		return trace.Session{}, err
 	}
 	defer fh.Close()
-	s = Session{Client: "codex", ID: strings.TrimSuffix(filepath.Base(path), ".jsonl")}
+	s = trace.Session{Client: "codex", ID: strings.TrimSuffix(filepath.Base(path), ".jsonl")}
 	turn, turnStart := 0, 0
 	metaSeen := false
 	automationSession := false
 	byCallID := map[string][]int{}    // call_id -> calls it produced
 	execInputs := map[string]string{} // functions.exec source, for result attribution
 	curID := ""
-	add := func(c Call) {
-		c.Request = s.request()
+	add := func(c trace.Call) {
+		c.Request = s.Request()
 		if curID != "" {
 			byCallID[curID] = append(byCallID[curID], len(s.Calls))
 		}
@@ -136,7 +138,7 @@ func readCodexFile(path string) (s Session, err error) {
 			}
 			if json.Unmarshal(b, &tc) == nil && tc.Payload.Info != nil {
 				l := tc.Payload.Info.Last
-				spread(s.Calls, turnStart, turn, Usage{Fresh: l.Input - l.Cached, Cached: l.Cached, Output: l.Output})
+				trace.Spread(s.Calls, turnStart, turn, trace.Usage{Fresh: l.Input - l.Cached, Cached: l.Cached, Output: l.Output})
 				turn++
 				turnStart = len(s.Calls)
 			}
@@ -159,11 +161,11 @@ func readCodexFile(path string) (s Session, err error) {
 			}
 			_ = json.Unmarshal(p.Content, &blocks)
 			for _, bl := range blocks {
-				if bl.Type == "input_text" && isRequest(bl.Text) {
+				if bl.Type == "input_text" && trace.IsRequest(bl.Text) {
 					if automationSession && codexInjectedAutomationContext(bl.Text) {
-						s.addRequestWithRole(bl.Text, "synthetic_context")
+						s.AddRequestWithRole(bl.Text, "synthetic_context")
 					} else {
-						s.addRequest(bl.Text)
+						s.AddRequest(bl.Text)
 					}
 					break
 				}
@@ -187,13 +189,13 @@ func readCodexFile(path string) (s Session, err error) {
 				if prompt := codexAutomationPrompt(rawString(p.Output)); prompt != "" {
 					onlyHarness := true
 					for i, request := range s.Requests {
-						if !isHarness(request) && (i >= len(s.RequestRoles) || s.RequestRoles[i] != "synthetic_context") {
+						if !trace.IsHarness(request) && (i >= len(s.RequestRoles) || s.RequestRoles[i] != "synthetic_context") {
 							onlyHarness = false
 							break
 						}
 					}
 					if onlyHarness {
-						s.Requests = []string{truncateUTF8(prompt, 4000)}
+						s.Requests = []string{trace.TruncateUTF8(prompt, 4000)}
 						s.RequestRoles = []string{"scheduled"}
 					}
 				}
@@ -233,7 +235,7 @@ func readCodexFile(path string) (s Session, err error) {
 			_ = json.Unmarshal([]byte(rawString(p.Arguments)), &args)
 			add(codexCall(s, ln.Timestamp, p.Namespace, p.Name, args))
 		case p.Type == "local_shell_call":
-			add(Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: "shell", Command: strings.Join(p.Action.Command, " ")})
+			add(trace.Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: "shell", Command: strings.Join(p.Action.Command, " ")})
 		case p.Type == "custom_tool_call" && p.Name == "exec":
 			execInputs[p.CallID] = p.Input
 			for _, inner := range jsToolCalls(p.Input) {
@@ -241,7 +243,7 @@ func readCodexFile(path string) (s Session, err error) {
 			}
 		case p.Type == "custom_tool_call":
 			// apply_patch and other freeform tools: the input is the argument.
-			add(Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: p.Name, Args: map[string]string{"input": truncate(p.Input, maxArg)}})
+			add(trace.Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: p.Name, Args: map[string]string{"input": truncate(p.Input, maxArg)}})
 		}
 	}
 	if s.Start.IsZero() && len(s.Calls) > 0 {
@@ -272,7 +274,7 @@ func codexAutomationPrompt(output string) string {
 // real user request following the envelope must remain a user request.
 func codexInjectedAutomationContext(text string) bool {
 	t := strings.TrimSpace(text)
-	if isHarness(t) {
+	if trace.IsHarness(t) {
 		return true
 	}
 	return strings.HasPrefix(t, "<recommended_plugins>") &&
@@ -291,8 +293,8 @@ func jsonHasAny(b []byte, subs ...string) bool {
 	return false
 }
 
-func codexCall(s Session, t time.Time, namespace, name string, args map[string]json.RawMessage) Call {
-	c := Call{Client: "codex", Session: s.ID, Time: t}
+func codexCall(s trace.Session, t time.Time, namespace, name string, args map[string]json.RawMessage) trace.Call {
+	c := trace.Call{Client: "codex", Session: s.ID, Time: t}
 	// Codex writes a tool as namespace "mcp__server__" + name "tool", as
 	// "mcp__server" + "tool", or as "mcp__server__app" + "_tool". All three
 	// must join into mcp__server__...tool.
@@ -357,9 +359,9 @@ func jsToolCalls(src string) []jsCall {
 				b, _ := json.Marshal(v)
 				args[k] = b
 			}
-		case rest != "" && isQuote([]rune(rest)[0]):
+		case rest != "" && trace.IsQuote([]rune(rest)[0]):
 			// tools.apply_patch(`*** Begin Patch ...`): one string argument.
-			v, _ := readJSString([]rune(rest), 0)
+			v, _ := trace.ReadJSString([]rune(rest), 0)
 			b, _ := json.Marshal(v)
 			args["input"] = b
 		}
@@ -395,8 +397,8 @@ func jsObjectFieldsKinds(src string) (map[string]string, map[string]bool) {
 		}
 		var key string
 		switch {
-		case isQuote(rs[i]):
-			key, i = readJSString(rs, i)
+		case trace.IsQuote(rs[i]):
+			key, i = trace.ReadJSString(rs, i)
 		case isIdentStart(rs[i]):
 			j := i
 			for j < len(rs) && (isIdentStart(rs[j]) || (rs[j] >= '0' && rs[j] <= '9')) {
@@ -406,7 +408,7 @@ func jsObjectFieldsKinds(src string) (map[string]string, map[string]bool) {
 		default:
 			// A spread, a computed key or something else: skip one value. A
 			// stray closing bracket cannot be skipped this way; stop there.
-			j := scanJSValue(rs, i)
+			j := trace.ScanJSValue(rs, i)
 			if j <= i {
 				return out, quoted
 			}
@@ -428,12 +430,12 @@ func jsObjectFieldsKinds(src string) (map[string]string, map[string]bool) {
 		if i >= len(rs) {
 			return out, quoted
 		}
-		if isQuote(rs[i]) {
-			out[key], i = readJSString(rs, i)
+		if trace.IsQuote(rs[i]) {
+			out[key], i = trace.ReadJSString(rs, i)
 			quoted[key] = true
 			continue
 		}
-		j := scanJSValue(rs, i)
+		j := trace.ScanJSValue(rs, i)
 		out[key] = strings.TrimSpace(string(rs[i:j]))
 		if j <= i {
 			return out, quoted
@@ -442,63 +444,13 @@ func jsObjectFieldsKinds(src string) (map[string]string, map[string]bool) {
 	}
 }
 
-// readJSString reads the string literal opening at rs[i] and returns its
-// unescaped text and the index after its closing quote.
-func readJSString(rs []rune, i int) (string, int) {
-	q := rs[i]
-	var b strings.Builder
-	j := i + 1
-	for ; j < len(rs) && rs[j] != q; j++ {
-		if rs[j] == '\\' && j+1 < len(rs) {
-			j++
-			switch rs[j] {
-			case 'n':
-				b.WriteRune('\n')
-			case 't':
-				b.WriteRune('\t')
-			default:
-				b.WriteRune(rs[j])
-			}
-			continue
-		}
-		b.WriteRune(rs[j])
-	}
-	return b.String(), min(j+1, len(rs))
-}
-
-// scanJSValue returns the index of the ',' or '}' that ends the value
-// starting at rs[i], skipping nested brackets and strings.
-func scanJSValue(rs []rune, i int) int {
-	depth := 0
-	for i < len(rs) {
-		switch c := rs[i]; {
-		case isQuote(c):
-			_, i = readJSString(rs, i)
-			continue
-		case c == '{' || c == '[' || c == '(':
-			depth++
-		case c == '}' || c == ']' || c == ')':
-			if depth == 0 {
-				return i
-			}
-			depth--
-		case c == ',' && depth == 0:
-			return i
-		}
-		i++
-	}
-	return i
-}
-
-func isQuote(c rune) bool { return c == '"' || c == '\'' || c == '`' }
-
 func isSpace(c rune) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
 
 func isIdentStart(c rune) bool {
 	return c == '_' || c == '$' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
-func truncate(s string, n int) string { return truncateUTF8(s, n) }
+func truncate(s string, n int) string { return trace.TruncateUTF8(s, n) }
 
 // codexOutputText is a call output's text: a string, or the text parts of a
 // content list.
@@ -523,15 +475,15 @@ var codexPassThroughPrefix = regexp.MustCompile(`(?s)^\s*(?:// @exec:[^\n]*\n\s*
 var codexIndexedPrefix = regexp.MustCompile(`^(?:const|let)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*await\s+Promise\.allSettled\(\s*\[`)
 var codexIndexedTail = regexp.MustCompile(`^([A-Za-z_$][A-Za-z0-9_$]*)\.forEach\(\(([A-Za-z_$][A-Za-z0-9_$]*),([A-Za-z_$][A-Za-z0-9_$]*)\)=>text\(JSON\.stringify\(\{([^{}]+)\}\)\)\)$`)
 
-func codexRecordResult(call *Call, text string, failed bool) {
-	call.Outcome = resultOutcome(text)
+func codexRecordResult(call *trace.Call, text string, failed bool) {
+	call.Outcome = trace.ResultOutcome(text)
 	if failed {
-		call.Outcome = OutcomeFailed
+		call.Outcome = trace.OutcomeFailed
 	}
-	call.OutIDs, call.OutCtx, call.OutPaths = outputRefsPaths(text)
-	call.OutCollections = resultCollections(text)
-	call.Output = truncateUTF8(text, 600)
-	call.OutTokens = outputTokens(text)
+	call.OutIDs, call.OutCtx, call.OutPaths = trace.OutputRefsPaths(text)
+	call.OutCollections = trace.ResultCollections(text)
+	call.Output = trace.TruncateUTF8(text, 600)
+	call.OutTokens = trace.OutputTokens(text)
 }
 
 type codexIndexedResult struct {

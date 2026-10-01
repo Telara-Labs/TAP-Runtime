@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
@@ -23,7 +25,7 @@ const RulesVersion = "tap-discover/4"
 // is the false discovery rate. None of them is a quality threshold on a
 // candidate: significance and stability are measured and reported.
 type Options struct {
-	Readers      []Reader
+	Readers      []trace.Reader
 	Since        time.Time
 	Window       int
 	MinSupport   int
@@ -63,10 +65,10 @@ type ClientStats struct {
 }
 
 type StepTemplate struct {
-	Label     string  `json:"label"`
-	Template  string  `json:"template"`
-	Params    []Slot  `json:"params,omitempty"`
-	Stability float64 `json:"stability"`
+	Label     string       `json:"label"`
+	Template  string       `json:"template"`
+	Params    []trace.Slot `json:"params,omitempty"`
+	Stability float64      `json:"stability"`
 	// Weight is the step's inverse document frequency over sessions.
 	Weight float64 `json:"weight"`
 	// Fixed is true when the step pins something beyond the tool: a shell
@@ -100,10 +102,10 @@ type Candidate struct {
 	// one that invokes the primitive), SavedTotal that saving summed over
 	// every measured occurrence. Measured counts those occurrences; Cursor
 	// records no usage, so its occurrences are not measured.
-	PerRun      Usage `json:"tokens_per_run"`
-	SavedPerRun Usage `json:"tokens_saved_per_run"`
-	SavedTotal  Usage `json:"tokens_saved_total"`
-	Measured    int   `json:"measured_runs"`
+	PerRun      trace.Usage `json:"tokens_per_run"`
+	SavedPerRun trace.Usage `json:"tokens_saved_per_run"`
+	SavedTotal  trace.Usage `json:"tokens_saved_total"`
+	Measured    int         `json:"measured_runs"`
 	// Family is the rank (index) of the qualified candidate this one is a
 	// variant of; a representative is its own family.
 	Family     int `json:"family,omitempty"`
@@ -169,7 +171,7 @@ type Report struct {
 
 	// Kept in memory so a candidate can be drafted from its real
 	// occurrences; never written out.
-	corpus []normSession
+	corpus []trace.NormSession
 	seqs   [][]int
 	names  []string
 	window int
@@ -195,7 +197,7 @@ func Run(o Options) (*Report, error) {
 	}
 	rep := &Report{RulesVersion: RulesVersion, GeneratedAt: o.Now().UTC(), Options: optionsOut{o.Since, o.Window, o.MinSupport, o.MaxLen, o.MaxPatterns, o.Permutations, o.Alpha, o.Seed, o.Spans}}
 
-	var raw []Session
+	var raw []trace.Session
 	for _, r := range o.Readers {
 		st := ClientStats{Client: r.Client()}
 		ss, err := r.Read(o.Since)
@@ -222,7 +224,7 @@ func Run(o Options) (*Report, error) {
 		}
 		return a.ID < b.ID
 	})
-	dropCopiedCalls(raw)
+	trace.DropCopiedCalls(raw)
 	for _, op := range SelectOpportunities(raw) {
 		if op.Recommended {
 			rep.Opportunities = append(rep.Opportunities, op)
@@ -240,12 +242,12 @@ func Run(o Options) (*Report, error) {
 		rep.ComponentSpans = ReviewSpanComponents(rep.SpanProposals)
 		rep.ComponentGroups = GroupSpanCompositions(rep.ComponentSpans)
 	}
-	sessions := normalize(raw)
+	sessions := trace.Normalize(raw)
 
 	// Identical step sequences are one piece of work run twice (a replayed
 	// test harness, a re-sent prompt), not recurrence.
 	seen := map[string]bool{}
-	var corpus []normSession
+	var corpus []trace.NormSession
 	stats := map[string]*ClientStats{}
 	for i := range rep.Clients {
 		stats[rep.Clients[i].Client] = &rep.Clients[i]
@@ -493,26 +495,26 @@ func permuteCounts(seqs [][]int, group []int, ps []pattern, o Options, permute f
 // describe builds the report entry for a pattern: a template per step from
 // the occurrences whose skeleton is the most common one, the slots that vary
 // as typed parameters, and when the work happened.
-func describe(p pattern, corpus []normSession, seqs [][]int, names []string, idf []float64, window int) Candidate {
+func describe(p pattern, corpus []trace.NormSession, seqs [][]int, names []string, idf []float64, window int) Candidate {
 	c := Candidate{ByClient: map[string]int{}, Sessions: len(p.sessions), sessionSet: map[int]bool{}, items: p.items}
-	occ := make([][]Step, 0, len(p.sessions))
+	occ := make([][]trace.Step, 0, len(p.sessions))
 	var times []time.Time
-	var runs [][2]Usage
+	var runs [][2]trace.Usage
 	weeks := map[string]bool{}
 	for _, s := range p.sessions {
 		c.sessionSet[s] = true
 		ns := corpus[s]
 		c.ByClient[ns.Client]++
-		idx := matchAt(seqs[s], p.items, window)
-		steps := make([]Step, len(idx))
+		idx := trace.MatchAt(seqs[s], p.items, window)
+		steps := make([]trace.Step, len(idx))
 		for i, j := range idx {
 			steps[i] = ns.Steps[j]
 		}
 		occ = append(occ, steps)
 		if run, saved, ok := runCost(steps); ok {
 			c.Measured++
-			c.SavedTotal = c.SavedTotal.add(saved)
-			runs = append(runs, [2]Usage{run, saved})
+			c.SavedTotal = c.SavedTotal.Add(saved)
+			runs = append(runs, [2]trace.Usage{run, saved})
 		}
 		t := ns.Start
 		if t.IsZero() && len(steps) > 0 {
@@ -566,7 +568,7 @@ func describe(p pattern, corpus []normSession, seqs [][]int, names []string, idf
 	return c
 }
 
-func templateOf(label string, occ [][]Step, i int) StepTemplate {
+func templateOf(label string, occ [][]trace.Step, i int) StepTemplate {
 	skel := map[string]int{}
 	for _, o := range occ {
 		skel[o[i].Skeleton]++
@@ -619,13 +621,13 @@ func templateOf(label string, occ [][]Step, i int) StepTemplate {
 			// A constant flag (tail -n) or numeric option (offset=0) says
 			// how a tool is used, not what it acts on; only a constant
 			// word, path, text, id or URL fixes the work.
-			if tp != SlotFlag && tp != SlotNumber {
+			if tp != trace.SlotFlag && tp != trace.SlotNumber {
 				st.Fixed = true
 			}
 			continue
 		}
 		parts = append(parts, fmtSlot(label, k, "<"+tp+">"))
-		st.Params = append(st.Params, Slot{Key: k, Type: tp})
+		st.Params = append(st.Params, trace.Slot{Key: k, Type: tp})
 	}
 	// A run of the same parameter type (git add <path> <path> <path>) is one
 	// variadic parameter.
@@ -644,12 +646,12 @@ func templateOf(label string, occ [][]Step, i int) StepTemplate {
 func fmtSlot(label, key, v string) string {
 	if strings.HasPrefix(label, "sh:") {
 		if len(v) > 60 {
-			v = truncateUTF8(v, 60) + "…"
+			v = trace.TruncateUTF8(v, 60) + "…"
 		}
 		return v
 	}
 	if len(v) > 40 {
-		v = truncateUTF8(v, 40) + "…"
+		v = trace.TruncateUTF8(v, 40) + "…"
 	}
 	return key + "=" + v
 }
@@ -657,7 +659,7 @@ func fmtSlot(label, key, v string) string {
 // recall scores the miner against work known to recur: every skill loaded in
 // at least two sessions. For each, the candidate whose sessions best match the
 // skill's sessions (F1) is reported, among qualified and among all tested.
-func recall(corpus []normSession, cands []Candidate) []SkillRecall {
+func recall(corpus []trace.NormSession, cands []Candidate) []SkillRecall {
 	skillSessions := map[string]map[int]bool{}
 	for i, s := range corpus {
 		for sk := range s.Skills {
@@ -837,7 +839,7 @@ next:
 				continue next
 			}
 		}
-		if matchAt(seqs[s], items, window) != nil {
+		if trace.MatchAt(seqs[s], items, window) != nil {
 			n++
 		}
 	}
@@ -854,7 +856,7 @@ func (o Options) log(format string, a ...any) {
 // of their turns) and what a primitive would save: everything except one
 // turn's worth, the turn that calls the primitive. ok is false unless every
 // step was measured.
-func runCost(steps []Step) (run, saved Usage, ok bool) {
+func runCost(steps []trace.Step) (run, saved trace.Usage, ok bool) {
 	// Only steps a primitive can replay count: an edit whose content was
 	// decided per run, or the agent's own bookkeeping, stays with the agent,
 	// and so does what it costs.
@@ -862,38 +864,18 @@ func runCost(steps []Step) (run, saved Usage, ok bool) {
 	merged := 0
 	for _, st := range steps {
 		if !st.Measured {
-			return Usage{}, Usage{}, false
+			return trace.Usage{}, trace.Usage{}, false
 		}
-		if !replayable(st.Label) {
+		if !trace.Replayable(st.Label) {
 			continue
 		}
-		run = run.add(st.Tokens)
+		run = run.Add(st.Tokens)
 		turns[st.Turn] = true
 		merged += max(st.Turns, 1) - 1
 	}
 	if len(turns) == 0 {
-		return Usage{}, Usage{}, false
+		return trace.Usage{}, trace.Usage{}, false
 	}
-	one := run.scale(1 / float64(len(turns)+merged))
-	return run, Usage{run.Fresh - one.Fresh, run.Cached - one.Cached, run.Output - one.Output}, true
-}
-
-// dropCopiedCalls removes calls a session file copied from another: the same
-// client call ID read twice. The first file read keeps it.
-func dropCopiedCalls(ss []Session) {
-	seen := map[string]bool{}
-	for i := range ss {
-		kept := ss[i].Calls[:0]
-		for _, c := range ss[i].Calls {
-			if c.ID != "" {
-				k := ss[i].Client + "\x00" + c.ID
-				if seen[k] {
-					continue
-				}
-				seen[k] = true
-			}
-			kept = append(kept, c)
-		}
-		ss[i].Calls = kept
-	}
+	one := run.Scale(1 / float64(len(turns)+merged))
+	return run, trace.Usage{Fresh: run.Fresh - one.Fresh, Cached: run.Cached - one.Cached, Output: run.Output - one.Output}, true
 }

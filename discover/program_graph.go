@@ -1,12 +1,13 @@
 package discover
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
@@ -104,14 +105,7 @@ var indexedResultPath = regexp.MustCompile(`\[[0-9]+\]`)
 type observedOp struct {
 	node   spanNode
 	role   string
-	fields map[string]observedField
-}
-
-type observedField struct {
-	path       []string
-	value      string
-	typeName   string
-	jsonString bool
+	fields map[string]trace.ObservedField
 }
 
 type observedTrace struct {
@@ -129,7 +123,7 @@ type observedInputVector struct {
 // from silently generating a program from different history. The classifier
 // is deliberately action-agnostic: it reads operation names, argument trees,
 // typed slots and structured result paths, not Jira/GitLab special cases.
-func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions []Session) (*ProgramGraph, error) {
+func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions []trace.Session) (*ProgramGraph, error) {
 	bySpan := make(map[string]SpanProposal, len(proposals))
 	for _, p := range proposals {
 		bySpan[p.ID] = p
@@ -142,21 +136,21 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 		}
 		wanted[p.Client+"\x00"+p.Session] = true
 	}
-	cp := make([]Session, 0, len(wanted))
+	cp := make([]trace.Session, 0, len(wanted))
 	for _, s := range sessions {
 		if !wanted[s.Client+"\x00"+s.ID] {
 			continue
 		}
-		s.Calls = append([]Call(nil), s.Calls...)
+		s.Calls = append([]trace.Call(nil), s.Calls...)
 		cp = append(cp, s)
 	}
-	dropCopiedCalls(cp)
-	bySession := map[string]Session{}
+	trace.DropCopiedCalls(cp)
+	bySession := map[string]trace.Session{}
 	for _, s := range cp {
 		bySession[s.Client+"\x00"+s.ID] = s
 	}
-	norm := normalize(cp)
-	byNorm := map[string]normSession{}
+	norm := trace.Normalize(cp)
+	byNorm := map[string]trace.NormSession{}
 	for _, ns := range norm {
 		byNorm[ns.Client+"\x00"+ns.ID] = ns
 	}
@@ -176,7 +170,7 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 		if !ok {
 			return nil, fmt.Errorf("normalized source for span %s is unavailable", id)
 		}
-		byCall := map[int][]Step{}
+		byCall := map[int][]trace.Step{}
 		for _, st := range ns.Steps {
 			byCall[st.Call] = append(byCall[st.Call], st)
 		}
@@ -197,7 +191,7 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 			if !ok || i >= len(p.CallHashes) || spanCallHash(n.call) != p.CallHashes[i] {
 				return nil, fmt.Errorf("span %s source call %d changed", id, ordinal)
 			}
-			ops = append(ops, observedOp{node: n, role: logicRole(spanActionRole(n)), fields: observedArgs(n.call)})
+			ops = append(ops, observedOp{node: n, role: logicRole(spanActionRole(n)), fields: trace.ObservedArgs(n.call)})
 		}
 		if len(ops) == 0 {
 			continue
@@ -265,7 +259,7 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 					}
 					effect := "unknown"
 					if j < len(first.node.steps) {
-						effect = stepEffect(first.node.steps[j])
+						effect = trace.StepEffect(first.node.steps[j])
 					}
 					if effect != "read" && effect != "write" {
 						graph.Problems = append(graph.Problems, fmt.Sprintf("step %d stage %d has unknown effect", step+1, j+1))
@@ -293,7 +287,7 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 				}
 			}
 			for _, op := range tr.groups[step] {
-				if op.node.call.Outcome == OutcomeFailed {
+				if op.node.call.Outcome == trace.OutcomeFailed {
 					graph.Problems = append(graph.Problems, fmt.Sprintf("step %d failed in a source execution", step+1))
 				}
 				if op.node.call.Tool != ps.Tool || op.role != ps.Role {
@@ -315,7 +309,7 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 								if stage.Connector != ps.Pipeline[j].Connector {
 									graph.Problems = append(graph.Problems, fmt.Sprintf("step %d compound connector changes", step+1))
 								}
-								if j >= len(op.node.steps) || stepEffect(op.node.steps[j]) != ps.Pipeline[j].Effect {
+								if j >= len(op.node.steps) || trace.StepEffect(op.node.steps[j]) != ps.Pipeline[j].Effect {
 									graph.Problems = append(graph.Problems, fmt.Sprintf("step %d pipeline stage %d changes effect", step+1, j+1))
 								}
 							}
@@ -340,7 +334,7 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 				}
 			}
 		}
-		fields := map[string]observedField{}
+		fields := map[string]trace.ObservedField{}
 		for _, tr := range traces {
 			for _, op := range tr.groups[step] {
 				for path, field := range op.fields {
@@ -379,13 +373,13 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 						continue
 					}
 					present++
-					if f.typeName != base.typeName || f.jsonString != base.jsonString {
+					if f.TypeName != base.TypeName || f.JsonString != base.JsonString {
 						shapeOK = false
 						break
 					}
-					values = append(values, f.value)
-					seen[f.value] = true
-					traceValue = f.value
+					values = append(values, f.Value)
+					seen[f.Value] = true
+					traceValue = f.Value
 				}
 				if present != 0 && present != len(tr.groups[step]) {
 					graph.Problems = append(graph.Problems, fmt.Sprintf("step %d argument %s is present in only some loop iterations", step+1, path))
@@ -400,13 +394,13 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 				graph.Problems = append(graph.Problems, fmt.Sprintf("step %d argument %s changes shape", step+1, path))
 				continue
 			}
-			arg := ProgramArg{Path: base.path, JSONString: base.jsonString, Optional: optional}
+			arg := ProgramArg{Path: base.Path, JSONString: base.JsonString, Optional: optional}
 			resultStep, resultPath, resultOK := observedResultBinding(traces, step, path)
 			listStep, listPath, itemPath, listOK := observedCollectionBinding(traces, step, path)
 			selection, selectionOK := observedUniqueSelection(traces, step, path)
 			indexedCollection, indexedCollectionOK := observedIndexedCollectionBinding(traces, step, path)
 			switch {
-			case operationSelector(first.node.call, path):
+			case trace.OperationSelector(first.node.call, path):
 				if optional || !allSame(values) {
 					graph.Problems = append(graph.Problems, fmt.Sprintf("step %d selector %s changes", step+1, path))
 				} else {
@@ -423,7 +417,7 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 					break
 				}
 				if !optional && indexedCollectionOK {
-					name := programInputName(step, base.path, true) + "_source_indexes"
+					name := programInputName(step, base.Path, true) + "_source_indexes"
 					if ps.Loop != "" && ps.Loop != name {
 						graph.Problems = append(graph.Problems, fmt.Sprintf("step %d item fields use different selection lists", step+1))
 					}
@@ -436,10 +430,10 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 				if optional || resultOK || possiblePriorResult(traces, step, path) {
 					graph.Problems = append(graph.Problems, fmt.Sprintf("step %d item %s comes from an earlier result; collection binding is not determined", step+1, path))
 				}
-				name := programInputName(step, base.path, true)
+				name := programInputName(step, base.Path, true)
 				ps.Loop = name
 				arg.Value = ProgramValue{Kind: "item", Input: name}
-				graph.Inputs = append(graph.Inputs, ProgramInput{Name: name, Type: base.typeName, List: true, Source: "supplied at invocation"})
+				graph.Inputs = append(graph.Inputs, ProgramInput{Name: name, Type: base.TypeName, List: true, Source: "supplied at invocation"})
 			case !loop && !optional && (!resultOK || indexedResultPath.MatchString(resultPath)) && selectionOK:
 				name := fmt.Sprintf("step_%d_select_%s", step+1, sanitizeName(selection.predicatePath))
 				arg.Value = ProgramValue{Kind: "selected_result", Step: selection.step, ResultPath: selection.itemPath,
@@ -455,7 +449,7 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 					graph.Inputs = append(graph.Inputs, ProgramInput{Name: name, Type: selection.predicateType, Source: "supplied at invocation (unique result selection)"})
 				}
 			case !loop && !optional && indexedCollectionOK:
-				name := programInputName(step, base.path, false) + "_source_index"
+				name := programInputName(step, base.Path, false) + "_source_index"
 				arg.Value = ProgramValue{Kind: "collection_index", Step: indexedCollection.step, CollectionPath: indexedCollection.collection, ResultPath: indexedCollection.item, Input: name}
 				graph.Inputs = append(graph.Inputs, ProgramInput{Name: name, Type: "integer", Source: fmt.Sprintf("caller selects one position from step %d result%s", indexedCollection.step, indexedCollection.collection)})
 			case resultOK && !optional && !indexedResultPath.MatchString(resultPath):
@@ -465,7 +459,7 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 						graph.Problems = append(graph.Problems, fmt.Sprintf("step %d argument %s selects one result of a loop without a determined per-item join", step+1, path))
 						break
 					}
-					name := programInputName(step, base.path, false) + "_source_index"
+					name := programInputName(step, base.Path, false) + "_source_index"
 					graph.Inputs = append(graph.Inputs, ProgramInput{Name: name, Type: "integer", Source: fmt.Sprintf("caller selects one result from step %d by zero-based position", resultStep)})
 					arg.Value = ProgramValue{Kind: "indexed_result", Step: resultStep, ResultPath: resultPath, Input: name}
 				} else {
@@ -474,17 +468,17 @@ func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions
 			case possiblePriorResult(traces, step, path) || resultOK:
 				graph.Problems = append(graph.Problems, fmt.Sprintf("step %d argument %s appears to use an earlier result but its path is not determined", step+1, path))
 			default:
-				name := programInputName(step, base.path, false)
+				name := programInputName(step, base.Path, false)
 				prior := ""
 				if !optional && stableAcrossIterations {
-					prior = sameInputVector(inputVectors, stableByTrace, base.typeName, base.path[len(base.path)-1])
+					prior = sameInputVector(inputVectors, stableByTrace, base.TypeName, base.Path[len(base.Path)-1])
 				}
 				if prior != "" {
 					name = prior
 				} else {
-					graph.Inputs = append(graph.Inputs, ProgramInput{Name: name, Type: base.typeName, Optional: optional, Source: "supplied at invocation"})
+					graph.Inputs = append(graph.Inputs, ProgramInput{Name: name, Type: base.TypeName, Optional: optional, Source: "supplied at invocation"})
 					if !optional && stableAcrossIterations {
-						inputVectors[name] = observedInputVector{values: stableByTrace, typeName: base.typeName}
+						inputVectors[name] = observedInputVector{values: stableByTrace, typeName: base.TypeName}
 					}
 				}
 				arg.Value = ProgramValue{Kind: "input", Input: name}
@@ -588,7 +582,7 @@ func mergeProgramItemFields(graph *ProgramGraph, ps *ProgramStep, step int) {
 		}
 		fields = append(fields, ProgramInputField{Name: fieldName, Path: append([]string(nil), arg.Path...), Type: fieldType})
 		arg.Value.Input = name
-		arg.Value.ResultPath = jqKeyPath(fieldName)
+		arg.Value.ResultPath = trace.JqKeyPath(fieldName)
 	}
 	kept := graph.Inputs[:0]
 	for _, input := range graph.Inputs {
@@ -609,119 +603,6 @@ func observedForEach(p SpanProposal, role string) bool {
 	return false
 }
 
-func observedArgs(c Call) map[string]observedField {
-	out := map[string]observedField{}
-	if c.Tool == "shell" {
-		commands, err := shellparse.ProgramShellCommands(c.Command)
-		if err != nil {
-			return out
-		}
-		for stage, words := range commands {
-			for i, value := range words[1:] {
-				key := fmt.Sprintf("argv_%d", i)
-				if len(commands) > 1 {
-					key = fmt.Sprintf("pipe_%d_argv_%d", stage, i)
-				}
-				out[key] = observedField{path: []string{key}, value: value, typeName: "string"}
-			}
-		}
-		return out
-	}
-	var add func(path []string, v any, jsonString bool)
-	add = func(path []string, v any, jsonString bool) {
-		if m, ok := v.(map[string]any); ok {
-			keys := make([]string, 0, len(m))
-			for k := range m {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				add(append(append([]string(nil), path...), k), m[k], jsonString)
-			}
-			return
-		}
-		value := fmt.Sprint(v)
-		typ := "string"
-		switch number := v.(type) {
-		case bool:
-			typ = "boolean"
-		case json.Number:
-			if strings.ContainsAny(number.String(), ".eE") {
-				typ = "number"
-			} else {
-				typ = "integer"
-			}
-		case float64:
-			typ = "number"
-		case []any:
-			typ = "array"
-		}
-		out[strings.Join(path, "/")] = observedField{path: path, value: value, typeName: typ, jsonString: jsonString}
-	}
-	for key, raw := range c.Args {
-		var v any = raw
-		jsonString := false
-		if strings.HasPrefix(strings.TrimSpace(raw), "{") {
-			var obj map[string]any
-			dec := json.NewDecoder(strings.NewReader(raw))
-			dec.UseNumber()
-			if json.Valid([]byte(raw)) && dec.Decode(&obj) == nil {
-				v, jsonString = obj, !c.RawArgs[key]
-			}
-		} else if c.RawArgs[key] && json.Valid([]byte(raw)) {
-			dec := json.NewDecoder(strings.NewReader(raw))
-			dec.UseNumber()
-			_ = dec.Decode(&v)
-		}
-		add([]string{key}, v, jsonString)
-	}
-	return out
-}
-
-func operationSelector(c Call, path string) bool {
-	if c.Tool == "shell" {
-		commands, err := shellparse.ProgramShellCommands(c.Command)
-		if err != nil {
-			return false
-		}
-		stage, i := 0, -1
-		if len(commands) > 1 {
-			if _, err := fmt.Sscanf(path, "pipe_%d_argv_%d", &stage, &i); err != nil || fmt.Sprintf("pipe_%d_argv_%d", stage, i) != path {
-				return false
-			}
-		} else if _, err := fmt.Sscanf(path, "argv_%d", &i); err != nil || fmt.Sprintf("argv_%d", i) != path {
-			return false
-		}
-		if stage < 0 || stage >= len(commands) || i < 0 || i+1 >= len(commands[stage]) {
-			return false
-		}
-		words := commands[stage]
-		value := words[i+1]
-		if strings.HasPrefix(value, "-") && !strings.Contains(value, "=") {
-			return true
-		}
-		if i != 0 || typeOf(shellparse.Word{Text: value}) != SlotWord {
-			return false
-		}
-		// The first word is structural only for command families whose
-		// first argument selects the operation. Otherwise a stable word
-		// may still be a user's value and must not be embedded in code.
-		switch words[0] {
-		case "git", "gh", "kubectl", "docker", "helm", "tap":
-			return true
-		}
-		return false
-	}
-	if !strings.HasPrefix(c.Tool, "mcp:") || strings.Contains(path, "/") {
-		return false
-	}
-	switch strings.ToLower(path) {
-	case "action", "operation", "integration", "provider", "method", "tool", "service":
-		return true
-	}
-	return false
-}
-
 func allSame(values []string) bool {
 	if len(values) == 0 {
 		return false
@@ -738,7 +619,7 @@ func observedResultBinding(traces []observedTrace, step int, path string) (int, 
 	producer, resultPath := -1, ""
 	for _, tr := range traces {
 		for _, op := range tr.groups[step] {
-			value := op.fields[path].value
+			value := op.fields[path].Value
 			foundStep, foundPath := -1, ""
 			for prior := step - 1; prior >= 0; prior-- {
 				for _, parent := range tr.groups[prior] {
@@ -772,7 +653,7 @@ func observedDistinctArgumentValues(traces []observedTrace, step int, left, righ
 		for _, op := range tr.groups[step] {
 			a, aOK := op.fields[left]
 			b, bOK := op.fields[right]
-			if !aOK || !bOK || a.value == b.value {
+			if !aOK || !bOK || a.Value == b.Value {
 				return false
 			}
 		}
@@ -813,7 +694,7 @@ func observedUniqueSelection(traces []observedTrace, step int, path string) (uni
 		if !ok {
 			return uniqueSelection{}, false
 		}
-		wanted := resultValueDigest(value.value)
+		wanted := trace.ResultValueDigest(value.Value)
 		matches := map[string]selectionEvidence{}
 		for prior := 0; prior < step; prior++ {
 			if len(tr.groups[prior]) != 1 {
@@ -822,14 +703,14 @@ func observedUniqueSelection(traces []observedTrace, step int, path string) (uni
 			call := tr.groups[prior][0].node.call
 			collections := call.OutCollections
 			if len(collections) == 0 {
-				collections = resultCollections(call.Output)
+				collections = trace.ResultCollections(call.Output)
 			}
 			for _, collection := range collections {
 				if collection.Count < 2 {
 					continue
 				}
 				for itemPath, itemField := range collection.Fields {
-					if itemField.Type != value.typeName || len(itemField.Digests) != collection.Count {
+					if itemField.Type != value.TypeName || len(itemField.Digests) != collection.Count {
 						continue
 					}
 					index := -1
@@ -907,7 +788,7 @@ func observedCollectionBinding(traces []observedTrace, step int, path string) (i
 	var common map[string]collectionBinding
 	for _, tr := range traces {
 		group := tr.groups[step]
-		values := make([]observedField, 0, len(group))
+		values := make([]trace.ObservedField, 0, len(group))
 		for _, op := range group {
 			field, ok := op.fields[path]
 			if !ok {
@@ -930,7 +811,7 @@ func observedCollectionBinding(traces []observedTrace, step int, path string) (i
 			call := tr.groups[prior][0].node.call
 			collections := call.OutCollections
 			if len(collections) == 0 {
-				collections = resultCollections(call.Output)
+				collections = trace.ResultCollections(call.Output)
 			}
 			for _, collection := range collections {
 				if collection.Count != len(values) {
@@ -942,7 +823,7 @@ func observedCollectionBinding(traces []observedTrace, step int, path string) (i
 					}
 					aligned := true
 					for i, value := range values {
-						if value.typeName != field.Type || resultValueDigest(value.value) != field.Digests[i] {
+						if value.TypeName != field.Type || trace.ResultValueDigest(value.Value) != field.Digests[i] {
 							aligned = false
 							break
 						}
@@ -979,14 +860,14 @@ func observedCollectionBinding(traces []observedTrace, step int, path string) (i
 // observedParallelResultPath proves an index-preserving join between two
 // repeated steps. The producer's generated result is itself a list even when
 // each individual call returned a scalar object.
-func observedParallelResultPath(producers []observedOp, values []observedField) (string, bool) {
+func observedParallelResultPath(producers []observedOp, values []trace.ObservedField) (string, bool) {
 	if len(producers) != len(values) || len(values) == 0 {
 		return "", false
 	}
 	path := ""
 	seen := map[string]bool{}
 	for i, producer := range producers {
-		value := values[i].value
+		value := values[i].Value
 		if len(values) > 1 && seen[value] {
 			return "", false
 		}
@@ -1026,7 +907,7 @@ func observedIndexedCollectionBinding(traces []observedTrace, step int, path str
 		if step >= len(tr.groups) {
 			return collectionBinding{}, false
 		}
-		values := make([]observedField, 0, len(tr.groups[step]))
+		values := make([]trace.ObservedField, 0, len(tr.groups[step]))
 		for _, op := range tr.groups[step] {
 			value, ok := op.fields[path]
 			if !ok {
@@ -1042,7 +923,7 @@ func observedIndexedCollectionBinding(traces []observedTrace, step int, path str
 			call := tr.groups[prior][0].node.call
 			collections := call.OutCollections
 			if len(collections) == 0 {
-				collections = resultCollections(call.Output)
+				collections = trace.ResultCollections(call.Output)
 			}
 			for _, collection := range collections {
 				if collection.Count < len(values) {
@@ -1055,11 +936,11 @@ func observedIndexedCollectionBinding(traces []observedTrace, step int, path str
 					used := map[int]bool{}
 					valid := true
 					for _, value := range values {
-						if value.typeName != field.Type {
+						if value.TypeName != field.Type {
 							valid = false
 							break
 						}
-						wanted, index := resultValueDigest(value.value), -1
+						wanted, index := trace.ResultValueDigest(value.Value), -1
 						for i, digest := range field.Digests {
 							if digest == wanted {
 								if index >= 0 {
@@ -1111,8 +992,8 @@ func possiblePriorResult(traces []observedTrace, step int, path string) bool {
 			if !ok {
 				continue
 			}
-			value := field.value
-			digest := resultValueDigest(value)
+			value := field.Value
+			digest := trace.ResultValueDigest(value)
 			for prior := 0; prior < step; prior++ {
 				for _, parent := range tr.groups[prior] {
 					for _, id := range parent.node.call.OutIDs {
@@ -1125,12 +1006,12 @@ func possiblePriorResult(traces []observedTrace, step int, path string) bool {
 					// well, even when its value was beyond that preview. An exact
 					// argument echo on this call can instead be a shared caller
 					// input and is handled by input-vector alignment.
-					if priorField, echoed := parent.fields[path]; echoed && priorField.typeName == field.typeName && priorField.value == value {
+					if priorField, echoed := parent.fields[path]; echoed && priorField.TypeName == field.TypeName && priorField.Value == value {
 						continue
 					}
 					for _, collection := range parent.node.call.OutCollections {
 						for _, itemField := range collection.Fields {
-							if itemField.Type != field.typeName {
+							if itemField.Type != field.TypeName {
 								continue
 							}
 							for _, itemDigest := range itemField.Digests {

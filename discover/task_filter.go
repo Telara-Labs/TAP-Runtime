@@ -1,6 +1,10 @@
 package discover
 
-import "strings"
+import (
+	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+)
 
 // SpanTaskReview is a deterministic admission check for the human review
 // queue. Ready means the recorded trace has a task-shaped contract, not that
@@ -15,13 +19,13 @@ type SpanTaskReview struct {
 	Reasons   []string `json:"reasons,omitempty"`
 }
 
-func spanSyntheticRequest(s Session, req int) bool {
+func spanSyntheticRequest(s trace.Session, req int) bool {
 	return req >= 0 && req < len(s.Requests) &&
 		(req < len(s.RequestRoles) && s.RequestRoles[req] == "synthetic_context" ||
 			isClaudeContinuationSummary(s.Requests[req]))
 }
 
-func assessSpanTask(s Session, req int, nodes []spanNode, set []int, inputs []SpanInput) SpanTaskReview {
+func assessSpanTask(s trace.Session, req int, nodes []spanNode, set []int, inputs []SpanInput) SpanTaskReview {
 	r := SpanTaskReview{Source: "user", Input: "unresolved", Output: "unobserved", Stop: "single_pass"}
 	if req < len(s.RequestRoles) && s.RequestRoles[req] == "scheduled" {
 		r.Source = "scheduled"
@@ -41,7 +45,7 @@ func assessSpanTask(s Session, req int, nodes []spanNode, set []int, inputs []Sp
 	}
 	if spanHasReference(spanWords(request)) {
 		for i := req - 1; i >= 0; i-- {
-			if !spanSyntheticRequest(s, i) && !isHarness(s.Requests[i]) && strings.TrimSpace(s.Requests[i]) != "" {
+			if !spanSyntheticRequest(s, i) && !trace.IsHarness(s.Requests[i]) && strings.TrimSpace(s.Requests[i]) != "" {
 				request = s.Requests[i] + " " + request
 				break
 			}
@@ -78,7 +82,7 @@ func assessSpanTask(s Session, req int, nodes []spanNode, set []int, inputs []Sp
 	goodOutput, failed := false, false
 	for _, i := range set {
 		c := nodes[i].call
-		if c.Outcome == OutcomeFailed || spanOversizeResult(c.Output) {
+		if c.Outcome == trace.OutcomeFailed || spanOversizeResult(c.Output) {
 			failed = true
 		}
 		if strings.TrimSpace(c.Output) != "" {

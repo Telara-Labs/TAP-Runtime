@@ -13,6 +13,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/util"
@@ -123,7 +125,7 @@ type Draft struct {
 	// priorLoop names steps that loop over a list an earlier result held.
 	priorLoop map[string]bool
 	// firstRun is the first drafted run's steps, for evidence lookups.
-	firstRun []Step
+	firstRun []trace.Step
 	posStep  map[int]int
 	// RuntimeUnsupported names steps the TAP guest runtime would not run
 	// as recorded (a built-in that ignores file arguments, a file read the
@@ -157,24 +159,6 @@ type loopSpec struct {
 	source string
 }
 
-// inResult reports whether a value appears in a step's recorded result.
-func inResult(v string, st Step) bool {
-	if len(v) < 4 || strings.ContainsAny(v, " \n") {
-		return false
-	}
-	for _, id := range st.OutIDs {
-		if id == v {
-			return true
-		}
-	}
-	for _, t := range st.OutTokens {
-		if t == v {
-			return true
-		}
-	}
-	return strings.Contains(st.Output, v)
-}
-
 // Draft builds the package for Candidates[idx].
 func (r *Report) Draft(idx int, opt DraftOptions) (*Draft, error) {
 	if idx < 0 || idx >= len(r.Candidates) || r.corpus == nil {
@@ -184,18 +168,18 @@ func (r *Report) Draft(idx int, opt DraftOptions) (*Draft, error) {
 	if len(c.items) == 0 {
 		return nil, errors.New("this candidate cannot be drafted")
 	}
-	var occ [][]Step
+	var occ [][]trace.Step
 	sessions := make([]int, 0, len(c.sessionSet))
 	for s := range c.sessionSet {
 		sessions = append(sessions, s)
 	}
 	sort.Ints(sessions)
 	for _, s := range sessions {
-		idxs := matchAt(r.seqs[s], c.items, r.window)
+		idxs := trace.MatchAt(r.seqs[s], c.items, r.window)
 		if idxs == nil {
 			continue
 		}
-		steps := make([]Step, len(idxs))
+		steps := make([]trace.Step, len(idxs))
 		for i, j := range idxs {
 			steps[i] = r.corpus[s].Steps[j]
 		}
@@ -209,14 +193,14 @@ func (r *Report) Draft(idx int, opt DraftOptions) (*Draft, error) {
 
 // slotPlan is one argument position of one step: a fixed value, or an input.
 type slotPlan struct {
-	slot  Slot
+	slot  trace.Slot
 	fixed bool
 	input int // index into inputs when not fixed
 }
 
 type drafter struct {
 	opt      DraftOptions
-	occ      [][]Step
+	occ      [][]trace.Step
 	inputs   []DraftInput
 	vectors  []map[int]string // per input: occurrence -> value
 	names    map[string]bool
@@ -251,7 +235,7 @@ var guestReadsStdinOnly = map[string]bool{"wc": true, "head": true}
 func (d *drafter) checkGuest(prog string, plans []slotPlan, n int) {
 	if prog == "cat" {
 		for _, p := range plans {
-			if !p.slot.Sub && p.slot.Type != SlotFlag {
+			if !p.slot.Sub && p.slot.Type != trace.SlotFlag {
 				d.fileAccess(p, n)
 			}
 		}
@@ -263,7 +247,7 @@ func (d *drafter) checkGuest(prog string, plans []slotPlan, n int) {
 	for _, p := range plans {
 		// "wc -l file" parses as the flag -l taking "file"; only a number
 		// after a flag (head -n 20) is an option's value.
-		if p.slot.Sub || p.slot.Type == SlotFlag || p.slot.Type == SlotNumber {
+		if p.slot.Sub || p.slot.Type == trace.SlotFlag || p.slot.Type == trace.SlotNumber {
 			continue
 		}
 		d.unsupported = append(d.unsupported, fmt.Sprintf("guest_builtin_ignores_files:step%d:%s", n, prog))
@@ -289,7 +273,7 @@ func (d *drafter) fileAccess(p slotPlan, n int) {
 // output, that shell variable.
 func (d *drafter) ref(k int) string { return "\x01" + util.Itoa(k) + "\x01" }
 
-func buildDraft(c Candidate, occ [][]Step, opt DraftOptions) *Draft {
+func buildDraft(c Candidate, occ [][]trace.Step, opt DraftOptions) *Draft {
 	if opt.Publisher == "" {
 		opt.Publisher = DefaultPublisher
 	}
@@ -405,21 +389,15 @@ func (d *drafter) effect(n int) string {
 	return "write"
 }
 
-// derived reports a slot computed from another (a URL's host, a path's base
-// name). Derived slots help spot what is fixed; they are never arguments.
-func derived(key string) bool {
-	return strings.Contains(key, ".") && !strings.HasPrefix(key, "-")
-}
-
 // plan decides, for step i, which arguments are fixed and which are inputs.
 // It uses the occurrences with the most common skeleton and argument keys,
 // and compares values key by key, so arguments given in a different order
 // still line up.
 func (d *drafter) plan(i int, stepName string) []slotPlan {
-	sig := func(st Step) string {
+	sig := func(st trace.Step) string {
 		var ks []string
 		for _, sl := range st.Slots {
-			if !derived(sl.Key) {
+			if !trace.Derived(sl.Key) {
 				ks = append(ks, sl.Key)
 			}
 		}
@@ -442,7 +420,7 @@ func (d *drafter) plan(i int, stepName string) []slotPlan {
 			reps = append(reps, j)
 		}
 	}
-	valueOf := func(st Step, key string) string {
+	valueOf := func(st trace.Step, key string) string {
 		for _, sl := range st.Slots {
 			if sl.Key == key {
 				return sl.Value
@@ -453,7 +431,7 @@ func (d *drafter) plan(i int, stepName string) []slotPlan {
 	first := d.occ[reps[0]][i]
 	var plans []slotPlan
 	for _, sl := range first.Slots {
-		if derived(sl.Key) {
+		if trace.Derived(sl.Key) {
 			continue
 		}
 		p := slotPlan{slot: sl}
@@ -512,7 +490,7 @@ func (d *drafter) plan(i int, stepName string) []slotPlan {
 // input returns the input for a varying slot, reusing an earlier input that
 // held the same value in every occurrence both appear in (a path passed to
 // gofmt and then to go test is one input, not two).
-func (d *drafter) input(stepName string, sl Slot, vec map[int]string, sensitive bool, pos int) int {
+func (d *drafter) input(stepName string, sl trace.Slot, vec map[int]string, sensitive bool, pos int) int {
 	for n, other := range d.vectors {
 		if d.inputs[n].Sensitive != sensitive {
 			continue
@@ -561,7 +539,7 @@ func (d *drafter) input(stepName string, sl Slot, vec map[int]string, sensitive 
 		}
 	}
 	if sensitive {
-		in.Sensitive, in.Type, in.Example = true, SlotSecret, ""
+		in.Sensitive, in.Type, in.Example = true, trace.SlotSecret, ""
 	}
 	d.inputs = append(d.inputs, in)
 	d.vectors = append(d.vectors, vec)
@@ -636,7 +614,7 @@ func (d *drafter) command(i, n int, label string) {
 		}
 		// Flags before the subcommand are the program's global flags; the
 		// word keyed "<flag>=" after one is its value.
-		if !subSeen && len(fields) > 1 && p.slot.Type == SlotFlag {
+		if !subSeen && len(fields) > 1 && p.slot.Type == trace.SlotFlag {
 			g := p.slot.Value
 			if k+1 < len(plans) && plans[k+1].slot.Key == p.slot.Key+"=" {
 				if plans[k+1].fixed {
@@ -669,7 +647,7 @@ func (d *drafter) command(i, n int, label string) {
 	}
 	fixed := len(fields) > 1
 	for _, p := range plans {
-		if p.fixed && !p.slot.Sub && p.slot.Type != SlotFlag && p.slot.Type != SlotNumber {
+		if p.fixed && !p.slot.Sub && p.slot.Type != trace.SlotFlag && p.slot.Type != trace.SlotNumber {
 			fixed = true
 		}
 	}
@@ -829,32 +807,11 @@ func (d *drafter) human(i, n int, label, fileKey string) {
 	d.steps = append(d.steps, DraftStep{N: n, Kind: KindHuman, Label: label, Line: line, Note: note})
 }
 
-// Agent-builtin tools have no TAP equivalent to bind. Reading a file and
-// fetching a page have one-line replays; editing is judgement (a human
-// step); the rest is the agent's own bookkeeping.
-// replayable reports whether a primitive can run a step with this label
-// itself: a host command, an MCP tool, a browser call, a file read or a page
-// fetch. Edits decided per run and the agent's bookkeeping cannot.
-func replayable(label string) bool {
-	for _, p := range []string{"sh:", "mcp:", "js:"} {
-		if strings.HasPrefix(label, p) {
-			return true
-		}
-	}
-	return readTools[label] || fetchTools[label]
-}
-
-var (
-	readTools  = map[string]bool{"Read": true, "read_file": true, "read_file_v2": true}
-	editTools  = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "edit_file": true, "edit_file_v2": true, "search_replace": true, "apply_patch": true}
-	fetchTools = map[string]bool{"WebFetch": true}
-)
-
 func (d *drafter) builtin(i, n int, label string) {
 	switch {
-	case readTools[label]:
+	case trace.ReadTools[label]:
 		for _, p := range d.plan(i, "read") {
-			if p.slot.Type != SlotPath {
+			if p.slot.Type != trace.SlotPath {
 				continue
 			}
 			arg := shellQuote(p.slot.Value)
@@ -875,14 +832,14 @@ func (d *drafter) builtin(i, n int, label string) {
 			d.steps = append(d.steps, DraftStep{N: n, Kind: KindCommand, Label: label, Line: line, Effect: d.effect(n)})
 			return
 		}
-	case editTools[label]:
+	case trace.EditTools[label]:
 		key := "file_path"
 		if label == "edit_file_v2" {
 			key = "relativeWorkspacePath"
 		}
 		d.human(i, n, label, key)
 		return
-	case fetchTools[label]:
+	case trace.FetchTools[label]:
 		for _, p := range d.plan(i, "fetch") {
 			if p.slot.Key != "url" {
 				continue
@@ -994,7 +951,7 @@ func clientList(m map[string]int) string {
 
 // argSchema is the JSON schema of one recorded tool argument: its recorded
 // JSON type, so the contract asks for what the tool was actually sent.
-func argSchema(sl Slot) map[string]any {
+func argSchema(sl trace.Slot) map[string]any {
 	if !sl.Raw {
 		return map[string]any{"type": "string"}
 	}
@@ -1015,7 +972,7 @@ func argSchema(sl Slot) map[string]any {
 }
 
 // jsonLiteral writes a fixed argument as the JSON it was recorded as.
-func jsonLiteral(sl Slot) string {
+func jsonLiteral(sl trace.Slot) string {
 	if sl.Raw && json.Valid([]byte(sl.Value)) {
 		var c bytes.Buffer
 		if json.Compact(&c, []byte(sl.Value)) == nil {
@@ -1056,7 +1013,7 @@ func capName(tool string) string {
 	rest := words[1:]
 	verbAt := -1
 	for k, w := range rest {
-		if readVerbs[w] || writeVerbs[w] {
+		if trace.ReadVerbs[w] || trace.WriteVerbs[w] {
 			verbAt = k
 			break
 		}
@@ -1109,14 +1066,6 @@ func isDigits(s string) bool {
 	return true
 }
 
-func oneLine(s string, n int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > n {
-		return truncateUTF8(s, n) + "…"
-	}
-	return s
-}
-
 func orNone(keys []string) string {
 	if len(keys) == 0 {
 		return "no arguments"
@@ -1163,7 +1112,7 @@ func (d *Draft) Artifacts() (map[string][]byte, error) {
 
 // sameCall reports that steps i and j came from the same recorded call in
 // every occurrence.
-func sameCall(occ [][]Step, i, j int) bool {
+func sameCall(occ [][]trace.Step, i, j int) bool {
 	for _, o := range occ {
 		if o[j].Raw == "" || o[j].Call != o[i].Call {
 			return false
@@ -1172,7 +1121,7 @@ func sameCall(occ [][]Step, i, j int) bool {
 	return true
 }
 
-func slotValue(st Step, key string) string {
+func slotValue(st trace.Step, key string) string {
 	for _, sl := range st.Slots {
 		if sl.Key == key {
 			return sl.Value
@@ -1268,7 +1217,7 @@ func (d *drafter) compound(i, j int) {
 		if p > 0 && strings.HasPrefix(first.words[p-1].Text, "-") {
 			name = prog + "_" + strings.TrimLeft(first.words[p-1].Text, "-")
 		}
-		in := d.input(name, Slot{Key: "w" + util.Itoa(p), Type: typeOf(shellparse.Word{Text: w.Text, Quoted: w.Quoted}), Value: w.Text}, vec, sensitive, i)
+		in := d.input(name, trace.Slot{Key: "w" + util.Itoa(p), Type: trace.TypeOf(shellparse.Word{Text: w.Text, Quoted: w.Quoted}), Value: w.Text}, vec, sensitive, i)
 		out.WriteString(first.raw[last:w.S])
 		out.WriteString(`"` + d.ref(in) + `"`)
 		last = w.E
@@ -1319,7 +1268,7 @@ func (d *drafter) derivedFrom(pos int, vec map[int]string) int {
 			}
 			// A name that is not identifier-shaped (a pod, a branch) is
 			// still taken from a result when the result shows it.
-			if inResult(v, d.occ[j][h]) {
+			if trace.InResult(v, d.occ[j][h]) {
 				count[h]++
 				break found
 			}
