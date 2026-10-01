@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -13,8 +15,8 @@ import (
 
 func graphCandidateFor(t *testing.T, ss []trace.Session, actions ...string) (model.LogicCandidate, []model.SpanProposal) {
 	t.Helper()
-	ps := SelectSpanProposals(ss)
-	for _, c := range GroupLogicCandidates(ps) {
+	ps := retrieval.SelectSpanProposals(ss)
+	for _, c := range retrieval.GroupLogicCandidates(ps) {
 		if len(c.Actions) != len(actions) {
 			continue
 		}
@@ -26,7 +28,7 @@ func graphCandidateFor(t *testing.T, ss []trace.Session, actions ...string) (mod
 			return c, ps
 		}
 	}
-	t.Fatalf("no logic candidate %v among %+v", actions, GroupLogicCandidates(ps))
+	t.Fatalf("no logic candidate %v among %+v", actions, retrieval.GroupLogicCandidates(ps))
 	return model.LogicCandidate{}, nil
 }
 
@@ -326,8 +328,8 @@ func TestSynthesizeProgramGraphSelectsLargeListByPositionWithoutCopyingIDs(t *te
 	}
 	farCall := get(base + 199)
 	farTrace := observedTrace{groups: [][]observedOp{
-		{{node: spanNode{call: farList}, fields: trace.ObservedArgs(farList)}},
-		{{node: spanNode{call: farCall}, fields: trace.ObservedArgs(farCall)}},
+		{{node: retrieval.SpanNode{Call: farList}, fields: trace.ObservedArgs(farList)}},
+		{{node: retrieval.SpanNode{Call: farCall}, fields: trace.ObservedArgs(farCall)}},
 	}}
 	if !possiblePriorResult([]observedTrace{farTrace}, 1, "params/job_id") {
 		t.Fatal("a selected item beyond the OutIDs prefix lost its result provenance")

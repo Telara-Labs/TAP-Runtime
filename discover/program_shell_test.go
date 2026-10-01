@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -87,7 +89,7 @@ func TestSynthesizePipelineFromIndependentExecutions(t *testing.T) {
 	var spans []model.SpanProposal
 	for i, s := range ss {
 		spans = append(spans, model.SpanProposal{ID: "pipe-span-" + string(rune('a'+i)), Client: s.Client, Session: s.ID,
-			Request: 0, Calls: []int{1}, CallHashes: []string{spanCallHash(s.Calls[0])}})
+			Request: 0, Calls: []int{1}, CallHashes: []string{retrieval.SpanCallHash(s.Calls[0])}})
 	}
 	c := model.LogicCandidate{ID: "lc_abc123", Executions: 2, Sessions: 2, Members: []string{spans[0].ID, spans[1].ID}}
 	g, err := SynthesizeProgramGraph(c, spans, ss)
@@ -110,7 +112,7 @@ func TestSynthesizeSuccessChainAndKeepConnectorsDistinct(t *testing.T) {
 	var spans []model.SpanProposal
 	for i, s := range ss {
 		spans = append(spans, model.SpanProposal{ID: "chain-span-" + string(rune('a'+i)), Client: s.Client, Session: s.ID,
-			Request: 0, Calls: []int{1}, CallHashes: []string{spanCallHash(s.Calls[0])}})
+			Request: 0, Calls: []int{1}, CallHashes: []string{retrieval.SpanCallHash(s.Calls[0])}})
 	}
 	c := model.LogicCandidate{ID: "lc_chain", Executions: 2, Sessions: 2, Members: []string{spans[0].ID, spans[1].ID}}
 	g, err := SynthesizeProgramGraph(c, spans, ss)
@@ -311,7 +313,7 @@ func TestSynthesizeLiteralCommandChain(t *testing.T) {
 		for i := range copy {
 			copy[i].Requests = []string{request}
 		}
-		for _, proposal := range SelectSpanProposals(copy) {
+		for _, proposal := range retrieval.SelectSpanProposals(copy) {
 			if len(proposal.Calls) > 1 {
 				t.Fatalf("unstated command sequence surfaced for %q: %+v", request, proposal)
 			}
@@ -328,7 +330,7 @@ func TestRepeatedCommandOrderSurfacesWithoutPromptWording(t *testing.T) {
 			trace.Call{Tool: "shell", Command: "git add src/two.go", Outcome: trace.OutcomeOK},
 			trace.Call{Tool: "shell", Command: "git status src/two.go --short", Outcome: trace.OutcomeOK}),
 	}
-	proposals := SelectSpanProposals(ss)
+	proposals := retrieval.SelectSpanProposals(ss)
 	seen := 0
 	for _, p := range proposals {
 		if p.Kind == "repeated_order" && len(p.Calls) == 2 {
@@ -338,13 +340,13 @@ func TestRepeatedCommandOrderSurfacesWithoutPromptWording(t *testing.T) {
 	if seen != 2 {
 		t.Fatalf("want two cross-session repeated order proposals, got %d: %+v", seen, proposals)
 	}
-	if len(GroupLogicCandidates(proposals)) == 0 {
+	if len(retrieval.GroupLogicCandidates(proposals)) == 0 {
 		t.Fatal("repeated order did not reach candidate grouping")
 	}
 	for i := range ss {
 		ss[i].Calls[1].Command = "git status --short"
 	}
-	for _, p := range SelectSpanProposals(ss) {
+	for _, p := range retrieval.SelectSpanProposals(ss) {
 		if p.Kind == "repeated_order" {
 			t.Fatalf("unrelated repeated order became a process: %+v", p)
 		}

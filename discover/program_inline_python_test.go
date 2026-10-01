@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -25,11 +27,11 @@ func TestStrictInlineFileReplaceCompilesOnlyProvedSameFileShape(t *testing.T) {
 		t.Skip("Python AST parser unavailable")
 	}
 	ss := []trace.Session{fileReplaceSession("one", "a.txt", "old", "new"), fileReplaceSession("two", "b.txt", "before", "after")}
-	spans := SelectSpanProposals(ss)
+	spans := retrieval.SelectSpanProposals(ss)
 	if len(spans) != 2 || spans[0].CodeShape == "" || spans[0].CodeShape != spans[1].CodeShape {
 		t.Fatalf("strict scripts did not produce one shape: %+v", spans)
 	}
-	candidates := GroupLogicCandidates(spans)
+	candidates := retrieval.GroupLogicCandidates(spans)
 	if len(candidates) != 1 {
 		t.Fatalf("strict scripts did not produce one retrieval family: %+v", candidates)
 	}
@@ -57,8 +59,8 @@ func TestStrictInlineFileReplaceCompilesOnlyProvedSameFileShape(t *testing.T) {
 	}
 	bad := strings.Replace(ss[1].Calls[0].Command, "open(path, 'w')", "open('other.txt', 'w')", 1)
 	ss[1].Calls[0].Command = bad
-	spans = SelectSpanProposals(ss)
-	for _, c := range GroupLogicCandidates(spans) {
+	spans = retrieval.SelectSpanProposals(ss)
+	for _, c := range retrieval.GroupLogicCandidates(spans) {
 		g, err := SynthesizeProgramGraph(c, spans, ss)
 		if err == nil && len(g.Problems) == 0 && g.InlineFileReplace != nil {
 			t.Fatal("different write target compiled")
