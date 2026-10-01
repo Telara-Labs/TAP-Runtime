@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/genreview"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
@@ -37,7 +39,7 @@ func TestStrictInlineFileReplaceCompilesOnlyProvedSameFileShape(t *testing.T) {
 	if len(candidates) != 1 {
 		t.Fatalf("strict scripts did not produce one retrieval family: %+v", candidates)
 	}
-	qualified, ok := generatedCandidateTaskEvidence(candidates[0], map[string]model.SpanProposal{spans[0].ID: spans[0], spans[1].ID: spans[1]})
+	qualified, ok := genreview.GeneratedCandidateTaskEvidence(candidates[0], map[string]model.SpanProposal{spans[0].ID: spans[0], spans[1].ID: spans[1]})
 	if !ok {
 		t.Fatal("cross-session strict source was lost before parsing")
 	}

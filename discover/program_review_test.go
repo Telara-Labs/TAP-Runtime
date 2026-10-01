@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/genreview"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
@@ -35,7 +37,7 @@ func TestReviewGeneratedAcceptShowsExactPackageThenInstalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := ReviewGenerated(strings.NewReader("accept\n"), &out, graph, root, state); err != nil {
+	if err := genreview.ReviewGenerated(strings.NewReader("accept\n"), &out, graph, root, state); err != nil {
 		t.Fatal(err)
 	}
 	text := out.String()
@@ -51,7 +53,7 @@ func TestReviewGeneratedAcceptShowsExactPackageThenInstalls(t *testing.T) {
 			t.Fatalf("accepted package missing %s: %v", name, err)
 		}
 	}
-	decisions, err := readGeneratedDecisions(state)
+	decisions, err := genreview.ReadGeneratedDecisions(state)
 	if err != nil || len(decisions) != 1 || decisions[0].Choice != "accept" || decisions[0].Digest != pkg.Digest {
 		t.Fatalf("acceptance not recorded for exact package: %+v %v", decisions, err)
 	}
@@ -61,14 +63,14 @@ func TestReviewGeneratedDenySuppressesUnchangedDigest(t *testing.T) {
 	graph := reviewableGraph()
 	root, state := t.TempDir(), t.TempDir()
 	var out bytes.Buffer
-	if err := ReviewGenerated(strings.NewReader("deny\n"), &out, graph, root, state); err != nil {
+	if err := genreview.ReviewGenerated(strings.NewReader("deny\n"), &out, graph, root, state); err != nil {
 		t.Fatal(err)
 	}
 	if entries, _ := os.ReadDir(root); len(entries) != 0 {
 		t.Fatalf("deny installed a package: %v", entries)
 	}
 	out.Reset()
-	if err := ReviewGenerated(strings.NewReader("accept\n"), &out, graph, root, state); err != nil {
+	if err := genreview.ReviewGenerated(strings.NewReader("accept\n"), &out, graph, root, state); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "was denied locally") {
@@ -84,20 +86,20 @@ func TestReviewGeneratedRefineAndUnresolvedGate(t *testing.T) {
 	graph.Problems = []string{"step 1 needs a branch predicate"}
 	root, state := t.TempDir(), t.TempDir()
 	var out bytes.Buffer
-	if err := ReviewGenerated(strings.NewReader("accept\n"), &out, graph, root, state); err == nil {
+	if err := genreview.ReviewGenerated(strings.NewReader("accept\n"), &out, graph, root, state); err == nil {
 		t.Fatal("unresolved graph accepted")
 	}
 	if entries, _ := os.ReadDir(root); len(entries) != 0 {
 		t.Fatalf("unresolved graph installed a package: %v", entries)
 	}
 	out.Reset()
-	if err := ReviewGenerated(strings.NewReader("refine\n"), &out, graph, root, state); err != nil {
+	if err := genreview.ReviewGenerated(strings.NewReader("refine\n"), &out, graph, root, state); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "Needs decision") {
 		t.Fatalf("missing reason in review: %s", out.String())
 	}
-	handoff := filepath.Join(state, "handoffs", graph.CandidateID+"-"+unresolvedGraphDigest(graph))
+	handoff := filepath.Join(state, "handoffs", graph.CandidateID+"-"+genreview.UnresolvedGraphDigest(graph))
 	if _, err := os.Stat(filepath.Join(handoff, "program-graph.json")); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +122,7 @@ func TestReviewGeneratedShowsSharedResultBindings(t *testing.T) {
 		{Path: []string{"link_type"}, Value: codegen.ProgramValue{Kind: "selector", Selector: "relates"}},
 	}})
 	var out bytes.Buffer
-	if err := ReviewGenerated(strings.NewReader("q\n"), &out, graph, t.TempDir(), t.TempDir()); err != nil {
+	if err := genreview.ReviewGenerated(strings.NewReader("q\n"), &out, graph, t.TempDir(), t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "Shared result source: result from step 1 at .key supplies inward.issue_key and outward.issue_key") {
@@ -141,7 +143,7 @@ func TestReviewGeneratedResultListIndexNeedsSelectionDecision(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := ReviewGenerated(strings.NewReader("accept\n"), &out, graph, root, state); err == nil || !strings.Contains(err.Error(), "undetermined result selection") {
+	if err := genreview.ReviewGenerated(strings.NewReader("accept\n"), &out, graph, root, state); err == nil || !strings.Contains(err.Error(), "undetermined result selection") {
 		t.Fatalf("accepted task despite missing selection rule: %v", err)
 	}
 	for _, want := range []string{"Needs decision:", "source calls prove list membership", pkg.Digest, string(pkg.Files["main.py"])} {
@@ -155,11 +157,11 @@ func TestReviewGeneratedResultListIndexNeedsSelectionDecision(t *testing.T) {
 	if entries, _ := os.ReadDir(root); len(entries) != 0 {
 		t.Fatalf("unresolved selection installed a package: %v", entries)
 	}
-	if tier, shape := programReviewShape(graph); tier != -1 || !strings.Contains(shape, "selection rule unknown") {
+	if tier, shape := genreview.ProgramReviewShape(graph); tier != -1 || !strings.Contains(shape, "selection rule unknown") {
 		t.Fatalf("queue did not label the incomplete task: %d %s", tier, shape)
 	}
 	out.Reset()
-	if err := ReviewGenerated(strings.NewReader("refine\n"), &out, graph, root, state); err != nil {
+	if err := genreview.ReviewGenerated(strings.NewReader("refine\n"), &out, graph, root, state); err != nil {
 		t.Fatal(err)
 	}
 	handoff := filepath.Join(state, "handoffs", graph.CandidateID+"-"+pkg.Digest, "HANDOFF.md")
@@ -174,7 +176,7 @@ func TestProgramSelectionDecisionKeepsKnownCallerRoleSelection(t *testing.T) {
 		{Role: "create", Loop: "caller_items"},
 		{Role: "link", Args: []codegen.ProgramArg{{Value: codegen.ProgramValue{Kind: "indexed_result", Step: 1, ResultPath: ".id", Input: "source_role"}}}},
 	}}
-	if got := programSelectionDecision(graph); got != "" {
+	if got := genreview.ProgramSelectionDecision(graph); got != "" {
 		t.Fatalf("pre-existing caller item role was treated as an unknown future-list decision: %s", got)
 	}
 }
