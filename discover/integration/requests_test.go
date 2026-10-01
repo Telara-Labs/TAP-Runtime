@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
+
 	"gitlab.com/telara-labs/tap-runtime/discover"
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
@@ -22,9 +24,9 @@ import (
 )
 
 func TestRecurringRequestsBecomePrimitives(t *testing.T) {
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.RequestCorpus()}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,9 +74,9 @@ func TestRecurringRequestsBecomePrimitives(t *testing.T) {
 }
 
 func TestSaveInstallsOnceAndNeverReplacesAForeignFolder(t *testing.T) {
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.RequestCorpus()}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,9 +102,9 @@ func TestSaveInstallsOnceAndNeverReplacesAForeignFolder(t *testing.T) {
 }
 
 func TestReviewWithoutARegistryOnlySaves(t *testing.T) {
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.RequestCorpus()}}
-	rep, _ := discover.Run(o)
+	rep, _ := pipeline.Run(o)
 	var saved []string
 	var out bytes.Buffer
 	err := routine.Review(strings.NewReader("all\n"), &out, rep, routine.ReviewConfig{}, routine.ReviewActions{
@@ -156,9 +158,9 @@ func TestExplorationIsNotAPrimitive(t *testing.T) {
 		}
 		ss = append(ss, s)
 	}
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,9 +170,9 @@ func TestExplorationIsNotAPrimitive(t *testing.T) {
 }
 
 func TestFixedShareIsAFractionOfTheRoutine(t *testing.T) {
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.RequestCorpus()}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}

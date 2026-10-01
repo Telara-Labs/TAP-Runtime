@@ -5,7 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover"
+	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
@@ -17,9 +18,9 @@ import (
 
 func firstRoutine(t *testing.T, ss []trace.Session) *model.Routine {
 	t.Helper()
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,9 +208,9 @@ func TestAStepRepeatedWithDifferentValuesIsALoop(t *testing.T) {
 }
 
 func TestFunnelCountsMatchDecisions(t *testing.T) {
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: append(testkit.RequestCorpus(), testkit.CredCorpus()...)}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}

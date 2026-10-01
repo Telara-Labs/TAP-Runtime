@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/eval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
@@ -25,7 +27,6 @@ import (
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
-	"gitlab.com/telara-labs/tap-runtime/discover"
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
@@ -144,10 +145,10 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Readers = rs
 	o.Now = func() time.Time { return time.Time{} } // a run's output must not depend on when it ran
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		return err
 	}
@@ -235,10 +236,10 @@ func show(args []string) error {
 		}
 		all = append(all, ss...)
 	}
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Readers = []trace.Reader{staticReader(all)}
 	o.Now = func() time.Time { return time.Time{} }
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		return err
 	}

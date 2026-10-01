@@ -1,4 +1,6 @@
-package discover
+// Package pipeline runs a discover pass end to end: read the history, mine and
+// score patterns, group them into candidates, and assemble the report.
+package pipeline
 
 import (
 	"fmt"
@@ -10,14 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/routine"
-
-	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
-
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
-
+	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
-
 	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
@@ -50,9 +48,9 @@ func Run(o model.Options) (*model.Report, error) {
 		}
 		raw = append(raw, ss...)
 		rep.Clients = append(rep.Clients, st)
-		optionsLog(o, "%s: %d sessions, %d calls %s", st.Client, len(ss), st.Calls, st.Error)
+		OptionsLog(o, "%s: %d sessions, %d calls %s", st.Client, len(ss), st.Calls, st.Error)
 	}
-	optionsLog(o, "read %d sessions", len(raw))
+	OptionsLog(o, "read %d sessions", len(raw))
 	// Later passes take sessions in order (grouping picks each group's first
 	// request), so the report must not depend on the order readers return.
 	sort.SliceStable(raw, func(i, j int) bool {
@@ -155,7 +153,7 @@ func Run(o model.Options) (*model.Report, error) {
 		}
 	}
 	rep.Funnel, rep.Routines = routine.RequestRoutines(sessions, ids, names, o, totalCalls)
-	optionsLog(o, "requests: %d with replayable steps, %d routines, %d primitives", rep.Funnel.RequestsWithSteps, rep.Funnel.Routines, rep.Funnel.Primitives)
+	OptionsLog(o, "requests: %d with replayable steps, %d routines, %d primitives", rep.Funnel.RequestsWithSteps, rep.Funnel.Routines, rep.Funnel.Primitives)
 	if !o.Patterns {
 		return rep, nil
 	}
@@ -228,11 +226,11 @@ func Run(o model.Options) (*model.Report, error) {
 			return false
 		}
 		// Then every other step, stopping at the first that fails.
-		return necessityP(items, k, seqs, index, df, share, o.Window, o.Alpha) <= o.Alpha
+		return NecessityP(items, k, seqs, index, df, share, o.Window, o.Alpha) <= o.Alpha
 	}
 	mined, examined, truncated := routine.MinePatterns(seqs, routine.MineLimits{Window: o.Window, MinSupport: o.MinSupport, MaxLen: o.MaxLen, MaxOut: o.MaxPatterns, CanQualify: canQualify, Keep: keep})
 	rep.Mined, rep.Examined, rep.Truncated, rep.MinSupportUsed = len(mined), examined, truncated, o.MinSupport
-	optionsLog(o, "examined %d patterns at support >= %d over %d sessions and %d labels; %d kept", examined, o.MinSupport, len(seqs), len(names), len(mined))
+	OptionsLog(o, "examined %d patterns at support >= %d over %d sessions and %d labels; %d kept", examined, o.MinSupport, len(seqs), len(names), len(mined))
 
 	idf := make([]float64, len(names))
 	for x, d := range df {
@@ -245,7 +243,7 @@ func Run(o model.Options) (*model.Report, error) {
 	closed := routine.ClosedOnly(mined)
 	pNeedAll := make([]float64, len(closed))
 	util.ParallelFor(len(closed), func(i int) {
-		pNeedAll[i] = necessity(closed[i], seqs, index, df, share, o.Window)
+		pNeedAll[i] = Necessity(closed[i], seqs, index, df, share, o.Window)
 	})
 	qNeedAll := routine.BenjaminiHochbergOf(pNeedAll, examined)
 	var cands []model.Pattern
@@ -257,12 +255,12 @@ func Run(o model.Options) (*model.Report, error) {
 		}
 	}
 	rep.Tested = len(cands)
-	optionsLog(o, "%d closed patterns; %d pass the per-step test and go to %d permutations per shuffle test", len(closed), len(cands), o.Permutations)
+	OptionsLog(o, "%d closed patterns; %d pass the per-step test and go to %d permutations per shuffle test", len(closed), len(cands), o.Permutations)
 
-	across := permuteCounts(seqs, group, cands, o, routine.ShuffleAcross)
-	optionsLog(o, "between-session null done")
-	within := permuteCounts(seqs, group, cands, o, routine.ShuffleWithin)
-	optionsLog(o, "within-session null done")
+	across := PermuteCounts(seqs, group, cands, o, routine.ShuffleAcross)
+	OptionsLog(o, "between-session null done")
+	within := PermuteCounts(seqs, group, cands, o, routine.ShuffleWithin)
+	OptionsLog(o, "within-session null done")
 	pAcross := make([]float64, len(cands))
 	pWithin := make([]float64, len(cands))
 	for i, p := range cands {
@@ -301,15 +299,15 @@ func Run(o model.Options) (*model.Report, error) {
 		}
 		return ca.Score > cb.Score
 	})
-	rep.Recall = recall(corpus, rep.Candidates)
+	rep.Recall = Recall(corpus, rep.Candidates)
 	rep.Skills = routine.SkillProcedures(corpus, seqs, closed, names, idf, o)
 	rep.Corpus, rep.Seqs, rep.Names, rep.Window = corpus, seqs, names, o.Window
-	optionsLog(o, "skill comparison: %d skills with enriched procedures", len(rep.Skills))
-	rep.Families = assignFamilies(rep.Candidates)
+	OptionsLog(o, "skill comparison: %d skills with enriched procedures", len(rep.Skills))
+	rep.Families = AssignFamilies(rep.Candidates)
 	return rep, nil
 }
 
-func permuteCounts(seqs [][]int, group []int, ps []model.Pattern, o model.Options, permute func([][]int, []int, *rand.Rand) [][]int) [][]int {
+func PermuteCounts(seqs [][]int, group []int, ps []model.Pattern, o model.Options, permute func([][]int, []int, *rand.Rand) [][]int) [][]int {
 	out := make([][]int, len(ps))
 	for i := range out {
 		out[i] = make([]int, o.Permutations)
@@ -333,10 +331,10 @@ func permuteCounts(seqs [][]int, group []int, ps []model.Pattern, o model.Option
 	return out
 }
 
-// recall scores the miner against work known to recur: every skill loaded in
+// Recall scores the miner against work known to recur: every skill loaded in
 // at least two sessions. For each, the candidate whose sessions best match the
 // skill's sessions (F1) is reported, among qualified and among all tested.
-func recall(corpus []trace.NormSession, cands []model.Candidate) []model.SkillRecall {
+func Recall(corpus []trace.NormSession, cands []model.Candidate) []model.SkillRecall {
 	skillSessions := map[string]map[int]bool{}
 	for i, s := range corpus {
 		for sk := range s.Skills {
@@ -384,11 +382,11 @@ func recall(corpus []trace.NormSession, cands []model.Candidate) []model.SkillRe
 	return out
 }
 
-// assignFamilies groups qualified candidates that describe the same work: a
+// AssignFamilies groups qualified candidates that describe the same work: a
 // candidate joins the family of a higher-ranked one when they share at least
 // half their sessions and half their labels (Jaccard). This only folds the
 // report; it does not change what qualified. It returns the family count.
-func assignFamilies(cs []model.Candidate) int {
+func AssignFamilies(cs []model.Candidate) int {
 	var reps []int
 	for i := range cs {
 		cs[i].Family = i
@@ -397,7 +395,7 @@ func assignFamilies(cs []model.Candidate) int {
 		}
 		joined := false
 		for _, r := range reps {
-			if model.JaccardInts(cs[i].SessionSet, cs[r].SessionSet) >= 0.5 && jaccardStrings(labelSet(cs[i]), labelSet(cs[r])) >= 0.5 {
+			if model.JaccardInts(cs[i].SessionSet, cs[r].SessionSet) >= 0.5 && JaccardStrings(LabelSet(cs[i]), LabelSet(cs[r])) >= 0.5 {
 				cs[i].Family = r
 				joined = true
 				break
@@ -410,7 +408,7 @@ func assignFamilies(cs []model.Candidate) int {
 	return len(reps)
 }
 
-func labelSet(c model.Candidate) map[string]bool {
+func LabelSet(c model.Candidate) map[string]bool {
 	m := map[string]bool{}
 	for _, s := range c.Steps {
 		m[s.Label] = true
@@ -418,7 +416,7 @@ func labelSet(c model.Candidate) map[string]bool {
 	return m
 }
 
-func jaccardStrings(a, b map[string]bool) float64 {
+func JaccardStrings(a, b map[string]bool) float64 {
 	inter := 0
 	for k := range a {
 		if b[k] {
@@ -428,7 +426,7 @@ func jaccardStrings(a, b map[string]bool) float64 {
 	return float64(inter) / float64(len(a)+len(b)-inter)
 }
 
-// necessity asks, for each step x of a pattern, whether the pattern holds in
+// Necessity asks, for each step x of a pattern, whether the pattern holds in
 // more of the sessions that hold the pattern without x than x's own
 // frequency explains: a one-sided binomial test with n = support without x,
 // k = support with x, and p = the largest share of sessions containing x in
@@ -437,13 +435,13 @@ func jaccardStrings(a, b map[string]bool) float64 {
 // conservative. The largest p over the steps is returned: every step must be
 // necessary. Without this, any significant core plus one unrelated common
 // step would qualify on the core's strength.
-func necessity(p model.Pattern, seqs [][]int, index map[int]map[int]bool, df []int, share []float64, window int) float64 {
-	return necessityP(p.Items, len(p.Sessions), seqs, index, df, share, window, 1)
+func Necessity(p model.Pattern, seqs [][]int, index map[int]map[int]bool, df []int, share []float64, window int) float64 {
+	return NecessityP(p.Items, len(p.Sessions), seqs, index, df, share, window, 1)
 }
 
-// necessityP is necessity for items with support k. It returns as soon as a
+// NecessityP is necessity for items with support k. It returns as soon as a
 // step's p exceeds stopAbove (pass 1 to compute the exact maximum).
-func necessityP(items []int, k int, seqs [][]int, index map[int]map[int]bool, df []int, share []float64, window int, stopAbove float64) float64 {
+func NecessityP(items []int, k int, seqs [][]int, index map[int]map[int]bool, df []int, share []float64, window int, stopAbove float64) float64 {
 	if len(items) < 2 {
 		return 1
 	}
@@ -467,7 +465,7 @@ func necessityP(items []int, k int, seqs [][]int, index map[int]map[int]bool, df
 	return worst
 }
 
-func optionsLog(o model.Options, format string, a ...any) {
+func OptionsLog(o model.Options, format string, a ...any) {
 	if o.Progress != nil {
 		fmt.Fprintf(o.Progress, "%s  "+format+"\n", append([]any{time.Now().Format("15:04:05")}, a...)...)
 	}

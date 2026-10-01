@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover"
+	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
@@ -22,10 +23,10 @@ import (
 
 func runAndFind(t *testing.T, ss []trace.Session, labels string) (*model.Report, int) {
 	t.Helper()
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Patterns = true
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,10 +243,10 @@ func TestDraftArgumentOrderDoesNotMakeFlagsInputs(t *testing.T) {
 }
 
 func TestRoutinesAreOnePerTask(t *testing.T) {
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Patterns = true
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.PlantedCorpus()}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
