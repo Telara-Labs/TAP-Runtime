@@ -8,10 +8,12 @@ go 1.25.0
 
 require (
 	gitlab.com/telara-labs/tap-runtime/contract v0.0.0-20260929043506-c37e9b089cfa
+	golang.org/x/term v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	golang.org/x/net v0.52.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
 )
