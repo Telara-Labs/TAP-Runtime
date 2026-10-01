@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // Family is what the menu proposes: one reusable procedure. Its head step
@@ -31,7 +33,8 @@ type Family struct {
 	ExecutionCount int      `json:"executionCount"`
 	// SavedTokens are the model-turn tokens the counted runs spent after
 	// their first call: what running the family as one call would remove.
-	SavedTokens float64 `json:"savedTokens"`
+	SavedTokens float64     `json:"savedTokens"`
+	Saved       trace.Usage `json:"saved"`
 	// Confidence is the weakest member's; NeedsDecision counts members with
 	// unresolved required claims.
 	Confidence    int    `json:"confidence"`
@@ -268,6 +271,7 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 	for _, p := range members {
 		f.Members = append(f.Members, p.ID)
 		f.SavedTokens += p.SavedTokens
+		f.Saved = f.Saved.Add(p.Saved)
 		if rankEffect(p.Effect) > rankEffect(f.Effect) {
 			f.Effect = p.Effect
 		}

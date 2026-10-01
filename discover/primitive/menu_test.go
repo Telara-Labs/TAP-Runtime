@@ -44,7 +44,7 @@ func TestMenuStartsWithSummaryAndQuitSavesNothing(t *testing.T) {
 		t.Fatalf("fixture has %d families", len(res.Families))
 	}
 	out, dir := runMenu(t, res, "i\na\nq\n")
-	if !strings.HasPrefix(out, "Summary") || !strings.Contains(out, "Found in 2 runs") || !strings.Contains(out, "Structure") || !strings.Contains(out, "Tools") || !strings.Contains(out, "Metadata") {
+	if !strings.Contains(out, "Summary") || strings.Index(out, "Summary") > strings.Index(out, "Proposed primitives") || !strings.Contains(out, "Found in 2 runs") || !strings.Contains(out, "Structure") || !strings.Contains(out, "Tools") || !strings.Contains(out, "Metadata") {
 		t.Fatalf("card or summary missing:\n%s", out)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "decisions.jsonl")); err == nil {

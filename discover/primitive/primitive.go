@@ -48,8 +48,10 @@ type Primitive struct {
 	// StepEffects are each step's effect.
 	StepEffects []string `json:"stepEffects"`
 	// SavedTokens totals the model-turn tokens the counted runs spent after
-	// their first call.
-	SavedTokens float64 `json:"savedTokens"`
+	// their first call; Saved splits them into fresh input, cached input
+	// (context re-read from the prompt cache) and output.
+	SavedTokens float64     `json:"savedTokens"`
+	Saved       trace.Usage `json:"saved"`
 	// Variants are choices seen at a step ("step:key=value"): values that
 	// change what follows.
 	Variants []string `json:"variants,omitempty"`
@@ -98,8 +100,10 @@ type Execution struct {
 	// Observed are this run's argument sources.
 	Observed []Observed `json:"observed,omitempty"`
 	// SavedTokens are the model-turn tokens of every call after the first:
-	// the turns a primitive running this chain would remove.
-	SavedTokens float64 `json:"savedTokens"`
+	// the turns a primitive running this chain would remove. Saved splits
+	// them into fresh input, cached input and output.
+	SavedTokens float64     `json:"savedTokens"`
+	Saved       trace.Usage `json:"saved"`
 	// MaxGapSeconds is the longest start-to-start time between two of its
 	// calls (a command's own running time is included; the client does
 	// not record when a call ended). -1 when times were not recorded.
@@ -171,6 +175,8 @@ type Summary struct {
 	// of a run of a longer primitive.
 	Fragments int `json:"fragments"`
 	Families  int `json:"families"`
+	// Tokens are every turn's tokens in the history read.
+	Tokens trace.Usage `json:"tokens"`
 }
 
 // Result is the condensed discovery.
@@ -231,6 +237,9 @@ func Discover(ss []trace.Session, known []Known) Result {
 	for si := range cp {
 		s := &cp[si]
 		res.Summary.ToolCalls += len(s.Calls)
+		for _, c := range s.Calls {
+			res.Summary.Tokens = res.Summary.Tokens.Add(c.Tokens)
+		}
 		ns := byKey[s.Client+"\x00"+s.ID]
 		if ns == nil {
 			continue

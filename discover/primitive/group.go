@@ -196,7 +196,7 @@ func condense(ss []trace.Session, graphs [][]node) []Primitive {
 		binds       map[string]*bindAgg
 		effect      string
 		stepEffects []string
-		saved       float64
+		saved       trace.Usage
 	}
 	by := map[string]*agg{}
 	var order []string
@@ -292,6 +292,7 @@ func condense(ss []trace.Session, graphs [][]node) []Primitive {
 				ref := CallRef{Step: p + 1, Index: n.call, ID: n.c.ID, Op: n.op, OK: n.c.Outcome == trace.OutcomeOK, Tokens: n.c.Tokens.Total()}
 				if len(ex.Calls) > 0 {
 					ex.SavedTokens += ref.Tokens
+					ex.Saved = ex.Saved.Add(n.c.Tokens)
 				}
 				for len(a.stepEffects) <= p {
 					a.stepEffects = append(a.stepEffects, "read")
@@ -378,7 +379,7 @@ func condense(ss []trace.Session, graphs [][]node) []Primitive {
 			ex.Overlaps = overlap
 		} else {
 			a.disjoint++
-			a.saved += ex.SavedTokens
+			a.saved = a.saved.Add(ex.Saved)
 			a.sessions[si] = true
 			for _, k := range members {
 				a.used[strconv.Itoa(si)+"/"+strconv.Itoa(g[k].call)] = true
@@ -405,7 +406,7 @@ func condense(ss []trace.Session, graphs [][]node) []Primitive {
 		if a.disjoint < 2 {
 			continue
 		}
-		p := Primitive{ID: id, Steps: a.ops, Effect: a.effect, StepEffects: a.stepEffects, SavedTokens: a.saved, SessionCount: len(a.sessions), ExecutionCount: a.disjoint, Executions: a.execs}
+		p := Primitive{ID: id, Steps: a.ops, Effect: a.effect, StepEffects: a.stepEffects, SavedTokens: a.saved.Total(), Saved: a.saved, SessionCount: len(a.sessions), ExecutionCount: a.disjoint, Executions: a.execs}
 		for pos := range a.loops {
 			p.Loops = append(p.Loops, pos+1)
 		}

@@ -135,7 +135,7 @@ func TestCommandRunsWithNoHistory(t *testing.T) {
 	if code := discover.Command([]string{"--client", "claude-code,codex"}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("exit %d: %s", code, errOut.String())
 	}
-	if !strings.Contains(out.String(), "Summary") || !strings.Contains(out.String(), "Read 0 sessions") {
+	if !strings.Contains(out.String(), "Summary") || !strings.Contains(out.String(), "Sessions read") {
 		t.Fatalf("output:\n%s", out.String())
 	}
 	out.Reset()

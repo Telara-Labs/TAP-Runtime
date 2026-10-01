@@ -219,7 +219,13 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 		}
 		return 0
 	}
-	cfg := primitive.MenuConfig{StateDir: stateDir, All: *all, Clients: *clients, Home: home, Sessions: sessions,
+	color := false
+	if f, ok := out.(*os.File); ok {
+		if fi, err := f.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+			color = true
+		}
+	}
+	cfg := primitive.MenuConfig{StateDir: stateDir, All: *all, Clients: *clients, Home: home, Sessions: sessions, Color: color,
 		Skill: primitive.Skill{Source: "tap-runtime/discover/genreview/skill/tap-primitive-refine/SKILL.md", Content: genreview.GeneratedRefineSkill}}
 	if err := primitive.Menu(in, out, res, cfg); err != nil {
 		fmt.Fprintln(errOut, "discover:", err)

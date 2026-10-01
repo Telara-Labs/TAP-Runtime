@@ -26,6 +26,8 @@ type MenuConfig struct {
 	All bool
 	// Clients names what was read, for the summary.
 	Clients string
+	// Color draws accents when the output is a terminal.
+	Color bool
 	// Home, Sessions and Skill feed the agent-eval handoff: transcripts are
 	// located under Home, request text comes from Sessions.
 	Home     string
@@ -80,18 +82,38 @@ func record(stateDir string, d Decision) error {
 	return err
 }
 
-// WriteSummary prints what was read and found.
+// WriteSummary prints what was read and found, as a table.
 func WriteSummary(out io.Writer, res Result, clients string) {
-	s := res.Summary
-	fmt.Fprintln(out, "Summary")
-	fmt.Fprintf(out, "  Read %d sessions (%s) holding %d tool calls.\n", s.Sessions, clients, s.ToolCalls)
-	fmt.Fprintf(out, "  %d calls are replayable operations, %d distinct; %d were edits or inline scripts (judgment) and %d failed.\n",
-		s.Operations, s.DistinctOps, s.JudgmentCalls, s.FailedCalls)
-	fmt.Fprintf(out, "  %d calls through a dispatching route were matched to their direct tool; %d arguments were settings (inputs), not separate operations.\n",
-		s.RouteMerged, s.SettingsAsInput)
-	fmt.Fprintf(out, "  %d calls were decisions built from an earlier output; each starts a new chain.\n", s.DecisionCalls)
-	fmt.Fprintf(out, "  Found %d exact chains (%d pieces of longer chains dropped), grouped into %d proposed primitives.\n",
-		s.Primitives, s.Fragments, s.Families)
+	writeSummary(out, style{}, res, clients)
+}
+
+func writeSummary(out io.Writer, s style, res Result, clients string) {
+	sm := res.Summary
+	section(out, s, "Summary")
+	var saved trace.Usage
+	for _, f := range res.Families {
+		saved = saved.Add(f.Saved)
+	}
+	tot, cached, eq := tokenCells(sm.Tokens)
+	stot, scached, seq := tokenCells(saved)
+	table{widths: []int{52, 12}, right: map[int]bool{1: true}, rows: [][]string{
+		{"Sessions read (" + clients + ")", count(sm.Sessions)},
+		{"Tool calls", count(sm.ToolCalls)},
+		{"Replayable operations", count(sm.Operations)},
+		{"Edits and inline scripts (judgment, never replayed)", count(sm.JudgmentCalls)},
+		{"Failed calls", count(sm.FailedCalls)},
+		{"Decisions built from an earlier output", count(sm.DecisionCalls)},
+		{"Gateway calls matched to their direct tool", count(sm.RouteMerged)},
+		{"Exact chains found", count(sm.Primitives)},
+		{"Proposed primitives", count(sm.Families)},
+	}}.render(out, s)
+	section(out, s, "Tokens")
+	table{head: []string{"", "Total", "Cached", "≈ Input-equivalent"}, widths: []int{46, 10, 8, 18}, right: map[int]bool{1: true, 2: true, 3: true}, rows: [][]string{
+		{"Whole history", tot, cached, eq},
+		{"Follow-up turns the primitives would remove", stot, scached, seq},
+	}}.render(out, s)
+	fmt.Fprintln(out, s.dim("  Cached tokens are the conversation re-read from the prompt cache on every turn. Input-equivalent is"))
+	fmt.Fprintln(out, s.dim(fmt.Sprintf("  an estimate: cache reads at %.1f× and output at %.0f× a fresh input token (list-price ratios).", cachedRatio, outputRatio)))
 }
 
 func describe(p Primitive) string {
@@ -153,6 +175,7 @@ func inputNames(p Primitive) string {
 // agent eval). Choices are held until a final review and submit: quitting
 // before submitting writes nothing. Denied primitives are not shown again.
 func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
+	s := style{on: cfg.Color}
 	done := loadDecisions(cfg.StateDir)
 	byID := map[string]Primitive{}
 	for _, p := range res.Primitives {
@@ -164,39 +187,51 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 			shown = append(shown, f)
 		}
 	}
-	WriteSummary(out, res, cfg.Clients)
+	banner(out, s, fmt.Sprintf("%s · %s sessions · %s tool calls", cfg.Clients, count(res.Summary.Sessions), count(res.Summary.ToolCalls)))
+	writeSummary(out, s, res, cfg.Clients)
 	if hidden := len(res.Families) - len(shown); hidden > 0 {
-		fmt.Fprintf(out, "  %d denied earlier and hidden.\n", hidden)
+		fmt.Fprintln(out, s.dim(fmt.Sprintf("  %d denied earlier and hidden.", hidden)))
 	}
 	if len(shown) == 0 {
 		return nil
 	}
-	fmt.Fprintln(out)
-	for i, f := range shown {
-		fmt.Fprintf(out, "%3d. %-60s %s saved · %d runs in %d sessions\n", i+1, title(f), tokensText(f.SavedTokens), f.ExecutionCount, f.SessionCount)
-	}
 	choice := make([]string, len(shown))
+	list := func() {
+		section(out, s, "Proposed primitives (most tokens saved first)")
+		t := table{head: []string{"#", "Primitive", "Runs", "Sessions", "Tokens", "Cached", "Confidence", "Choice"},
+			widths: []int{3, 46, 5, 8, 7, 6, 10, 7}, right: map[int]bool{0: true, 2: true, 3: true, 4: true, 5: true, 6: true}}
+		for i, f := range shown {
+			c := choice[i]
+			if c == "" {
+				c = s.dim(done[f.ID])
+			} else {
+				c = s.choice(c)
+			}
+			t.rows = append(t.rows, []string{fmt.Sprint(i + 1), title(f), count(f.ExecutionCount), count(f.SessionCount),
+				tokensText(f.SavedTokens), fmt.Sprintf("%.0f%%", cachedShare(f.Saved)), fmt.Sprintf("%d/100", f.Confidence), c})
+		}
+		t.render(out, s)
+	}
+	list()
 	if cfg.All {
 		for i := range choice {
 			choice[i] = "accept"
 		}
-		return submit(out, shown, choice, byID, cfg)
+		return submit(out, s, shown, choice, byID, cfg)
 	}
 	sc := bufio.NewScanner(in)
 	read := func(prompt string) (string, bool) {
-		fmt.Fprint(out, prompt)
+		fmt.Fprint(out, "\n"+prompt+s.accent(" › "))
 		if !sc.Scan() {
 			return "", false
 		}
 		return strings.ToLower(strings.TrimSpace(sc.Text())), true
 	}
-	// inspect walks the cards from position i; it returns false when the
-	// person quits.
 	pos := 0
 	inspect := func() bool {
 		for pos < len(shown) {
-			card(out, pos+1, len(shown), shown[pos], byID, choice[pos], done[shown[pos].ID])
-			k, ok := read("[a] accept · [d] deny · [e] agent eval · [n] next · [p] previous · [s] review and submit · [q] quit > ")
+			card(out, s, pos+1, len(shown), shown[pos], byID, choice[pos], done[shown[pos].ID])
+			k, ok := read(keys(s, "a", "accept", "d", "deny", "e", "agent eval", "n", "next", "p", "previous", "s", "review", "q", "quit"))
 			if !ok || k == "q" {
 				return false
 			}
@@ -213,14 +248,14 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 			case "s":
 				return true
 			default:
-				fmt.Fprintln(out, "  Choose a, d, e, n, p, s or q.")
+				fmt.Fprintln(out, s.dim("  Choose a, d, e, n, p, s or q."))
 			}
 		}
 		pos = len(shown) - 1 // back from the review returns to the last card
 		return true
 	}
 	for {
-		k, ok := read("\n[i] inspect each · [a] approve all · [q] quit > ")
+		k, ok := read(keys(s, "i", "inspect each", "a", "approve all", "q", "quit"))
 		if !ok || k == "q" {
 			fmt.Fprintln(out, "Nothing saved.")
 			return nil
@@ -238,30 +273,32 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 				return nil
 			}
 		default:
-			fmt.Fprintln(out, "  Choose i, a or q.")
+			fmt.Fprintln(out, s.dim("  Choose i, a or q."))
 			continue
 		}
-		// Review before anything is written; back returns to the cards.
 		for {
-			fmt.Fprintln(out, "\nReview")
+			section(out, s, "Review")
+			t := table{head: []string{"#", "Choice", "Primitive"}, widths: []int{3, 7, 70}, right: map[int]bool{0: true}}
 			n := 0
 			for i, f := range shown {
 				if choice[i] != "" {
 					n++
-					fmt.Fprintf(out, "  %3d. %-8s %s\n", i+1, choice[i], title(f))
+					t.rows = append(t.rows, []string{fmt.Sprint(i + 1), s.choice(choice[i]), title(f)})
 				}
 			}
-			if n == 0 {
+			if n > 0 {
+				t.render(out, s)
+			} else {
 				fmt.Fprintln(out, "  No choices made.")
 			}
-			fmt.Fprintf(out, "  %d of %d undecided (left as they are).\n", len(shown)-n, len(shown))
-			k, ok := read("[s] submit · [b] back · [q] quit without saving > ")
+			fmt.Fprintf(out, "  %d of %d undecided (left as they are). Nothing is written until you submit.\n", len(shown)-n, len(shown))
+			k, ok := read(keys(s, "s", "submit", "b", "back", "q", "quit without saving"))
 			if !ok || k == "q" {
 				fmt.Fprintln(out, "Nothing saved.")
 				return nil
 			}
 			if k == "s" {
-				return submit(out, shown, choice, byID, cfg)
+				return submit(out, s, shown, choice, byID, cfg)
 			}
 			if k == "b" && !inspect() {
 				fmt.Fprintln(out, "Nothing saved.")
@@ -279,53 +316,56 @@ func title(f Family) string {
 			fu = append(fu, short(headKey(x.Steps[0])))
 		}
 		fu = dedupeLines(fu)
-		if len(fu) > 3 {
-			fu = append(fu[:3], fmt.Sprintf("+%d more", len(fu)-3))
+		if len(fu) > 2 {
+			fu = append(fu[:2], fmt.Sprintf("+%d more", len(fu)-2))
 		}
 		t += " → " + strings.Join(fu, " / ")
-	}
-	if len(t) > 60 {
-		t = t[:59] + "…"
 	}
 	return t
 }
 
 // card shows one proposed primitive: where it was found, its structure, the
 // tools it uses, and its metadata.
-func card(out io.Writer, n, total int, f Family, byID map[string]Primitive, pending, earlier string) {
-	fmt.Fprintf(out, "\n── %d of %d ──────────────────────────────────────────\n", n, total)
-	fmt.Fprintf(out, "%s\n", title(f))
-	fmt.Fprintf(out, "Found in %d runs across %d sessions.\n", f.ExecutionCount, f.SessionCount)
-	fmt.Fprintln(out, "\nStructure")
-	head := short(f.Head)
+func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primitive, pending, earlier string) {
+	fmt.Fprintln(out)
+	head := fmt.Sprintf(" %d of %d ", n, total)
+	fmt.Fprintln(out, s.accent("━━"+head+strings.Repeat("━", screen-2-width(head))))
+	fmt.Fprintln(out, " "+s.bold(title(f)))
+	fmt.Fprintln(out, " "+s.dim(fmt.Sprintf("Found in %s runs across %s sessions · %s", count(f.ExecutionCount), count(f.SessionCount), f.ID)))
+
+	section(out, s, "Structure")
+	st := table{head: []string{"Step", "Operation", "When", "Runs"}, widths: []int{6, 62, 9, 6}, right: map[int]bool{3: true}}
+	headOp := short(f.Head)
 	if len(f.Sources) > 0 {
 		var alts []string
-		for _, s := range f.Sources {
-			alts = append(alts, short(s))
+		for _, x := range f.Sources {
+			alts = append(alts, short(x))
 		}
-		head += "  (or: " + strings.Join(alts, ", ") + ")"
+		headOp += " (or " + strings.Join(alts, ", ") + ")"
 	}
-	fmt.Fprintf(out, "  1. %s\n", head)
+	st.rows = append(st.rows, []string{"1", headOp, "always", count(f.ExecutionCount)})
 	for _, fu := range f.FollowUps {
 		var steps []string
-		for _, s := range fu.Steps {
-			steps = append(steps, short(s))
+		for _, x := range fu.Steps {
+			steps = append(steps, short(x))
 		}
-		opt := "always"
+		when := "always"
 		if fu.Optional {
-			opt = "optional"
+			when = "optional"
 		}
-		fmt.Fprintf(out, "     then %s  (%s; %d runs)\n", strings.Join(steps, " > "), opt, fu.Runs)
+		st.rows = append(st.rows, []string{"then", strings.Join(steps, " > "), when, count(fu.Runs)})
 	}
+	st.render(out, s)
+
 	tools, piped := map[string]bool{}, map[string]bool{}
 	open := 0
 	for _, id := range f.Members {
 		p := byID[id]
-		for _, s := range p.Steps {
-			tools[short(headKey(s))] = true
-			if parts := strings.Split(s, "+"); len(parts) > 1 {
-				for _, x := range parts[1:] {
-					piped[short(x)] = true
+		for _, x := range p.Steps {
+			tools[short(headKey(x))] = true
+			if parts := strings.Split(x, "+"); len(parts) > 1 {
+				for _, y := range parts[1:] {
+					piped[short(y)] = true
 				}
 			}
 		}
@@ -339,43 +379,60 @@ func card(out io.Writer, n, total int, f Family, byID map[string]Primitive, pend
 		sort.Strings(ts)
 		return strings.Join(ts, ", ")
 	}
-	fmt.Fprintf(out, "\nTools\n  %s\n", sorted(tools))
+	section(out, s, "Tools")
+	tt := table{widths: []int{22, 66}, rows: [][]string{{"Called", sorted(tools)}}}
 	if len(piped) > 0 {
-		fmt.Fprintf(out, "  output piped through: %s (varies by run)\n", sorted(piped))
+		tt.rows = append(tt.rows, []string{"Output piped through", sorted(piped) + " (varies by run)"})
 	}
-	fmt.Fprintln(out, "\nMetadata")
+	tt.render(out, s)
+
 	if len(f.Inputs) > 0 {
-		fmt.Fprintln(out, "  inputs:")
+		section(out, s, "Inputs")
+		it := table{head: []string{"Command", "Inputs the caller supplies"}, widths: []int{26, 62}}
 		for _, in := range f.Inputs {
-			fmt.Fprintf(out, "    %s\n", in)
+			cmd, args, _ := strings.Cut(in, ": ")
+			it.rows = append(it.rows, []string{cmd, args})
 		}
+		it.render(out, s)
 	}
-	fmt.Fprintf(out, "  effect: %s (unknown is treated as write; the runner asks before each call)\n", f.Effect)
-	fmt.Fprintf(out, "  tokens its follow-up calls cost: %s (%s per run)\n", tokensText(f.SavedTokens), tokensText(perRun(f)))
-	fmt.Fprintf(out, "  confidence: %d/100 (weakest of %d exact chains; %s) · %s", f.Confidence, len(f.Members), Rubric, f.Readiness)
+
+	section(out, s, "Metadata")
+	tot, cached, eq := tokenCells(f.Saved)
+	per := 0.0
+	if f.ExecutionCount > 0 {
+		per = inputEquivalent(f.Saved) / float64(f.ExecutionCount)
+	}
+	conf := fmt.Sprintf("%d/100 (weakest of %d exact chains; %s) · %s", f.Confidence, len(f.Members), Rubric, f.Readiness)
 	if f.NeedsDecision > 0 {
-		fmt.Fprintf(out, ", %d chains need a decision", f.NeedsDecision)
+		conf += fmt.Sprintf(", %d chains need a decision", f.NeedsDecision)
 	}
-	fmt.Fprintf(out, "\n  open questions: %d (agent eval writes them out with the evidence)\n", open)
+	mt := table{widths: []int{26, 62}, rows: [][]string{
+		{"Effect", f.Effect + " (unknown is treated as write; the runner asks before each call)"},
+		{"Follow-up turn tokens", fmt.Sprintf("%s total · %s cached · %s fresh · %s output", tot, cached, tokensText(f.Saved.Fresh), tokensText(f.Saved.Output))},
+		{"≈ Input-equivalent", fmt.Sprintf("%s total · %s per run (estimate)", eq, tokensText(per))},
+		{"Confidence", conf},
+		{"Open questions", fmt.Sprintf("%d (agent eval writes them out with the evidence)", open)},
+	}}
 	if earlier != "" {
-		fmt.Fprintf(out, "  earlier decision: %s\n", earlier)
+		mt.rows = append(mt.rows, []string{"Earlier decision", earlier})
 	}
 	if pending != "" {
-		fmt.Fprintf(out, "  your choice so far: %s\n", pending)
+		mt.rows = append(mt.rows, []string{"Your choice so far", s.choice(pending)})
 	}
-	fmt.Fprintln(out)
+	mt.render(out, s)
 }
 
 // submit writes every choice: accept keeps the primitive, deny hides it,
 // agent eval writes its handoff.
-func submit(out io.Writer, shown []Family, choice []string, byID map[string]Primitive, cfg MenuConfig) error {
+func submit(out io.Writer, s style, shown []Family, choice []string, byID map[string]Primitive, cfg MenuConfig) error {
+	section(out, s, "Submitted")
 	for i, f := range shown {
 		var err error
 		var msg string
 		switch choice[i] {
 		case "accept":
 			err = acceptFamily(cfg.StateDir, f, byID)
-			msg = "accepted: " + filepath.Join(cfg.StateDir, "accepted", "families", f.ID+".json")
+			msg = "accepted → " + filepath.Join(cfg.StateDir, "accepted", "families", f.ID+".json")
 		case "deny":
 			err = record(cfg.StateDir, Decision{f.ID, "deny"})
 			msg = "denied; it will not be shown again"
@@ -385,14 +442,14 @@ func submit(out io.Writer, shown []Family, choice []string, byID map[string]Prim
 			if err == nil {
 				err = record(cfg.StateDir, Decision{f.ID, "eval"})
 			}
-			msg = "agent eval handoff: " + where + " (give your coding agent HANDOFF.md)"
+			msg = "agent eval → " + where + " (give your coding agent HANDOFF.md)"
 		default:
 			continue
 		}
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "  %d. %s\n", i+1, msg)
+		fmt.Fprintf(out, "  %3d. %s %s\n", i+1, s.choice(choice[i]), msg)
 	}
 	fmt.Fprintln(out, "Submitted.")
 	return nil
@@ -407,6 +464,8 @@ func perRun(f Family) float64 {
 
 func tokensText(t float64) string {
 	switch {
+	case t >= 1e9:
+		return fmt.Sprintf("%.1fB", t/1e9)
 	case t >= 1e6:
 		return fmt.Sprintf("%.1fM", t/1e6)
 	case t >= 1e3:
