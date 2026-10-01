@@ -8,80 +8,99 @@ import (
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-func dim(c Confidence, name string) Dimension {
-	for _, d := range c.Dimensions {
-		if d.Name == name {
-			return d
+func claim(c Confidence, subject string) *Claim {
+	for i := range c.Claims {
+		if c.Claims[i].Subject == subject {
+			return &c.Claims[i]
 		}
 	}
-	return Dimension{}
+	return nil
 }
 
-// Many strong bindings and one unresolved selection: the overall score shows
-// the weak point and the flow needs a decision.
-func TestOneWeakClaimIsNotAveragedAway(t *testing.T) {
+// createCheckpoint is n runs of create then checkpoint, the ID taken from
+// the created task's result.
+func createCheckpoint(n int, gap time.Duration) []trace.Session {
 	var ss []trace.Session
-	for i := 0; i < 3; i++ {
-		id := fmt.Sprintf("PIPE-%d1", i)
-		ss = append(ss, session(fmt.Sprint("s", i), []string{"check the build"},
-			call("mcp:pipelines_list", map[string]string{"project": "web"}, `{"pipelines":[{"id":"`+id+`"},{"id":"PIPE-999"}]}`, 0, 0),
-			call("mcp:jobs_list", map[string]string{"pipeline_id": id}, `{"jobs":[]}`, 0, time.Second)))
-	}
-	c := find(t, Discover(ss, nil), "mcp:pipelines_list", "mcp:jobs_list").Confidence
-	if c.Overall != 25 || dim(c, "transformations").Score != 25 || c.Readiness != "needs_decision" || len(c.Requirements) == 0 {
-		t.Fatalf("weak selection hidden: %+v", c)
-	}
-}
-
-// A structured binding seen in many executions is corroborated, never
-// established by repetition alone; the flow is a candidate.
-func TestRepetitionAloneDoesNotEstablish(t *testing.T) {
-	var ss []trace.Session
-	for i := 0; i < 8; i++ {
-		id := fmt.Sprintf("9d3c1a2b-0000-4000-8000-00000000003%d", i)
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("9d3c1a2b-0000-4000-8000-0000000%05d", i)
 		ss = append(ss, session(fmt.Sprint("s", i), []string{"start the work"},
 			call("mcp:task_create", map[string]string{"goal": "ship it"}, `{"task_id":"`+id+`"}`, 0, 0),
-			call("mcp:task_checkpoint", map[string]string{"task_id": id, "milestone": "planned"}, `{"ok":true}`, 0, time.Second)))
+			call("mcp:task_checkpoint", map[string]string{"task_id": id, "milestone": "planned"}, `{"ok":true}`, 0, gap)))
 	}
-	p := find(t, Discover(ss, nil), "mcp:task_create", "mcp:task_checkpoint")
-	var bind *Claim
-	for i, cl := range p.Confidence.Claims {
-		if cl.Subject == "step 2 task_id" {
-			bind = &p.Confidence.Claims[i]
+	return ss
+}
+
+// A consistent binding is fully consistent however often it was seen; the
+// primitive's score rises with the runs behind it.
+func TestMoreRunsRaiseTheScore(t *testing.T) {
+	few := find(t, Discover(createCheckpoint(2, time.Second), nil), "mcp:task_create", "mcp:task_checkpoint").Confidence
+	many := find(t, Discover(createCheckpoint(40, time.Second), nil), "mcp:task_create", "mcp:task_checkpoint").Confidence
+	a, b := claim(few, "step 2 task_id"), claim(many, "step 2 task_id")
+	if a == nil || b == nil || a.Score != 100 || b.Score != 100 || a.Support != "2/2" {
+		t.Fatalf("a consistent binding is not fully consistent: few %+v many %+v", a, b)
+	}
+	if few.Overall >= many.Overall || many.Overall < 90 {
+		t.Fatalf("run count does not discount: few %d many %d", few.Overall, many.Overall)
+	}
+	if many.Readiness != "candidate" {
+		t.Fatalf("consistent flow needs a decision: %+v", many.NeedsReview)
+	}
+}
+
+// A value typed in some runs and taken from the step in others is two ways
+// to supply one input, not a contradiction.
+func TestTypedOrTakenIsNotAContradiction(t *testing.T) {
+	ss := createCheckpoint(6, time.Second)
+	for i := 0; i < 2; i++ {
+		id := fmt.Sprintf("9d3c1a2b-0000-4000-8000-0000000%05d", i)
+		ss[i].Requests = []string{"start the work on " + id}
+	}
+	c := find(t, Discover(ss, nil), "mcp:task_create", "mcp:task_checkpoint").Confidence
+	if c.Readiness != "candidate" || claim(c, "step 2 task_id").Score < 50 {
+		t.Fatalf("typed values were scored as contradictions: %+v", c)
+	}
+}
+
+// One item taken from a returned list: a fixed position is a codeable rule,
+// different positions are unresolved.
+func TestSelectionConsistencyIsCalculated(t *testing.T) {
+	run := func(pick []int) Confidence {
+		var ss []trace.Session
+		for i, at := range pick {
+			ids := []string{fmt.Sprintf("PIPE-%d1", i), fmt.Sprintf("PIPE-%d2", i)}
+			ss = append(ss, session(fmt.Sprint("s", i), []string{"check the build"},
+				call("mcp:pipelines_list", map[string]string{"project": "web"}, `{"pipelines":[{"id":"`+ids[0]+`"},{"id":"`+ids[1]+`"}]}`, 0, 0),
+				call("mcp:jobs_list", map[string]string{"pipeline_id": ids[at]}, `{"jobs":[]}`, 0, time.Second)))
 		}
+		return find(t, Discover(ss, nil), "mcp:pipelines_list", "mcp:jobs_list").Confidence
 	}
-	if bind == nil || bind.Score != 75 || p.Confidence.Readiness != "candidate" || p.Confidence.Overall != 50 {
-		t.Fatalf("binding %+v overall %d readiness %s", bind, p.Confidence.Overall, p.Confidence.Readiness)
+	fixed := run([]int{0, 0, 0, 0, 0, 0})
+	mixed := run([]int{0, 1, 0, 1, 1, 0})
+	if fixed.Readiness != "candidate" || len(fixed.Requirements) != 0 {
+		t.Fatalf("a fixed first item is unresolved: %+v", fixed)
 	}
-}
-
-// Without call times the boundary claim is missing evidence, scored 0.
-func TestMissingTimesScoreZero(t *testing.T) {
-	var ss []trace.Session
-	for i := 0; i < 2; i++ {
-		id := fmt.Sprintf("9d3c1a2b-0000-4000-8000-00000000004%d", i)
-		a := call("mcp:task_create", map[string]string{"goal": "ship it"}, `{"task_id":"`+id+`"}`, 0, 0)
-		b := call("mcp:task_checkpoint", map[string]string{"task_id": id, "milestone": "planned"}, `{"ok":true}`, 0, time.Second)
-		a.Time, b.Time = time.Time{}, time.Time{}
-		ss = append(ss, session(fmt.Sprint("s", i), []string{"start the work"}, a, b))
-	}
-	c := find(t, Discover(ss, nil), "mcp:task_create", "mcp:task_checkpoint").Confidence
-	if d := dim(c, "boundaries"); !d.Applicable || d.Score != 0 || c.Overall != 0 {
-		t.Fatalf("missing times not scored as missing: %+v", c)
+	if mixed.Readiness != "needs_decision" || len(mixed.Requirements) == 0 || mixed.Overall >= fixed.Overall {
+		t.Fatalf("mixed positions not flagged: %+v", mixed)
 	}
 }
 
-// A long gap inside an execution is flagged for review, not cut.
-func TestLongGapNeedsReview(t *testing.T) {
-	var ss []trace.Session
-	for i := 0; i < 2; i++ {
-		id := fmt.Sprintf("9d3c1a2b-0000-4000-8000-00000000005%d", i)
-		ss = append(ss, session(fmt.Sprint("s", i), []string{"start the work"},
-			call("mcp:task_create", map[string]string{"goal": "ship it"}, `{"task_id":"`+id+`"}`, 0, 0),
-			call("mcp:task_checkpoint", map[string]string{"task_id": id, "milestone": "planned"}, `{"ok":true}`, 0, 25*time.Minute)))
+// Long gaps are noted, not scored, until the cutoff is validated.
+func TestLongGapIsANoteNotAPenalty(t *testing.T) {
+	quick := find(t, Discover(createCheckpoint(6, time.Second), nil), "mcp:task_create", "mcp:task_checkpoint").Confidence
+	slow := find(t, Discover(createCheckpoint(6, 25*time.Minute), nil), "mcp:task_create", "mcp:task_checkpoint").Confidence
+	if slow.Overall != quick.Overall || len(slow.Notes) == 0 {
+		t.Fatalf("quick %d slow %d notes %v", quick.Overall, slow.Overall, slow.Notes)
 	}
-	c := find(t, Discover(ss, nil), "mcp:task_create", "mcp:task_checkpoint").Confidence
-	if dim(c, "boundaries").Score != 25 || c.Readiness != "needs_decision" {
-		t.Fatalf("long gap not flagged: %+v", c)
+}
+
+func TestWilsonBounds(t *testing.T) {
+	if w := wilson(1, 2); w > 0.4 {
+		t.Fatalf("2 of 2 = %.2f, too sure", w)
+	}
+	if w := wilson(1, 90); w < 0.95 {
+		t.Fatalf("90 of 90 = %.2f, too unsure", w)
+	}
+	if wilson(0.5, 0) != 0 {
+		t.Fatal("no runs must score 0")
 	}
 }
