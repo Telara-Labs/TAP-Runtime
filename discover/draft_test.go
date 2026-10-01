@@ -32,7 +32,7 @@ func runAndFind(t *testing.T, ss []trace.Session, labels string) (*Report, int) 
 
 func TestDraftReplaysThePlantedProcedure(t *testing.T) {
 	rep, i := runAndFind(t, plantedCorpus(), "sh:make build → sh:go test → sh:git push")
-	d, err := rep.Draft(i, DraftOptions{})
+	d, err := ReportDraft(rep, i, DraftOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestDraftReplaysThePlantedProcedure(t *testing.T) {
 
 func TestDraftReadOnlyIsTheUsersCall(t *testing.T) {
 	rep, i := runAndFind(t, plantedCorpus(), "sh:make build → sh:go test → sh:git push")
-	d, err := rep.Draft(i, DraftOptions{ReadOnly: map[int]bool{2: true}})
+	d, err := ReportDraft(rep, i, DraftOptions{ReadOnly: map[int]bool{2: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func toolCorpus() []trace.Session {
 
 func TestDraftMCPToolsCarryContractsThatPassPublishChecks(t *testing.T) {
 	rep, i := runAndFind(t, toolCorpus(), "mcp:telara_task_create → mcp:telara_jira_transition_issue")
-	d, err := rep.Draft(i, DraftOptions{Publisher: "dev.example"})
+	d, err := ReportDraft(rep, i, DraftOptions{Publisher: "dev.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestDraftKeepsRecordedArgumentTypes(t *testing.T) {
 		}
 	}
 	rep, i := runAndFind(t, ss, "mcp:telara_task_create → mcp:telara_jira_transition_issue")
-	d, err := rep.Draft(i, DraftOptions{Publisher: "dev.example"})
+	d, err := ReportDraft(rep, i, DraftOptions{Publisher: "dev.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestDraftPatchIsAHumanStepNotAGuess(t *testing.T) {
 		ss = append(ss, s)
 	}
 	rep, i := runAndFind(t, ss, "sh:tail → patch:update → sh:git commit")
-	d, err := rep.Draft(i, DraftOptions{})
+	d, err := ReportDraft(rep, i, DraftOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestDraftBrowserKeepsObjectsAndDropsVariableNames(t *testing.T) {
 		ss = append(ss, s)
 	}
 	rep, i := runAndFind(t, ss, "js:nameSession → js:goto → js:playwright.evaluate")
-	d, err := rep.Draft(i, DraftOptions{})
+	d, err := ReportDraft(rep, i, DraftOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestDraftArgumentOrderDoesNotMakeFlagsInputs(t *testing.T) {
 		ss = append(ss, s)
 	}
 	rep, i := runAndFind(t, ss, "sh:gofmt → sh:go test")
-	d, err := rep.Draft(i, DraftOptions{})
+	d, err := ReportDraft(rep, i, DraftOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestRoutinesAreOnePerTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rs := rep.PatternRoutines()
+	rs := ReportPatternRoutines(rep)
 	if len(rs) != 1 || labelsOf(rep.Candidates[rs[0]]) != "sh:make build → sh:go test → sh:git push" {
 		var got []string
 		for _, i := range rs {

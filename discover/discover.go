@@ -211,9 +211,9 @@ func Run(o Options) (*Report, error) {
 		}
 		raw = append(raw, ss...)
 		rep.Clients = append(rep.Clients, st)
-		o.log("%s: %d sessions, %d calls %s", st.Client, len(ss), st.Calls, st.Error)
+		optionsLog(o, "%s: %d sessions, %d calls %s", st.Client, len(ss), st.Calls, st.Error)
 	}
-	o.log("read %d sessions", len(raw))
+	optionsLog(o, "read %d sessions", len(raw))
 	// Later passes take sessions in order (grouping picks each group's first
 	// request), so the report must not depend on the order readers return.
 	sort.SliceStable(raw, func(i, j int) bool {
@@ -316,7 +316,7 @@ func Run(o Options) (*Report, error) {
 		}
 	}
 	rep.Funnel, rep.Routines = requestRoutines(sessions, ids, names, o, totalCalls)
-	o.log("requests: %d with replayable steps, %d routines, %d primitives", rep.Funnel.RequestsWithSteps, rep.Funnel.Routines, rep.Funnel.Primitives)
+	optionsLog(o, "requests: %d with replayable steps, %d routines, %d primitives", rep.Funnel.RequestsWithSteps, rep.Funnel.Routines, rep.Funnel.Primitives)
 	if !o.Patterns {
 		return rep, nil
 	}
@@ -393,7 +393,7 @@ func Run(o Options) (*Report, error) {
 	}
 	mined, examined, truncated := minePatterns(seqs, mineLimits{window: o.Window, minSupport: o.MinSupport, maxLen: o.MaxLen, maxOut: o.MaxPatterns, canQualify: canQualify, keep: keep})
 	rep.Mined, rep.Examined, rep.Truncated, rep.MinSupportUsed = len(mined), examined, truncated, o.MinSupport
-	o.log("examined %d patterns at support >= %d over %d sessions and %d labels; %d kept", examined, o.MinSupport, len(seqs), len(names), len(mined))
+	optionsLog(o, "examined %d patterns at support >= %d over %d sessions and %d labels; %d kept", examined, o.MinSupport, len(seqs), len(names), len(mined))
 
 	idf := make([]float64, len(names))
 	for x, d := range df {
@@ -418,12 +418,12 @@ func Run(o Options) (*Report, error) {
 		}
 	}
 	rep.Tested = len(cands)
-	o.log("%d closed patterns; %d pass the per-step test and go to %d permutations per shuffle test", len(closed), len(cands), o.Permutations)
+	optionsLog(o, "%d closed patterns; %d pass the per-step test and go to %d permutations per shuffle test", len(closed), len(cands), o.Permutations)
 
 	across := permuteCounts(seqs, group, cands, o, shuffleAcross)
-	o.log("between-session null done")
+	optionsLog(o, "between-session null done")
 	within := permuteCounts(seqs, group, cands, o, shuffleWithin)
-	o.log("within-session null done")
+	optionsLog(o, "within-session null done")
 	pAcross := make([]float64, len(cands))
 	pWithin := make([]float64, len(cands))
 	for i, p := range cands {
@@ -465,7 +465,7 @@ func Run(o Options) (*Report, error) {
 	rep.Recall = recall(corpus, rep.Candidates)
 	rep.Skills = skillProcedures(corpus, seqs, closed, names, idf, o)
 	rep.corpus, rep.seqs, rep.names, rep.window = corpus, seqs, names, o.Window
-	o.log("skill comparison: %d skills with enriched procedures", len(rep.Skills))
+	optionsLog(o, "skill comparison: %d skills with enriched procedures", len(rep.Skills))
 	rep.Families = assignFamilies(rep.Candidates)
 	return rep, nil
 }
@@ -848,7 +848,7 @@ next:
 	return n
 }
 
-func (o Options) log(format string, a ...any) {
+func optionsLog(o Options, format string, a ...any) {
 	if o.Progress != nil {
 		fmt.Fprintf(o.Progress, "%s  "+format+"\n", append([]any{time.Now().Format("15:04:05")}, a...)...)
 	}

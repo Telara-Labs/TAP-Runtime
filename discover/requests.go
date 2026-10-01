@@ -153,7 +153,7 @@ type Routine struct {
 
 // DraftAs redrafts the routine under a publisher, with the steps the user
 // marked read-only.
-func (r *Routine) DraftAs(publisher string, readOnly map[int]bool) *Draft {
+func RoutineDraftAs(r *Routine, publisher string, readOnly map[int]bool) *Draft {
 	if r.occ == nil {
 		return r.draft
 	}
@@ -176,7 +176,7 @@ type RoutineInput struct {
 }
 
 // Draft returns the package drafted for the routine.
-func (r *Routine) Draft() *Draft { return r.draft }
+func RoutineDraft(r *Routine) *Draft { return r.draft }
 
 type reqInstance struct {
 	session int
@@ -732,7 +732,7 @@ func buildRoutine(corpus []trace.NormSession, inst []reqInstance, g []int, names
 		rt.Decision = "removed"
 		rt.Statistics, rt.Validation = "not_run", "not_run"
 		rt.Kind = routineKind(corpus, inst, g, tmpl)
-		rt.legacyStates(nil)
+		routineLegacyStates(&rt, nil)
 		sum := sha256.Sum256([]byte(rt.SourceRole + "\x00" + strings.Join(tmpl, "\x1f")))
 		rt.ID = hex.EncodeToString(sum[:6])
 		rt.Family = "unknown:" + rt.ID
@@ -752,7 +752,7 @@ func buildRoutine(corpus []trace.NormSession, inst []reqInstance, g []int, names
 	// Per input: how often its value appeared in the request (reported, not a check).
 	for n, in := range d.Inputs {
 		hit, total := 0, 0
-		for j, v := range d.inputValues(n) {
+		for j, v := range draftInputValues(d, n) {
 			if v == "" {
 				continue
 			}
@@ -783,7 +783,7 @@ func buildRoutine(corpus []trace.NormSession, inst []reqInstance, g []int, names
 	rt.Runs, rt.FailedRuns, rt.UnknownRuns = seqRuns, failedRuns, unknownRuns
 	rt.Kind = routineKind(corpus, inst, g, tmpl)
 	// Role, outcome and value; suitability is decided by the contract.
-	rt.legacyStates(d)
+	routineLegacyStates(&rt, d)
 	switch {
 	case rt.SourceRole == RoleScheduled:
 		rt.Baseline = "scheduled_automation"

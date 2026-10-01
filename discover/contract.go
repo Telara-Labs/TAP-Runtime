@@ -222,7 +222,7 @@ func buildContract(rt *Routine, d *Draft, runs []contractRun, loops []string) {
 	}
 	for n, in := range d.Inputs {
 		ci := ContractInput{Name: in.Name, Type: in.Type}
-		vals := d.inputValues(n)
+		vals := draftInputValues(d, n)
 		switch {
 		case in.List:
 			// Only lists the request gave become list inputs (loopSpecs).
