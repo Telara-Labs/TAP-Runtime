@@ -9,8 +9,8 @@ import (
 // Package returns the draft as a gzip tar, the form a registry package and
 // `telara tap pull` use, and its digest. Entries are sorted and carry a fixed
 // time, so the same draft always has the same digest.
-func (d *Draft) Package() ([]byte, string, error) {
-	files, err := d.Artifacts()
+func PackageDraft(d *Draft) ([]byte, string, error) {
+	files, err := DraftArtifacts(d)
 	if err != nil {
 		return nil, "", err
 	}
@@ -27,7 +27,7 @@ func (d *Draft) Package() ([]byte, string, error) {
 // their sessions (Jaccard), and the group is represented by its longest,
 // most specific routine. Routines with no step a primitive can replay are
 // left out: there is nothing to draft.
-func (r *Report) PatternRoutines() []int {
+func ReportPatternRoutines(r *Report) []int {
 	var cands []int
 	for i, c := range r.Candidates {
 		if !c.Qualified || c.Family != i {

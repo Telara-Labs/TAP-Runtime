@@ -89,7 +89,7 @@ func TestRecurringRequestsBecomePrimitives(t *testing.T) {
 			t.Errorf("the image tag never appeared in a request, so explained must be 0: %+v", in)
 		}
 	}
-	sh := string(jira.Draft().Files["main.sh"])
+	sh := string(RoutineDraft(jira).Files["main.sh"])
 	if !strings.Contains(sh, `"${1}"`) || !strings.Contains(sh, `"transition_id":"21"`) {
 		t.Fatalf("draft:\n%s", sh)
 	}
@@ -109,9 +109,9 @@ func TestSaveInstallsOnceAndNeverReplacesAForeignFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := rep.Primitives()[0].Draft()
+	d := RoutineDraft(ReportPrimitives(rep)[0])
 	root := t.TempDir()
-	path, unchanged, err := d.Save(root)
+	path, unchanged, err := SaveDraft(d, root)
 	if err != nil || unchanged {
 		t.Fatalf("save: %v %v", err, unchanged)
 	}
@@ -120,12 +120,12 @@ func TestSaveInstallsOnceAndNeverReplacesAForeignFolder(t *testing.T) {
 			t.Errorf("saved folder lacks %s", f)
 		}
 	}
-	if _, unchanged, err := d.Save(root); err != nil || !unchanged {
+	if _, unchanged, err := SaveDraft(d, root); err != nil || !unchanged {
 		t.Fatalf("saving the same draft again must change nothing: %v %v", err, unchanged)
 	}
 	foreign := filepath.Join(t.TempDir(), d.Name)
 	os.MkdirAll(foreign, 0o755)
-	if _, _, err := d.Save(filepath.Dir(foreign)); err == nil {
+	if _, _, err := SaveDraft(d, filepath.Dir(foreign)); err == nil {
 		t.Fatal("a folder that is not a saved primitive must not be replaced")
 	}
 }
@@ -142,7 +142,7 @@ func TestReviewWithoutARegistryOnlySaves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(saved) != len(rep.Primitives()) || strings.Contains(out.String(), "Publish which") {
+	if len(saved) != len(ReportPrimitives(rep)) || strings.Contains(out.String(), "Publish which") {
 		t.Fatalf("saved %v\n%s", saved, out.String())
 	}
 }
@@ -205,16 +205,16 @@ func TestFixedShareIsAFractionOfTheRoutine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range rep.Primitives() {
-		if s := r.Draft().FixedShare; s <= 0 || s > 1 {
+	for _, r := range ReportPrimitives(rep) {
+		if s := RoutineDraft(r).FixedShare; s <= 0 || s > 1 {
 			t.Fatalf("fixed share %v out of range for %s", s, labelsOf(r.Candidate))
 		}
 	}
 	// The ticket routine fixes its tools and transition and takes one id; it
 	// is mostly fixed.
-	for _, r := range rep.Primitives() {
-		if strings.Contains(labelsOf(r.Candidate), "jira_transition_issue") && r.Draft().FixedShare < 0.6 {
-			t.Fatalf("ticket routine fixed share = %v", r.Draft().FixedShare)
+	for _, r := range ReportPrimitives(rep) {
+		if strings.Contains(labelsOf(r.Candidate), "jira_transition_issue") && RoutineDraft(r).FixedShare < 0.6 {
+			t.Fatalf("ticket routine fixed share = %v", RoutineDraft(r).FixedShare)
 		}
 	}
 }

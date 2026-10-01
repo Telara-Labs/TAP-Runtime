@@ -60,15 +60,15 @@ func TestR2EphemeralConstantsAreNotAReusableProcedure(t *testing.T) {
 // saved folder's marker.
 func TestUnvalidatedDraftsSayUnvalidated(t *testing.T) {
 	rep := runOn(t, requestCorpus())
-	prims := rep.Primitives()
+	prims := ReportPrimitives(rep)
 	if len(prims) == 0 {
 		t.Fatal("no recommended procedure to review")
 	}
-	d := prims[0].Draft()
+	d := RoutineDraft(prims[0])
 	if !strings.Contains(string(d.Files["README.md"]), "**Status: unvalidated.**") || !strings.Contains(string(d.Files["primitive.yaml"]), "Unvalidated draft (never executed)") {
 		t.Fatalf("README/manifest do not say unvalidated")
 	}
-	_, digest, err := d.Package()
+	_, digest, err := PackageDraft(d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestUnvalidatedDraftsSayUnvalidated(t *testing.T) {
 		t.Fatalf("review output:\n%s", out.String())
 	}
 	dir := t.TempDir()
-	path, _, err := d.Save(dir)
+	path, _, err := SaveDraft(d, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestR3FragmentedGroupsStillShareTheirGoal(t *testing.T) {
 		}
 	})
 	rep := runOn(t, ss)
-	if len(rep.Primitives()) == 0 {
+	if len(ReportPrimitives(rep)) == 0 {
 		t.Fatalf("every request ran transition then comment; none recommended:\n%s", dump(rep))
 	}
 }
@@ -137,7 +137,7 @@ func TestR6FileReadsAreDeclaredOrBlocked(t *testing.T) {
 	fixed := eps("rf", 6, func(i int) string { return fmt.Sprintf("summarize release %d", i) }, func(i int) []trace.Call {
 		return []trace.Call{{Tool: "Read", Args: map[string]string{"file_path": "docs/RELEASES.md"}}, sh(fmt.Sprintf("git log --oneline v%d..HEAD", i))}
 	})
-	d := runOn(t, fixed).Routines[0].Draft()
+	d := RoutineDraft(&runOn(t, fixed).Routines[0])
 	if !strings.Contains(string(d.Files["primitive.yaml"]), "path: docs/RELEASES.md") {
 		t.Fatalf("a fixed read must be declared:\n%s", d.Files["primitive.yaml"])
 	}

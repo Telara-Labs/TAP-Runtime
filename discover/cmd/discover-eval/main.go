@@ -248,7 +248,7 @@ func show(args []string) error {
 		if err := writeJSON(filepath.Join(d, "routine.json"), rec); err != nil {
 			return err
 		}
-		if dr := r.Draft(); dr != nil {
+		if dr := discover.RoutineDraft(r); dr != nil {
 			for name, body := range dr.Files {
 				os.WriteFile(filepath.Join(d, name), body, 0o600)
 			}

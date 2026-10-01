@@ -76,7 +76,7 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 		}
 		return strings.TrimSpace(sc.Text()), true
 	}
-	prims := rep.Primitives()
+	prims := ReportPrimitives(rep)
 	if cfg.Top > 0 && len(prims) > cfg.Top {
 		prims = prims[:cfg.Top]
 	}
@@ -86,13 +86,13 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 	}
 	fmt.Fprintln(out, "\nRecommended procedures, drafted. UNVALIDATED: none has been executed.")
 	for i, p := range prims {
-		d := p.Draft()
+		d := RoutineDraft(p)
 		fmt.Fprintf(out, "\n%d. %s  (%d requests, %d weeks", i+1, d.Name, p.Requests, p.Weeks)
 		if p.Measured > 0 {
 			fmt.Fprintf(out, ", saves %s tokens per run", humanTokens(p.SavedPerRun.Total()))
 		}
 		fmt.Fprintf(out, ")\n   asked as: %s\n", trace.OneLine(redact.Redact(p.Example), 120))
-		if _, digest, err := d.Package(); err == nil {
+		if _, digest, err := PackageDraft(d); err == nil {
 			fmt.Fprintf(out, "   status: unvalidated (validation not run for %s)\n", digest)
 		}
 		var srcs []string
@@ -130,7 +130,7 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 		return nil
 	}
 	for _, i := range Pick(answer, len(prims)) {
-		d := prims[i].Draft()
+		d := RoutineDraft(prims[i])
 		where, err := act.Save(d)
 		if err != nil {
 			fmt.Fprintf(out, "%d. %s not saved: %v\n", i+1, d.Name, err)
@@ -169,8 +169,8 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 		audience = "tenant"
 	}
 	for _, i := range chosen {
-		d := prims[i].DraftAs(publisher, nil)
-		if _, err := d.Artifacts(); err != nil {
+		d := RoutineDraftAs(prims[i], publisher, nil)
+		if _, err := DraftArtifacts(d); err != nil {
 			fmt.Fprintf(out, "%d. %s not published: %v\n", i+1, d.Name, err)
 			continue
 		}

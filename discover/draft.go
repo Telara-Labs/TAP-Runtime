@@ -136,7 +136,7 @@ type Draft struct {
 }
 
 // inputValues is input n's value in each drafted run (by run index).
-func (d *Draft) inputValues(n int) map[int]string {
+func draftInputValues(d *Draft, n int) map[int]string {
 	if n < 0 || n >= len(d.values) {
 		return nil
 	}
@@ -162,7 +162,7 @@ type loopSpec struct {
 }
 
 // Draft builds the package for Candidates[idx].
-func (r *Report) Draft(idx int, opt DraftOptions) (*Draft, error) {
+func ReportDraft(r *Report, idx int, opt DraftOptions) (*Draft, error) {
 	if idx < 0 || idx >= len(r.Candidates) || r.corpus == nil {
 		return nil, errors.New("no such candidate in this run")
 	}
@@ -1105,7 +1105,7 @@ var ErrBlocked = errors.New("the draft still contains credential-shaped values; 
 
 // Artifacts returns the draft's files, or ErrBlocked. Everything that writes
 // or sends a draft goes through it.
-func (d *Draft) Artifacts() (map[string][]byte, error) {
+func DraftArtifacts(d *Draft) (map[string][]byte, error) {
 	if len(d.Blocked) > 0 {
 		return nil, fmt.Errorf("%w: %s", ErrBlocked, strings.Join(d.Blocked, "; "))
 	}

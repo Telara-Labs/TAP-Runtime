@@ -251,7 +251,7 @@ func firstReason(rt Routine) string {
 
 // Primitives returns the routines ready to save (decision "primitive"), in
 // report order.
-func (r *Report) Primitives() []*Routine {
+func ReportPrimitives(r *Report) []*Routine {
 	var out []*Routine
 	for i := range r.Routines {
 		if r.Routines[i].Decision == "primitive" && r.Routines[i].MergedInto == "" {

@@ -55,10 +55,10 @@ func TestDraftNeverWritesCredentials(t *testing.T) {
 			r = &rep.Routines[i]
 		}
 	}
-	if r == nil || r.Draft() == nil {
+	if r == nil || RoutineDraft(r) == nil {
 		t.Fatalf("no drafted routine: %+v", rep.Funnel)
 	}
-	d := r.Draft()
+	d := RoutineDraft(r)
 	for name, body := range d.Files {
 		for _, secret := range []string{"abcDEF1234567890ghiJKL", fakeGitlab, "hunter2secret", "pw-"} {
 			if bytes.Contains(body, []byte(secret)) {
@@ -81,7 +81,7 @@ func TestDraftNeverWritesCredentials(t *testing.T) {
 	if len(d.Blocked) != 0 {
 		t.Fatalf("every credential became an input, so nothing should remain: %v", d.Blocked)
 	}
-	if _, _, err := d.Package(); err != nil {
+	if _, _, err := PackageDraft(d); err != nil {
 		t.Fatalf("a clean draft must package: %v", err)
 	}
 	var buf bytes.Buffer
@@ -97,13 +97,13 @@ func TestLeftoverCredentialBlocksEverything(t *testing.T) {
 	if len(d.Blocked) != 1 || strings.Contains(d.Blocked[0], "abcDEF") {
 		t.Fatalf("blocked = %v (it must say where, never what)", d.Blocked)
 	}
-	if _, err := d.Artifacts(); !errors.Is(err, ErrBlocked) {
+	if _, err := DraftArtifacts(d); !errors.Is(err, ErrBlocked) {
 		t.Fatalf("artifacts: %v", err)
 	}
-	if _, _, err := d.Package(); !errors.Is(err, ErrBlocked) {
+	if _, _, err := PackageDraft(d); !errors.Is(err, ErrBlocked) {
 		t.Fatalf("package: %v", err)
 	}
-	if _, _, err := d.Save(t.TempDir()); err == nil {
+	if _, _, err := SaveDraft(d, t.TempDir()); err == nil {
 		t.Fatal("save must refuse a blocked draft")
 	}
 }

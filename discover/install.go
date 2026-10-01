@@ -73,11 +73,11 @@ var skillName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
 // Save installs the draft into root (a skills directory) and returns the
 // folder. unchanged is true when the same draft was already there.
-func (d *Draft) Save(root string) (path string, unchanged bool, err error) {
+func SaveDraft(d *Draft, root string) (path string, unchanged bool, err error) {
 	if !skillName.MatchString(d.Name) {
 		return "", false, fmt.Errorf("%q is not a usable folder name", d.Name)
 	}
-	pkg, digest, err := d.Package()
+	pkg, digest, err := PackageDraft(d)
 	if err != nil {
 		return "", false, err
 	}

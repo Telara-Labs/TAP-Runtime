@@ -96,7 +96,7 @@ type ContractInput struct {
 // legacyStates fills the dimensions from the single decision the rules made
 // before they were separated. It reproduces those claims unchanged:
 // needs_authoring was a claim of usefulness.
-func (rt *Routine) legacyStates(d *Draft) {
+func routineLegacyStates(rt *Routine, d *Draft) {
 	rt.SourceRole = map[string]string{"user": RoleUser, "automated": RoleScheduled, "scheduled": RoleScheduled, "bookkeeping": RoleInfrastructure, "harness": RoleHarness}[rt.Kind]
 	if rt.SourceRole == "" {
 		rt.SourceRole = RoleUnknown

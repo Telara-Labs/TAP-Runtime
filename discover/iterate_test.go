@@ -73,7 +73,7 @@ func TestALineRepeatedInOneSessionIsNotFixed(t *testing.T) {
 	}
 	found := false
 	for _, r := range rep.Routines {
-		sh := string(r.Draft().Files["main.sh"])
+		sh := string(RoutineDraft(&r).Files["main.sh"])
 		if strings.Contains(sh, "remaining.py") {
 			t.Fatalf("a line only one session wrote was drafted as fixed:\n%s", sh)
 		}
@@ -107,7 +107,7 @@ func TestAnArgumentAnyRunSentAsJSONIsJSON(t *testing.T) {
 		}
 		return []trace.Call{{Tool: "mcp:telara_tool_search", Args: map[string]string{"query": "jira issue"}}, c}
 	})
-	d := firstRoutine(t, ss).Draft()
+	d := RoutineDraft(firstRoutine(t, ss))
 	var in *DraftInput
 	for k := range d.Inputs {
 		if strings.HasSuffix(d.Inputs[k].Name, "params") {
