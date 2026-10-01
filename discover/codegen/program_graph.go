@@ -38,12 +38,15 @@ type InlineFileReplace struct {
 }
 
 type ProgramInput struct {
-	Name     string              `json:"name"`
-	Type     string              `json:"type"`
-	List     bool                `json:"list,omitempty"`
-	Optional bool                `json:"optional,omitempty"`
-	Source   string              `json:"source"`
-	Fields   []ProgramInputField `json:"fields,omitempty"`
+	Name              string              `json:"name"`
+	Type              string              `json:"type"`
+	List              bool                `json:"list,omitempty"`
+	Optional          bool                `json:"optional,omitempty"`
+	Allowed           []string            `json:"allowed,omitempty"`
+	RequiredWhenInput string              `json:"required_when_input,omitempty"`
+	RequiredWhenValue string              `json:"required_when_value,omitempty"`
+	Source            string              `json:"source"`
+	Fields            []ProgramInputField `json:"fields,omitempty"`
 }
 
 type ProgramInputField struct {
@@ -53,16 +56,20 @@ type ProgramInputField struct {
 }
 
 type ProgramStep struct {
-	Role           string              `json:"role"`
-	Tool           string              `json:"tool"`
-	Binding        *ProgramToolBinding `json:"binding,omitempty"`
-	Command        string              `json:"command,omitempty"`
-	Pipeline       []ProgramCommand    `json:"pipeline,omitempty"`
-	Effect         string              `json:"effect"`
-	Loop           string              `json:"loop,omitempty"`             // input name, when for_each
-	LoopResultStep int                 `json:"loop_result_step,omitempty"` // one-based earlier step
-	LoopResultPath string              `json:"loop_result_path,omitempty"` // collection in that result
-	Args           []ProgramArg        `json:"args"`
+	Role     string              `json:"role"`
+	Tool     string              `json:"tool"`
+	Binding  *ProgramToolBinding `json:"binding,omitempty"`
+	Command  string              `json:"command,omitempty"`
+	Pipeline []ProgramCommand    `json:"pipeline,omitempty"`
+	Effect   string              `json:"effect"`
+	// WhenInput and WhenValue select this step through a required caller
+	// choice. The same choice guards any later step that reads its result.
+	WhenInput      string       `json:"when_input,omitempty"`
+	WhenValue      string       `json:"when_value,omitempty"`
+	Loop           string       `json:"loop,omitempty"`             // input name, when for_each
+	LoopResultStep int          `json:"loop_result_step,omitempty"` // one-based earlier step
+	LoopResultPath string       `json:"loop_result_path,omitempty"` // collection in that result
+	Args           []ProgramArg `json:"args"`
 	// Pairs of caller-supplied result indexes that source evidence kept
 	// distinct within this call. The generated program enforces each pair.
 	DistinctResultInputs [][]string `json:"distinct_result_inputs,omitempty"`

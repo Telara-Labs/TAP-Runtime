@@ -44,13 +44,45 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 	inputTypes := map[string]string{}
 	inputSpecs := map[string]ProgramInput{}
 	for _, input := range g.Inputs {
+		if input.Name == "" {
+			return nil, errors.New("program has an unnamed input")
+		}
+		if _, exists := inputSpecs[input.Name]; exists {
+			return nil, fmt.Errorf("program has duplicate input %q", input.Name)
+		}
 		inputTypes[input.Name] = input.Type
 		inputSpecs[input.Name] = input
 	}
+	for _, input := range g.Inputs {
+		if input.RequiredWhenInput == "" {
+			if input.RequiredWhenValue != "" {
+				return nil, fmt.Errorf("input %q has a branch value without a selector", input.Name)
+			}
+			continue
+		}
+		selector, ok := inputSpecs[input.RequiredWhenInput]
+		if !input.Optional || !ok || selector.Optional || selector.List || selector.Type != "string" || !containsString(selector.Allowed, input.RequiredWhenValue) {
+			return nil, fmt.Errorf("input %q has an unresolved conditional requirement", input.Name)
+		}
+	}
 	for i, step := range g.Steps {
+		if step.WhenInput != "" {
+			choice, ok := inputSpecs[step.WhenInput]
+			if !ok || choice.Optional || choice.List || choice.Type != "string" || step.WhenValue == "" || !containsString(choice.Allowed, step.WhenValue) {
+				return nil, fmt.Errorf("step %d has an unresolved branch choice", i+1)
+			}
+		} else if step.WhenValue != "" {
+			return nil, fmt.Errorf("step %d has a branch value without an input", i+1)
+		}
 		indexedInputs := map[string]bool{}
 		for _, arg := range step.Args {
 			v := arg.Value
+			if (v.Kind == "result" || v.Kind == "indexed_result") && v.Step > 0 && v.Step <= i {
+				producer := g.Steps[v.Step-1]
+				if producer.WhenInput != "" && (producer.WhenInput != step.WhenInput || producer.WhenValue != step.WhenValue) {
+					return nil, fmt.Errorf("step %d uses a result from another branch", i+1)
+				}
+			}
 			if v.Kind == "collection_index" || v.Kind == "collection_index_item" {
 				input, ok := inputSpecs[v.Input]
 				if v.Step < 1 || v.Step > i || !ok || input.Type != "integer" || input.Optional ||
@@ -108,6 +140,12 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 	for _, in := range g.Inputs {
 		typ := ProgramJSONType(in.Type)
 		schema := map[string]any{"type": typ}
+		if len(in.Allowed) > 0 {
+			if typ != "string" || in.List {
+				return nil, fmt.Errorf("input %q has unsupported allowed values", in.Name)
+			}
+			schema["enum"] = in.Allowed
+		}
 		if in.List {
 			schema = map[string]any{"type": "array", "items": map[string]any{"type": typ}}
 			if len(in.Fields) > 0 {
@@ -142,6 +180,9 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 		if !in.Optional {
 			code.WriteString("if " + q + " not in inputs:\n    raise ValueError('missing input ' + " + q + ")\n")
 		}
+		if in.RequiredWhenInput != "" {
+			code.WriteString("if inputs[" + strconv.Quote(in.RequiredWhenInput) + "] == " + strconv.Quote(in.RequiredWhenValue) + " and " + q + " not in inputs:\n    raise ValueError('missing input ' + " + q + ")\n")
+		}
 		guard := ""
 		if in.Optional {
 			guard = q + " in inputs and "
@@ -155,6 +196,10 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 			}
 		} else {
 			code.WriteString("if " + guard + "not _typed(inputs[" + q + "], " + strconv.Quote(ProgramJSONType(in.Type)) + "):\n    raise ValueError('input ' + " + q + " + ' has the wrong type')\n")
+			if len(in.Allowed) > 0 {
+				allowed, _ := json.Marshal(in.Allowed)
+				code.WriteString("if " + guard + "inputs[" + q + "] not in " + string(allowed) + ":\n    raise ValueError('input ' + " + q + " + ' is not an allowed choice')\n")
+			}
 		}
 	}
 	// Validate caller-selected result roles before any tool effects. A
@@ -178,6 +223,7 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 	}
 	code.WriteString("outputs = {}\n")
 	for i, st := range g.Steps {
+		stepStart := code.Len()
 		if st.Tool != "shell" && (!strings.HasPrefix(st.Tool, "mcp:") || st.Tool == "mcp:") {
 			return nil, fmt.Errorf("step %d has no declared MCP tool", i+1)
 		}
@@ -233,6 +279,7 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 			}
 			code.WriteString("result_" + strconv.Itoa(i+1) + " = " + previous + "\n")
 			code.WriteString("outputs[" + strconv.Quote(alias) + "] = result_" + strconv.Itoa(i+1) + "\n")
+			wrapChosenStep(&code, stepStart, st)
 			continue
 		}
 		if st.Tool != "shell" {
@@ -350,6 +397,7 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 			}
 		}
 		code.WriteString("outputs[" + strconv.Quote(alias) + "] = " + resultName + "\n")
+		wrapChosenStep(&code, stepStart, st)
 	}
 	code.WriteString("print(json.dumps(outputs, sort_keys=True))\n")
 	if problems := m.RunProblems(); len(problems) > 0 {
@@ -372,6 +420,12 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 		}
 		if in.Optional {
 			kind += " (optional; omitted when absent)"
+		}
+		if len(in.Allowed) > 0 {
+			kind += "; one of " + strings.Join(in.Allowed, ", ")
+		}
+		if in.RequiredWhenInput != "" {
+			kind += fmt.Sprintf("; required when `%s` is `%s`", in.RequiredWhenInput, in.RequiredWhenValue)
 		}
 		fmt.Fprintf(&readme, "- `%s`: %s, from %s\n", in.Name, kind, in.Source)
 		for _, field := range in.Fields {
@@ -420,6 +474,9 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 		}
 		if st.DistinctLoopSelections {
 			fmt.Fprintf(&readme, "   Selected positions in `%s` must be distinct.\n", st.Loop)
+		}
+		if st.WhenInput != "" {
+			fmt.Fprintf(&readme, "   Runs only when `%s` is `%s`.\n", st.WhenInput, st.WhenValue)
 		}
 		for _, pair := range st.DistinctResultInputs {
 			fmt.Fprintf(&readme, "   Result index inputs `%s` and `%s` must select different items.\n", pair[0], pair[1])
@@ -502,6 +559,30 @@ func ProgramOptionalNames(st ProgramStep) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+func containsString(xs []string, wanted string) bool {
+	for _, x := range xs {
+		if x == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+// wrapChosenStep keeps the normal code generator for each operation while
+// making a caller-selected branch conditional. The branch is validated before
+// any tool call, and steps that read its result must use the same condition.
+func wrapChosenStep(code *strings.Builder, start int, step ProgramStep) {
+	if step.WhenInput == "" {
+		return
+	}
+	whole := code.String()
+	prefix, body := strings.Clone(whole[:start]), strings.TrimSuffix(strings.Clone(whole[start:]), "\n")
+	code.Reset()
+	code.WriteString(prefix)
+	code.WriteString("if inputs[" + strconv.Quote(step.WhenInput) + "] == " + strconv.Quote(step.WhenValue) + ":\n")
+	code.WriteString("    " + strings.ReplaceAll(body, "\n", "\n    ") + "\n")
 }
 
 func ProgramJSONType(t string) string {
