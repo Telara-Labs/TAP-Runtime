@@ -2,6 +2,7 @@ package primitive
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,10 +32,9 @@ type LedgerEntry struct {
 	At       string `json:"at"`
 	Rules    string `json:"rules"`
 	// Evidence at decision time, for the person's own record.
-	Chains   []string `json:"chains,omitempty"`
-	Runs     int      `json:"runs"`
-	Sessions int      `json:"sessions"`
-	Tokens   float64  `json:"estTokens"`
+	Runs     int   `json:"runs"`
+	Sessions int   `json:"sessions"`
+	Tokens   int64 `json:"estTokens"`
 }
 
 // Ledger is the latest decision per fingerprint and follow-up.
@@ -83,11 +83,13 @@ func appendLedger(stateDir string, e LedgerEntry) error {
 	if e.Rules == "" {
 		e.Rules = RulesVersion
 	}
-	b, err := json.Marshal(e)
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false) // keep "a > b" readable
+	if err := enc.Encode(e); err != nil {
 		return err
 	}
-	line := append(b, '\n')
+	line := buf.Bytes()
 	// A torn last line (an interrupted write) must not swallow this one.
 	if old, err := os.ReadFile(ledgerPath(stateDir)); err == nil && len(old) > 0 && old[len(old)-1] != '\n' {
 		line = append([]byte{'\n'}, line...)
@@ -107,8 +109,8 @@ func followUpKey(fu FollowUp) string { return strings.Join(fu.Steps, " > ") }
 
 // entryFor records a decision on everything the person saw of a family.
 func entryFor(f Family, decision string) LedgerEntry {
-	e := LedgerEntry{Fingerprint: f.Fingerprint, Decision: decision, Chains: f.Members,
-		Runs: f.ExecutionCount, Sessions: f.SessionCount, Tokens: inputEquivalent(f.Saved)}
+	e := LedgerEntry{Fingerprint: f.Fingerprint, Decision: decision,
+		Runs: f.ExecutionCount, Sessions: f.SessionCount, Tokens: int64(inputEquivalent(f.Saved))}
 	for _, fu := range f.FollowUps {
 		e.FollowUps = append(e.FollowUps, followUpKey(fu))
 	}
