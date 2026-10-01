@@ -28,6 +28,7 @@ var allowed = map[string][]string{
 	"codegen":    {"util", "shellparse", "pyparse", "trace", "redact", "model", "pack", "retrieval", "routine"},
 	"author":     {"util", "shellparse", "pyparse", "trace", "redact", "history", "model", "pack", "retrieval", "routine", "codegen"},
 	"genreview":  {"util", "shellparse", "pyparse", "trace", "redact", "history", "model", "pack", "retrieval", "routine", "codegen", "author"},
+	"pipeline":   {"util", "shellparse", "pyparse", "trace", "redact", "history", "model", "pack", "retrieval", "routine", "codegen", "author", "genreview", "eval"},
 	"eval":       {"util", "shellparse", "pyparse", "trace", "redact", "history", "model", "pack", "retrieval", "routine", "codegen", "author", "genreview"},
 }
 

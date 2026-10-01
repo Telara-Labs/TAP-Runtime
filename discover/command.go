@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/genreview"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/author"
@@ -46,7 +48,7 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 			return author.ValidateCommand(args[1:], out, errOut)
 		}
 	}
-	d := DefaultOptions()
+	d := pipeline.DefaultOptions()
 	fs := flag.NewFlagSet("discover", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	clients := fs.String("client", "claude-code,codex,cursor", "clients to read, comma-separated")
@@ -88,7 +90,7 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	d.Readers = readers
 
-	rep, err := Run(d)
+	rep, err := pipeline.Run(d)
 	if err != nil {
 		fmt.Fprintln(errOut, "discover:", err)
 		return 1

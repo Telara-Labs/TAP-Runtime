@@ -9,7 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover"
+	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
@@ -72,9 +73,9 @@ func TestALineRepeatedInOneSessionIsNotFixed(t *testing.T) {
 		ss[0].Calls = append(ss[0].Calls, c)
 	}
 	ss = append(ss[:1], ss[2:]...)
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}

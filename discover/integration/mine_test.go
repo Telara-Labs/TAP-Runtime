@@ -12,7 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover"
+	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
@@ -95,11 +96,11 @@ func TestBenjaminiHochberg(t *testing.T) {
 }
 
 func TestRunFindsPlantedProcedureAndNotNoise(t *testing.T) {
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Patterns = true
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.PlantedCorpus()}}
 	o.Permutations = 30
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,10 +141,10 @@ func TestDuplicateSessionsCountOnce(t *testing.T) {
 	s := trace.Session{Client: "fake", ID: "a", Calls: []trace.Call{{Tool: "shell", Command: "make"}, {Tool: "shell", Command: "go test"}}}
 	d := s
 	d.ID = "b"
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Patterns = true
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: []trace.Session{s, d}}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,10 +263,10 @@ func TestClientVocabulariesAreNotRecurrence(t *testing.T) {
 			beta = append(beta, s)
 		}
 	}
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Patterns = true
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: alpha, Name: "alpha"}, testkit.FakeReader{Sessions: beta, Name: "beta"}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,10 +303,10 @@ func TestHypergeomUpper(t *testing.T) {
 }
 
 func TestSkillComparisonFindsThePlantedProcedure(t *testing.T) {
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Patterns = true
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.PlantedCorpus()}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}

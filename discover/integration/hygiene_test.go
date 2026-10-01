@@ -8,7 +8,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"gitlab.com/telara-labs/tap-runtime/discover"
+	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
@@ -79,9 +80,9 @@ func TestReportTextIsValidUTF8(t *testing.T) {
 	ss := testkit.RequestSessions(6, func(i int) string { return strings.Repeat("→ déploiement ", 20) }, func(i int) []trace.Call {
 		return []trace.Call{testkit.ShellCall("git status --short"), testkit.ShellCall("git diff --stat"), testkit.ShellCall("git log --oneline -3"), testkit.ShellCall("git branch --show-current")}
 	})
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,9 +103,9 @@ func TestKindsAndMerging(t *testing.T) {
 	for i := range sched {
 		sched[i].ID = "s" + sched[i].ID
 	}
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: append(book, sched...)}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}

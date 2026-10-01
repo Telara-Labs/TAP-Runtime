@@ -3,6 +3,7 @@ package discover
 import (
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
@@ -23,6 +24,8 @@ type (
 )
 
 var (
+	Run            = pipeline.Run
+	DefaultOptions = pipeline.DefaultOptions
 	DefaultReaders = history.DefaultReaders
 	Review         = routine.Review
 	WriteFunnel    = routine.WriteFunnel

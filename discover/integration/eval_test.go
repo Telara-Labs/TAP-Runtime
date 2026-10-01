@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover"
+	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/eval"
@@ -70,9 +71,9 @@ func TestLineageJoinsCopiesAndTemplatedPrompts(t *testing.T) {
 
 func TestSampleIsReproducibleAndCarriesNoDecision(t *testing.T) {
 	ss := append(testkit.RequestCorpus(), testkit.CredCorpus()...)
-	o := discover.DefaultOptions()
+	o := pipeline.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
-	rep, err := discover.Run(o)
+	rep, err := pipeline.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
