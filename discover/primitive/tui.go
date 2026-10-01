@@ -189,6 +189,10 @@ func (t *tui) key(k string) bool {
 		if len(t.shown) == 0 {
 			return
 		}
+		if c == "accept" && t.shown[t.cursor].APIMode == "needs_refinement" {
+			t.notice = "No executable API for this pattern. Press e to send it for refinement."
+			return
+		}
 		if t.choice[t.cursor] == c {
 			t.choice[t.cursor] = "" // pressing it again clears the choice
 		} else {
@@ -216,9 +220,11 @@ func (t *tui) key(k string) bool {
 			set("eval")
 		case k == "A":
 			for i := range t.choice {
-				t.choice[i] = "accept"
+				if t.shown[i].APIMode != "needs_refinement" {
+					t.choice[i] = "accept"
+				}
 			}
-			t.notice = "All marked accept. Press s to review."
+			t.notice = "Executable flows marked accept. Patterns needing refinement were skipped."
 		case k == "s":
 			t.view = reviewView
 		case k == "q" || esc || k == "\x03":
@@ -239,6 +245,10 @@ func (t *tui) key(k string) bool {
 		case right && t.cursor < len(t.shown)-1:
 			t.cursor, t.scroll = t.cursor+1, 0
 		case k == "a" || k == "d" || k == "e":
+			if k == "a" && t.shown[t.cursor].APIMode == "needs_refinement" {
+				set("accept")
+				break
+			}
 			set(map[string]string{"a": "accept", "d": "deny", "e": "eval"}[k])
 			if t.cursor < len(t.shown)-1 {
 				t.cursor, t.scroll = t.cursor+1, 0
@@ -372,13 +382,18 @@ func (t *tui) drawList(out *bytes.Buffer) {
 	header(out, s, t.res, t.cfg.Clients)
 	var saved float64
 	turns := 0
+	patterns := 0
 	for _, f := range t.shown {
+		if f.APIMode == "needs_refinement" {
+			patterns++
+			continue
+		}
 		saved += inputEquivalent(f.Saved)
 		turns += f.TurnsSaved
 	}
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, " %s to review · they would save %s model turns and about %s tokens (estimate; about %s in your whole history)\n",
-		s.bold(fmt.Sprint(len(t.shown))), count(turns), tokensText(saved), tokensText(inputEquivalent(t.res.Summary.Tokens)))
+	fmt.Fprintf(out, " %s exact-flow candidates · %s patterns need refinement · potential %s turns, about %s tokens (estimate)\n",
+		s.bold(fmt.Sprint(len(t.shown)-patterns)), count(patterns), count(turns), tokensText(saved))
 	if n := t.hidden["accept"] + t.hidden["deny"] + t.hidden["eval"]; n > 0 {
 		fmt.Fprintln(out, " "+s.dim(fmt.Sprintf("%d decided earlier and not shown: %d accepted, %d declined, %d in agent eval · tap discover --revisit to change",
 			n, t.hidden["accept"], t.hidden["deny"], t.hidden["eval"])))

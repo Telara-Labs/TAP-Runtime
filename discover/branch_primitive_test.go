@@ -29,6 +29,7 @@ func TestBranchGraphKeepsFifteenCallerSelectedOptions(t *testing.T) {
 			p.Executions = append(p.Executions, primitive.Execution{Client: "claude-code", Session: sid, Calls: []primitive.CallRef{{Step: 1, Index: 0}, {Step: 2, Index: 1}}})
 		}
 		members = append(members, p)
+		f.Members = append(f.Members, p.ID)
 		f.FollowUps = append(f.FollowUps, primitive.FollowUp{Steps: []string{"mcp:" + op}, Runs: 2, Optional: true})
 	}
 	g, reason := branchGraph(f, members, by)
@@ -40,5 +41,14 @@ func TestBranchGraphKeepsFifteenCallerSelectedOptions(t *testing.T) {
 	}
 	if _, err := codegen.GenerateProgramPackage(g); err != nil {
 		t.Fatalf("fifteen-option program did not compile: %v", err)
+	}
+	var sessions []trace.Session
+	for _, s := range by {
+		sessions = append(sessions, *s)
+	}
+	res := primitive.Result{Families: []primitive.Family{f}, Primitives: members}
+	planPrimitiveFamilies(&res, sessions)
+	if res.Families[0].APIMode != "caller_choice" || len(res.Families[0].APIChoices) != count {
+		t.Fatalf("review did not expose compiled choices: %+v", res.Families[0])
 	}
 }
