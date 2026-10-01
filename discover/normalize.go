@@ -117,7 +117,7 @@ func typeOf(w word) string {
 		return SlotNumber
 	case strings.ContainsAny(t, "/~") || strings.HasPrefix(t, ".") || (extRe.MatchString(t) && !strings.Contains(t, " ")):
 		return SlotPath
-	case len(t) >= 7 && idRe.MatchString(t):
+	case idRe.MatchString(t):
 		return SlotID
 	case w.Quoted || strings.ContainsAny(t, " \n\t$*?[]"):
 		return SlotText

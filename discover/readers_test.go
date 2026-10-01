@@ -1,10 +1,12 @@
 package discover
 
 import (
+	"encoding/json"
 	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,6 +21,168 @@ func toolsOf(s Session) []string {
 		}
 	}
 	return out
+}
+
+func TestCodexReaderDoesNotAttributeSharedExecOutputToEveryNestedCall(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "shared-output.jsonl")
+	rows := []map[string]any{
+		{"timestamp": "2026-09-15T20:00:00Z", "type": "session_meta", "payload": map[string]any{"id": "shared-output"}},
+		{"timestamp": "2026-09-15T20:00:01Z", "type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []any{map[string]any{"type": "input_text", "text": "Inspect two issues."}}}},
+		{"timestamp": "2026-09-15T20:00:02Z", "type": "response_item", "payload": map[string]any{"type": "custom_tool_call", "name": "exec", "call_id": "shared", "input": `const results = await Promise.allSettled([tools.mcp__telara__telara_jira_get_issue({issue_key:"TENG-1"}), tools.mcp__telara__telara_jira_get_issue({issue_key:"TENG-2"})]); text(results);`}},
+		{"timestamp": "2026-09-15T20:00:03Z", "type": "response_item", "payload": map[string]any{"type": "custom_tool_call_output", "call_id": "shared", "output": []any{map[string]any{"type": "text", "text": "Script completed\nOutput:\n{\"id\":\"TENG-999\"}"}}}},
+		{"timestamp": "2026-09-15T20:00:04Z", "type": "response_item", "payload": map[string]any{"type": "function_call", "name": "mcp__telara__telara_jira_get_issue", "call_id": "single", "arguments": `{"issue_key":"TENG-3"}`}},
+		{"timestamp": "2026-09-15T20:00:05Z", "type": "response_item", "payload": map[string]any{"type": "function_call_output", "call_id": "single", "output": `{"id":"TENG-1000"}`}},
+		{"timestamp": "2026-09-15T20:00:06Z", "type": "response_item", "payload": map[string]any{"type": "custom_tool_call", "name": "exec", "call_id": "passthrough", "input": `const result = await tools.mcp__telara__telara_jira_search_issues({query:"project = TENG"}); text(JSON.stringify(result));`}},
+		{"timestamp": "2026-09-15T20:00:07Z", "type": "response_item", "payload": map[string]any{"type": "custom_tool_call_output", "call_id": "passthrough", "output": []any{map[string]any{"type": "input_text", "text": "Script completed\nWall time: 0.1 seconds"}, map[string]any{"type": "input_text", "text": `{"structuredContent":{"items":[{"id":"TENG-11"},{"id":"TENG-12"}]},"content":[{"type":"text","text":"ignore this preview"}]}`}}}},
+		{"timestamp": "2026-09-15T20:00:08Z", "type": "response_item", "payload": map[string]any{"type": "custom_tool_call", "name": "exec", "call_id": "transformed", "input": `const result = await tools.mcp__telara__telara_jira_get_issue({issue_key:"TENG-4"}); text(JSON.stringify(result).slice(0,100));`}},
+		{"timestamp": "2026-09-15T20:00:09Z", "type": "response_item", "payload": map[string]any{"type": "custom_tool_call_output", "call_id": "transformed", "output": []any{map[string]any{"type": "text", "text": "Script completed\nOutput:\n" + `{"id":"TENG-2000"}`}}}},
+	}
+	var body []byte
+	for _, row := range rows {
+		line, err := json.Marshal(row)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body = append(append(body, line...), '\n')
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := readCodexFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Calls) != 5 {
+		t.Fatalf("calls = %d, want five", len(s.Calls))
+	}
+	for i := 0; i < 2; i++ {
+		if s.Calls[i].Outcome != OutcomeUnknown || len(s.Calls[i].OutIDs) != 0 || len(s.Calls[i].OutPaths) != 0 || s.Calls[i].Output != "" {
+			t.Fatalf("nested call %d received an unattributed shared result: %+v", i, s.Calls[i])
+		}
+	}
+	if s.Calls[2].Outcome != OutcomeOK || len(s.Calls[2].OutIDs) != 1 || s.Calls[2].OutIDs[0] != "TENG-1000" || s.Calls[2].OutPaths[0] != ".id" {
+		t.Fatalf("direct call lost its own result: %+v", s.Calls[2])
+	}
+	if s.Calls[3].Outcome != OutcomeOK || len(s.Calls[3].OutCollections) != 1 || len(s.Calls[3].OutIDs) != 2 || s.Calls[3].OutPaths[0] != ".items[0].id" {
+		t.Fatalf("single passed-through result was not decoded: %+v", s.Calls[3])
+	}
+	if s.Calls[4].Outcome != OutcomeUnknown || len(s.Calls[4].OutIDs) != 0 || s.Calls[4].Output != "" {
+		t.Fatalf("transformed result was treated as raw: %+v", s.Calls[4])
+	}
+}
+
+func TestCodexExecResultTextMatchesBridgeContentFallback(t *testing.T) {
+	blocks := []map[string]string{
+		{"type": "input_text", "text": "Script completed\nWall time: 0.1 seconds"},
+		{"type": "input_text", "text": `{"isError":true,"content":[{"type":"text","text":"{\"id\":\"TENG-42\"}"}]}`},
+	}
+	raw, err := json.Marshal(blocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, failed, ok := codexExecResultText(raw)
+	if !ok || !failed || text != `{"id":"TENG-42"}` {
+		t.Fatalf("content result = %q, failed=%v, ok=%v", text, failed, ok)
+	}
+	blocks = append(blocks, map[string]string{"type": "input_text", "text": "extra output"})
+	raw, _ = json.Marshal(blocks)
+	if _, _, ok := codexExecResultText(raw); ok {
+		t.Fatal("multiple printed values do not prove one raw tool result")
+	}
+}
+
+func TestCodexIndexedExecResultsRequireExactSourceAndCompleteIndexes(t *testing.T) {
+	source := `const results = await Promise.allSettled([
+  tools.mcp__test__get({id:"A"}),
+  tools.mcp__test__get({id:"B"})
+]); results.forEach((r,i) => text(JSON.stringify({check:i,result:r})));`
+	if count, key, ok := codexIndexedSource(source); !ok || count != 2 || key != "check" {
+		t.Fatalf("direct indexed source was not recognized: count=%d key=%q ok=%v", count, key, ok)
+	}
+	blocks := []map[string]string{
+		{"type": "text", "text": "Script completed\nWall time: 0.1 seconds"},
+		{"type": "text", "text": `{"check":1,"result":{"status":"fulfilled","value":{"structuredContent":{"id":"B"},"content":[{"type":"text","text":"wrong preview"}]}}}`},
+		{"type": "text", "text": `{"check":0,"result":{"status":"fulfilled","value":{"structuredContent":{"id":"A"}}}}`},
+	}
+	raw, _ := json.Marshal(blocks)
+	results, ok := codexExecIndexedResults(source, raw, 2)
+	if !ok || len(results) != 2 || results[0].text != `{"id":"A"}` || results[1].text != `{"id":"B"}` {
+		t.Fatalf("reordered display lost array-index provenance: %+v %v", results, ok)
+	}
+	blocks[2]["text"] = blocks[1]["text"] // duplicate index and missing index zero
+	raw, _ = json.Marshal(blocks)
+	if _, ok := codexExecIndexedResults(source, raw, 2); ok {
+		t.Fatal("duplicate result index was attributed")
+	}
+	blocks = blocks[:2]
+	raw, _ = json.Marshal(blocks)
+	if _, ok := codexExecIndexedResults(source, raw, 2); ok {
+		t.Fatal("missing result block was attributed")
+	}
+	for _, changed := range []string{
+		strings.Replace(source, "result:r", "result:r.value", 1),
+		strings.Replace(source, "tools.mcp__test__get({id:\"B\"})", "tools.mcp__test__get({id:\"B\"}).content", 1),
+		strings.Replace(source, "Promise.allSettled", "Promise.all", 1),
+	} {
+		if _, _, ok := codexIndexedSource(changed); ok {
+			t.Fatalf("transformed or incompatible source was attributed: %q", changed)
+		}
+	}
+}
+
+func TestCodexReaderAttributesIndexedMultiCallResultsAndFailures(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "indexed-output.jsonl")
+	source := `const results = await Promise.allSettled([tools.mcp__test__get({id:"A"}), tools.mcp__test__get({id:"B"})]); results.forEach((r,i)=>text(JSON.stringify({i,result:r})));`
+	rows := []map[string]any{
+		{"timestamp": "2026-09-15T20:00:00Z", "type": "session_meta", "payload": map[string]any{"id": "indexed-output"}},
+		{"timestamp": "2026-09-15T20:00:01Z", "type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []any{map[string]any{"type": "input_text", "text": "Inspect two records."}}}},
+		{"timestamp": "2026-09-15T20:00:02Z", "type": "response_item", "payload": map[string]any{"type": "custom_tool_call", "name": "exec", "call_id": "indexed", "input": source}},
+		{"timestamp": "2026-09-15T20:00:03Z", "type": "response_item", "payload": map[string]any{"type": "custom_tool_call_output", "call_id": "indexed", "output": []any{
+			map[string]any{"type": "text", "text": "Script completed\nWall time: 0.1 seconds"},
+			map[string]any{"type": "text", "text": `{"i":1,"result":{"status":"rejected","reason":"failed"}}`},
+			map[string]any{"type": "text", "text": `{"i":0,"result":{"status":"fulfilled","value":{"structuredContent":{"id":"TENG-1001"}}}}`},
+		}}},
+	}
+	var body []byte
+	for _, row := range rows {
+		line, _ := json.Marshal(row)
+		body = append(append(body, line...), '\n')
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := readCodexFile(path)
+	if err != nil || len(s.Calls) != 2 {
+		t.Fatalf("indexed fixture: %+v %v", s, err)
+	}
+	if s.Calls[0].Outcome != OutcomeOK || len(s.Calls[0].OutIDs) != 1 || s.Calls[0].OutIDs[0] != "TENG-1001" || s.Calls[1].Outcome != OutcomeFailed || len(s.Calls[1].OutIDs) != 0 {
+		t.Fatalf("indexed calls were not attributed safely: %+v", s.Calls)
+	}
+}
+
+func TestCodexIndexedFulfilledValueRequiresToolEnvelope(t *testing.T) {
+	source := `const rs = await Promise.allSettled([tools.mcp__test__get({id:"A"}),tools.mcp__test__get({id:"B"})]); rs.forEach((x,i)=>text(JSON.stringify({i,result:x.status==="fulfilled"?x.value:x.reason})));`
+	if count, key, ok := codexIndexedValueSource(source); !ok || count != 2 || key != "i" {
+		t.Fatalf("unmodified fulfilled-value source was not recognized: %d %q %v", count, key, ok)
+	}
+	blocks := []map[string]string{
+		{"type": "text", "text": "Script completed\nWall time: 0.1 seconds"},
+		{"type": "text", "text": `{"i":1,"result":{"output":"TENG-1002","exit_code":1}}`},
+		{"type": "text", "text": `{"i":0,"result":{"structuredContent":{"id":"TENG-1001"}}}`},
+	}
+	raw, _ := json.Marshal(blocks)
+	results, ok := codexExecIndexedResults(source, raw, 2)
+	if !ok || results[0].text != `{"id":"TENG-1001"}` || results[1].text != "TENG-1002" || !results[1].failed {
+		t.Fatalf("fulfilled values lost index or tool envelope: %+v %v", results, ok)
+	}
+	blocks[1]["text"] = `{"i":1,"result":"rejected"}`
+	raw, _ = json.Marshal(blocks)
+	if _, ok := codexExecIndexedResults(source, raw, 2); ok {
+		t.Fatal("rejection text was treated as a tool result")
+	}
+	if _, _, ok := codexIndexedValueSource(strings.Replace(source, "x.value", "x.value.output", 1)); ok {
+		t.Fatal("transformed value source was attributed")
+	}
 }
 
 func equal(a, b []string) bool {
@@ -51,6 +215,9 @@ func TestClaudeCodeReader(t *testing.T) {
 	}
 	if s.Calls[2].Args["skill"] != "minikube-ops" {
 		t.Fatalf("skill arg = %q", s.Calls[2].Args["skill"])
+	}
+	if s.Calls[1].MCPServer != "telara" || s.Calls[1].MCPTool != "telara_task_list" {
+		t.Fatalf("Claude MCP inventory identity lost: %+v", s.Calls[1])
 	}
 }
 
@@ -85,6 +252,76 @@ func TestCodexReaderAllThreeShapes(t *testing.T) {
 	}
 	if got := ss[0].Calls[3].Args["task_id"]; got != "abc" {
 		t.Fatalf("JS single-quoted arg = %q", got)
+	}
+	if ss[0].Calls[3].MCPServer != "telara" || ss[0].Calls[3].MCPTool != "telara_task_checkpoint" {
+		t.Fatalf("Codex MCP inventory identity lost: %+v", ss[0].Calls[3])
+	}
+}
+
+func TestCodexReaderUsesScheduledPromptBeforeInjectedInstructions(t *testing.T) {
+	dir := t.TempDir()
+	body := `{"timestamp":"2026-09-15T20:00:00Z","type":"session_meta","payload":{"id":"scheduled"}}
+{"timestamp":"2026-09-15T20:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /repo\\nFollow the project rules."}]}}
+{"timestamp":"2026-09-15T20:00:02Z","type":"response_item","payload":{"type":"function_call_output","name":"automation_update","namespace":"codex_app","output":"Automation: pipeline monitor\nAutomation ID: pipeline-monitor\nAutomation memory: local\n\nList recent pipelines, take the latest failed one, and report its failed jobs."}}
+{"timestamp":"2026-09-15T20:00:03Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"git status --short\"}"}}
+`
+	path := filepath.Join(dir, "scheduled.jsonl")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := readCodexFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Requests) != 1 || s.Requests[0] != "List recent pipelines, take the latest failed one, and report its failed jobs." {
+		t.Fatalf("requests = %q", s.Requests)
+	}
+	if len(s.Calls) != 1 || s.Calls[0].Request != 0 {
+		t.Fatalf("calls = %+v", s.Calls)
+	}
+}
+
+func TestCodexReaderRecoversScheduledPromptAfterPluginEnvelope(t *testing.T) {
+	dir := t.TempDir()
+	body := `{"timestamp":"2026-09-15T20:00:00Z","type":"session_meta","payload":{"id":"scheduled-envelope","thread_source":"automation"}}
+{"timestamp":"2026-09-15T20:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<recommended_plugins>\\nAvailable plugins\\n</recommended_plugins>\\n# AGENTS.md instructions for /repo\\nFollow the project rules.\\n<environment_context>\\n  <cwd>/repo</cwd>\\n</environment_context>"}]}}
+{"timestamp":"2026-09-15T20:00:02Z","type":"response_item","payload":{"type":"function_call_output","name":"automation_update","namespace":"codex_app","output":"Automation: pipeline monitor\nAutomation ID: pipeline-monitor\nAutomation memory: local\n\nList recent pipelines, take the latest failed one, and report its failed jobs."}}
+{"timestamp":"2026-09-15T20:00:03Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"git status --short\"}"}}
+`
+	path := filepath.Join(dir, "scheduled-envelope.jsonl")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := readCodexFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Requests) != 1 || s.Requests[0] != "List recent pipelines, take the latest failed one, and report its failed jobs." ||
+		len(s.RequestRoles) != 1 || s.RequestRoles[0] != "scheduled" || len(s.Calls) != 1 || s.Calls[0].Request != 0 {
+		t.Fatalf("scheduled prompt or role was lost: requests=%q roles=%q calls=%+v", s.Requests, s.RequestRoles, s.Calls)
+	}
+	if codexInjectedAutomationContext("<recommended_plugins>\n</recommended_plugins>\n# AGENTS.md instructions for /repo\n<environment_context>\n</environment_context>\nPlease inspect X") {
+		t.Fatal("a request following the context must not be classified as a wrapper")
+	}
+}
+
+func TestCodexReaderDoesNotReplaceUserRequestWithAutomationRecord(t *testing.T) {
+	dir := t.TempDir()
+	body := `{"timestamp":"2026-09-15T20:00:00Z","type":"session_meta","payload":{"id":"manual"}}
+{"timestamp":"2026-09-15T20:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"List failed jobs for project A."}]}}
+{"timestamp":"2026-09-15T20:00:02Z","type":"response_item","payload":{"type":"function_call_output","name":"automation_update","namespace":"codex_app","output":"Automation: unrelated\nAutomation ID: unrelated\n\nOther task."}}
+{"timestamp":"2026-09-15T20:00:03Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"git status --short\"}"}}
+`
+	path := filepath.Join(dir, "manual.jsonl")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := readCodexFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Requests) != 1 || s.Requests[0] != "List failed jobs for project A." {
+		t.Fatalf("requests = %q", s.Requests)
 	}
 }
 
@@ -259,6 +496,22 @@ func TestOutcomesAreRead(t *testing.T) {
 	}
 	if c := cursorCall(cursorRow{Name: "run_terminal_cmd", Args: `{"command":"make"}`, Status: "error", Result: `{"output":"see https://ci.example.com/j/42"}`}); c.Outcome != OutcomeFailed || c.OutIDs[0] != "https://ci.example.com/j/42" {
 		t.Fatalf("cursor: %+v", c)
+	}
+}
+
+func TestCursorReaderKeepsCompleteCollectionEvidencePastPreview(t *testing.T) {
+	full := `{"padding":"` + strings.Repeat("x", 700) + `","items":[{"id":"TENG-1"},{"id":"TENG-2"}]}`
+	call := cursorCall(cursorRow{Name: "mcp-records-list", Status: "completed", Result: full})
+	if len(call.Output) != 600 || len(call.OutCollections) != 1 {
+		t.Fatalf("short preview must retain one complete collection summary: output=%d collections=%+v", len(call.Output), call.OutCollections)
+	}
+	collection := call.OutCollections[0]
+	field := collection.Fields[".id"]
+	if collection.Path != ".items" || collection.Count != 2 || field.Type != "string" || len(field.Digests) != 2 || field.Digests[0] != resultValueDigest("TENG-1") {
+		t.Fatalf("wrong complete-list evidence: %+v", collection)
+	}
+	if strings.Contains(field.Digests[0], "TENG") || len(resultCollections(full[:600])) != 0 {
+		t.Fatal("raw values or incomplete JSON must not become collection proof")
 	}
 }
 

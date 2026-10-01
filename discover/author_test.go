@@ -3,6 +3,7 @@ package discover
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -75,6 +76,68 @@ func TestBriefRedactsCredentials(t *testing.T) {
 	raw, _ := json.Marshal(b)
 	if strings.Contains(string(raw), "abcdefghijklmnopqrstu") {
 		t.Errorf("a credential reached the brief: %s", raw)
+	}
+}
+
+func TestBriefFromRecurringLogicShowsDifferentExecutions(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".claude", "projects", "proj")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(session, request, pipeline string) {
+		t.Helper()
+		lines := []string{
+			fmt.Sprintf(`{"type":"user","message":{"content":%q}}`, request),
+			fmt.Sprintf(`{"type":"assistant","message":{"id":"%s-m1","content":[{"type":"tool_use","id":"%s-t1","name":"mcp__telara__telara_gitlab_list_pipelines","input":{}}]}}`, session, session),
+			fmt.Sprintf(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"%s-t1","content":%q}]}}`, session, `{"id":"`+pipeline+`"}`),
+			fmt.Sprintf(`{"type":"assistant","message":{"id":"%s-m2","content":[{"type":"tool_use","id":"%s-t2","name":"mcp__telara__telara_gitlab_list_jobs","input":{"pipeline_id":%q}}]}}`, session, session, pipeline),
+			fmt.Sprintf(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"%s-t2","content":"jobs found"}]}}`, session),
+		}
+		if err := os.WriteFile(filepath.Join(dir, session+".jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a", "Find failed build jobs", "81234567")
+	write("b", "Check the deploy pipeline", "91234567")
+	a, err := FindSession("claude-code", "a", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := FindSession("claude-code", "b", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spans := SelectSpanProposals([]Session{a, b})
+	groups := GroupLogicCandidates(spans)
+	if len(groups) != 1 {
+		t.Fatalf("want one parameterized flow, got %+v", groups)
+	}
+	report := filepath.Join(t.TempDir(), "report.json")
+	raw, _ := json.Marshal(map[string]any{"span_proposals": spans, "logic_candidates": groups})
+	if err := os.WriteFile(report, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "brief")
+	var stdout, stderr bytes.Buffer
+	if code := briefCommand([]string{"--logic", groups[0].ID, "--report", report, "--out", out}, home, &stdout, &stderr); code != 0 {
+		t.Fatalf("brief exit %d: %s", code, stderr.String())
+	}
+	var got Brief
+	briefRaw, err := os.ReadFile(filepath.Join(out, "brief.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(briefRaw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Selection != DiscoverLogic || got.Logic == nil || len(got.LogicExamples) != 2 ||
+		len(got.LogicExamples[0].Evidence.Steps) != 2 || len(got.LogicExamples[1].Evidence.Steps) != 2 {
+		t.Fatalf("logic brief must compare two selected executions: %+v", got)
+	}
+	md, _ := os.ReadFile(filepath.Join(out, "BRIEF.md"))
+	if !strings.Contains(string(md), "runtime arguments") || !strings.Contains(string(md), "81234567") || !strings.Contains(string(md), "91234567") {
+		t.Fatalf("authoring brief did not show parameterized examples: %s", md)
 	}
 }
 
@@ -353,6 +416,33 @@ func TestReadAuthoringRefusesAnIncompleteLineage(t *testing.T) {
 				t.Error("must be refused")
 			}
 		})
+	}
+}
+
+func TestReadAuthoringAcceptsParameterizedLogicLineage(t *testing.T) {
+	pkg := authoredPackage(t)
+	path := filepath.Join(pkg, "AUTHORING.json")
+	var a Authoring
+	b, _ := os.ReadFile(path)
+	if err := json.Unmarshal(b, &a); err != nil {
+		t.Fatal(err)
+	}
+	a.Selection, a.Candidate = DiscoverLogic, "lc_0123456789ab"
+	a.Sources = []string{"src_0123456789ab", "src_abcdef012345"}
+	b, _ = json.Marshal(a)
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadAuthoring(pkg); err != nil {
+		t.Fatalf("validated logic package lineage rejected: %v", err)
+	}
+	a.Candidate = ""
+	b, _ = json.Marshal(a)
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadAuthoring(pkg); err == nil {
+		t.Fatal("logic selection without candidate id must be rejected")
 	}
 }
 

@@ -15,8 +15,7 @@ import (
 // procedures mostly do not have one: a scheduled prompt states the same
 // procedure every run while the agent performs it differently, and a
 // person's check is often one request in which the agent wrote a program
-// and ran it again. This pass judges each request on two kinds of
-// mechanical evidence and recommends it only when one is present:
+// and ran it again. This pass judges each request using mechanical evidence.
 //
 //   - stated_template: the request's text (digits aside) recurs in several
 //     sessions, it states a procedure (several step lines, or paths and
@@ -26,11 +25,16 @@ import (
 //     twice in the request, in a request whose calls are commands rather
 //     than code navigation or editing. The repeated program is the
 //     procedure; what varied between its runs are its inputs.
+//   - parametric_loop: one step acts on a fixed list visible in the request
+//     or an earlier result, with one argument varying and no item selected
+//     from an intermediate result.
+//   - named_object: a short request names an object that calls act on, and
+//     a later step uses an earlier result.
 //
-// Everything else is not recommended, with a reason. Neither route reads
-// meaning from the text beyond its structure, so a recommendation is
-// evidence for authoring, not a verified contract: the brief still marks it
-// unassessed until the authoring agent establishes the contract.
+// Everything else is not recommended, with a reason. These routes do not
+// establish semantic usefulness, so even a recommendation is only evidence
+// for authoring. The brief marks it unassessed until the authoring agent
+// establishes the contract.
 
 // Opportunity is the selection pass's judgment of one request.
 type Opportunity struct {
@@ -213,11 +217,15 @@ func judgeOpportunity(o *Opportunity, text string, steps []Step, shell []string,
 			most, prog = n, k
 		}
 	}
-	loopLabel, loopItems, loopArg := parametricLoop(steps)
+	loopLabel, loopItems, loopArg, loopSourceUnknown := parametricLoop(text, steps)
 	switch {
 	case most < rerunMinRuns && loopItems < loopMinItems:
 		reason("no_rerun_program")
-		reason("no_parametric_loop")
+		if loopSourceUnknown {
+			reason("loop_source_unknown")
+		} else {
+			reason("no_parametric_loop")
+		}
 		// Route 4: one short pass over an object the request names: the
 		// request is short, a step acts on a named object, and a later step
 		// depends on an earlier one. The navigation and edit gates apply to
@@ -260,11 +268,11 @@ func judgeOpportunity(o *Opportunity, text string, steps []Step, shell []string,
 }
 
 // parametricLoop finds a replayable step run on two or more items where
-// exactly one argument varies and no item came from a result read since
-// the previous item: the same step applied to a list, which a caller could
-// give, rather than a search that picks its next target from what it just
-// read. It returns the step and its item count.
-func parametricLoop(steps []Step) (string, int, string) {
+// exactly one argument varies. The complete list must be visible in the
+// request or in one earlier result, and no later item may have been picked
+// from an intermediate result. Otherwise its source and termination rule
+// are unknown, even if the calls happen to look like a loop.
+func parametricLoop(text string, steps []Step) (string, int, string, bool) {
 	byLabel := map[string][]int{}
 	var order []string
 	for i, st := range steps {
@@ -282,7 +290,7 @@ func parametricLoop(steps []Step) (string, int, string) {
 		}
 		byLabel[st.Label] = append(byLabel[st.Label], i)
 	}
-	best, bestN, bestArg := "", 0, ""
+	best, bestN, bestArg, unknownSource := "", 0, "", false
 	for _, l := range order {
 		idx := byLabel[l]
 		if len(idx) < loopMinItems {
@@ -345,11 +353,79 @@ func parametricLoop(steps []Step) (string, int, string) {
 				}
 			}
 		}
-		if ok && len(idx) > bestN {
-			best, bestN, bestArg = l, len(idx), key+" ("+types[key]+") "+itemShape(types[key], vals[key])
+		source := ""
+		if ok {
+			source = loopListSource(text, steps, idx[0], vals[key])
+			if source == "" {
+				unknownSource = true
+			}
+		}
+		if source != "" && len(idx) > bestN {
+			best, bestN, bestArg = l, len(idx), key+" ("+types[key]+") "+itemShape(types[key], vals[key])+" from "+source
 		}
 	}
-	return best, bestN, bestArg
+	return best, bestN, bestArg, unknownSource
+}
+
+func loopListSource(text string, steps []Step, before int, items []string) string {
+	all := func(has func(string) bool) bool {
+		for _, item := range items {
+			if !has(item) {
+				return false
+			}
+		}
+		return true
+	}
+	if all(func(item string) bool { return containsItem(text, item) }) {
+		return "caller"
+	}
+	for i := 0; i < before; i++ {
+		st := steps[i]
+		if st.Outcome == OutcomeFailed {
+			continue
+		}
+		if all(func(item string) bool {
+			for _, id := range st.OutIDs {
+				if id == item {
+					return true
+				}
+			}
+			for _, token := range st.OutTokens {
+				if token == item {
+					return true
+				}
+			}
+			return containsItem(st.Output, item)
+		}) {
+			return "prior_output"
+		}
+	}
+	return ""
+}
+
+// containsItem requires an item boundary, so ID 81234567 is not mistaken
+// for a caller-supplied ID in 1812345679.
+func containsItem(text, item string) bool {
+	if item == "" {
+		return false
+	}
+	word := func(b byte) bool {
+		return b >= '0' && b <= '9' || b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z' || b == '_'
+	}
+	for offset := 0; offset < len(text); {
+		i := strings.Index(text[offset:], item)
+		if i < 0 {
+			return false
+		}
+		i += offset
+		end := i + len(item)
+		if (i == 0 || !word(text[i-1]) || !word(item[0])) &&
+			(end == len(text) || !word(text[end]) || !word(item[len(item)-1])) {
+			return true
+		}
+		offset = i + 1
+	}
+	return false
 }
 
 // stateAnchors are the paths, file names and quoted commands a request

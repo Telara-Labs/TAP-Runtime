@@ -1,0 +1,382 @@
+package discover
+
+import (
+	"encoding/json"
+	"os/exec"
+	"strings"
+	"testing"
+)
+
+func TestProgramShellWordsLiteralBoundary(t *testing.T) {
+	words, err := programShellWords(`git commit -m 'A title with spaces'`)
+	if err != nil || strings.Join(words, "|") != "git|commit|-m|A title with spaces" {
+		t.Fatalf("literal argv = %q, %v", words, err)
+	}
+	for _, line := range []string{
+		"git status; git push", "git status | cat", "git status > file",
+		"git status && git push", "git status $(whoami)", "git status `whoami`",
+		"python3 -c 'print(1)'", "cd repo", "git status\ngit push", "X=1 git status",
+		"git status # comment", `git commit -m "a\nb"`,
+	} {
+		words, err := programShellWords(line)
+		if err == nil && !programCommandRunsCode(words[0], words[1:]) {
+			t.Errorf("non-literal or code-running command passed: %q -> %q", line, words)
+		}
+	}
+}
+
+func TestProgramShellPipelineParser(t *testing.T) {
+	commands, err := programShellCommands(`cat 'a | b.txt' | grep -n 'target text'`)
+	if err != nil || len(commands) != 2 || strings.Join(commands[0], "|") != "cat|a | b.txt" || strings.Join(commands[1], "|") != "grep|-n|target text" {
+		t.Fatalf("pipe = %q, %v", commands, err)
+	}
+	for _, line := range []string{"cat a || grep b", "cat a |", "cat a | grep $(whoami)", "cat a | grep b > out", "cat a | grep b && wc -l", "cat a & grep b"} {
+		if commands, err := programShellCommands(line); err == nil {
+			t.Errorf("unsafe pipeline passed: %q -> %q", line, commands)
+		}
+	}
+	plan, err := programShellPlan(`git add 'a && b.txt' && git status --short`)
+	if err != nil || len(plan) != 2 || plan[1].Connector != "and" || plan[0].Words[2] != "a && b.txt" {
+		t.Fatalf("success chain = %+v, %v", plan, err)
+	}
+}
+
+func TestGeneratedPipelinePassesStdoutAsStdinAndStopsOnFailure(t *testing.T) {
+	g := &ProgramGraph{CandidateID: "lc_pipe", Inputs: []ProgramInput{
+		{Name: "path", Type: "string", Source: "supplied at invocation"},
+		{Name: "pattern", Type: "string", Source: "supplied at invocation"},
+	}, Steps: []ProgramStep{{Role: "sh:cat+sh:grep", Tool: "shell", Effect: "read", Pipeline: []ProgramCommand{{Name: "cat", Effect: "read"}, {Name: "grep", Effect: "read", Connector: "pipe"}}, Args: []ProgramArg{
+		{Path: []string{"pipe_0_argv_0"}, Value: ProgramValue{Kind: "input", Input: "path"}},
+		{Path: []string{"pipe_1_argv_0"}, Value: ProgramValue{Kind: "selector", Selector: "-n"}},
+		{Path: []string{"pipe_1_argv_1"}, Value: ProgramValue{Kind: "input", Input: "pattern"}},
+	}}}}
+	pkg, err := GenerateProgramPackage(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pkg.Manifest.Commands) != 2 || pkg.Manifest.Commands[0].Command != "cat" || pkg.Manifest.Commands[1].Command != "grep" || pkg.Manifest.Commands[1].Args[0] != "-n" {
+		t.Fatalf("pipeline reach not declared: %+v", pkg.Manifest.Commands)
+	}
+	if problems := pkg.Manifest.RunProblems(); len(problems) != 0 {
+		t.Fatalf("invalid pipeline manifest: %v", problems)
+	}
+	var review strings.Builder
+	if err := ReviewGenerated(strings.NewReader("q\n"), &review, g, t.TempDir(), t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(review.String(), "pipeline cat (read) | grep (read)") {
+		t.Fatalf("review hid pipeline command reach: %s", review.String())
+	}
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable")
+	}
+	for _, fail := range []bool{false, true} {
+		harness := strings.Join([]string{
+			"import json, sys",
+			"calls = []",
+			"class Tap:",
+			"    def exec(self, command, args, stdin=''):",
+			"        calls.append([command, args, stdin])",
+			"        return {'exit': 1 if " + map[bool]string{false: "False", true: "True"}[fail] + " and len(calls) == 1 else 0, 'stdout': 'fresh content'}",
+			"sys.argv = ['main.py', json.dumps({'path': 'new.txt', 'pattern': 'fresh'})]",
+			"try:",
+			"    exec(compile(sys.stdin.read(), 'main.py', 'exec'), {'tap': Tap()})",
+			"except RuntimeError: pass",
+			"print('CALLS=' + json.dumps(calls))",
+		}, "\n")
+		cmd := exec.Command(python, "-c", harness)
+		cmd.Stdin = strings.NewReader(string(pkg.Files["main.py"]))
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("pipeline program failed: %v\n%s", err, out)
+		}
+		index := strings.LastIndex(string(out), "CALLS=")
+		var calls [][]any
+		if index < 0 || json.Unmarshal([]byte(strings.TrimSpace(string(out[index+6:]))), &calls) != nil {
+			t.Fatalf("missing pipeline calls: %s", out)
+		}
+		want := 2
+		if fail {
+			want = 1
+		}
+		if len(calls) != want {
+			t.Fatalf("fail=%v calls=%v", fail, calls)
+		}
+		if !fail && calls[1][2] != "fresh content" {
+			t.Fatalf("stdout was not piped: %v", calls)
+		}
+	}
+}
+
+func TestSynthesizePipelineFromIndependentExecutions(t *testing.T) {
+	ss := []Session{
+		selSession("pipe-one", "Filter one log", Call{Tool: "shell", Command: "cat logs/one.txt | grep ERROR", Outcome: OutcomeOK}),
+		selSession("pipe-two", "Filter another log", Call{Tool: "shell", Command: "cat logs/two.txt | grep WARN", Outcome: OutcomeOK}),
+	}
+	var spans []SpanProposal
+	for i, s := range ss {
+		spans = append(spans, SpanProposal{ID: "pipe-span-" + string(rune('a'+i)), Client: s.Client, Session: s.ID,
+			Request: 0, Calls: []int{1}, CallHashes: []string{spanCallHash(s.Calls[0])}})
+	}
+	c := LogicCandidate{ID: "lc_abc123", Executions: 2, Sessions: 2, Members: []string{spans[0].ID, spans[1].ID}}
+	g, err := SynthesizeProgramGraph(c, spans, ss)
+	if err != nil || len(g.Problems) != 0 {
+		t.Fatalf("pipeline graph unresolved: %+v %v", g, err)
+	}
+	if len(g.Steps) != 1 || len(g.Steps[0].Pipeline) != 2 || len(g.Inputs) != 2 {
+		t.Fatalf("pipeline structure or inputs lost: %+v", g)
+	}
+	if _, err := GenerateProgramPackage(g); err != nil {
+		t.Fatalf("pipeline graph did not compile: %v", err)
+	}
+}
+
+func TestSynthesizeSuccessChainAndKeepConnectorsDistinct(t *testing.T) {
+	ss := []Session{
+		selSession("chain-one", "Stage one file", Call{Tool: "shell", Command: "git add src/one.go && git status --short", Outcome: OutcomeOK}),
+		selSession("chain-two", "Stage another file", Call{Tool: "shell", Command: "git add src/two.go && git status --short", Outcome: OutcomeOK}),
+	}
+	var spans []SpanProposal
+	for i, s := range ss {
+		spans = append(spans, SpanProposal{ID: "chain-span-" + string(rune('a'+i)), Client: s.Client, Session: s.ID,
+			Request: 0, Calls: []int{1}, CallHashes: []string{spanCallHash(s.Calls[0])}})
+	}
+	c := LogicCandidate{ID: "lc_chain", Executions: 2, Sessions: 2, Members: []string{spans[0].ID, spans[1].ID}}
+	g, err := SynthesizeProgramGraph(c, spans, ss)
+	if err != nil || len(g.Problems) != 0 {
+		t.Fatalf("success chain graph unresolved: %+v %v", g, err)
+	}
+	if len(g.Steps) != 1 || len(g.Steps[0].Pipeline) != 2 || g.Steps[0].Pipeline[1].Connector != "and" {
+		t.Fatalf("success chain structure lost: %+v", g)
+	}
+	pkg, err := GenerateProgramPackage(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pkg.Manifest.Commands) != 2 || !strings.Contains(string(pkg.Files["README.md"]), "success chain") {
+		t.Fatalf("success chain reach not exposed: %+v", pkg.Manifest.Commands)
+	}
+	if programCallToolIdentity(Call{Tool: "shell", Command: "cat a | grep b"}) == programCallToolIdentity(Call{Tool: "shell", Command: "cat a && grep b"}) {
+		t.Fatal("pipe and success chain share an identity")
+	}
+}
+
+func TestGeneratedSuccessChainDoesNotPipeAndStopsOnFailure(t *testing.T) {
+	g := &ProgramGraph{CandidateID: "lc_chain", Steps: []ProgramStep{{Tool: "shell", Effect: "read",
+		Pipeline: []ProgramCommand{{Name: "printf", Effect: "read"}, {Name: "wc", Effect: "read", Connector: "and"}},
+		Args: []ProgramArg{{Path: []string{"pipe_0_argv_0"}, Value: ProgramValue{Kind: "selector", Selector: "hello"}},
+			{Path: []string{"pipe_1_argv_0"}, Value: ProgramValue{Kind: "selector", Selector: "-l"}}}}}}
+	pkg, err := GenerateProgramPackage(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable")
+	}
+	for _, fail := range []bool{false, true} {
+		harness := strings.Join([]string{
+			"import json, sys", "calls = []", "class Tap:",
+			"    def exec(self, *args):", "        calls.append(args)",
+			"        return {'exit': 1 if " + map[bool]string{false: "False", true: "True"}[fail] + " and len(calls) == 1 else 0, 'stdout': 'do not forward'}",
+			"sys.argv = ['main.py', '{}']", "try:",
+			"    exec(compile(sys.stdin.read(), 'main.py', 'exec'), {'tap': Tap()})",
+			"except RuntimeError: pass", "print('CALLS=' + json.dumps(calls))",
+		}, "\n")
+		cmd := exec.Command(python, "-c", harness)
+		cmd.Stdin = strings.NewReader(string(pkg.Files["main.py"]))
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("success chain failed: %v\n%s", err, out)
+		}
+		index := strings.LastIndex(string(out), "CALLS=")
+		var calls [][]any
+		if index < 0 || json.Unmarshal([]byte(strings.TrimSpace(string(out[index+6:]))), &calls) != nil {
+			t.Fatalf("missing success chain calls: %s", out)
+		}
+		want := 2
+		if fail {
+			want = 1
+		}
+		if len(calls) != want || !fail && len(calls[1]) != 2 {
+			t.Fatalf("fail=%v calls=%v", fail, calls)
+		}
+	}
+}
+
+func TestGeneratedPipelineRejectsUnboundArgumentAndLoop(t *testing.T) {
+	base := ProgramGraph{CandidateID: "lc_def456", Steps: []ProgramStep{{Tool: "shell", Effect: "read", Pipeline: []ProgramCommand{{Name: "cat", Effect: "read"}, {Name: "grep", Effect: "read", Connector: "pipe"}},
+		Args: []ProgramArg{{Path: []string{"pipe_2_argv_0"}, Value: ProgramValue{Kind: "input", Input: "x"}}}}}}
+	if _, err := GenerateProgramPackage(&base); err == nil {
+		t.Fatal("out-of-range pipeline argument was silently dropped")
+	}
+	base.Steps[0].Args = nil
+	base.Steps[0].Loop = "items"
+	if _, err := GenerateProgramPackage(&base); err == nil {
+		t.Fatal("pipeline loop was accepted without generated loop control")
+	}
+}
+
+func TestShellVariantIdentityIncludesExecutable(t *testing.T) {
+	git := Call{Tool: "shell", Command: "git add src/a.go"}
+	gh := Call{Tool: "shell", Command: "gh add src/a.go"}
+	if programCallSignature(git) == programCallSignature(gh) || programCallCoreSignature(git) == programCallCoreSignature(gh) {
+		t.Fatal("different host commands must not share a program variant")
+	}
+}
+
+func TestGeneratedCommandProgramUsesDeclaredArgvAndStopsOnFailure(t *testing.T) {
+	g := &ProgramGraph{CandidateID: "lc_command", Inputs: []ProgramInput{{Name: "path", Type: "string", Source: "supplied at invocation"}},
+		Steps: []ProgramStep{
+			{Role: "sh:git status", Tool: "shell", Command: "git", Effect: "read", Args: []ProgramArg{
+				{Path: []string{"argv_0"}, Value: ProgramValue{Kind: "selector", Selector: "status"}},
+				{Path: []string{"argv_1"}, Value: ProgramValue{Kind: "selector", Selector: "--short"}},
+			}},
+			{Role: "sh:git add", Tool: "shell", Command: "git", Effect: "write", Args: []ProgramArg{
+				{Path: []string{"argv_0"}, Value: ProgramValue{Kind: "selector", Selector: "add"}},
+				{Path: []string{"argv_1"}, Value: ProgramValue{Kind: "input", Input: "path"}},
+			}},
+		},
+	}
+	p, err := GenerateProgramPackage(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(p.Manifest.Commands); got != 2 {
+		t.Fatalf("want two declared commands, got %d", got)
+	}
+	if p.Manifest.Commands[0].Args[0] != "status" || p.Manifest.Commands[1].Args[0] != "add" || p.Manifest.Commands[1].Args[1] != "*" {
+		t.Fatalf("wrong command reach: %+v", p.Manifest.Commands)
+	}
+	if problems := p.Manifest.RunProblems(); len(problems) != 0 {
+		t.Fatalf("invalid manifest: %v", problems)
+	}
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable")
+	}
+	for _, fail := range []bool{false, true} {
+		harness := strings.Join([]string{
+			"import json, sys",
+			"calls = []",
+			"class Tap:",
+			"    def exec(self, command, args):",
+			"        calls.append([command, args])",
+			"        return {'exit': 1 if " + map[bool]string{false: "False", true: "True"}[fail] + " and len(calls) == 1 else 0}",
+			"sys.argv = ['main.py', json.dumps({'path': 'a new file.txt'})]",
+			"try:",
+			"    exec(compile(sys.stdin.read(), 'main.py', 'exec'), {'tap': Tap()})",
+			"except RuntimeError: pass",
+			"print('CALLS=' + json.dumps(calls))",
+		}, "\n")
+		cmd := exec.Command(python, "-c", harness)
+		cmd.Stdin = strings.NewReader(string(p.Files["main.py"]))
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("generated program failed: %v\n%s", err, out)
+		}
+		index := strings.LastIndex(string(out), "CALLS=")
+		if index < 0 {
+			t.Fatalf("no call log: %s", out)
+		}
+		var calls [][]any
+		if err := json.Unmarshal([]byte(strings.TrimSpace(string(out[index+6:]))), &calls); err != nil {
+			t.Fatal(err)
+		}
+		want := 2
+		if fail {
+			want = 1
+		}
+		if len(calls) != want {
+			t.Fatalf("fail=%v: call order %v", fail, calls)
+		}
+		if !fail && calls[1][0] != "git" {
+			t.Fatalf("wrong command: %v", calls)
+		}
+	}
+}
+
+func TestGeneratedCommandRejectsUndeclaredShape(t *testing.T) {
+	for _, st := range []ProgramStep{
+		{Tool: "shell", Command: "bash", Effect: "read"},
+		{Tool: "shell", Command: "git", Effect: "unknown"},
+		{Tool: "shell", Command: "git", Effect: "read", Args: []ProgramArg{{Path: []string{"argv_1"}, Value: ProgramValue{Kind: "input", Input: "x"}}}},
+	} {
+		if _, err := GenerateProgramPackage(&ProgramGraph{CandidateID: "lc_bad", Steps: []ProgramStep{st}}); err == nil {
+			t.Fatalf("accepted unresolved command: %+v", st)
+		}
+	}
+}
+
+func TestSynthesizeLiteralCommandChain(t *testing.T) {
+	ss := []Session{
+		selSession("shell-one", "Run git add on the changed file, then git status",
+			Call{Tool: "shell", Command: "git add src/one.go", Outcome: OutcomeOK},
+			Call{Tool: "shell", Command: "git status --short", Outcome: OutcomeOK}),
+		selSession("shell-two", "Run git add on the changed file, then git status",
+			Call{Tool: "shell", Command: "git add src/two.go", Outcome: OutcomeOK},
+			Call{Tool: "shell", Command: "git status --short", Outcome: OutcomeOK}),
+	}
+	c, ps := graphCandidateFor(t, ss, "sh:git add", "sh:git status")
+	g, err := SynthesizeProgramGraph(c, ps, ss)
+	if err != nil || len(g.Problems) != 0 {
+		t.Fatalf("command graph unresolved: %+v %v", g, err)
+	}
+	if g.Steps[0].Command != "git" || len(g.Inputs) != 1 || g.Inputs[0].Name != "step_1_argv_1" {
+		t.Fatalf("wrong command binding or input: %+v", g)
+	}
+	if _, err := GenerateProgramPackage(g); err != nil {
+		t.Fatalf("determined command graph did not compile: %v", err)
+	}
+	var review strings.Builder
+	if err := ReviewGenerated(strings.NewReader("q\n"), &review, g, t.TempDir(), t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(review.String(), "via command git (write)") || !strings.Contains(review.String(), "commands:") {
+		t.Fatalf("review omitted command reach or effect: %s", review.String())
+	}
+	for _, request := range []string{"Stage and inspect a changed file", "Run git add on the changed file"} {
+		copy := append([]Session(nil), ss[:1]...)
+		for i := range copy {
+			copy[i].Requests = []string{request}
+		}
+		for _, proposal := range SelectSpanProposals(copy) {
+			if len(proposal.Calls) > 1 {
+				t.Fatalf("unstated command sequence surfaced for %q: %+v", request, proposal)
+			}
+		}
+	}
+}
+
+func TestRepeatedCommandOrderSurfacesWithoutPromptWording(t *testing.T) {
+	ss := []Session{
+		selSession("implicit-one", "Prepare the change",
+			Call{Tool: "shell", Command: "git add src/one.go", Outcome: OutcomeOK},
+			Call{Tool: "shell", Command: "git status src/one.go --short", Outcome: OutcomeOK}),
+		selSession("implicit-two", "Prepare another change",
+			Call{Tool: "shell", Command: "git add src/two.go", Outcome: OutcomeOK},
+			Call{Tool: "shell", Command: "git status src/two.go --short", Outcome: OutcomeOK}),
+	}
+	proposals := SelectSpanProposals(ss)
+	seen := 0
+	for _, p := range proposals {
+		if p.Kind == "repeated_order" && len(p.Calls) == 2 {
+			seen++
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("want two cross-session repeated order proposals, got %d: %+v", seen, proposals)
+	}
+	if len(GroupLogicCandidates(proposals)) == 0 {
+		t.Fatal("repeated order did not reach candidate grouping")
+	}
+	for i := range ss {
+		ss[i].Calls[1].Command = "git status --short"
+	}
+	for _, p := range SelectSpanProposals(ss) {
+		if p.Kind == "repeated_order" {
+			t.Fatalf("unrelated repeated order became a process: %+v", p)
+		}
+	}
+}

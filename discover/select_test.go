@@ -98,12 +98,27 @@ EOF`
 // The same step over several ids, none taken from what the loop just read,
 // is a list a caller could give. A loop over search phrasings is not.
 func TestParametricLoopNeedsIdentifiersNotSearchPhrasings(t *testing.T) {
-	ids := selSession("ids", "tail the failed jobs",
+	ids := selSession("ids", "tail the failed jobs 81234567, 81234599, and 81234612",
 		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "log one"},
 		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "log two"},
 		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234612"}, Output: "log three"})
 	if o := judged(t, []Session{ids}, "ids"); !o.Recommended || o.Route != RouteParamLoop {
 		t.Errorf("want parametric_loop, got %+v", o)
+	}
+	fromResult := selSession("from_result", "list the failed jobs, then fetch each log",
+		Call{Tool: "mcp:gitlab_list_failed_jobs", Output: `{"jobs":[{"id":"81234567"},{"id":"81234599"}]}`},
+		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "log one"},
+		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "log two"})
+	if o := judged(t, []Session{fromResult}, "from_result"); !o.Recommended || o.Route != RouteParamLoop || !strings.Contains(o.Contract, "prior_output") {
+		t.Errorf("want loop over the earlier result, got %+v", o)
+	}
+	unknown := selSession("unknown", "tail the failed jobs",
+		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "log one"},
+		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "log two"})
+	if o := judged(t, []Session{unknown}, "unknown"); o.Recommended {
+		t.Errorf("the list has no visible source, got %+v", o)
+	} else if !strings.Contains(strings.Join(o.Reasons, " "), "loop_source_unknown") {
+		t.Errorf("missing list provenance reason: %+v", o)
 	}
 	search := selSession("search", "why is recall low",
 		Call{Tool: "mcp:telara_knowledge_search", Args: map[string]string{"query": "recall evaluation holdout"}, Output: "a"},
@@ -118,6 +133,16 @@ func TestParametricLoopNeedsIdentifiersNotSearchPhrasings(t *testing.T) {
 		Call{Tool: "mcp:web_get", Args: map[string]string{"url": "https://example.com/last"}, Output: "end"})
 	if o := judged(t, []Session{chained}, "chained"); o.Recommended {
 		t.Errorf("each item came from the previous result: exploration, got %+v", o)
+	}
+}
+
+func TestLoopListSourceRequiresWholeItems(t *testing.T) {
+	if containsItem("1812345679", "81234567") || !containsItem("jobs 81234567, 81234599", "81234567") {
+		t.Fatal("item boundary mismatch")
+	}
+	steps := []Step{{Output: "job 81234567 only", Outcome: OutcomeOK}}
+	if source := loopListSource("", steps, 1, []string{"81234567", "81234599"}); source != "" {
+		t.Fatalf("partial list should not establish provenance: %q", source)
 	}
 }
 
@@ -166,7 +191,7 @@ func TestGroupOpportunitiesByContractRanksBySessions(t *testing.T) {
 			Call{Tool: "shell", Command: fmt.Sprintf("jq -r '.[] | .status' /work/tracker/queue.json # %d", i)},
 			Call{Tool: "shell", Command: "tail -n 1 /work/tracker/log.jsonl"}))
 	}
-	ss = append(ss, selSession("ids", "tail the failed jobs",
+	ss = append(ss, selSession("ids", "tail the failed jobs 81234567 and 81234599",
 		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "a"},
 		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "b"}))
 	ops := SelectOpportunities(ss)

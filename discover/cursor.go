@@ -68,7 +68,7 @@ WHERE c.key LIKE 'composerData:%' AND json_extract(j.value, '$.type') = 1;`
   ` + fmt.Sprintf(cursorArgs, `coalesce(json_extract(j.value, '$.toolFormerData.rawArgs'), json_extract(j.value, '$.toolFormerData.params'))`) + ` AS args,
   NULL AS created,
   json_extract(j.value, '$.toolFormerData.status') AS status,
-  substr(CAST(json_extract(j.value, '$.toolFormerData.result') AS TEXT), 1, 2048) AS result
+  substr(CAST(json_extract(j.value, '$.toolFormerData.result') AS TEXT), 1, 65536) AS result
 FROM cursorDiskKV c, json_each(c.value, '$.conversation') j
 WHERE c.key LIKE 'composerData:%' AND json_extract(j.value, '$.toolFormerData.name') IS NOT NULL;`
 )
@@ -250,6 +250,7 @@ func (c *cursorConv) orderOf(bubble string) (int, bool) {
 func cursorCall(row cursorRow) Call {
 	c := Call{Client: "cursor", Time: cursorTime(row.Created)}
 	c.OutIDs, c.OutCtx, c.OutPaths = outputRefsPaths(row.Result)
+	c.OutCollections = resultCollections(row.Result)
 	c.Output = truncateUTF8(row.Result, 600)
 	c.OutTokens = outputTokens(row.Result)
 	switch row.Status {

@@ -1,0 +1,114 @@
+package discover
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+)
+
+func TestLogicCandidateAbstractsRuntimeValuesAndTaskWording(t *testing.T) {
+	first := selSession("one", "Fix the indexing tab reload",
+		spanRefs(Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "create_issue", "params": `{"summary":"indexing tab"}`}, Output: `{"key":"TENG-4321"}`, Outcome: OutcomeOK}),
+		Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "transition_issue", "params": `{"issue_key":"TENG-4321","transition_id":"11"}`}, Output: `{"status":"In Progress"}`, Outcome: OutcomeOK})
+	second := selSession("two", "Remove the old integrations page",
+		spanRefs(Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "create_issue", "params": `{"summary":"integrations page"}`}, Output: `{"key":"TENG-9876"}`, Outcome: OutcomeOK}),
+		Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "transition_issue", "params": `{"issue_key":"TENG-9876","transition_id":"21"}`}, Output: `{"status":"Todo"}`, Outcome: OutcomeOK})
+	ps := SelectSpanProposals([]Session{first, second})
+	if spanWithCalls(ps, 1, 2) == nil {
+		t.Fatalf("missing observed result-linked workflow: %+v", ps)
+	}
+	gs := GroupLogicCandidates(ps)
+	if len(gs) != 1 || gs[0].Sessions != 2 || gs[0].Executions != 2 || gs[0].Proposals != 2 {
+		t.Fatalf("same reusable logic should be one candidate despite different tasks/values: %+v", gs)
+	}
+	if strings.Contains(gs[0].Key, "4321") || strings.Contains(gs[0].Key, "9876") || strings.Contains(gs[0].Key, "transition_id=11") {
+		t.Fatalf("concrete runtime values leaked into logic identity: %s", gs[0].Key)
+	}
+}
+
+func TestLogicCandidateRequiresIndependentRepetition(t *testing.T) {
+	c := SpanComposition{Actions: []string{"gitlab.list_pipelines", "gitlab.list_jobs"}, Edges: []string{"gitlab.list_pipelines -> gitlab.list_jobs (pipeline_id:number)"}}
+	one := SpanProposal{ID: "one", Client: "claude-code", Session: "s", Request: 0, Calls: []int{1, 2}, Composition: c}
+	two := one
+	two.ID = "overlapping-selection"
+	if got := GroupLogicCandidates([]SpanProposal{one, two}); len(got) != 0 {
+		t.Fatalf("overlapping selections are one execution, not recurrence: %+v", got)
+	}
+	two.ID, two.Calls = "second-execution", []int{3, 4}
+	got := GroupLogicCandidates([]SpanProposal{one, two})
+	if len(got) != 1 || got[0].Executions != 2 || got[0].Sessions != 1 {
+		t.Fatalf("disjoint same-session executions should qualify: %+v", got)
+	}
+}
+
+func TestLogicCandidateIncludesReusedAuthoredProgram(t *testing.T) {
+	p := SpanProposal{ID: "script", Client: "claude-code", Session: "s", Kind: "authored_program", Calls: []int{1, 2, 3},
+		Composition: SpanComposition{Key: "program", Actions: []string{"sh:cat", "sh:python3"}}}
+	got := GroupLogicCandidates([]SpanProposal{p})
+	if len(got) != 1 || got[0].Evidence[0] != "authored_program_reused" {
+		t.Fatalf("program written then run repeatedly should qualify alone: %+v", got)
+	}
+}
+
+func TestLogicCandidateOneOrManyResultChildrenShareIdentity(t *testing.T) {
+	one := SpanProposal{ID: "one", Client: "claude-code", Session: "a", Calls: []int{1, 2},
+		Composition: SpanComposition{Actions: []string{"jira.create_issue", "jira.create_issue_link"}, Edges: []string{"jira.create_issue -> jira.create_issue_link (inward_issue_key:id)"}}}
+	many := SpanProposal{ID: "many", Client: "claude-code", Session: "b", Calls: []int{1, 2, 3},
+		Composition: SpanComposition{Actions: []string{"jira.create_issue", "jira.create_issue_link"}, Edges: []string{"jira.create_issue -> jira.create_issue_link (inward_issue_key:id)"}, Repetition: []SpanRepeat{{Action: "jira.create_issue_link", Count: 2, Kind: "for_each"}}}}
+	got := GroupLogicCandidates([]SpanProposal{one, many})
+	if len(got) != 1 || got[0].Sessions != 2 || got[0].Executions != 2 {
+		t.Fatalf("one link and a link loop are one parameterized composition: %+v", got)
+	}
+}
+
+func TestLogicFunnelsCollectIndependentBranchesAndLoops(t *testing.T) {
+	spans := []SpanProposal{
+		{ID: "transition", Client: "claude-code", Session: "a", Composition: SpanComposition{Edges: []string{"jira.create_issue -> jira.transition_issue (issue_key:id)"}}},
+		{ID: "link", Client: "claude-code", Session: "b", Composition: SpanComposition{Edges: []string{"jira.create_issue -> jira.create_issue_link (inward_issue_key:id)"}, Repetition: []SpanRepeat{{Action: "jira.create_issue_link", Count: 2, Kind: "for_each"}}}},
+		{ID: "comment", Client: "claude-code", Session: "c", Composition: SpanComposition{Edges: []string{"jira.create_issue -> jira.add_comment (issue_key:id)"}}},
+		{ID: "shared-text-only", Client: "claude-code", Session: "d", Composition: SpanComposition{Actions: []string{"jira.create_issue", "jira.add_comment"}}},
+	}
+	candidates := []LogicCandidate{
+		{ID: "lc_transition", Members: []string{"transition"}},
+		{ID: "lc_link", Members: []string{"link"}},
+		{ID: "lc_comment", Members: []string{"comment"}},
+		{ID: "lc_shared", Members: []string{"shared-text-only"}},
+	}
+	got := GroupLogicFunnels(candidates, spans)
+	if len(got) != 1 || got[0].Root != "jira.create_issue" || got[0].Sessions != 3 || len(got[0].Branches) != 3 {
+		t.Fatalf("create result should be one observed three-branch funnel: %+v", got)
+	}
+	for _, branch := range got[0].Branches {
+		if branch.Action == "jira.create_issue_link" && !branch.ForEach {
+			t.Fatalf("repeated links over distinct IDs need a loop marker: %+v", got)
+		}
+	}
+}
+
+func TestCreatedIssueLinkFanoutReachesLogicQueue(t *testing.T) {
+	created := spanRefs(Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "create_issue", "params": `{"summary":"follow-up"}`}, Output: `{"key":"TENG-1"}`, Outcome: OutcomeOK})
+	link := func(related string) Call {
+		return Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "create_issue_link", "params": `{"inward_issue_key":"TENG-1","outward_issue_key":"` + related + `"}`}, Output: `{"status":"linked"}`, Outcome: OutcomeOK}
+	}
+	one := selSession("one-link", "Create an issue and link TENG-2", created, link("TENG-2"))
+	many := selSession("many-links", "Create an issue and link TENG-2 and TENG-3", created, link("TENG-2"), link("TENG-3"))
+	ps := SelectSpanProposals([]Session{one, many})
+	p := spanWithCalls(ps, 1, 2, 3)
+	if p == nil || len(p.Composition.Actions) != 2 || len(p.Composition.Repetition) != 1 || p.Composition.Repetition[0].Kind != "for_each" {
+		t.Fatalf("created issue with two related IDs should be one observed loop: %+v", ps)
+	}
+	candidates := GroupLogicCandidates(ps)
+	funnels := GroupLogicFunnels(candidates, ps)
+	if len(candidates) == 0 || len(funnels) != 1 || funnels[0].Root != "jira.create_issue" || len(funnels[0].Branches) != 1 || !funnels[0].Branches[0].ForEach {
+		t.Fatalf("one-link and multi-link traces should share an authoring lead: candidates=%+v funnels=%+v", candidates, funnels)
+	}
+}
+
+func TestLogicCandidatesArePrimaryDiscoverQueue(t *testing.T) {
+	r := Report{SpanProposals: []SpanProposal{{}}, LogicCandidates: []LogicCandidate{{ID: "lc_example", Sessions: 2, Executions: 3, Actions: []string{"jira.create_issue", "jira.transition_issue"}, Cautions: []string{"source_role_uncertain"}}}}
+	var out bytes.Buffer
+	WriteSpanProposals(&out, &r, 10)
+	if !strings.Contains(out.String(), "lc_example") || !strings.Contains(out.String(), "--logic") || strings.Contains(out.String(), "Task-first queue: 0") {
+		t.Fatalf("logic candidates should be primary rather than complete-task gate: %s", out.String())
+	}
+}
