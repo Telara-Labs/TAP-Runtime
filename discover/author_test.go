@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/author"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
@@ -184,11 +186,11 @@ func TestBriefFromARejectedCandidate(t *testing.T) {
 		t.Errorf("discover's output label must be marked unverified, got %q", got.Contract.Output.EstablishedBy)
 	}
 	for _, f := range []string{"goal", "procedure", "oracle", "failures"} {
-		if !contains(got.Missing, f) {
+		if !testkit.Contains(got.Missing, f) {
 			t.Errorf("%s was not established by anything and must be missing: %v", f, got.Missing)
 		}
 	}
-	if contains(got.Missing, "output") {
+	if testkit.Contains(got.Missing, "output") {
 		t.Errorf("output was proposed by discover and is not missing: %v", got.Missing)
 	}
 	if code := author.BriefCommand([]string{"--candidate", "nope", "--report", report, "--out", out}, home, &so, &se); code == 0 {
@@ -199,29 +201,9 @@ func TestBriefFromARejectedCandidate(t *testing.T) {
 	}
 }
 
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
-}
-
-func writeFiles(t *testing.T, dir string, files map[string]string) {
-	t.Helper()
-	for name, body := range files {
-		p := filepath.Join(dir, name)
-		os.MkdirAll(filepath.Dir(p), 0o755)
-		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
 func TestPackageDirDigestAndPlaceholders(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, map[string]string{"primitive.yaml": "a: 1\n", "main.py": "print(1)\n"})
+	testkit.WriteFiles(t, dir, map[string]string{"primitive.yaml": "a: 1\n", "main.py": "print(1)\n"})
 	_, d1, err := author.PackageDir(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -230,14 +212,14 @@ func TestPackageDirDigestAndPlaceholders(t *testing.T) {
 	if d1 != d2 {
 		t.Error("the same bytes must have the same digest")
 	}
-	writeFiles(t, dir, map[string]string{"main.py": "print(2)\n"})
+	testkit.WriteFiles(t, dir, map[string]string{"main.py": "print(2)\n"})
 	if _, d3, _ := author.PackageDir(dir); d3 == d1 {
 		t.Error("a changed byte must change the digest")
 	}
 	if marks, _ := author.FindPlaceholders(dir); len(marks) != 0 {
 		t.Errorf("no placeholders yet, got %v", marks)
 	}
-	writeFiles(t, dir, map[string]string{"main.py": "# TODO: finish\n"})
+	testkit.WriteFiles(t, dir, map[string]string{"main.py": "# TODO: finish\n"})
 	if marks, _ := author.FindPlaceholders(dir); len(marks) != 1 {
 		t.Errorf("a TODO: marker must be found, got %v", marks)
 	}
@@ -267,10 +249,10 @@ func validateFixture(t *testing.T, mode, canned string) (pkg, cases, runner stri
 	}
 	root := t.TempDir()
 	pkg = filepath.Join(root, "pkg")
-	writeFiles(t, pkg, map[string]string{"mode": mode, "canned.json": canned, "primitive.yaml": "x: 1\n"})
+	testkit.WriteFiles(t, pkg, map[string]string{"mode": mode, "canned.json": canned, "primitive.yaml": "x: 1\n"})
 	runner = filepath.Join(root, "tap-stub")
 	os.WriteFile(runner, []byte(stubRunner), 0o755)
-	writeFiles(t, root, map[string]string{"oracle.sh": `echo '{"n": 1, "args": "'"$*"'"}'` + "\n"})
+	testkit.WriteFiles(t, root, map[string]string{"oracle.sh": `echo '{"n": 1, "args": "'"$*"'"}'` + "\n"})
 	cf := author.CaseFile{Package: "p", Oracle: []string{"sh", "oracle.sh"}, Cases: []author.Case{{
 		ID: "c1", Kind: "normal", Args: []string{"a"},
 		Setup: []author.SetupStep{{Write: "in/x.txt", Text: "x\n"}, {Run: []string{"git", "init", "-q", "repo"}}},
@@ -366,7 +348,7 @@ func authoredPackage(t *testing.T) string {
 		Agent: "claude-code", Selection: author.SelectedTask, Sources: []string{"src_0123456789ab"}, BriefDigest: "sha256:00",
 		Contract: contract, Interface: json.RawMessage(`{"args":[{"name":"script","type":"path"}]}`)}
 	b, _ := json.MarshalIndent(a, "", "  ")
-	writeFiles(t, dir, map[string]string{"AUTHORING.json": string(b), "primitive.yaml": "x: 1\n", "main.py": "print(1)\n"})
+	testkit.WriteFiles(t, dir, map[string]string{"AUTHORING.json": string(b), "primitive.yaml": "x: 1\n", "main.py": "print(1)\n"})
 	return dir
 }
 

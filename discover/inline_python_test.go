@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
@@ -13,7 +15,7 @@ import (
 
 func TestInlinePythonEmbeddedShellRemainsUnresolved(t *testing.T) {
 	command := "cd /tmp && python3 - <<'PY'\nfrom pathlib import Path\np = Path('a')\ns = p.read_text()\np.write_text(s)\nPY\ngofmt -w a.go"
-	s := selSession("inline-compound", "Edit and format a file", trace.Call{Tool: "shell", Command: command, Output: "done", Outcome: trace.OutcomeOK})
+	s := testkit.NewSession("inline-compound", "Edit and format a file", trace.Call{Tool: "shell", Command: command, Output: "done", Outcome: trace.OutcomeOK})
 	spans := retrieval.SelectSpanProposals([]trace.Session{s})
 	if len(spans) != 1 || spans[0].CodeShape == "" || spans[0].CodeScope != "embedded" {
 		t.Fatalf("compound shell code did not retain an explicit embedded scope: %+v", spans)
@@ -21,11 +23,11 @@ func TestInlinePythonEmbeddedShellRemainsUnresolved(t *testing.T) {
 }
 
 func TestInlinePythonRepetitionIsRetrievalOnly(t *testing.T) {
-	first := selSession("inline-one", "Inspect file changes",
+	first := testkit.NewSession("inline-one", "Inspect file changes",
 		trace.Call{Tool: "shell", Command: "python3 - <<'PY'\nfrom pathlib import Path\np = Path('/tmp/one')\ns = p.read_text()\np.write_text(s.replace('a', 'b'))\nPY", Output: "done", Outcome: trace.OutcomeOK})
-	second := selSession("inline-two", "Make a different edit",
+	second := testkit.NewSession("inline-two", "Make a different edit",
 		trace.Call{Tool: "shell", Command: "python3 - <<'PY'\nfrom pathlib import Path\nfile = Path('/tmp/two')\ntext = file.read_text()\nfile.write_text(text.replace('old', 'new'))\nPY", Output: "done", Outcome: trace.OutcomeOK})
-	third := selSession("inline-three", "Edit another file",
+	third := testkit.NewSession("inline-three", "Edit another file",
 		trace.Call{Tool: "shell", Command: "cd /tmp && python3 - <<'PY'\nfrom pathlib import Path\np = Path('/tmp/three')\ns = p.read_text()\ns = s.replace('first', 'second')\ns = s.replace('second', 'third')\np.write_text(s)\nprint('done')\nPY", Output: "done", Outcome: trace.OutcomeOK})
 	one := retrieval.SelectSpanProposals([]trace.Session{first})
 	if len(one) != 1 || one[0].Kind != "authored_program" || one[0].CodeShape == "" {

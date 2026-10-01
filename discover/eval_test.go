@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/eval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -24,21 +26,21 @@ func TestFrozenReaderRefusesAChangedCorpus(t *testing.T) {
 	if len(m.Sessions) != 1 || m.Sessions[0].ID != "a" {
 		t.Fatalf("a session still active at the cutoff must not be frozen: %+v", m.Sessions)
 	}
-	ss, err := history.FrozenReader{Inner: fakeReader{sessions: []trace.Session{a, b}}, Manifest: m}.Read(time.Time{})
+	ss, err := history.FrozenReader{Inner: testkit.FakeReader{Sessions: []trace.Session{a, b}}, Manifest: m}.Read(time.Time{})
 	if err != nil || len(ss) != 1 {
 		t.Fatalf("read %d, %v", len(ss), err)
 	}
 	a2 := a
 	a2.Calls = append(append([]trace.Call(nil), a.Calls...), trace.Call{Tool: "shell", Command: "date"})
-	if _, err := (history.FrozenReader{Inner: fakeReader{sessions: []trace.Session{a2}}, Manifest: m}).Read(time.Time{}); !errors.Is(err, history.ErrCorpusChanged) {
+	if _, err := (history.FrozenReader{Inner: testkit.FakeReader{Sessions: []trace.Session{a2}}, Manifest: m}).Read(time.Time{}); !errors.Is(err, history.ErrCorpusChanged) {
 		t.Fatalf("a changed session must stop the run: %v", err)
 	}
-	if _, err := (history.FrozenReader{Inner: fakeReader{sessions: nil}, Manifest: m}).Read(time.Time{}); !errors.Is(err, history.ErrCorpusChanged) {
+	if _, err := (history.FrozenReader{Inner: testkit.FakeReader{Sessions: nil}, Manifest: m}).Read(time.Time{}); !errors.Is(err, history.ErrCorpusChanged) {
 		t.Fatalf("a missing session must stop the run: %v", err)
 	}
 	dup := m
 	dup.Sessions = append(append([]history.ManifestEntry(nil), m.Sessions...), m.Sessions[0])
-	if _, err := (history.FrozenReader{Inner: fakeReader{sessions: []trace.Session{a}}, Manifest: dup}).Read(time.Time{}); !errors.Is(err, history.ErrCorpusChanged) {
+	if _, err := (history.FrozenReader{Inner: testkit.FakeReader{Sessions: []trace.Session{a}}, Manifest: dup}).Read(time.Time{}); !errors.Is(err, history.ErrCorpusChanged) {
 		t.Fatalf("a manifest naming one session twice must stop the run: %v", err)
 	}
 }
@@ -66,9 +68,9 @@ func TestLineageJoinsCopiesAndTemplatedPrompts(t *testing.T) {
 }
 
 func TestSampleIsReproducibleAndCarriesNoDecision(t *testing.T) {
-	ss := append(requestCorpus(), credCorpus()...)
+	ss := append(testkit.RequestCorpus(), testkit.CredCorpus()...)
 	o := DefaultOptions()
-	o.Readers = []trace.Reader{fakeReader{sessions: ss}}
+	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -105,11 +107,11 @@ func TestSourceDigestSurvivesParserChanges(t *testing.T) {
 	// A newer parser reads more out of the same bytes: same input.
 	b := a
 	b.Calls = []trace.Call{{Tool: "shell", Command: "ls", Time: t0, Output: "x", OutPaths: []string{".id"}}}
-	if _, err := (history.FrozenReader{Inner: fakeReader{sessions: []trace.Session{b}}, Manifest: m}).Read(time.Time{}); err != nil {
+	if _, err := (history.FrozenReader{Inner: testkit.FakeReader{Sessions: []trace.Session{b}}, Manifest: m}).Read(time.Time{}); err != nil {
 		t.Fatalf("a parser change is not an input change: %v", err)
 	}
 	b.SourceDigest = "def"
-	if _, err := (history.FrozenReader{Inner: fakeReader{sessions: []trace.Session{b}}, Manifest: m}).Read(time.Time{}); !errors.Is(err, history.ErrCorpusChanged) {
+	if _, err := (history.FrozenReader{Inner: testkit.FakeReader{Sessions: []trace.Session{b}}, Manifest: m}).Read(time.Time{}); !errors.Is(err, history.ErrCorpusChanged) {
 		t.Fatalf("changed source bytes must stop the run: %v", err)
 	}
 }
@@ -117,12 +119,12 @@ func TestSourceDigestSurvivesParserChanges(t *testing.T) {
 func TestSingleEpisodeContract(t *testing.T) {
 	// A request that names both revisions and runs two diffs: every value
 	// has a source, so the episode alone is a specified procedure.
-	good := eps("g", 1, func(int) string { return "compare a1b2c3d and d4e5f6a for services and tests" }, func(int) []trace.Call {
-		return []trace.Call{sh("git diff --name-only a1b2c3d d4e5f6a -- services"), sh("git diff --name-only a1b2c3d d4e5f6a -- tests")}
+	good := testkit.Episodes("g", 1, func(int) string { return "compare a1b2c3d and d4e5f6a for services and tests" }, func(int) []trace.Call {
+		return []trace.Call{testkit.ShellCall("git diff --name-only a1b2c3d d4e5f6a -- services"), testkit.ShellCall("git diff --name-only a1b2c3d d4e5f6a -- tests")}
 	})
 	// A request whose reads target files nobody named: chosen during the run.
-	bad := eps("b", 1, func(int) string { return "why is the gateway slow?" }, func(int) []trace.Call {
-		return []trace.Call{{Tool: "Read", Args: map[string]string{"file_path": "src/x/pool.go"}}, sh("rg -n timeout internal/y"), {Tool: "Read", Args: map[string]string{"file_path": "src/z/conn.go"}}}
+	bad := testkit.Episodes("b", 1, func(int) string { return "why is the gateway slow?" }, func(int) []trace.Call {
+		return []trace.Call{{Tool: "Read", Args: map[string]string{"file_path": "src/x/pool.go"}}, testkit.ShellCall("rg -n timeout internal/y"), {Tool: "Read", Args: map[string]string{"file_path": "src/z/conn.go"}}}
 	})
 	c := eval.NewCorpus(append(good, bad...))
 	cl := c.AssessEpisodes(c.Episodes())

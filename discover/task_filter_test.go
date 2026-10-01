@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
@@ -40,11 +42,11 @@ func TestClaudeReaderAttributesCompactionTextAsSynthetic(t *testing.T) {
 // request asks for exactly that operation it is a ready task.
 func TestTaskReviewIsProviderNeutral(t *testing.T) {
 	chain := func(integration, request, id string) model.SpanProposal {
-		s := selSession(id, request,
-			spanRefs(trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": integration, "action": "create_issue", "params": `{"summary":"broken"}`}, Output: `{"key":"TENG-4321"}`, Outcome: trace.OutcomeOK}),
+		s := testkit.NewSession(id, request,
+			testkit.SpanRefs(trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": integration, "action": "create_issue", "params": `{"summary":"broken"}`}, Output: `{"key":"TENG-4321"}`, Outcome: trace.OutcomeOK}),
 			trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": integration, "action": "transition_issue", "params": `{"issue_key":"TENG-4321","transition_id":"in_progress"}`}, Output: `{"status":"In Progress"}`, Outcome: trace.OutcomeOK})
 		ps := retrieval.SelectSpanProposals([]trace.Session{s})
-		p := spanWithCalls(ps, 1, 2)
+		p := testkit.SpanWithCalls(ps, 1, 2)
 		if p == nil {
 			t.Fatalf("missing causal diagnostic trace: %+v", ps)
 		}
@@ -63,44 +65,44 @@ func TestTaskReviewIsProviderNeutral(t *testing.T) {
 }
 
 func TestTaskReviewHandlesResultDerivedPipelineAndFailedCalls(t *testing.T) {
-	s := selSession("pipeline-review", "List pipelines, take the latest failed one, and fetch its failed job logs",
-		spanRefs(trace.Call{Tool: "mcp:gitlab_list_pipelines", Output: `{"pipelines":[{"id":"81234567","status":"failed"}]}`, Outcome: trace.OutcomeOK}),
-		spanRefs(trace.Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "81234567"}, Output: `{"jobs":[{"id":"91234567"}]}`, Outcome: trace.OutcomeOK}),
+	s := testkit.NewSession("pipeline-review", "List pipelines, take the latest failed one, and fetch its failed job logs",
+		testkit.SpanRefs(trace.Call{Tool: "mcp:gitlab_list_pipelines", Output: `{"pipelines":[{"id":"81234567","status":"failed"}]}`, Outcome: trace.OutcomeOK}),
+		testkit.SpanRefs(trace.Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "81234567"}, Output: `{"jobs":[{"id":"91234567"}]}`, Outcome: trace.OutcomeOK}),
 		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "91234567"}, Output: "assertion failed", Outcome: trace.OutcomeOK})
-	p := spanWithCalls(retrieval.SelectSpanProposals([]trace.Session{s}), 1, 2, 3)
+	p := testkit.SpanWithCalls(retrieval.SelectSpanProposals([]trace.Session{s}), 1, 2, 3)
 	if p == nil || !p.Review.Ready {
 		t.Fatalf("result-derived pipeline task should enter queue: %+v", p)
 	}
 	s.Calls[2].Outcome = trace.OutcomeFailed
-	p = spanWithCalls(retrieval.SelectSpanProposals([]trace.Session{s}), 1, 2, 3)
+	p = testkit.SpanWithCalls(retrieval.SelectSpanProposals([]trace.Session{s}), 1, 2, 3)
 	if p == nil || p.Review.Ready {
 		t.Fatalf("failed terminal call must not enter queue: %+v", p)
 	}
 }
 
 func TestTaskReviewKeepsInvestigativeResultChainAsComponent(t *testing.T) {
-	s := selSession("failed-build", "Why did the production build fail?",
-		spanRefs(trace.Call{Tool: "mcp:gitlab_list_pipelines", Output: `{"id":"81234567"}`, Outcome: trace.OutcomeOK}),
+	s := testkit.NewSession("failed-build", "Why did the production build fail?",
+		testkit.SpanRefs(trace.Call{Tool: "mcp:gitlab_list_pipelines", Output: `{"id":"81234567"}`, Outcome: trace.OutcomeOK}),
 		trace.Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "81234567"}, Output: `{"status":"failed"}`, Outcome: trace.OutcomeOK})
-	p := spanWithCalls(retrieval.SelectSpanProposals([]trace.Session{s}), 1, 2)
+	p := testkit.SpanWithCalls(retrieval.SelectSpanProposals([]trace.Session{s}), 1, 2)
 	if p == nil || p.Review.Ready || !p.Review.Component {
 		t.Fatalf("evidence-gathering chain is a component with an unresolved task contract: %+v", p)
 	}
 }
 
 func TestTaskReviewMarksContinuationSummarySynthetic(t *testing.T) {
-	s := selSession("summary", "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier work. List pipelines and fetch jobs.",
-		spanRefs(trace.Call{Tool: "mcp:gitlab_list_pipelines", Output: `{"id":"81234567"}`, Outcome: trace.OutcomeOK}),
+	s := testkit.NewSession("summary", "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier work. List pipelines and fetch jobs.",
+		testkit.SpanRefs(trace.Call{Tool: "mcp:gitlab_list_pipelines", Output: `{"id":"81234567"}`, Outcome: trace.OutcomeOK}),
 		trace.Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "81234567"}, Output: "jobs", Outcome: trace.OutcomeOK})
 	s.RequestRoles = []string{"synthetic_context"}
-	p := spanWithCalls(retrieval.SelectSpanProposals([]trace.Session{s}), 1, 2)
+	p := testkit.SpanWithCalls(retrieval.SelectSpanProposals([]trace.Session{s}), 1, 2)
 	if p == nil || p.Review.Ready || p.Review.Source != "synthetic_context" {
 		t.Fatalf("continuation text is diagnostic context, not user demand: %+v", p)
 	}
 }
 
 func TestTaskReviewRequiresStopEvidenceForRepeatedPolling(t *testing.T) {
-	s := selSession("poll", "Check pipeline 81234567 status",
+	s := testkit.NewSession("poll", "Check pipeline 81234567 status",
 		trace.Call{Tool: "mcp:gitlab_get_pipeline", Args: map[string]string{"pipeline_id": "81234567"}, Output: `{"status":"running"}`, Outcome: trace.OutcomeOK},
 		trace.Call{Tool: "mcp:gitlab_get_pipeline", Args: map[string]string{"pipeline_id": "81234567"}, Output: `{"status":"running"}`, Outcome: trace.OutcomeOK},
 		trace.Call{Tool: "mcp:gitlab_get_pipeline", Args: map[string]string{"pipeline_id": "81234567"}, Output: `{"status":"success"}`, Outcome: trace.OutcomeOK})
@@ -113,7 +115,7 @@ func TestTaskReviewRequiresStopEvidenceForRepeatedPolling(t *testing.T) {
 }
 
 func TestTaskReviewKeepsExploratoryReadsOutOfQueue(t *testing.T) {
-	s := selSession("investigate", "Why are half the minikube indexing jobs failing?",
+	s := testkit.NewSession("investigate", "Why are half the minikube indexing jobs failing?",
 		trace.Call{Tool: "shell", Command: "kubectl --context minikube get jobs -n telara-knowledge | head", Output: "failed jobs", Outcome: trace.OutcomeOK})
 	ps := retrieval.SelectSpanProposals([]trace.Session{s})
 	for _, p := range ps {
@@ -124,10 +126,10 @@ func TestTaskReviewKeepsExploratoryReadsOutOfQueue(t *testing.T) {
 }
 
 func TestTaskReviewDoesNotTreatToolPassthroughAsComposition(t *testing.T) {
-	s := selSession("one", "Report dirty worktrees",
+	s := testkit.NewSession("one", "Report dirty worktrees",
 		trace.Call{Tool: "shell", Command: "git worktree list --porcelain", Output: "worktree /repo", Outcome: trace.OutcomeOK})
 	ps := retrieval.SelectSpanProposals([]trace.Session{s})
-	p := spanWithCalls(ps, 1)
+	p := testkit.SpanWithCalls(ps, 1)
 	if p == nil || p.Review.Ready {
 		t.Fatalf("raw one-call result is diagnostic until a transformation is defined: %+v", p)
 	}

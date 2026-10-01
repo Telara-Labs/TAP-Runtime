@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/genreview"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
@@ -21,16 +23,11 @@ import (
 	"gitlab.com/telara-labs/tap-runtime/discover/pyparse"
 )
 
-func fileReplaceSession(id, file, old, new string) trace.Session {
-	body := "path = '" + file + "'\ntext = open(path).read()\nchanged = text.replace('" + old + "', '" + new + "')\nopen(path, 'w').write(changed)\n"
-	return selSession(id, "Replace text in a file", trace.Call{Tool: "shell", Command: "cd project && python3 - <<'PY'\n" + body + "PY\necho done", Outcome: trace.OutcomeOK})
-}
-
 func TestStrictInlineFileReplaceCompilesOnlyProvedSameFileShape(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("Python AST parser unavailable")
 	}
-	ss := []trace.Session{fileReplaceSession("one", "a.txt", "old", "new"), fileReplaceSession("two", "b.txt", "before", "after")}
+	ss := []trace.Session{testkit.FileReplaceSession("one", "a.txt", "old", "new"), testkit.FileReplaceSession("two", "b.txt", "before", "after")}
 	spans := retrieval.SelectSpanProposals(ss)
 	if len(spans) != 2 || spans[0].CodeShape == "" || spans[0].CodeShape != spans[1].CodeShape {
 		t.Fatalf("strict scripts did not produce one shape: %+v", spans)
