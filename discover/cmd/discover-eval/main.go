@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -49,6 +50,8 @@ func main() {
 		err = show(os.Args[2:])
 	case "opportunities":
 		err = opportunities(os.Args[2:])
+	case "boundaries":
+		err = boundaries(os.Args[2:])
 	case "primitives":
 		err = primitives(os.Args[2:])
 	case "spans":
@@ -425,6 +428,84 @@ func opportunities(args []string) error {
 
 // spans runs model-free bounded-span retrieval on a frozen corpus. Its output
 // is diagnostic and unassessed; it cannot be counted as Gate D recall.
+// boundaryLabel is one execution with a long gap, to be labeled continuous
+// (one operation: a wait, a long command) or separate (unrelated work joined
+// by a shared value).
+type boundaryLabel struct {
+	Execution     string   `json:"execution"`
+	Primitive     string   `json:"primitive"`
+	Steps         []string `json:"steps"`
+	Session       string   `json:"session"`
+	Request       int      `json:"request"`
+	MaxGapSeconds int      `json:"maxGapSeconds"`
+	Label         string   `json:"label"` // continuous | separate | ""
+}
+
+// boundaries exports executions with gaps of 5 minutes or more for labeling,
+// or, given labels, reports how each candidate cutoff would split them. A
+// cutoff is only adopted after this shows it separates the labeled cases.
+func boundaries(args []string) error {
+	fs := flag.NewFlagSet("boundaries", flag.ExitOnError)
+	in := fs.String("in", "primitives.json", "output of discover-eval primitives")
+	labels := fs.String("labels", "", "labeled file from a previous export; omit to export")
+	out := fs.String("out", "boundary-labels.json", "where to export executions to label")
+	fs.Parse(args)
+	if *labels != "" {
+		b, err := os.ReadFile(*labels)
+		if err != nil {
+			return err
+		}
+		var ls []boundaryLabel
+		if err := json.Unmarshal(b, &ls); err != nil {
+			return err
+		}
+		fmt.Println("cutoff  separate flagged  continuous flagged (false splits)  unlabeled")
+		for _, min := range []int{5, 10, 20, 30, 60, 120} {
+			sep, sepAll, cont, contAll, un := 0, 0, 0, 0, 0
+			for _, l := range ls {
+				flag := l.MaxGapSeconds >= min*60
+				switch l.Label {
+				case "separate":
+					sepAll++
+					if flag {
+						sep++
+					}
+				case "continuous":
+					contAll++
+					if flag {
+						cont++
+					}
+				default:
+					un++
+				}
+			}
+			fmt.Printf("%4d min  %d/%d  %d/%d  %d\n", min, sep, sepAll, cont, contAll, un)
+		}
+		return nil
+	}
+	b, err := os.ReadFile(*in)
+	if err != nil {
+		return err
+	}
+	var doc struct {
+		Result primitive.Result `json:"result"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return err
+	}
+	var ls []boundaryLabel
+	for _, p := range doc.Result.Primitives {
+		for _, ex := range p.Executions {
+			if ex.MaxGapSeconds >= 5*60 {
+				ls = append(ls, boundaryLabel{Execution: ex.ID, Primitive: p.ID, Steps: p.Steps, Session: ex.Session, Request: ex.Request, MaxGapSeconds: ex.MaxGapSeconds})
+			}
+		}
+	}
+	sort.Slice(ls, func(i, j int) bool { return ls[i].MaxGapSeconds > ls[j].MaxGapSeconds })
+	fmt.Printf("exported %d executions with a gap of 5 minutes or more to %s; set each label to continuous or separate\n", len(ls), *out)
+	return writeJSON(*out, ls)
+}
+
 // primitives replays the condensed primitive discovery over a frozen corpus.
 func primitives(args []string) error {
 	fs := flag.NewFlagSet("primitives", flag.ExitOnError)
