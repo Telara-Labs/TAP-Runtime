@@ -27,13 +27,13 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 	"gitlab.com/telara-labs/tap-runtime/discover/util"
-	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
 	"gopkg.in/yaml.v3"
 )
 
