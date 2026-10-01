@@ -294,10 +294,15 @@ func ObservedArgs(c Call) map[string]ObservedField {
 // itself, or for a path its base name, or for a URL its path, appears in the
 // text (case-insensitive).
 func InRequest(v, text string) bool {
-	if text == "" {
+	return InLoweredRequest(v, strings.ToLower(text))
+}
+
+// InLoweredRequest is InRequest over request text already lowercased, for
+// callers that test many values against one request.
+func InLoweredRequest(v, t string) bool {
+	if t == "" {
 		return false
 	}
-	t := strings.ToLower(text)
 	lv := strings.ToLower(strings.TrimSpace(v))
 	if lv == "" {
 		return false

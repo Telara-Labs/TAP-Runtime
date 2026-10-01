@@ -180,6 +180,7 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 	clients := fs.String("client", "claude-code", "clients to read, comma-separated")
 	days := fs.Int("days", 0, "only sessions from the last N days (0 = all retained history)")
 	all := fs.Bool("all", false, "accept every proposed primitive without asking")
+	revisit := fs.Bool("revisit", false, "list your earlier decisions and undo one")
 	asJSON := fs.Bool("json", false, "print the condensed result as JSON instead of the menu")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -188,6 +189,19 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 	if err != nil {
 		fmt.Fprintln(errOut, "discover:", err)
 		return 1
+	}
+	color := false
+	if f, ok := out.(*os.File); ok {
+		if fi, err := f.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+			color = true
+		}
+	}
+	if *revisit {
+		if err := primitive.Revisit(in, out, filepath.Join(home, ".tap", "discover"), color); err != nil {
+			fmt.Fprintln(errOut, "discover:", err)
+			return 1
+		}
+		return 0
 	}
 	readers, err := history.DefaultReaders(strings.Split(*clients, ","), home)
 	if err != nil {
@@ -218,12 +232,6 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 			return 1
 		}
 		return 0
-	}
-	color := false
-	if f, ok := out.(*os.File); ok {
-		if fi, err := f.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
-			color = true
-		}
 	}
 	cfg := primitive.MenuConfig{StateDir: stateDir, All: *all, Clients: *clients, Home: home, Sessions: sessions, Color: color,
 		Skill: primitive.Skill{Source: "tap-runtime/discover/genreview/skill/tap-primitive-refine/SKILL.md", Content: genreview.GeneratedRefineSkill}}

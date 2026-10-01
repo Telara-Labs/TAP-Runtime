@@ -198,6 +198,7 @@ type node struct {
 	effect  string
 	parents []edge
 	c       trace.Call // the recorded call and its result
+	res     *result    // its result, indexed
 	control []string   // && dependencies inside the call
 	decided bool       // its arguments were constructed from an earlier output
 	shape   string     // the primitive this call was grouped into
@@ -472,6 +473,7 @@ func normKey(k string) string {
 func buildNode(c trace.Call, ci int, steps []trace.Step, direct map[string]map[string]bool) (node, bool) {
 	n := node{call: ci, request: c.Request, effect: "read"}
 	n.c = c
+	n.res = indexResult(c)
 	if c.Tool == "shell" {
 		if plan, err := shellparse.ProgramShellPlan(c.Command); err == nil {
 			for i := 1; i < len(plan); i++ {

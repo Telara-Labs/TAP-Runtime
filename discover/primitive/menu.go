@@ -13,12 +13,6 @@ import (
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-// Decision is one recorded menu choice.
-type Decision struct {
-	ID     string `json:"id"`
-	Choice string `json:"choice"` // accept | deny | eval
-}
-
 // MenuConfig says where decisions and accepted primitives live.
 type MenuConfig struct {
 	StateDir string
@@ -51,35 +45,6 @@ func LoadKnown(stateDir string) []Known {
 		}
 	}
 	return out
-}
-
-func loadDecisions(stateDir string) map[string]string {
-	out := map[string]string{}
-	b, err := os.ReadFile(filepath.Join(stateDir, "decisions.jsonl"))
-	if err != nil {
-		return out
-	}
-	for _, line := range strings.Split(string(b), "\n") {
-		var d Decision
-		if json.Unmarshal([]byte(line), &d) == nil && d.ID != "" {
-			out[d.ID] = d.Choice
-		}
-	}
-	return out
-}
-
-func record(stateDir string, d Decision) error {
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(filepath.Join(stateDir, "decisions.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	b, _ := json.Marshal(d)
-	_, err = f.Write(append(b, '\n'))
-	return err
 }
 
 // WriteSummary prints what was read and found, as a table.
@@ -181,23 +146,19 @@ func inputNames(p Primitive) string {
 // before submitting writes nothing. Denied primitives are not shown again.
 func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	s := style{on: cfg.Color}
-	done := loadDecisions(cfg.StateDir)
 	byID := map[string]Primitive{}
 	for _, p := range res.Primitives {
 		byID[p.ID] = p
 	}
-	var shown []Family
-	for _, f := range res.Families {
-		if done[f.ID] != "deny" {
-			shown = append(shown, f)
-		}
-	}
+	shown, hidden := Triage(res, LoadLedger(cfg.StateDir))
 	banner(out, s, fmt.Sprintf("%s · %s sessions · %s tool calls", cfg.Clients, count(res.Summary.Sessions), count(res.Summary.ToolCalls)))
 	writeSummary(out, s, res, cfg.Clients)
-	if hidden := len(res.Families) - len(shown); hidden > 0 {
-		fmt.Fprintln(out, s.dim(fmt.Sprintf("  %d denied earlier and hidden.", hidden)))
+	if n := hidden["accept"] + hidden["deny"] + hidden["eval"]; n > 0 {
+		fmt.Fprintln(out, "  "+s.dim(fmt.Sprintf("Already decided and not shown again: %d accepted, %d declined, %d in refinement. Change one with: tap discover --revisit",
+			hidden["accept"], hidden["deny"], hidden["eval"])))
 	}
 	if len(shown) == 0 {
+		fmt.Fprintln(out, "\nNothing new to review.")
 		return nil
 	}
 	choice := make([]string, len(shown))
@@ -206,11 +167,9 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 		t := table{head: []string{"#", "Primitive", "Runs", "Sessions", "Turns saved", "Est. tokens saved", "Values traced", "Open questions", "Choice"},
 			widths: []int{3, 38, 5, 8, 11, 17, 13, 14, 7}, right: map[int]bool{0: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true}}
 		for i, f := range shown {
-			c := choice[i]
-			if c == "" {
-				c = s.dim(done[f.ID])
-			} else {
-				c = s.choice(c)
+			c := s.choice(choice[i])
+			if c == "" && f.Status != StatusNew {
+				c = s.dim("see card")
 			}
 			t.rows = append(t.rows, []string{fmt.Sprint(i + 1), title(f), count(f.ExecutionCount), count(f.SessionCount),
 				count(f.TurnsSaved), "≈" + tokensText(inputEquivalent(f.Saved)), fmt.Sprintf("%d of %d", f.Traced, f.Values), fmt.Sprint(f.OpenQuestions), c})
@@ -235,7 +194,7 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	pos := 0
 	inspect := func() bool {
 		for pos < len(shown) {
-			card(out, s, pos+1, len(shown), shown[pos], byID, choice[pos], done[shown[pos].ID])
+			card(out, s, pos+1, len(shown), shown[pos], byID, choice[pos])
 			k, ok := read(keys(s, "a", "accept", "d", "deny", "e", "agent eval", "n", "next", "p", "previous", "s", "review", "q", "quit"))
 			if !ok || k == "q" {
 				return false
@@ -331,12 +290,18 @@ func title(f Family) string {
 
 // card shows one proposed primitive: where it was found, its structure, the
 // tools it uses, and its metadata.
-func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primitive, pending, earlier string) {
+func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primitive, pending string) {
 	fmt.Fprintln(out)
 	head := fmt.Sprintf(" %d of %d ", n, total)
 	fmt.Fprintln(out, s.accent("━━"+head+strings.Repeat("━", screen-2-width(head))))
 	fmt.Fprintln(out, " "+s.bold(title(f)))
-	fmt.Fprintln(out, " "+s.dim(fmt.Sprintf("Found in %s runs across %s sessions · %s", count(f.ExecutionCount), count(f.SessionCount), f.ID)))
+	fmt.Fprintln(out, " "+s.dim(fmt.Sprintf("Found in %s runs across %s sessions · %s", count(f.ExecutionCount), count(f.SessionCount), f.Fingerprint)))
+	switch f.Status {
+	case StatusNewSince:
+		fmt.Fprintln(out, " "+s.accent(fmt.Sprintf("Only what is new since your last decision (%s) is shown.", f.Earlier)))
+	case StatusReevaluated:
+		fmt.Fprintln(out, " "+s.accent("Shown again: the discovery rules changed since you decided on this."))
+	}
 
 	section(out, s, "Structure")
 	st := table{head: []string{"Step", "Operation", "When", "Runs"}, widths: []int{6, 62, 9, 6}, right: map[int]bool{3: true}}
@@ -417,9 +382,6 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 		{"Status", conf},
 		{"Run consistency (detail)", fmt.Sprintf("%d/100 weighted by runs, weakest chain %d (%s; describes the evidence, not a probability)", f.Confidence, f.Weakest, Rubric)},
 	}}
-	if earlier != "" {
-		mt.rows = append(mt.rows, []string{"Earlier decision", earlier})
-	}
 	if pending != "" {
 		mt.rows = append(mt.rows, []string{"Your choice so far", s.choice(pending)})
 	}
@@ -436,15 +398,18 @@ func submit(out io.Writer, s style, shown []Family, choice []string, byID map[st
 		switch choice[i] {
 		case "accept":
 			err = acceptFamily(cfg.StateDir, f, byID)
+			if err == nil {
+				err = appendLedger(cfg.StateDir, entryFor(f, "accept"))
+			}
 			msg = "accepted → " + filepath.Join(cfg.StateDir, "accepted", "families", f.ID+".json")
 		case "deny":
-			err = record(cfg.StateDir, Decision{f.ID, "deny"})
-			msg = "denied; it will not be shown again"
+			err = appendLedger(cfg.StateDir, entryFor(f, "deny"))
+			msg = "declined; not shown again unless something new appears under it"
 		case "eval":
 			where := filepath.Join(cfg.StateDir, "eval", f.ID)
 			err = WriteFamilyHandoff(where, cfg.Home, f, byID, cfg.Sessions, cfg.Skill)
 			if err == nil {
-				err = record(cfg.StateDir, Decision{f.ID, "eval"})
+				err = appendLedger(cfg.StateDir, entryFor(f, "eval"))
 			}
 			msg = "agent eval → " + where + " (give your coding agent HANDOFF.md)"
 		default:
@@ -494,7 +459,7 @@ func acceptFamily(stateDir string, f Family, byID map[string]Primitive) error {
 			return err
 		}
 	}
-	return record(stateDir, Decision{f.ID, "accept"})
+	return nil
 }
 
 // WriteFamilyHandoff writes one handoff per exact chain under dir, and an
@@ -537,10 +502,7 @@ func accept(stateDir string, p Primitive) error {
 		return err
 	}
 	b, _ := json.MarshalIndent(p, "", "  ")
-	if err := os.WriteFile(filepath.Join(dir, p.ID+".json"), b, 0o600); err != nil {
-		return err
-	}
-	return record(stateDir, Decision{p.ID, "accept"})
+	return os.WriteFile(filepath.Join(dir, p.ID+".json"), b, 0o600)
 }
 
 // bindingSummary counts each argument's evidence level.
