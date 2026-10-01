@@ -1,4 +1,4 @@
-package discover
+package integration
 
 // Acceptance cases C01-C24 of the discover execution plan
 // (tap-discover-review-2026-09-29/CLAUDE-EXECUTION-PLAN.md, section 6).
@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover"
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
@@ -35,9 +36,9 @@ func runOn(t *testing.T, ss ...[]trace.Session) *model.Report {
 	for _, s := range ss {
 		all = append(all, s...)
 	}
-	o := DefaultOptions()
+	o := discover.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: all}}
-	rep, err := Run(o)
+	rep, err := discover.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}

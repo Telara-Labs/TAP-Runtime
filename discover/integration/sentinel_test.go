@@ -1,4 +1,4 @@
-package discover
+package integration
 
 // Sentinel set (plan section 8): at least ten supported positives across at
 // least three task families that discovery must recommend as useful. It

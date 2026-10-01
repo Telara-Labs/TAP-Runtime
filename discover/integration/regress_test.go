@@ -1,4 +1,4 @@
-package discover
+package integration
 
 // Regressions from the Gate D audit of advertised recommendations
 // (tap-discover-review-2026-09-29/eval/GATE-D-REPORT.md). Each was a
