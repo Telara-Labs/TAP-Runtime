@@ -1,8 +1,7 @@
-package discover
+package history
 
 import (
 	"encoding/json"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,7 +49,7 @@ func TestCodexReaderDoesNotAttributeSharedExecOutputToEveryNestedCall(t *testing
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, err := readCodexFile(path)
+	s, err := ReadCodexFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,13 +81,13 @@ func TestCodexExecResultTextMatchesBridgeContentFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text, failed, ok := codexExecResultText(raw)
+	text, failed, ok := CodexExecResultText(raw)
 	if !ok || !failed || text != `{"id":"TENG-42"}` {
 		t.Fatalf("content result = %q, failed=%v, ok=%v", text, failed, ok)
 	}
 	blocks = append(blocks, map[string]string{"type": "input_text", "text": "extra output"})
 	raw, _ = json.Marshal(blocks)
-	if _, _, ok := codexExecResultText(raw); ok {
+	if _, _, ok := CodexExecResultText(raw); ok {
 		t.Fatal("multiple printed values do not prove one raw tool result")
 	}
 }
@@ -98,7 +97,7 @@ func TestCodexIndexedExecResultsRequireExactSourceAndCompleteIndexes(t *testing.
   tools.mcp__test__get({id:"A"}),
   tools.mcp__test__get({id:"B"})
 ]); results.forEach((r,i) => text(JSON.stringify({check:i,result:r})));`
-	if count, key, ok := codexIndexedSource(source); !ok || count != 2 || key != "check" {
+	if count, key, ok := CodexIndexedSource(source); !ok || count != 2 || key != "check" {
 		t.Fatalf("direct indexed source was not recognized: count=%d key=%q ok=%v", count, key, ok)
 	}
 	blocks := []map[string]string{
@@ -107,18 +106,18 @@ func TestCodexIndexedExecResultsRequireExactSourceAndCompleteIndexes(t *testing.
 		{"type": "text", "text": `{"check":0,"result":{"status":"fulfilled","value":{"structuredContent":{"id":"A"}}}}`},
 	}
 	raw, _ := json.Marshal(blocks)
-	results, ok := codexExecIndexedResults(source, raw, 2)
-	if !ok || len(results) != 2 || results[0].text != `{"id":"A"}` || results[1].text != `{"id":"B"}` {
+	results, ok := CodexExecIndexedResults(source, raw, 2)
+	if !ok || len(results) != 2 || results[0].Text != `{"id":"A"}` || results[1].Text != `{"id":"B"}` {
 		t.Fatalf("reordered display lost array-index provenance: %+v %v", results, ok)
 	}
 	blocks[2]["text"] = blocks[1]["text"] // duplicate index and missing index zero
 	raw, _ = json.Marshal(blocks)
-	if _, ok := codexExecIndexedResults(source, raw, 2); ok {
+	if _, ok := CodexExecIndexedResults(source, raw, 2); ok {
 		t.Fatal("duplicate result index was attributed")
 	}
 	blocks = blocks[:2]
 	raw, _ = json.Marshal(blocks)
-	if _, ok := codexExecIndexedResults(source, raw, 2); ok {
+	if _, ok := CodexExecIndexedResults(source, raw, 2); ok {
 		t.Fatal("missing result block was attributed")
 	}
 	for _, changed := range []string{
@@ -126,7 +125,7 @@ func TestCodexIndexedExecResultsRequireExactSourceAndCompleteIndexes(t *testing.
 		strings.Replace(source, "tools.mcp__test__get({id:\"B\"})", "tools.mcp__test__get({id:\"B\"}).content", 1),
 		strings.Replace(source, "Promise.allSettled", "Promise.all", 1),
 	} {
-		if _, _, ok := codexIndexedSource(changed); ok {
+		if _, _, ok := CodexIndexedSource(changed); ok {
 			t.Fatalf("transformed or incompatible source was attributed: %q", changed)
 		}
 	}
@@ -153,7 +152,7 @@ func TestCodexReaderAttributesIndexedMultiCallResultsAndFailures(t *testing.T) {
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, err := readCodexFile(path)
+	s, err := ReadCodexFile(path)
 	if err != nil || len(s.Calls) != 2 {
 		t.Fatalf("indexed fixture: %+v %v", s, err)
 	}
@@ -164,7 +163,7 @@ func TestCodexReaderAttributesIndexedMultiCallResultsAndFailures(t *testing.T) {
 
 func TestCodexIndexedFulfilledValueRequiresToolEnvelope(t *testing.T) {
 	source := `const rs = await Promise.allSettled([tools.mcp__test__get({id:"A"}),tools.mcp__test__get({id:"B"})]); rs.forEach((x,i)=>text(JSON.stringify({i,result:x.status==="fulfilled"?x.value:x.reason})));`
-	if count, key, ok := codexIndexedValueSource(source); !ok || count != 2 || key != "i" {
+	if count, key, ok := CodexIndexedValueSource(source); !ok || count != 2 || key != "i" {
 		t.Fatalf("unmodified fulfilled-value source was not recognized: %d %q %v", count, key, ok)
 	}
 	blocks := []map[string]string{
@@ -173,16 +172,16 @@ func TestCodexIndexedFulfilledValueRequiresToolEnvelope(t *testing.T) {
 		{"type": "text", "text": `{"i":0,"result":{"structuredContent":{"id":"TENG-1001"}}}`},
 	}
 	raw, _ := json.Marshal(blocks)
-	results, ok := codexExecIndexedResults(source, raw, 2)
-	if !ok || results[0].text != `{"id":"TENG-1001"}` || results[1].text != "TENG-1002" || !results[1].failed {
+	results, ok := CodexExecIndexedResults(source, raw, 2)
+	if !ok || results[0].Text != `{"id":"TENG-1001"}` || results[1].Text != "TENG-1002" || !results[1].Failed {
 		t.Fatalf("fulfilled values lost index or tool envelope: %+v %v", results, ok)
 	}
 	blocks[1]["text"] = `{"i":1,"result":"rejected"}`
 	raw, _ = json.Marshal(blocks)
-	if _, ok := codexExecIndexedResults(source, raw, 2); ok {
+	if _, ok := CodexExecIndexedResults(source, raw, 2); ok {
 		t.Fatal("rejection text was treated as a tool result")
 	}
-	if _, _, ok := codexIndexedValueSource(strings.Replace(source, "x.value", "x.value.output", 1)); ok {
+	if _, _, ok := CodexIndexedValueSource(strings.Replace(source, "x.value", "x.value.output", 1)); ok {
 		t.Fatal("transformed value source was attributed")
 	}
 }
@@ -271,7 +270,7 @@ func TestCodexReaderUsesScheduledPromptBeforeInjectedInstructions(t *testing.T) 
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, err := readCodexFile(path)
+	s, err := ReadCodexFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +293,7 @@ func TestCodexReaderRecoversScheduledPromptAfterPluginEnvelope(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, err := readCodexFile(path)
+	s, err := ReadCodexFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +301,7 @@ func TestCodexReaderRecoversScheduledPromptAfterPluginEnvelope(t *testing.T) {
 		len(s.RequestRoles) != 1 || s.RequestRoles[0] != "scheduled" || len(s.Calls) != 1 || s.Calls[0].Request != 0 {
 		t.Fatalf("scheduled prompt or role was lost: requests=%q roles=%q calls=%+v", s.Requests, s.RequestRoles, s.Calls)
 	}
-	if codexInjectedAutomationContext("<recommended_plugins>\n</recommended_plugins>\n# AGENTS.md instructions for /repo\n<environment_context>\n</environment_context>\nPlease inspect X") {
+	if CodexInjectedAutomationContext("<recommended_plugins>\n</recommended_plugins>\n# AGENTS.md instructions for /repo\n<environment_context>\n</environment_context>\nPlease inspect X") {
 		t.Fatal("a request following the context must not be classified as a wrapper")
 	}
 }
@@ -318,7 +317,7 @@ func TestCodexReaderDoesNotReplaceUserRequestWithAutomationRecord(t *testing.T) 
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, err := readCodexFile(path)
+	s, err := ReadCodexFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,20 +338,20 @@ func TestJSObjectFieldsTruncatedInput(t *testing.T) {
 	// Stray closers at the top level once looped forever on real Codex input.
 	for _, in := range []string{`{`, `{"cmd"`, `{"cmd":`, `{cmd: "abc`, `{a: {b: [1, `, `{"k"}`, `{...rest, cmd: "x"}`, `{)}`, `{a: )}`, `{a: 1, ]}`, `{a: ], b: 2}`} {
 		done := make(chan struct{})
-		go func() { _ = jsObjectFields(in); close(done) }()
+		go func() { _ = JsObjectFields(in); close(done) }()
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
 			t.Fatalf("jsObjectFields(%q) did not return", in)
 		}
 	}
-	if got := jsObjectFields(`{...rest, cmd: "x"}`)["cmd"]; got != "x" {
+	if got := JsObjectFields(`{...rest, cmd: "x"}`)["cmd"]; got != "x" {
 		t.Fatalf("after a spread, cmd = %q", got)
 	}
 }
 
 func TestJSObjectFields(t *testing.T) {
-	got := jsObjectFields(`{cmd:"a \"b\"", "workdir": '/x', n: 5, nested: {a: 1}, t:` + "`x`" + `}`)
+	got := JsObjectFields(`{cmd:"a \"b\"", "workdir": '/x', n: 5, nested: {a: 1}, t:` + "`x`" + `}`)
 	want := map[string]string{"cmd": `a "b"`, "workdir": "/x", "n": "5", "nested": "{a: 1}", "t": "x"}
 	for k, v := range want {
 		if got[k] != v {
@@ -459,27 +458,6 @@ func TestCodexTokenCountAttributesToPrecedingCalls(t *testing.T) {
 	}
 }
 
-func TestRunCostSavesAllButOneTurn(t *testing.T) {
-	st := func(turn int, total float64) trace.Step {
-		return trace.Step{Label: "sh:git status", Tokens: trace.Usage{Cached: total}, Turn: turn, Measured: true, Turns: 1}
-	}
-	// An edit decided per run is not replayed, so it saves nothing.
-	edit := trace.Step{Label: "patch:update", Tokens: trace.Usage{Cached: 500}, Turn: 9, Measured: true, Turns: 1}
-	if run, saved, ok := runCost([]trace.Step{st(1, 100), edit, st(2, 100)}); !ok || run.Total() != 200 || math.Abs(saved.Total()-100) > 1e-9 {
-		t.Fatalf("with an edit: run %v saved %v ok %v", run, saved, ok)
-	}
-	if _, _, ok := runCost([]trace.Step{edit}); ok {
-		t.Fatal("a run with nothing replayable has no saving")
-	}
-	run, saved, ok := runCost([]trace.Step{st(1, 100), st(2, 100), st(3, 100)})
-	if !ok || run.Total() != 300 || math.Abs(saved.Total()-200) > 1e-9 {
-		t.Fatalf("run %v saved %v", run, saved)
-	}
-	if _, _, ok := runCost([]trace.Step{st(1, 1), {}}); ok {
-		t.Fatal("an unmeasured step must make the run unmeasured")
-	}
-}
-
 func TestOutcomesAreRead(t *testing.T) {
 	ss, err := ClaudeCode{Dir: "testdata/claude"}.Read(time.Time{})
 	if err != nil || ss[0].Calls[0].Outcome != trace.OutcomeOK {
@@ -496,14 +474,14 @@ func TestOutcomesAreRead(t *testing.T) {
 	if cs[0].Calls[1].Outcome != trace.OutcomeUnknown {
 		t.Fatalf("codex: a call with no output is unknown: %+v", cs[0].Calls[1])
 	}
-	if c := cursorCall(cursorRow{Name: "run_terminal_cmd", Args: `{"command":"make"}`, Status: "error", Result: `{"output":"see https://ci.example.com/j/42"}`}); c.Outcome != trace.OutcomeFailed || c.OutIDs[0] != "https://ci.example.com/j/42" {
+	if c := CursorCall(CursorRow{Name: "run_terminal_cmd", Args: `{"command":"make"}`, Status: "error", Result: `{"output":"see https://ci.example.com/j/42"}`}); c.Outcome != trace.OutcomeFailed || c.OutIDs[0] != "https://ci.example.com/j/42" {
 		t.Fatalf("cursor: %+v", c)
 	}
 }
 
 func TestCursorReaderKeepsCompleteCollectionEvidencePastPreview(t *testing.T) {
 	full := `{"padding":"` + strings.Repeat("x", 700) + `","items":[{"id":"TENG-1"},{"id":"TENG-2"}]}`
-	call := cursorCall(cursorRow{Name: "mcp-records-list", Status: "completed", Result: full})
+	call := CursorCall(CursorRow{Name: "mcp-records-list", Status: "completed", Result: full})
 	if len(call.Output) != 600 || len(call.OutCollections) != 1 {
 		t.Fatalf("short preview must retain one complete collection summary: output=%d collections=%+v", len(call.Output), call.OutCollections)
 	}
@@ -527,7 +505,7 @@ func TestCodexToolNameShapes(t *testing.T) {
 		{"", "mcp__codex_apps__telara_telara_task_list", "mcp:telara_task_list"},
 		{"", "mcp__codex_apps__gmail_search_emails", "mcp:gmail_search_emails"},
 	} {
-		if got := codexCall(trace.Session{}, time.Time{}, c.ns, c.name, nil).Tool; got != c.want {
+		if got := CodexCall(trace.Session{}, time.Time{}, c.ns, c.name, nil).Tool; got != c.want {
 			t.Errorf("%q + %q = %q, want %q", c.ns, c.name, got, c.want)
 		}
 	}

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/history"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
@@ -37,7 +39,7 @@ func FuzzJSToolCalls(f *testing.F) {
 	} {
 		f.Add(s)
 	}
-	f.Fuzz(func(t *testing.T, s string) { _ = jsToolCalls(s) })
+	f.Fuzz(func(t *testing.T, s string) { _ = history.JsToolCalls(s) })
 }
 
 func FuzzWordSpans(f *testing.F) {

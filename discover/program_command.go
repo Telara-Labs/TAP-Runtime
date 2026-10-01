@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/history"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -38,7 +40,7 @@ func generateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "discover generate:", err)
 		return 1
 	}
-	readers, err := DefaultReaders(strings.Split(*clients, ","), home)
+	readers, err := history.DefaultReaders(strings.Split(*clients, ","), home)
 	if err != nil {
 		fmt.Fprintln(errOut, "discover generate:", err)
 		return 2

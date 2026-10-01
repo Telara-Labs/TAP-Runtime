@@ -1,0 +1,5 @@
+{"type":"user","sessionId":"s1","timestamp":"2026-09-20T10:00:00Z","message":{"role":"user","content":"check the repos"}}
+{"type":"assistant","sessionId":"s1","timestamp":"2026-09-20T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"Checking."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cd /x && git status --short","description":"status"}}]}}
+{"type":"user","sessionId":"s1","timestamp":"2026-09-20T10:00:06Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"M a.go"}]}}
+{"type":"assistant","sessionId":"s1","timestamp":"2026-09-20T10:00:07Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"mcp__telara__telara_task_list","input":{"query":"primitive"}},{"type":"tool_use","id":"t3","name":"Skill","input":{"skill":"minikube-ops"}},{"type":"tool_use","id":"t4","name":"Read","input":{"file_path":"/x/a.go"}}]}}
+not json at all

@@ -3,6 +3,8 @@ package discover
 import (
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/history"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -22,7 +24,7 @@ type SpanTaskReview struct {
 func spanSyntheticRequest(s trace.Session, req int) bool {
 	return req >= 0 && req < len(s.Requests) &&
 		(req < len(s.RequestRoles) && s.RequestRoles[req] == "synthetic_context" ||
-			isClaudeContinuationSummary(s.Requests[req]))
+			history.IsClaudeContinuationSummary(s.Requests[req]))
 }
 
 func assessSpanTask(s trace.Session, req int, nodes []spanNode, set []int, inputs []SpanInput) SpanTaskReview {
