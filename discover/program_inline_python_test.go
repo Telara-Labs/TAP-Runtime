@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/pyparse"
 )
 
 func fileReplaceSession(id, file, old, new string) Session {
@@ -70,7 +72,7 @@ func TestStrictInlineFileReplaceRejectsAliasAndAdditionalEffects(t *testing.T) {
 		"path='a'\ndata=open(path).read()\nchanged=data.replace('x','y')\nopen('other','w').write(changed)",
 		"path='a'\ndata=open(path).read()\nchanged=data.replace('x','y')\nprint('side effect')\nopen(path,'w').write(changed)",
 	} {
-		if strictInlineFileReplace(body) {
+		if pyparse.StrictInlineFileReplace(body) {
 			t.Fatalf("unsafe body passed strict AST parser: %q", body)
 		}
 	}

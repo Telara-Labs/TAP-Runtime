@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pyparse"
+
 	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
 )
 
@@ -42,8 +44,8 @@ func synthesizeInlineFileReplace(g *ProgramGraph, traces []observedTrace) {
 			g.Problems = append(g.Problems, "inline code shapes or source call boundaries differ")
 			return
 		}
-		body, isEmbedded, ok := inlinePythonBody(tr.groups[0][0].node.call.Command)
-		if !ok || !strictInlineFileReplace(body) {
+		body, isEmbedded, ok := pyparse.InlinePythonBody(tr.groups[0][0].node.call.Command)
+		if !ok || !pyparse.StrictInlineFileReplace(body) {
 			g.Problems = append(g.Problems, "inline Python is not a proved same-file four-statement read/replace/write")
 			return
 		}

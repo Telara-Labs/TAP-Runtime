@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/pyparse"
 )
 
 // Temporary: compares the Go recognizer with the Python one on real and
@@ -23,7 +25,7 @@ func TestZZParityGoVsPython(t *testing.T) {
 				if c.Tool != "shell" {
 					continue
 				}
-				if b, _, ok := inlinePythonBody(c.Command); ok {
+				if b, _, ok := pyparse.InlinePythonBody(c.Command); ok {
 					bodies = append(bodies, b)
 				}
 			}
@@ -66,7 +68,7 @@ func TestZZParityGoVsPython(t *testing.T) {
 	all := append(bodies, syn...)
 	accepted, diff := 0, 0
 	for i, b := range all {
-		g, py := strictInlineFileReplace(b), strictInlineFileReplacePy(b)
+		g, py := pyparse.StrictInlineFileReplace(b), strictInlineFileReplacePy(b)
 		if py {
 			accepted++
 		}
