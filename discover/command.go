@@ -38,6 +38,17 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 		return MenuCommand(args, in, out, errOut, nil)
 	}
 	// The older narrowing report stays available as `discover report`.
+	if args[0] == "evidence" {
+		if len(args) != 3 {
+			fmt.Fprintln(errOut, "usage: discover evidence <handoff-folder> <execution-id>")
+			return 2
+		}
+		if err := primitive.Resolve(args[1], args[2], out); err != nil {
+			fmt.Fprintln(errOut, "discover:", err)
+			return 1
+		}
+		return 0
+	}
 	if args[0] == "report" {
 		args = args[1:]
 	} else {
@@ -208,7 +219,9 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 		}
 		return 0
 	}
-	if err := primitive.Menu(in, out, res, primitive.MenuConfig{StateDir: stateDir, All: *all, Clients: *clients}); err != nil {
+	cfg := primitive.MenuConfig{StateDir: stateDir, All: *all, Clients: *clients, Home: home, Sessions: sessions,
+		Skill: primitive.Skill{Source: "tap-runtime/discover/genreview/skill/tap-primitive-refine/SKILL.md", Content: genreview.GeneratedRefineSkill}}
+	if err := primitive.Menu(in, out, res, cfg); err != nil {
 		fmt.Fprintln(errOut, "discover:", err)
 		return 1
 	}

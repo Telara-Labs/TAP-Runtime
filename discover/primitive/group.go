@@ -84,15 +84,38 @@ func fold(g []node, members []int) []step {
 	return steps
 }
 
+// shareProducer reports two calls that take different items from the same
+// earlier call: an iteration. The same item taken twice is a sequence of
+// operations on one target, not a loop.
 func shareProducer(g []node, a, b int) bool {
 	for _, ea := range g[a].parents {
 		for _, eb := range g[b].parents {
-			if ea.from == eb.from && ea.key == eb.key {
+			if ea.from == eb.from && ea.key == eb.key && argValue(g[a], ea.key) != argValue(g[b], eb.key) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func argValue(n node, key string) string {
+	for _, a := range n.args {
+		if a.key == key {
+			return a.value
+		}
+	}
+	return ""
+}
+
+// item is the values a call took from earlier results: what distinguishes
+// one iteration from another.
+func item(n node) string {
+	var vs []string
+	for _, e := range n.parents {
+		vs = append(vs, e.key+"="+argValue(n, e.key))
+	}
+	sort.Strings(vs)
+	return strings.Join(vs, ",")
 }
 
 // shape keys a member set by its steps and its value flows between step
@@ -182,6 +205,7 @@ func condense(ss []trace.Session, graphs [][]node) []Primitive {
 		si      int
 		sinks   []int
 		members []int
+		items   map[string]bool
 	}
 	var picks []*pick
 	byPrefix := map[string]*pick{}
@@ -209,12 +233,13 @@ func condense(ss []trace.Session, graphs [][]node) []Primitive {
 				}
 				key = reqKey(si, g[j].request) + "|" + id + "|" + strings.Join(pre, ",") + "|" + g[j].op
 			}
-			if pk := byPrefix[key]; key != "" && pk != nil {
+			if pk := byPrefix[key]; key != "" && pk != nil && !pk.items[item(g[j])] {
 				pk.sinks = append(pk.sinks, j)
 				pk.members = append(pk.members, j)
+				pk.items[item(g[j])] = true
 				continue
 			}
-			pk := &pick{si: si, sinks: []int{j}, members: append([]int(nil), members...)}
+			pk := &pick{si: si, sinks: []int{j}, members: append([]int(nil), members...), items: map[string]bool{item(g[j]): true}}
 			picks = append(picks, pk)
 			if key != "" {
 				byPrefix[key] = pk
