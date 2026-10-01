@@ -22,11 +22,28 @@ type MenuConfig struct {
 	Clients string
 	// Color draws accents when the output is a terminal.
 	Color bool
+	// Install generates a family's primitive and installs it for the
+	// person's agent. Supplied by the command, which may reach the code
+	// generator; nil leaves accepting as saving only.
+	Install func(f Family, members []Primitive) (InstallResult, error)
 	// Home, Sessions and Skill feed the agent-eval handoff: transcripts are
 	// located under Home, request text comes from Sessions.
 	Home     string
 	Sessions []trace.Session
 	Skill    Skill
+}
+
+// InstallResult says what accepting produced.
+type InstallResult struct {
+	Installed bool
+	Name      string
+	Where     string
+	// Reason says why nothing was installed (the program could not be
+	// determined from the recorded uses).
+	Reason string
+	// Left are follow-ups not in the generated program: it builds the
+	// family's most-used chain.
+	Left []string
 }
 
 // LoadKnown returns the primitives accepted earlier on this machine, for
@@ -55,35 +72,50 @@ func WriteSummary(out io.Writer, res Result, clients string) {
 func writeSummary(out io.Writer, s style, res Result, clients string) {
 	sm := res.Summary
 	section(out, s, "Summary")
-	var saved trace.Usage
-	for _, f := range res.Families {
-		saved = saved.Add(f.Saved)
-	}
-	tot, _, eq := tokenCells(sm.Tokens)
-	_, _, seq := tokenCells(saved)
-	table{widths: []int{52, 12}, right: map[int]bool{1: true}, rows: [][]string{
+	rows := [][]string{
 		{"Sessions read (" + clients + ")", count(sm.Sessions)},
-		{"Tool calls", count(sm.ToolCalls)},
-		{"Replayable operations", count(sm.Operations)},
-		{"Edits and inline scripts (judgment, never replayed)", count(sm.JudgmentCalls)},
-		{"Failed calls", count(sm.FailedCalls)},
-		{"Decisions built from an earlier output", count(sm.DecisionCalls)},
-		{"Gateway calls matched to their direct tool", count(sm.RouteMerged)},
-		{"Exact chains found", count(sm.Primitives)},
-		{"Proposed primitives", count(sm.Families)},
-	}}.render(out, s)
+	}
+	if p := period(sm); p != "" {
+		rows = append(rows, []string{"Period", p})
+	}
+	rows = append(rows,
+		[]string{"Tool calls", count(sm.ToolCalls)},
+		[]string{"Calls that can be replayed", count(sm.Operations)},
+		[]string{"Edits and scripts the agent wrote (never replayed)", count(sm.JudgmentCalls)},
+		[]string{"Failed calls (not used)", count(sm.FailedCalls)},
+		[]string{"Proposed primitives", count(sm.Families)})
+	table{widths: []int{52, 24}, right: map[int]bool{1: true}, rows: rows}.render(out, s)
+	var saved trace.Usage
 	turns := 0
 	for _, f := range res.Families {
+		saved = saved.Add(f.Saved)
 		turns += f.TurnsSaved
 	}
 	section(out, s, "Estimated savings")
-	table{head: []string{"", "Tool calls", "Est. tokens (input-equivalent)"}, widths: []int{46, 12, 30}, right: map[int]bool{1: true, 2: true}, rows: [][]string{
-		{"Your history", count(sm.ToolCalls), eq},
-		{"Follow-up calls the proposed primitives remove", count(turns), seq},
+	table{head: []string{"", "Model turns", "Tokens (estimate)"}, widths: []int{46, 12, 18}, right: map[int]bool{1: true, 2: true}, rows: [][]string{
+		{"Your history", count(sm.ToolCalls), "about " + tokensText(inputEquivalent(sm.Tokens))},
+		{"Removed if you use every proposed primitive", count(turns), "about " + tokensText(inputEquivalent(saved))},
 	}}.render(out, s)
-	fmt.Fprintln(out, s.dim("  A follow-up call waits on an earlier result, so each one is a model turn you no longer wait for."))
-	fmt.Fprintln(out, s.dim(fmt.Sprintf("  Tokens are priced as fresh input: most of a turn re-reads the conversation from the prompt cache at about")))
-	fmt.Fprintln(out, s.dim(fmt.Sprintf("  %.1f× that price, and output costs about %.0f×. Raw counts are about ten times larger (%s for the history).", cachedRatio, outputRatio, tot)))
+	fmt.Fprintln(out, s.dim("  Each removed turn is a round-trip to the model you no longer wait for. Token figures are priced as fresh"))
+	fmt.Fprintln(out, s.dim("  input; most of a turn is the conversation re-read from cache, which costs about a tenth as much."))
+}
+
+// mark is TAP's own badge.
+func mark(s style) string {
+	if !s.on {
+		return "[TAP]"
+	}
+	return s.wrap("1;7;38;5;209", " TAP ")
+}
+
+func header(out io.Writer, s style, res Result, clients string) {
+	sm := res.Summary
+	line := fmt.Sprintf("%s  %s  %s · %s sessions", mark(s), s.bold("Discover"), clients, count(sm.Sessions))
+	if p := period(sm); p != "" {
+		line += " · " + p
+	}
+	fmt.Fprintln(out, line)
+	fmt.Fprintln(out, s.dim("Repeated tool-call chains from your agent history, proposed as reusable primitives."))
 }
 
 func describe(p Primitive) string {
@@ -151,7 +183,7 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 		byID[p.ID] = p
 	}
 	shown, hidden := Triage(res, LoadLedger(cfg.StateDir))
-	banner(out, s, fmt.Sprintf("%s · %s sessions · %s tool calls", cfg.Clients, count(res.Summary.Sessions), count(res.Summary.ToolCalls)))
+	header(out, s, res, cfg.Clients)
 	writeSummary(out, s, res, cfg.Clients)
 	if n := hidden["accept"] + hidden["deny"] + hidden["eval"]; n > 0 {
 		fmt.Fprintln(out, "  "+s.dim(fmt.Sprintf("Already decided and not shown again: %d accepted, %d declined, %d in refinement. Change one with: tap discover --revisit",
@@ -164,17 +196,7 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	choice := make([]string, len(shown))
 	list := func() {
 		section(out, s, "Proposed primitives (largest estimated saving first)")
-		t := table{head: []string{"#", "Primitive", "Runs", "Sessions", "Turns saved", "Est. tokens saved", "Values traced", "Open questions", "Choice"},
-			widths: []int{3, 38, 5, 8, 11, 17, 13, 14, 7}, right: map[int]bool{0: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true}}
-		for i, f := range shown {
-			c := s.choice(choice[i])
-			if c == "" && f.Status != StatusNew {
-				c = s.dim("see card")
-			}
-			t.rows = append(t.rows, []string{fmt.Sprint(i + 1), title(f), count(f.ExecutionCount), count(f.SessionCount),
-				count(f.TurnsSaved), "≈" + tokensText(inputEquivalent(f.Saved)), fmt.Sprintf("%d of %d", f.Traced, f.Values), fmt.Sprint(f.OpenQuestions), c})
-		}
-		t.render(out, s)
+		listTable(out, s, shown, choice, -1)
 	}
 	list()
 	if cfg.All {
@@ -194,7 +216,7 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	pos := 0
 	inspect := func() bool {
 		for pos < len(shown) {
-			card(out, s, pos+1, len(shown), shown[pos], byID, choice[pos])
+			card(out, s, pos+1, len(shown), shown[pos], byID, choice[pos], res.Summary)
 			k, ok := read(keys(s, "a", "accept", "d", "deny", "e", "agent eval", "n", "next", "p", "previous", "s", "review", "q", "quit"))
 			if !ok || k == "q" {
 				return false
@@ -272,74 +294,137 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	}
 }
 
+// title names a family the way a person would: its first step, and how
+// many optional follow-ups it has.
 func title(f Family) string {
-	t := short(f.Head)
-	if len(f.FollowUps) > 0 {
-		var fu []string
-		for _, x := range f.FollowUps {
-			fu = append(fu, short(headKey(x.Steps[0])))
-		}
-		fu = dedupeLines(fu)
-		if len(fu) > 2 {
-			fu = append(fu[:2], fmt.Sprintf("+%d more", len(fu)-2))
-		}
-		t += " → " + strings.Join(fu, " / ")
+	t := display(f.Head)
+	n := len(f.FollowUps)
+	switch {
+	case n == 1:
+		t += " → " + followUpText(f.FollowUps[0])
+	case n > 1:
+		t += fmt.Sprintf(" (+%d follow-ups)", n)
 	}
 	return t
 }
 
-// card shows one proposed primitive: where it was found, its structure, the
-// tools it uses, and its metadata.
-func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primitive, pending string) {
+func followUpText(fu FollowUp) string {
+	var steps []string
+	for _, x := range fu.Steps {
+		steps = append(steps, display(x))
+	}
+	return strings.Join(steps, ", then ")
+}
+
+func period(sm Summary) string {
+	if sm.First.IsZero() {
+		return ""
+	}
+	return sm.First.Format("Jan 2") + " – " + sm.Last.Format("Jan 2, 2006")
+}
+
+// card shows one proposed primitive, most decision-relevant first: what it
+// does, what it saves, what you provide, what needs attention; then tools
+// and evidence detail.
+func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primitive, pending string, sm Summary) {
 	fmt.Fprintln(out)
 	head := fmt.Sprintf(" %d of %d ", n, total)
-	fmt.Fprintln(out, s.accent("━━"+head+strings.Repeat("━", screen-2-width(head))))
+	fmt.Fprintln(out, s.accent("━━"+head+strings.Repeat("━", max(0, min(s.cols(), screen)-2-width(head)))))
 	fmt.Fprintln(out, " "+s.bold(title(f)))
-	fmt.Fprintln(out, " "+s.dim(fmt.Sprintf("Found in %s runs across %s sessions · %s", count(f.ExecutionCount), count(f.SessionCount), f.Fingerprint)))
+	used := fmt.Sprintf("Used %s times in %s sessions", count(f.ExecutionCount), count(f.SessionCount))
+	if p := period(sm); p != "" {
+		used += " (" + p + ")"
+	}
+	fmt.Fprintln(out, " "+s.dim(used+" · "+effectText(f.Effect)))
 	switch f.Status {
 	case StatusNewSince:
 		fmt.Fprintln(out, " "+s.accent(fmt.Sprintf("Only what is new since your last decision (%s) is shown.", f.Earlier)))
 	case StatusReevaluated:
 		fmt.Fprintln(out, " "+s.accent("Shown again: the discovery rules changed since you decided on this."))
 	}
+	if pending != "" {
+		fmt.Fprintln(out, " Your choice: "+s.choice(pending))
+	}
 
-	section(out, s, "Structure")
-	st := table{head: []string{"Step", "Operation", "When", "Runs"}, widths: []int{6, 62, 9, 6}, right: map[int]bool{3: true}}
-	headOp := short(f.Head)
+	section(out, s, "What it does")
+	st := table{head: []string{"", "Step", "Used"}, widths: []int{16, 66, 6}, right: map[int]bool{2: true}, flex: 2}
+	headOp := display(f.Head)
 	if len(f.Sources) > 0 {
 		var alts []string
 		for _, x := range f.Sources {
-			alts = append(alts, short(x))
+			alts = append(alts, display(x))
 		}
 		headOp += " (or " + strings.Join(alts, ", ") + ")"
 	}
-	st.rows = append(st.rows, []string{"1", headOp, "always", count(f.ExecutionCount)})
-	for _, fu := range f.FollowUps {
-		var steps []string
-		for _, x := range fu.Steps {
-			steps = append(steps, short(x))
+	st.rows = append(st.rows, []string{"Starts with", headOp, count(f.ExecutionCount)})
+	for i, fu := range f.FollowUps {
+		label := ""
+		if i == 0 {
+			label = "Then, optionally"
+			if !fu.Optional {
+				label = "Then"
+			}
 		}
-		when := "always"
-		if fu.Optional {
-			when = "optional"
-		}
-		st.rows = append(st.rows, []string{"then", strings.Join(steps, " > "), when, count(fu.Runs)})
+		st.rows = append(st.rows, []string{label, followUpText(fu), count(fu.Runs)})
 	}
 	st.render(out, s)
+	if len(f.FollowUps) > 1 {
+		fmt.Fprintln(out, s.dim("  Each follow-up uses what the first step returned; any of them can run, in any combination."))
+	}
+
+	section(out, s, "What it saves")
+	per := 0.0
+	if f.ExecutionCount > 0 {
+		per = inputEquivalent(f.Saved) / float64(f.ExecutionCount)
+	}
+	table{widths: []int{16, 72}, flex: 2, rows: [][]string{
+		{"Turns", fmt.Sprintf("%s model round-trips the agent no longer makes", count(f.TurnsSaved))},
+		{"Tokens", fmt.Sprintf("about %s in total, about %s per use (estimate)", tokensText(inputEquivalent(f.Saved)), tokensText(per))},
+	}}.render(out, s)
+	if f.ReadToDecide > 0 {
+		fmt.Fprintln(out, s.dim(fmt.Sprintf("  In %d of %d uses the agent built its next step from this output, so it needed to see it; those uses save less.", f.ReadToDecide, f.ExecutionCount)))
+	}
+
+	if len(f.Inputs) > 0 {
+		section(out, s, "What you provide")
+		it := table{head: []string{"Step", "Inputs"}, widths: []int{26, 62}, flex: 2}
+		for _, in := range f.Inputs {
+			cmd, args, _ := strings.Cut(in, ": ")
+			it.rows = append(it.rows, []string{display(cmd), inputsText(args)})
+		}
+		it.render(out, s)
+	}
+
+	section(out, s, "Needs attention")
+	if len(f.Questions) == 0 {
+		fmt.Fprintln(out, "  Nothing open.")
+	} else {
+		for i, q := range f.Questions {
+			if i == 5 {
+				fmt.Fprintf(out, "  …and %d more (agent eval writes them all out with the evidence)\n", len(f.Questions)-5)
+				break
+			}
+			for j, l := range wrapText(q, max(20, min(s.cols(), screen)-6)) {
+				lead := "  • "
+				if j > 0 {
+					lead = "    "
+				}
+				fmt.Fprintln(out, lead+l)
+			}
+		}
+	}
 
 	tools, piped := map[string]bool{}, map[string]bool{}
-	open := 0
 	for _, id := range f.Members {
 		p := byID[id]
 		for _, x := range p.Steps {
-			tools[short(headKey(x))] = true
+			tools[display(headKey(x))] = true
 			if parts := strings.Split(x, "+"); len(parts) > 1 {
 				for _, y := range parts[1:] {
-					piped[short(y)] = true
+					piped[display(y)] = true
 				}
 			}
 		}
-		open += len(p.Unresolved)
 	}
 	sorted := func(m map[string]bool) string {
 		var ts []string
@@ -349,79 +434,124 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 		sort.Strings(ts)
 		return strings.Join(ts, ", ")
 	}
-	section(out, s, "Tools")
-	tt := table{widths: []int{22, 66}, rows: [][]string{{"Called", sorted(tools)}}}
+	section(out, s, "Details")
+	dt := table{widths: []int{20, 68}, flex: 2, rows: [][]string{{"Tools", sorted(tools)}}}
 	if len(piped) > 0 {
-		tt.rows = append(tt.rows, []string{"Output piped through", sorted(piped) + " (varies by run)"})
+		dt.rows = append(dt.rows, []string{"Output piped to", sorted(piped) + " (varies by use)"})
 	}
-	tt.render(out, s)
-
-	if len(f.Inputs) > 0 {
-		section(out, s, "Inputs")
-		it := table{head: []string{"Command", "Inputs the caller supplies"}, widths: []int{26, 62}}
-		for _, in := range f.Inputs {
-			cmd, args, _ := strings.Cut(in, ": ")
-			it.rows = append(it.rows, []string{cmd, args})
-		}
-		it.render(out, s)
-	}
-
-	section(out, s, "Metadata")
-	tot, cached, eq := tokenCells(f.Saved)
-	per := 0.0
-	if f.ExecutionCount > 0 {
-		per = inputEquivalent(f.Saved) / float64(f.ExecutionCount)
-	}
-	conf := fmt.Sprintf("%s; %d of %d exact chains need a decision", f.Readiness, f.NeedsDecision, len(f.Members))
-	mt := table{widths: []int{26, 62}, rows: [][]string{
-		{"Effect", f.Effect + " (unknown is treated as write; the runner asks before each call)"},
-		{"Estimated saving", fmt.Sprintf("%s model turns · %s tokens (input-equivalent; %s per run)", count(f.TurnsSaved), eq, tokensText(per))},
-		{"How that is priced", fmt.Sprintf("raw %s tokens, %s of them cache re-reads of the conversation (about %.1f× the price of fresh input), %s fresh input, %s output", tot, cached, cachedRatio, tokensText(f.Saved.Fresh), tokensText(f.Saved.Output))},
-		{"Values traced", fmt.Sprintf("%d of %d (the source of each value is known in every run: an earlier result, or the caller)", f.Traced, f.Values)},
-		{"Open questions", fmt.Sprintf("%d (agent eval writes them out with the evidence)", f.OpenQuestions)},
-		{"Status", conf},
-		{"Run consistency (detail)", fmt.Sprintf("%d/100 weighted by runs, weakest chain %d (%s; describes the evidence, not a probability)", f.Confidence, f.Weakest, Rubric)},
-	}}
-	if pending != "" {
-		mt.rows = append(mt.rows, []string{"Your choice so far", s.choice(pending)})
-	}
-	mt.render(out, s)
+	dt.rows = append(dt.rows,
+		[]string{"Variants", fmt.Sprintf("%d recorded variations of this flow", len(f.Members))},
+		[]string{"Values traced", fmt.Sprintf("%d of %d (where each value comes from is known in every use)", f.Traced, f.Values)},
+		[]string{"Raw tokens", fmt.Sprintf("%s, %.0f%% of them the conversation re-read from cache (priced at about a tenth)", tokensText(f.Saved.Total()), cachedShare(f.Saved))})
+	dt.render(out, s)
 }
 
-// submit writes every choice: accept keeps the primitive, deny hides it,
-// agent eval writes its handoff.
+// submit writes every choice and says what happened and what to do next:
+// accept generates and installs (or, when the program cannot be determined,
+// writes the agent handoff instead), decline hides, agent eval writes the
+// handoff.
 func submit(out io.Writer, s style, shown []Family, choice []string, byID map[string]Primitive, cfg MenuConfig) error {
-	section(out, s, "Submitted")
+	var installed, handed, declined []string
 	for i, f := range shown {
-		var err error
-		var msg string
 		switch choice[i] {
 		case "accept":
-			err = acceptFamily(cfg.StateDir, f, byID)
-			if err == nil {
-				err = appendLedger(cfg.StateDir, entryFor(f, "accept"))
+			if err := acceptFamily(cfg.StateDir, f, byID); err != nil {
+				return err
 			}
-			msg = "accepted → " + filepath.Join(cfg.StateDir, "accepted", "families", f.ID+".json")
+			if cfg.Install == nil {
+				if err := appendLedger(cfg.StateDir, entryFor(f, "accept")); err != nil {
+					return err
+				}
+				installed = append(installed, title(f)+" (saved; no installer available here)")
+				continue
+			}
+			var members []Primitive
+			for _, id := range f.Members {
+				members = append(members, byID[id])
+			}
+			r, err := cfg.Install(f, members)
+			if err != nil {
+				r.Reason = err.Error()
+			}
+			if r.Installed {
+				if err := appendLedger(cfg.StateDir, entryFor(f, "accept")); err != nil {
+					return err
+				}
+				line := fmt.Sprintf("%s → installed as %q (%s)", title(f), r.Name, r.Where)
+				if len(r.Left) > 0 {
+					line += fmt.Sprintf("; it runs the most-used flow, %d other follow-up(s) are not in it yet", len(r.Left))
+				}
+				installed = append(installed, line)
+				continue
+			}
+			where := filepath.Join(cfg.StateDir, "eval", f.Fingerprintdir())
+			if err := WriteFamilyHandoff(where, cfg.Home, f, byID, cfg.Sessions, cfg.Skill); err != nil {
+				return err
+			}
+			if err := appendLedger(cfg.StateDir, entryFor(f, "eval")); err != nil {
+				return err
+			}
+			handed = append(handed, fmt.Sprintf("%s: not installed (%s) → %s", title(f), r.Reason, where))
 		case "deny":
-			err = appendLedger(cfg.StateDir, entryFor(f, "deny"))
-			msg = "declined; not shown again unless something new appears under it"
-		case "eval":
-			where := filepath.Join(cfg.StateDir, "eval", f.ID)
-			err = WriteFamilyHandoff(where, cfg.Home, f, byID, cfg.Sessions, cfg.Skill)
-			if err == nil {
-				err = appendLedger(cfg.StateDir, entryFor(f, "eval"))
+			if err := appendLedger(cfg.StateDir, entryFor(f, "deny")); err != nil {
+				return err
 			}
-			msg = "agent eval → " + where + " (give your coding agent HANDOFF.md)"
-		default:
-			continue
+			declined = append(declined, title(f))
+		case "eval":
+			where := filepath.Join(cfg.StateDir, "eval", f.Fingerprintdir())
+			if err := WriteFamilyHandoff(where, cfg.Home, f, byID, cfg.Sessions, cfg.Skill); err != nil {
+				return err
+			}
+			if err := appendLedger(cfg.StateDir, entryFor(f, "eval")); err != nil {
+				return err
+			}
+			handed = append(handed, fmt.Sprintf("%s → %s", title(f), where))
 		}
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(out, "  %3d. %s %s\n", i+1, s.choice(choice[i]), msg)
 	}
-	fmt.Fprintln(out, "Submitted.")
+	if len(installed)+len(handed)+len(declined) == 0 {
+		fmt.Fprintln(out, "Nothing chosen; nothing saved.")
+		return nil
+	}
+	if len(installed) > 0 {
+		section(out, s, fmt.Sprintf("Installed (%d)", len(installed)))
+		for _, l := range installed {
+			fmt.Fprintln(out, "  "+s.good("✓")+" "+l)
+		}
+		fmt.Fprintln(out, s.dim("  Your agent can run these now. Anything that may change data asks you first."))
+	}
+	if len(handed) > 0 {
+		section(out, s, fmt.Sprintf("For your coding agent to refine (%d)", len(handed)))
+		for _, l := range handed {
+			fmt.Fprintln(out, "  "+s.info("→")+" "+l)
+		}
+		fmt.Fprintln(out, s.dim("  Start your agent on one with:"))
+		fmt.Fprintln(out, "    "+agentCommand(cfg.Clients, "<folder above>/HANDOFF.md"))
+	}
+	if len(declined) > 0 {
+		section(out, s, fmt.Sprintf("Declined (%d)", len(declined)))
+		for _, l := range declined {
+			fmt.Fprintln(out, "  "+s.bad("✗")+" "+l)
+		}
+		fmt.Fprintln(out, s.dim("  Hidden until something new appears under them. Change with: tap discover --revisit"))
+	}
 	return nil
+}
+
+// agentCommand is how to start the person's coding agent on a handoff.
+func agentCommand(clients, handoff string) string {
+	prompt := fmt.Sprintf("Read %s and follow it.", handoff)
+	switch strings.Split(clients, ",")[0] {
+	case "codex":
+		return fmt.Sprintf("codex %q", prompt)
+	case "claude-code":
+		return fmt.Sprintf("claude %q", prompt)
+	}
+	return "Ask your coding agent: " + prompt
+}
+
+// Fingerprintdir is a folder name for a family's handoff.
+func (f Family) Fingerprintdir() string {
+	return strings.NewReplacer("|", "-", ":", "-", "/", "-", " ", "-", "#", "-").Replace(f.Fingerprint)
 }
 
 func perRun(f Family) float64 {
@@ -429,18 +559,6 @@ func perRun(f Family) float64 {
 		return 0
 	}
 	return f.SavedTokens / float64(f.ExecutionCount)
-}
-
-func tokensText(t float64) string {
-	switch {
-	case t >= 1e9:
-		return fmt.Sprintf("%.1fB", t/1e9)
-	case t >= 1e6:
-		return fmt.Sprintf("%.1fM", t/1e6)
-	case t >= 1e3:
-		return fmt.Sprintf("%.0fk", t/1e3)
-	}
-	return fmt.Sprintf("%.0f", t)
 }
 
 // acceptFamily keeps the family and its exact chains: the chains are known
@@ -521,4 +639,40 @@ func bindingSummary(p Primitive) string {
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+// listTable is the one-line-per-primitive list; cursor marks the selected
+// row (-1 for none).
+func listTable(out io.Writer, s style, shown []Family, choice []string, cursor int) {
+	t := table{head: []string{" ", "#", "Primitive", "Uses", "Turns saved", "Tokens saved", "Open", "Choice"},
+		widths: []int{1, 3, 46, 5, 11, 12, 4, 8}, right: map[int]bool{1: true, 3: true, 4: true, 5: true, 6: true}, flex: 3, oneLine: true}
+	for i, f := range shown {
+		sel := " "
+		if i == cursor {
+			sel = s.accent("▶")
+		}
+		name := title(f)
+		switch f.Status {
+		case StatusNewSince:
+			name += " · new since you " + pastTense(f.Earlier)
+		case StatusReevaluated:
+			name += " · re-evaluated"
+		}
+		c := s.choice(choice[i])
+		t.rows = append(t.rows, []string{sel, fmt.Sprint(i + 1), name, count(f.ExecutionCount), count(f.TurnsSaved),
+			"~" + tokensText(inputEquivalent(f.Saved)), fmt.Sprint(f.OpenQuestions), c})
+	}
+	t.render(out, s)
+}
+
+func pastTense(d string) string {
+	switch d {
+	case "accept":
+		return "accepted it"
+	case "deny":
+		return "declined it"
+	case "eval":
+		return "sent it to agent eval"
+	}
+	return "decided"
 }

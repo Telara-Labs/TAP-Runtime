@@ -212,6 +212,14 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 	if *days > 0 {
 		since = time.Now().AddDate(0, 0, -*days)
 	}
+	// Progress on a terminal: reading and analysing take several seconds.
+	progress := func(string) {}
+	if f, ok := errOut.(*os.File); ok {
+		if fi, err := f.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 && !*asJSON {
+			progress = func(msg string) { fmt.Fprint(errOut, "\r\x1b[K"+msg) }
+		}
+	}
+	progress("Reading your agent history…")
 	var sessions []trace.Session
 	for _, r := range readers {
 		ss, err := r.Read(since)
@@ -223,7 +231,9 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 	}
 	stateDir := filepath.Join(home, ".tap", "discover")
 	known = append(known, primitive.LoadKnown(stateDir)...)
+	progress(fmt.Sprintf("Looking for repeated work in %d sessions…", len(sessions)))
 	res := primitive.Discover(sessions, known)
+	progress("")
 	if *asJSON {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
@@ -233,8 +243,11 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 		}
 		return 0
 	}
+	cwd, _ := os.Getwd()
+	client := strings.Split(*clients, ",")[0]
 	cfg := primitive.MenuConfig{StateDir: stateDir, All: *all, Clients: *clients, Home: home, Sessions: sessions, Color: color,
-		Skill: primitive.Skill{Source: "tap-runtime/discover/genreview/skill/tap-primitive-refine/SKILL.md", Content: genreview.GeneratedRefineSkill}}
+		Install: primitiveInstaller(sessions, client, home, cwd),
+		Skill:   primitive.Skill{Source: "tap-runtime/discover/genreview/skill/tap-primitive-refine/SKILL.md", Content: genreview.GeneratedRefineSkill}}
 	// A terminal on both ends gets the full-screen review; otherwise (a
 	// pipe, a test, --all) the line-by-line menu.
 	if fin, ok := in.(*os.File); ok && !*all && !*asJSON {

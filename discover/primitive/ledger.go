@@ -244,10 +244,18 @@ func Revisit(in io.Reader, out io.Writer, stateDir string, color bool) error {
 		fmt.Fprintln(out, "  None yet.")
 		return nil
 	}
-	t := table{head: []string{"#", "Primitive (head)", "Decision", "Covers", "Decided"}, widths: []int{3, 30, 8, 40, 10}, right: map[int]bool{0: true}}
+	t := table{head: []string{"#", "Starts with", "Decision", "Covers", "Decided"}, widths: []int{3, 30, 8, 40, 10}, right: map[int]bool{0: true}, flex: 4}
 	for i, r := range rows {
 		head, _, _ := strings.Cut(r.fp, "|")
-		t.rows = append(t.rows, []string{fmt.Sprint(i + 1), short(head), s.choice(r.decision), strings.Join(r.followUps, "; "), r.at[:min(10, len(r.at))]})
+		var covers []string
+		for _, fu := range r.followUps {
+			var steps []string
+			for _, x := range strings.Split(fu, " > ") {
+				steps = append(steps, display(x))
+			}
+			covers = append(covers, strings.Join(steps, ", then "))
+		}
+		t.rows = append(t.rows, []string{fmt.Sprint(i + 1), display(head), s.choice(r.decision), "then " + strings.Join(covers, " · "), r.at[:min(10, len(r.at))]})
 	}
 	t.render(out, s)
 	sc := bufio.NewScanner(in)

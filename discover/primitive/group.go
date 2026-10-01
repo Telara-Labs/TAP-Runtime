@@ -375,6 +375,10 @@ func condense(ss []trace.Session, graphs [][]node) []Primitive {
 		}
 		sum := sha256.Sum256([]byte(s.Client + "\x00" + s.ID + "\x00" + strconv.Itoa(g[j].call) + "\x00" + id))
 		ex.ID = "ex_" + hex.EncodeToString(sum[:5])
+		last := pk.sinks[len(pk.sinks)-1]
+		if last+1 < len(g) && g[last+1].request == g[last].request && g[last+1].decided {
+			ex.ThenDecided = true
+		}
 		if overlap != "" {
 			ex.Overlaps = overlap
 		} else {
