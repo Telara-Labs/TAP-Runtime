@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // Decision is one recorded menu choice.
@@ -25,6 +27,11 @@ type MenuConfig struct {
 	All bool
 	// Clients names what was read, for the summary.
 	Clients string
+	// Home, Sessions and Skill feed the agent-eval handoff: transcripts are
+	// located under Home, request text comes from Sessions.
+	Home     string
+	Sessions []trace.Session
+	Skill    Skill
 }
 
 // LoadKnown returns the primitives accepted earlier on this machine, for
@@ -233,9 +240,12 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 				err = record(cfg.StateDir, Decision{p.ID, "deny"})
 				msg = "denied; it will not be shown again"
 			case "e", "eval":
-				var where string
-				where, err = evalBrief(cfg.StateDir, p)
-				msg = "agent eval brief: " + where
+				where := filepath.Join(cfg.StateDir, "eval", p.ID)
+				err = WriteHandoff(where, cfg.Home, p, cfg.Sessions, cfg.Skill)
+				if err == nil {
+					err = record(cfg.StateDir, Decision{p.ID, "eval"})
+				}
+				msg = "agent eval handoff: " + where + " (give your coding agent HANDOFF.md)"
 			default:
 				fmt.Fprintln(out, "  Choose a, d or e.")
 				continue
@@ -258,31 +268,6 @@ func accept(stateDir string, p Primitive) error {
 		return err
 	}
 	return record(stateDir, Decision{p.ID, "accept"})
-}
-
-// evalBrief writes a brief a coding agent uses to author and check the
-// primitive's program from the recorded executions.
-func evalBrief(stateDir string, p Primitive) (string, error) {
-	dir := filepath.Join(stateDir, "eval")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	spec, _ := json.MarshalIndent(p, "", "  ")
-	var b strings.Builder
-	fmt.Fprintf(&b, "# Evaluate primitive %s\n\n", p.ID)
-	fmt.Fprintf(&b, "Steps: %s\n\n", describe(p))
-	b.WriteString("Read the recorded executions listed under evidence (client/session#call, on this machine).\n")
-	b.WriteString("Decide whether this is one reusable task. If it is, write the program: inputs are the caller's values,\n")
-	b.WriteString("each edge passes a value from one step's result to the next, fixed values stay fixed.\n")
-	b.WriteString("Treat an unknown effect as a write. Run it against one recorded execution and compare the results.\n\n")
-	b.WriteString("```json\n")
-	b.Write(spec)
-	b.WriteString("\n```\n")
-	where := filepath.Join(dir, p.ID+".md")
-	if err := os.WriteFile(where, []byte(b.String()), 0o600); err != nil {
-		return "", err
-	}
-	return where, record(stateDir, Decision{p.ID, "eval"})
 }
 
 // bindingSummary counts each argument's evidence level.

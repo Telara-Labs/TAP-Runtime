@@ -192,3 +192,20 @@ func TestRequestValueIsAnInput(t *testing.T) {
 		}
 	}
 }
+
+// Two operations on the same item are a sequence, not an iteration.
+func TestSameItemTwiceIsNotALoop(t *testing.T) {
+	var ss []trace.Session
+	for i := 0; i < 2; i++ {
+		key := fmt.Sprintf("KEY-%d9", i)
+		ss = append(ss, session(fmt.Sprint("s", i), []string{"file it and move it along"},
+			call("mcp:issue_create", map[string]string{"summary": "a b"}, `{"key":"`+key+`"}`, 0, 0),
+			call("mcp:issue_transition", map[string]string{"issue_key": key, "to": "doing"}, `{"ok":true}`, 0, time.Second),
+			call("mcp:issue_transition", map[string]string{"issue_key": key, "to": "done"}, `{"ok":true}`, 0, 2*time.Second)))
+	}
+	for _, p := range Discover(ss, nil).Primitives {
+		if len(p.Loops) > 0 {
+			t.Fatalf("repeated operations on one item were read as a loop: %v loops %v", p.Steps, p.Loops)
+		}
+	}
+}
