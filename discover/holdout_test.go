@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/eval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -25,9 +27,9 @@ func TestSampleHoldoutExcludesEarlierLineagesAndTemplates(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		add(fmt.Sprintf("other-%02d", i), fmt.Sprintf("please look at issue number %c and tell me what is wrong with it", 'a'+i))
 	}
-	c := NewCorpus(ss)
-	o := HoldoutOptions{Seed: 7, N: 10, Exclude: []EpisodeKey{{"claude-code", "old", 0}}}
-	got := SampleHoldout(c, o)
+	c := eval.NewCorpus(ss)
+	o := eval.HoldoutOptions{Seed: 7, N: 10, Exclude: []eval.EpisodeKey{{Client: "claude-code", Session: "old", Request: 0}}}
+	got := eval.SampleHoldout(c, o)
 	if len(got) != 10 {
 		t.Fatalf("drew %d, want 10", len(got))
 	}
@@ -41,7 +43,7 @@ func TestSampleHoldoutExcludesEarlierLineagesAndTemplates(t *testing.T) {
 		}
 		seen[e.Session] = true
 	}
-	again := SampleHoldout(c, o)
+	again := eval.SampleHoldout(c, o)
 	for i := range got {
 		if got[i].ID != again[i].ID {
 			t.Fatal("the same seed must draw the same holdout")

@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/eval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
@@ -190,8 +192,8 @@ func sample(args []string) error {
 	if err := json.Unmarshal(b, &rep); err != nil {
 		return err
 	}
-	c := discover.NewCorpus(ss)
-	eps := discover.SampleEpisodes(c, &rep, discover.SampleOptions{Seed: *seed, PerReady: 2, PerGroup: *perGroup, Uncovered: *uncovered})
+	c := eval.NewCorpus(ss)
+	eps := eval.SampleEpisodes(c, &rep, eval.SampleOptions{Seed: *seed, PerReady: 2, PerGroup: *perGroup, Uncovered: *uncovered})
 	if err := os.MkdirAll(filepath.Join(*dir, "packets"), 0o700); err != nil {
 		return err
 	}
@@ -240,7 +242,7 @@ func show(args []string) error {
 	if err != nil {
 		return err
 	}
-	c := discover.NewCorpus(all)
+	c := eval.NewCorpus(all)
 	for i := range rep.Routines {
 		r := &rep.Routines[i]
 		if !ids[r.ID] {
@@ -263,7 +265,7 @@ func show(args []string) error {
 			if k == *n {
 				break
 			}
-			e := discover.Episode{ID: trace.EpisodeID(s.Client, s.Session, s.Request), Client: s.Client, Session: s.Session, Request: s.Request}
+			e := eval.Episode{ID: trace.EpisodeID(s.Client, s.Session, s.Request), Client: s.Client, Session: s.Session, Request: s.Request}
 			for _, ep := range c.Episodes() {
 				if ep.ID == e.ID {
 					e = ep
@@ -301,7 +303,7 @@ func episodes(args []string) error {
 		return err
 	}
 	var smp struct {
-		Episodes []discover.Episode `json:"episodes"`
+		Episodes []eval.Episode `json:"episodes"`
 	}
 	b, err := os.ReadFile(*sample)
 	if err != nil {
@@ -310,7 +312,7 @@ func episodes(args []string) error {
 	if err := json.Unmarshal(b, &smp); err != nil {
 		return err
 	}
-	c := discover.NewCorpus(ss)
+	c := eval.NewCorpus(ss)
 	claims := c.AssessEpisodes(smp.Episodes)
 	n := map[string]int{}
 	for _, cl := range claims {
@@ -347,13 +349,13 @@ func holdout(args []string) error {
 	if err != nil {
 		return err
 	}
-	var ex []discover.EpisodeKey
+	var ex []eval.EpisodeKey
 	for _, f := range strings.Split(*exclude, ",") {
 		if f == "" {
 			continue
 		}
 		var smp struct {
-			Episodes []discover.Episode `json:"episodes"`
+			Episodes []eval.Episode `json:"episodes"`
 		}
 		b, err := os.ReadFile(f)
 		if err != nil {
@@ -363,11 +365,11 @@ func holdout(args []string) error {
 			return err
 		}
 		for _, e := range smp.Episodes {
-			ex = append(ex, discover.EpisodeKey{Client: e.Client, Session: e.Session, Request: e.Request})
+			ex = append(ex, eval.EpisodeKey{Client: e.Client, Session: e.Session, Request: e.Request})
 		}
 	}
-	c := discover.NewCorpus(ss)
-	eps := discover.SampleHoldout(c, discover.HoldoutOptions{Seed: *seed, N: *n, Exclude: ex})
+	c := eval.NewCorpus(ss)
+	eps := eval.SampleHoldout(c, eval.HoldoutOptions{Seed: *seed, N: *n, Exclude: ex})
 	if err := os.MkdirAll(filepath.Join(*dir, "packets"), 0o700); err != nil {
 		return err
 	}
@@ -499,7 +501,7 @@ func packets(args []string) error {
 	for _, l := range strings.Fields(string(b)) {
 		want[l] = true
 	}
-	c := discover.NewCorpus(ss)
+	c := eval.NewCorpus(ss)
 	if err := os.MkdirAll(*dir, 0o700); err != nil {
 		return err
 	}

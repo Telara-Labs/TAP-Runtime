@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/eval"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
@@ -50,7 +52,7 @@ func TestLineageJoinsCopiesAndTemplatedPrompts(t *testing.T) {
 	// Shared follow-ups and injected wrappers do not tie unrelated tasks.
 	other := trace.Session{Client: "codex", ID: "z", Start: t0, Requests: []string{"# AGENTS.md instructions for /repo <instructions> rules", "rename the billing dashboard tiles to match the design", "do you still have more to do? please continue"}, Calls: []trace.Call{{Tool: "shell", Command: "ls"}}}
 	other2 := trace.Session{Client: "codex", ID: "w", Start: t0, Requests: []string{"# AGENTS.md instructions for /repo <instructions> rules", "investigate why the export indexer retries forever", "do you still have more to do? please continue"}, Calls: []trace.Call{{Tool: "shell", Command: "ls"}}}
-	c := NewCorpus([]trace.Session{orig, resumed, auto1, auto2, other, other2})
+	c := eval.NewCorpus([]trace.Session{orig, resumed, auto1, auto2, other, other2})
 	ln := map[string]string{}
 	for _, e := range c.Episodes() {
 		ln[e.Session] = e.Lineage
@@ -71,9 +73,9 @@ func TestSampleIsReproducibleAndCarriesNoDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := NewCorpus(ss)
-	a := SampleEpisodes(c, rep, SampleOptions{Seed: 7, PerReady: 2, PerGroup: 20, Uncovered: 6})
-	b := SampleEpisodes(c, rep, SampleOptions{Seed: 7, PerReady: 2, PerGroup: 20, Uncovered: 6})
+	c := eval.NewCorpus(ss)
+	a := eval.SampleEpisodes(c, rep, eval.SampleOptions{Seed: 7, PerReady: 2, PerGroup: 20, Uncovered: 6})
+	b := eval.SampleEpisodes(c, rep, eval.SampleOptions{Seed: 7, PerReady: 2, PerGroup: 20, Uncovered: 6})
 	if len(a) == 0 || !reflect.DeepEqual(a, b) {
 		t.Fatalf("same seed, different sample: %d vs %d", len(a), len(b))
 	}
@@ -122,7 +124,7 @@ func TestSingleEpisodeContract(t *testing.T) {
 	bad := eps("b", 1, func(int) string { return "why is the gateway slow?" }, func(int) []trace.Call {
 		return []trace.Call{{Tool: "Read", Args: map[string]string{"file_path": "src/x/pool.go"}}, sh("rg -n timeout internal/y"), {Tool: "Read", Args: map[string]string{"file_path": "src/z/conn.go"}}}
 	})
-	c := NewCorpus(append(good, bad...))
+	c := eval.NewCorpus(append(good, bad...))
 	cl := c.AssessEpisodes(c.Episodes())
 	got := map[string]string{}
 	for _, x := range cl {
