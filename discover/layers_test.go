@@ -21,6 +21,7 @@ var allowed = map[string][]string{
 	"trace":      {"util", "shellparse", "pyparse"},
 	"redact":     {"util", "trace"},
 	"history":    {"util", "trace"},
+	"primitive":  {"util", "shellparse", "pyparse", "trace"},
 	"model":      {"util", "trace", "redact"},
 	"pack":       {"util", "trace", "model", "redact"},
 	"retrieval":  {"util", "shellparse", "pyparse", "trace", "history", "model", "redact"},

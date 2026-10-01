@@ -277,14 +277,9 @@ func SpanVariable(s trace.Slot) bool {
 	if len(v) < 3 {
 		return false
 	}
-	switch s.Type {
-	case trace.SlotWord:
-		return strings.Contains(s.Key, "query") || strings.Contains(s.Key, "search") || strings.Contains(s.Key, "name")
-	case trace.SlotNumber:
-		return len(v) >= 5 || strings.Contains(strings.ToLower(s.Key), "id")
-	default:
-		return true
-	}
+	// Every value is a variable; whether it is a choice is corpus evidence
+	// (trace.Choices), never its argument's name.
+	return true
 }
 
 func SpanInText(value, kind, text string) bool {

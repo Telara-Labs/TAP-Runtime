@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/primitive"
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
 
@@ -29,8 +33,15 @@ import (
 // save. It needs no account and sends nothing anywhere. args exclude the
 // command name. It returns the process exit code.
 func Command(args []string, in io.Reader, out, errOut io.Writer) int {
-	// The author path (author.go, validate.go, save.go).
-	if len(args) > 0 {
+	// With no subcommand, discover always ends in the primitive menu.
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return MenuCommand(args, in, out, errOut, nil)
+	}
+	// The older narrowing report stays available as `discover report`.
+	if args[0] == "report" {
+		args = args[1:]
+	} else {
+		// The author path (author.go, validate.go, save.go).
 		switch args[0] {
 		case "generate":
 			return genreview.GenerateCommand(args[1:], in, out, errOut)
@@ -142,6 +153,62 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 		},
 	})
 	if err != nil {
+		fmt.Fprintln(errOut, "discover:", err)
+		return 1
+	}
+	return 0
+}
+
+// MenuCommand reads this machine's history, condenses it into primitives,
+// composes them (with known, primitives fetched by a caller such as the
+// Telara CLI, plus those accepted here before) and shows the menu. --all
+// accepts every proposed primitive without asking.
+func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []primitive.Known) int {
+	fs := flag.NewFlagSet("discover", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	clients := fs.String("client", "claude-code", "clients to read, comma-separated")
+	days := fs.Int("days", 0, "only sessions from the last N days (0 = all retained history)")
+	all := fs.Bool("all", false, "accept every proposed primitive without asking")
+	asJSON := fs.Bool("json", false, "print the condensed result as JSON instead of the menu")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintln(errOut, "discover:", err)
+		return 1
+	}
+	readers, err := history.DefaultReaders(strings.Split(*clients, ","), home)
+	if err != nil {
+		fmt.Fprintln(errOut, "discover:", err)
+		return 2
+	}
+	var since time.Time
+	if *days > 0 {
+		since = time.Now().AddDate(0, 0, -*days)
+	}
+	var sessions []trace.Session
+	for _, r := range readers {
+		ss, err := r.Read(since)
+		if err != nil {
+			fmt.Fprintf(errOut, "discover: %s: %v\n", r.Client(), err)
+			return 1
+		}
+		sessions = append(sessions, ss...)
+	}
+	stateDir := filepath.Join(home, ".tap", "discover")
+	known = append(known, primitive.LoadKnown(stateDir)...)
+	res := primitive.Discover(sessions, known)
+	if *asJSON {
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(res); err != nil {
+			fmt.Fprintln(errOut, "discover:", err)
+			return 1
+		}
+		return 0
+	}
+	if err := primitive.Menu(in, out, res, primitive.MenuConfig{StateDir: stateDir, All: *all, Clients: *clients}); err != nil {
 		fmt.Fprintln(errOut, "discover:", err)
 		return 1
 	}

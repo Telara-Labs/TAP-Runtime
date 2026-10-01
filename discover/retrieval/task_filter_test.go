@@ -37,9 +37,9 @@ func TestClaudeReaderAttributesCompactionTextAsSynthetic(t *testing.T) {
 }
 
 // The review never depends on which provider a call reaches: the same
-// result-linked chain is judged the same for any integration. Inside
-// unrelated work it is a visible component, not a ready task; when the
-// request asks for exactly that operation it is a ready task.
+// result-linked chain is judged the same for any integration, and the
+// request's wording does not decide it: work the agent started inside
+// unrelated work is repeated work too.
 func TestTaskReviewIsProviderNeutral(t *testing.T) {
 	chain := func(integration, request, id string) model.SpanProposal {
 		s := testkit.NewSession(id, request,
@@ -54,8 +54,8 @@ func TestTaskReviewIsProviderNeutral(t *testing.T) {
 	}
 	for _, integration := range []string{"jira", "linear"} {
 		inside := chain(integration, "Fix the indexing tab reload defect", integration+"-inside")
-		if inside.Review.Ready || !inside.Review.Component {
-			t.Errorf("%s: a result-linked chain inside unrelated work is a component, not a ready task: %+v", integration, inside.Review)
+		if !inside.Review.Ready {
+			t.Errorf("%s: an agent-started result-linked chain was held back by the request's wording: %+v", integration, inside.Review)
 		}
 		requested := chain(integration, "Create an issue and transition it to In Progress", integration+"-requested")
 		if !requested.Review.Ready || requested.Review.Input != "caller_or_result" {
@@ -80,13 +80,15 @@ func TestTaskReviewHandlesResultDerivedPipelineAndFailedCalls(t *testing.T) {
 	}
 }
 
+// The request's wording (a "why" question) does not demote a result-linked
+// chain.
 func TestTaskReviewKeepsInvestigativeResultChainAsComponent(t *testing.T) {
 	s := testkit.NewSession("failed-build", "Why did the production build fail?",
 		testkit.SpanRefs(trace.Call{Tool: "mcp:gitlab_list_pipelines", Output: `{"id":"81234567"}`, Outcome: trace.OutcomeOK}),
 		trace.Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "81234567"}, Output: `{"status":"failed"}`, Outcome: trace.OutcomeOK})
 	p := testkit.SpanWithCalls(retrieval.SelectSpanProposals([]trace.Session{s}), 1, 2)
-	if p == nil || p.Review.Ready || !p.Review.Component {
-		t.Fatalf("evidence-gathering chain is a component with an unresolved task contract: %+v", p)
+	if p == nil || !p.Review.Ready {
+		t.Fatalf("result-linked chain was demoted by the request's wording: %+v", p)
 	}
 }
 
@@ -130,8 +132,10 @@ func TestTaskReviewDoesNotTreatToolPassthroughAsComposition(t *testing.T) {
 		trace.Call{Tool: "shell", Command: "git worktree list --porcelain", Output: "worktree /repo", Outcome: trace.OutcomeOK})
 	ps := retrieval.SelectSpanProposals([]trace.Session{s})
 	p := testkit.SpanWithCalls(ps, 1)
-	if p == nil || p.Review.Ready {
-		t.Fatalf("raw one-call result is diagnostic until a transformation is defined: %+v", p)
+	// A single call is no longer rejected outright; its review carries no
+	// passthrough reason.
+	if p == nil || strings.Contains(strings.Join(p.Review.Reasons, " "), "single_tool_passthrough") {
+		t.Fatalf("a single call was rejected as a passthrough: %+v", p)
 	}
 }
 
