@@ -66,6 +66,11 @@ type Family struct {
 	Questions     []string `json:"questions,omitempty"`
 	NeedsDecision int      `json:"needsDecision"`
 	Readiness     string   `json:"readiness"`
+	// APIMode is a pre-review compilation verdict. A shared first call is
+	// evidence of a pattern, not by itself an executable primitive API.
+	APIMode    string   `json:"apiMode,omitempty"`
+	APIChoices []string `json:"apiChoices,omitempty"`
+	APIReason  string   `json:"apiReason,omitempty"`
 }
 
 // FollowUp is one chain after the head.

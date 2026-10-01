@@ -44,7 +44,7 @@ func TestMenuStartsWithSummaryAndQuitSavesNothing(t *testing.T) {
 		t.Fatalf("fixture has %d families", len(res.Families))
 	}
 	out, dir := runMenu(t, res, "i\na\nq\n")
-	if !strings.Contains(out, "Summary") || strings.Index(out, "Summary") > strings.Index(out, "Proposed primitives") || !strings.Contains(out, "Used 2 times") || !strings.Contains(out, "What it does") || !strings.Contains(out, "What it saves") || !strings.Contains(out, "Needs attention") {
+	if !strings.Contains(out, "Summary") || strings.Index(out, "Summary") > strings.Index(out, "Proposed primitives") || !strings.Contains(out, "Used 2 times") || !strings.Contains(out, "What it does") || !strings.Contains(out, "Potential savings") || !strings.Contains(out, "Needs attention") {
 		t.Fatalf("card or summary missing:\n%s", out)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "decisions.jsonl")); err == nil {
@@ -89,5 +89,25 @@ func TestFailedInstallDoesNotAcceptCandidate(t *testing.T) {
 	files, _ := filepath.Glob(filepath.Join(dir, "accepted", "families", "*.json"))
 	if len(files) != 0 || !strings.Contains(out.String(), "branch rule unknown") {
 		t.Fatalf("failed install recorded as accepted: %d files, output %s", len(files), out.String())
+	}
+}
+
+func TestUnresolvedPatternIsShownButCannotBeAccepted(t *testing.T) {
+	res := twoFamilies()
+	res.Families[0].APIMode = "needs_refinement"
+	res.Families[0].APIReason = "no branch predicate"
+	var out bytes.Buffer
+	dir := t.TempDir()
+	err := Menu(strings.NewReader("i\na\nq\n"), &out, res, MenuConfig{StateDir: dir, Home: t.TempDir(), Clients: "claude-code"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "No executable API established") || !strings.Contains(got, "no branch predicate") || !strings.Contains(got, "Choose agent eval or continue") {
+		t.Fatalf("unresolved contract was hidden or accept was allowed: %s", got)
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "accepted", "families", "*.json"))
+	if len(files) != 0 {
+		t.Fatalf("accepted %d unresolved patterns", len(files))
 	}
 }

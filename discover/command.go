@@ -233,6 +233,7 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 	known = append(known, primitive.LoadKnown(stateDir)...)
 	progress(fmt.Sprintf("Looking for repeated work in %d sessions…", len(sessions)))
 	res := primitive.Discover(sessions, known)
+	planPrimitiveFamilies(&res, sessions)
 	progress("")
 	if *asJSON {
 		enc := json.NewEncoder(out)

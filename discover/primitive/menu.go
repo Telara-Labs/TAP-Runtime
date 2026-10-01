@@ -41,9 +41,6 @@ type InstallResult struct {
 	// Reason says why nothing was installed (the program could not be
 	// determined from the recorded uses).
 	Reason string
-	// Left are follow-ups not in the generated program: it builds the
-	// family's most-used chain.
-	Left []string
 }
 
 // LoadKnown returns the primitives accepted earlier on this machine, for
@@ -83,18 +80,21 @@ func writeSummary(out io.Writer, s style, res Result, clients string) {
 		[]string{"Calls that can be replayed", count(sm.Operations)},
 		[]string{"Edits and scripts the agent wrote (never replayed)", count(sm.JudgmentCalls)},
 		[]string{"Failed calls (not used)", count(sm.FailedCalls)},
-		[]string{"Proposed primitives", count(sm.Families)})
+		[]string{"Exact-flow candidates and patterns", count(sm.Families)})
 	table{widths: []int{52, 24}, right: map[int]bool{1: true}, rows: rows}.render(out, s)
 	var saved trace.Usage
 	turns := 0
 	for _, f := range res.Families {
+		if f.APIMode == "needs_refinement" {
+			continue
+		}
 		saved = saved.Add(f.Saved)
 		turns += f.TurnsSaved
 	}
 	section(out, s, "Estimated savings")
 	table{head: []string{"", "Model turns", "Tokens (estimate)"}, widths: []int{46, 12, 18}, right: map[int]bool{1: true, 2: true}, rows: [][]string{
 		{"Your history", count(sm.ToolCalls), "about " + tokensText(inputEquivalent(sm.Tokens))},
-		{"Removed if you use every proposed primitive", count(turns), "about " + tokensText(inputEquivalent(saved))},
+		{"Potential from exact-flow candidates", count(turns), "about " + tokensText(inputEquivalent(saved))},
 	}}.render(out, s)
 	fmt.Fprintln(out, s.dim("  Each removed turn is a round-trip to the model you no longer wait for. Token figures are priced as fresh"))
 	fmt.Fprintln(out, s.dim("  input; most of a turn is the conversation re-read from cache, which costs about a tenth as much."))
@@ -115,7 +115,7 @@ func header(out io.Writer, s style, res Result, clients string) {
 		line += " · " + p
 	}
 	fmt.Fprintln(out, line)
-	fmt.Fprintln(out, s.dim("Repeated tool-call chains from your agent history, proposed as reusable primitives."))
+	fmt.Fprintln(out, s.dim("Repeated work from your agent history, checked for an executable API before review."))
 }
 
 func describe(p Primitive) string {
@@ -201,7 +201,9 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	list()
 	if cfg.All {
 		for i := range choice {
-			choice[i] = "accept"
+			if shown[i].APIMode != "needs_refinement" {
+				choice[i] = "accept"
+			}
 		}
 		return submit(out, s, shown, choice, byID, cfg)
 	}
@@ -223,6 +225,10 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 			}
 			switch k {
 			case "a", "d", "e":
+				if k == "a" && shown[pos].APIMode == "needs_refinement" {
+					fmt.Fprintln(out, "  No executable API: "+shown[pos].APIReason+". Choose agent eval or continue.")
+					continue
+				}
 				choice[pos] = map[string]string{"a": "accept", "d": "deny", "e": "eval"}[k]
 				pos++
 			case "n":
@@ -249,7 +255,9 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 		switch k {
 		case "a":
 			for i := range choice {
-				choice[i] = "accept"
+				if shown[i].APIMode != "needs_refinement" {
+					choice[i] = "accept"
+				}
 			}
 			pos = len(shown) - 1
 		case "i":
@@ -300,6 +308,10 @@ func title(f Family) string {
 	t := display(f.Head)
 	n := len(f.FollowUps)
 	switch {
+	case f.APIMode == "caller_choice":
+		t += fmt.Sprintf(" → choose 1 of %d actions", len(f.APIChoices))
+	case f.APIMode == "needs_refinement":
+		t += fmt.Sprintf(" · refine %d continuations", n)
 	case n == 1:
 		t += " → " + followUpText(f.FollowUps[0])
 	case n > 1:
@@ -345,8 +357,27 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 	if pending != "" {
 		fmt.Fprintln(out, " Your choice: "+s.choice(pending))
 	}
+	if f.APIMode != "" {
+		section(out, s, "Proposed API")
+		switch f.APIMode {
+		case "caller_choice":
+			fmt.Fprintln(out, "  Input: action (required). Runs the first operation once, then exactly one selected continuation.")
+			fmt.Fprintln(out, "  Choices: "+strings.Join(f.APIChoices, ", "))
+		case "needs_refinement":
+			fmt.Fprintln(out, "  No executable API established. Accept is unavailable; send this pattern to agent eval to define its contract.")
+			if f.APIReason != "" {
+				fmt.Fprintln(out, "  Reason: "+f.APIReason)
+			}
+		default:
+			fmt.Fprintln(out, "  One exact recorded flow. The generated package is checked on submission.")
+		}
+	}
 
-	section(out, s, "What it does")
+	structureTitle := "What it does"
+	if f.APIMode == "needs_refinement" {
+		structureTitle = "Observed calls (not an API)"
+	}
+	section(out, s, structureTitle)
 	st := table{head: []string{"", "Step", "Used"}, widths: []int{16, 66, 6}, right: map[int]bool{2: true}, flex: 2}
 	headOp := display(f.Head)
 	if len(f.Sources) > 0 {
@@ -368,18 +399,28 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 		st.rows = append(st.rows, []string{label, followUpText(fu), count(fu.Runs)})
 	}
 	st.render(out, s)
-	if len(f.FollowUps) > 1 {
+	if len(f.FollowUps) > 1 && f.APIMode != "caller_choice" {
 		fmt.Fprintln(out, s.dim("  These are observed continuations, not an inferred combination rule. An installable program must expose an exact choice and result bindings."))
 	}
 
-	section(out, s, "What it saves")
+	savingsTitle := "Potential savings"
+	if f.APIMode == "needs_refinement" {
+		savingsTitle = "Historical cost of this pattern (not savings yet)"
+	}
+	section(out, s, savingsTitle)
 	per := 0.0
 	if f.ExecutionCount > 0 {
 		per = inputEquivalent(f.Saved) / float64(f.ExecutionCount)
 	}
+	turnLabel := fmt.Sprintf("%s model round-trips the agent no longer makes", count(f.TurnsSaved))
+	tokenLabel := fmt.Sprintf("about %s in total, about %s per use (estimate)", tokensText(inputEquivalent(f.Saved)), tokensText(per))
+	if f.APIMode == "needs_refinement" {
+		turnLabel = fmt.Sprintf("%s observed follow-up turns; no executable program yet", count(f.TurnsSaved))
+		tokenLabel = fmt.Sprintf("about %s spent in those turns (estimate)", tokensText(inputEquivalent(f.Saved)))
+	}
 	table{widths: []int{16, 72}, flex: 2, rows: [][]string{
-		{"Turns", fmt.Sprintf("%s model round-trips the agent no longer makes", count(f.TurnsSaved))},
-		{"Tokens", fmt.Sprintf("about %s in total, about %s per use (estimate)", tokensText(inputEquivalent(f.Saved)), tokensText(per))},
+		{"Turns", turnLabel},
+		{"Tokens", tokenLabel},
 	}}.render(out, s)
 	if f.ReadToDecide > 0 {
 		fmt.Fprintln(out, s.dim(fmt.Sprintf("  In %d of %d uses the agent built its next step from this output, so it needed to see it; those uses save less.", f.ReadToDecide, f.ExecutionCount)))
@@ -455,6 +496,9 @@ func submit(out io.Writer, s style, shown []Family, choice []string, byID map[st
 	for i, f := range shown {
 		switch choice[i] {
 		case "accept":
+			if f.APIMode == "needs_refinement" {
+				return fmt.Errorf("%s has no executable API: %s; choose agent eval", title(f), f.APIReason)
+			}
 			if cfg.Install == nil {
 				if err := acceptFamily(cfg.StateDir, f, byID); err != nil {
 					return err
@@ -481,9 +525,6 @@ func submit(out io.Writer, s style, shown []Family, choice []string, byID map[st
 					return err
 				}
 				line := fmt.Sprintf("%s → installed as %q (%s)", title(f), r.Name, r.Where)
-				if len(r.Left) > 0 {
-					line += fmt.Sprintf("; it runs the most-used flow, %d other follow-up(s) are not in it yet", len(r.Left))
-				}
 				installed = append(installed, line)
 				continue
 			}
@@ -647,6 +688,26 @@ func bindingSummary(p Primitive) string {
 // listTable is the one-line-per-primitive list; cursor marks the selected
 // row (-1 for none).
 func listTable(out io.Writer, s style, shown []Family, choice []string, cursor int) {
+	if s.cols() < 105 {
+		t := table{head: []string{" ", "#", "Proposal", "Uses", "API", "Choice"},
+			widths: []int{1, 3, 31, 5, 6, 6}, right: map[int]bool{1: true, 3: true}, flex: 2, oneLine: true}
+		for i, f := range shown {
+			sel := " "
+			if i == cursor {
+				sel = s.accent("▶")
+			}
+			api := "exact"
+			switch f.APIMode {
+			case "caller_choice":
+				api = "choice"
+			case "needs_refinement":
+				api = "refine"
+			}
+			t.rows = append(t.rows, []string{sel, fmt.Sprint(i + 1), title(f), count(f.ExecutionCount), api, s.choice(choice[i])})
+		}
+		t.render(out, s)
+		return
+	}
 	t := table{head: []string{" ", "#", "Primitive", "Uses", "Turns saved", "Tokens saved", "Open", "Choice"},
 		widths: []int{1, 3, 46, 5, 11, 12, 4, 8}, right: map[int]bool{1: true, 3: true, 4: true, 5: true, 6: true}, flex: 3, oneLine: true}
 	for i, f := range shown {
@@ -662,8 +723,12 @@ func listTable(out io.Writer, s style, shown []Family, choice []string, cursor i
 			name += " · re-evaluated"
 		}
 		c := s.choice(choice[i])
-		t.rows = append(t.rows, []string{sel, fmt.Sprint(i + 1), name, count(f.ExecutionCount), count(f.TurnsSaved),
-			"~" + tokensText(inputEquivalent(f.Saved)), fmt.Sprint(f.OpenQuestions), c})
+		turns, tokens := count(f.TurnsSaved), "~"+tokensText(inputEquivalent(f.Saved))
+		if f.APIMode == "needs_refinement" {
+			turns, tokens = "—", "—"
+		}
+		t.rows = append(t.rows, []string{sel, fmt.Sprint(i + 1), name, count(f.ExecutionCount), turns,
+			tokens, fmt.Sprint(f.OpenQuestions), c})
 	}
 	t.render(out, s)
 }
