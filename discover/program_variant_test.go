@@ -3,6 +3,8 @@ package discover
 import (
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -20,7 +22,7 @@ func TestGroupProgramVariantsKeepsOneAndManyTogether(t *testing.T) {
 		selSession("many", "Create record and link TENG-4 and TENG-5", create("TENG-3"), link("TENG-3", "TENG-4"), link("TENG-3", "TENG-5")),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:create", "mcp:link")
-	variants, err := GroupProgramVariants(c, ps, ss)
+	variants, err := codegen.GroupProgramVariants(c, ps, ss)
 	if err != nil || len(variants) != 1 || variants[0].Executions != 2 {
 		t.Fatalf("one and many should be one invocation contract: %+v %v", variants, err)
 	}
@@ -39,7 +41,7 @@ func TestGroupProgramVariantsSeparatesBindingsAndArgumentShapes(t *testing.T) {
 			trace.Call{Tool: "mcp:next", MCPServer: "one", MCPTool: "next", Args: map[string]string{"id": "TENG-6"}, Outcome: trace.OutcomeOK}),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:get", "mcp:next")
-	variants, err := GroupProgramVariants(c, ps, ss)
+	variants, err := codegen.GroupProgramVariants(c, ps, ss)
 	if err != nil || len(variants) != 3 {
 		t.Fatalf("different binding or typed argument shape must be explicit: %+v %v", variants, err)
 	}

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -72,7 +74,7 @@ func TestZZParityGoVsPython(t *testing.T) {
 	all := append(bodies, syn...)
 	accepted, diff := 0, 0
 	for i, b := range all {
-		g, py := pyparse.StrictInlineFileReplace(b), strictInlineFileReplacePy(b)
+		g, py := pyparse.StrictInlineFileReplace(b), codegen.StrictInlineFileReplacePy(b)
 		if py {
 			accepted++
 		}

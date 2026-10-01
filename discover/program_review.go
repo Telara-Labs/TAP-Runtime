@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -32,11 +34,11 @@ type generatedDecision struct {
 // ReviewGenerated shows the entire exact package before taking one local
 // decision. Accept installs privately; Deny remembers this candidate/digest;
 // Refine makes an inspectable local handoff for the user's chosen coding agent.
-func ReviewGenerated(in io.Reader, out io.Writer, graph *ProgramGraph, skillRoot, stateDir string, evidence ...model.SpanProposal) error {
+func ReviewGenerated(in io.Reader, out io.Writer, graph *codegen.ProgramGraph, skillRoot, stateDir string, evidence ...model.SpanProposal) error {
 	if graph == nil {
 		return fmt.Errorf("no program graph")
 	}
-	pkg, generateErr := GenerateProgramPackage(graph)
+	pkg, generateErr := codegen.GenerateProgramPackage(graph)
 	selectionDecision := programSelectionDecision(graph)
 	digest := ""
 	if pkg != nil {
@@ -232,7 +234,7 @@ func ReviewGenerated(in io.Reader, out io.Writer, graph *ProgramGraph, skillRoot
 // caller cannot select the desired item by inspecting that future list before
 // invocation. It is a useful lower-level composition to inspect or refine,
 // not evidence that Discover inferred the selection rule of the source task.
-func programSelectionDecision(g *ProgramGraph) string {
+func programSelectionDecision(g *codegen.ProgramGraph) string {
 	if g == nil {
 		return ""
 	}
@@ -248,7 +250,7 @@ func programSelectionDecision(g *ProgramGraph) string {
 
 // Equal result bindings in distinct argument paths can be intentional, but
 // the review must make the alias visible before a user accepts the package.
-func programSharedResultBindings(step ProgramStep) []string {
+func programSharedResultBindings(step codegen.ProgramStep) []string {
 	pathsBySource := map[string][]string{}
 	for _, arg := range step.Args {
 		v := arg.Value
@@ -270,7 +272,7 @@ func programSharedResultBindings(step ProgramStep) []string {
 	return notes
 }
 
-func programSummary(g *ProgramGraph) string {
+func programSummary(g *codegen.ProgramGraph) string {
 	if len(g.Steps) == 0 {
 		return "no executable steps determined"
 	}
@@ -287,7 +289,7 @@ func programSummary(g *ProgramGraph) string {
 	return strings.Join(parts, "; then ")
 }
 
-func programValueLabel(v ProgramValue) string {
+func programValueLabel(v codegen.ProgramValue) string {
 	switch v.Kind {
 	case "input", "item":
 		return v.Kind + " " + v.Input + v.ResultPath
@@ -310,7 +312,7 @@ func programValueLabel(v ProgramValue) string {
 	}
 }
 
-func saveGeneratedPackage(p *GeneratedPackage, root string) (string, bool, error) {
+func saveGeneratedPackage(p *codegen.GeneratedPackage, root string) (string, bool, error) {
 	if p == nil || p.Graph == nil {
 		return "", false, fmt.Errorf("no generated package")
 	}
@@ -378,7 +380,7 @@ func appendGeneratedDecision(dir string, decision generatedDecision) error {
 	return os.Rename(temp.Name(), filepath.Join(dir, "decisions.json"))
 }
 
-func writeGeneratedHandoff(g *ProgramGraph, p *GeneratedPackage, stateDir string, evidence []model.SpanProposal) (string, error) {
+func writeGeneratedHandoff(g *codegen.ProgramGraph, p *codegen.GeneratedPackage, stateDir string, evidence []model.SpanProposal) (string, error) {
 	digest := unresolvedGraphDigest(g)
 	if p != nil {
 		digest = p.Digest
@@ -415,7 +417,7 @@ func writeGeneratedHandoff(g *ProgramGraph, p *GeneratedPackage, stateDir string
 	return dir, nil
 }
 
-func unresolvedGraphDigest(g *ProgramGraph) string {
+func unresolvedGraphDigest(g *codegen.ProgramGraph) string {
 	data, _ := json.Marshal(g)
 	sum := sha256.Sum256(data)
 	return "unresolved-" + hex.EncodeToString(sum[:8])

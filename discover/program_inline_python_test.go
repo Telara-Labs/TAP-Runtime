@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -39,15 +41,15 @@ func TestStrictInlineFileReplaceCompilesOnlyProvedSameFileShape(t *testing.T) {
 	if !ok {
 		t.Fatal("cross-session strict source was lost before parsing")
 	}
-	variants, err := GroupProgramVariants(qualified, spans, ss)
+	variants, err := codegen.GroupProgramVariants(qualified, spans, ss)
 	if err != nil || len(variants) != 1 {
 		t.Fatalf("code variant grouping: %+v %v", variants, err)
 	}
-	g, err := SynthesizeProgramGraph(variants[0], spans, ss)
+	g, err := codegen.SynthesizeProgramGraph(variants[0], spans, ss)
 	if err != nil || len(g.Problems) != 0 || g.InlineFileReplace == nil || !g.InlineFileReplace.Embedded {
 		t.Fatalf("strict AST graph: %+v %v", g, err)
 	}
-	pkg, err := GenerateProgramPackage(g)
+	pkg, err := codegen.GenerateProgramPackage(g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +63,7 @@ func TestStrictInlineFileReplaceCompilesOnlyProvedSameFileShape(t *testing.T) {
 	ss[1].Calls[0].Command = bad
 	spans = retrieval.SelectSpanProposals(ss)
 	for _, c := range retrieval.GroupLogicCandidates(spans) {
-		g, err := SynthesizeProgramGraph(c, spans, ss)
+		g, err := codegen.SynthesizeProgramGraph(c, spans, ss)
 		if err == nil && len(g.Problems) == 0 && g.InlineFileReplace != nil {
 			t.Fatal("different write target compiled")
 		}
@@ -88,11 +90,11 @@ func TestInlineFileReplaceRunsThroughHostAndRespectsFileReach(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs TAP host")
 	}
-	g := &ProgramGraph{CandidateID: "lc_filereplacetest", Executions: 2, Sessions: 2,
-		InlineFileReplace: &InlineFileReplace{Embedded: true},
-		Inputs:            []ProgramInput{{Name: "file_path", Type: "string"}, {Name: "old", Type: "string"}, {Name: "new", Type: "string"}},
-		Steps:             []ProgramStep{{Role: "read file", Tool: "tap.read", Effect: "read"}, {Role: "replace text", Tool: "python.str.replace", Effect: "none"}, {Role: "write same file", Tool: "tap.write", Effect: "write"}}}
-	pkg, err := GenerateProgramPackage(g)
+	g := &codegen.ProgramGraph{CandidateID: "lc_filereplacetest", Executions: 2, Sessions: 2,
+		InlineFileReplace: &codegen.InlineFileReplace{Embedded: true},
+		Inputs:            []codegen.ProgramInput{{Name: "file_path", Type: "string"}, {Name: "old", Type: "string"}, {Name: "new", Type: "string"}},
+		Steps:             []codegen.ProgramStep{{Role: "read file", Tool: "tap.read", Effect: "read"}, {Role: "replace text", Tool: "python.str.replace", Effect: "none"}, {Role: "write same file", Tool: "tap.write", Effect: "write"}}}
+	pkg, err := codegen.GenerateProgramPackage(g)
 	if err != nil {
 		t.Fatal(err)
 	}

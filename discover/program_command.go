@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
@@ -135,7 +137,7 @@ func generateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "discover generate: logic candidate %s has no independent task-shaped evidence for generated review\n", *logicID)
 		return 1
 	}
-	variants, err := GroupProgramVariants(qualified, spans, sessions)
+	variants, err := codegen.GroupProgramVariants(qualified, spans, sessions)
 	if err != nil {
 		fmt.Fprintln(errOut, "discover generate:", err)
 		return 1
@@ -163,7 +165,7 @@ func generateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "discover generate: invocation variant %s was not found under %s\n", *variantID, selected.ID)
 		return 1
 	}
-	graph, err := SynthesizeProgramGraph(*chosen, spans, sessions)
+	graph, err := codegen.SynthesizeProgramGraph(*chosen, spans, sessions)
 	if err != nil {
 		fmt.Fprintln(errOut, "discover generate:", err)
 		return 1
@@ -203,7 +205,7 @@ type generatedProgramRow struct {
 // This is only a review order. A result-dependent terminal write is more
 // likely to represent completed reusable work than a follow-up read, but
 // neither category establishes task usefulness or safe deployment.
-func programReviewShape(g *ProgramGraph) (int, string) {
+func programReviewShape(g *codegen.ProgramGraph) (int, string) {
 	if g == nil || len(g.Steps) == 0 {
 		return 0, "unresolved shape"
 	}
@@ -249,7 +251,7 @@ func generatedProgramQueue(candidates []model.LogicCandidate, spans []model.Span
 		if !ok {
 			continue
 		}
-		variants, err := GroupProgramVariants(qualified, spans, sessions)
+		variants, err := codegen.GroupProgramVariants(qualified, spans, sessions)
 		if err != nil {
 			return nil, err
 		}
@@ -257,14 +259,14 @@ func generatedProgramQueue(candidates []model.LogicCandidate, spans []model.Span
 			if !generatedVariantHasTaskEvidence(v, bySpan) {
 				continue
 			}
-			graph, err := SynthesizeProgramGraph(v, spans, sessions)
+			graph, err := codegen.SynthesizeProgramGraph(v, spans, sessions)
 			if err != nil {
 				return nil, err
 			}
 			if len(graph.Problems) != 0 {
 				continue
 			}
-			pkg, err := GenerateProgramPackage(graph)
+			pkg, err := codegen.GenerateProgramPackage(graph)
 			if err != nil {
 				continue
 			}
@@ -338,7 +340,7 @@ func generatedCandidateTaskEvidence(c model.LogicCandidate, bySpan map[string]mo
 		return model.LogicCandidate{}, false
 	}
 	qualified.Proposals = len(qualified.Members)
-	qualified.Executions = variantIndependentExecutions(qualified.Members, bySpan)
+	qualified.Executions = codegen.VariantIndependentExecutions(qualified.Members, bySpan)
 	sourceSessions := map[string]bool{}
 	for _, id := range qualified.Members {
 		p := bySpan[id]
