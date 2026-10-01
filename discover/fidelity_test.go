@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -53,7 +55,7 @@ func TestPipelinesAndCdAreReplayedAsRecorded(t *testing.T) {
 		}
 	})
 	r := firstRoutine(t, ss)
-	sh := string(RoutineDraft(r).Files["main.sh"])
+	sh := string(routine.RoutineDraft(r).Files["main.sh"])
 	if !strings.Contains(sh, `cd "${1}" && go test ./... -count=1 2>&1 | tail -20`) {
 		t.Fatalf("the pipeline and cd must be one recorded line with the directory as input:\n%s", sh)
 	}
@@ -70,7 +72,7 @@ func TestDifferingHeredocBodiesNeedAuthoring(t *testing.T) {
 		}
 	})
 	r := firstRoutine(t, ss)
-	d := RoutineDraft(r)
+	d := routine.RoutineDraft(r)
 	if d.HumanSteps != 1 {
 		t.Fatalf("a heredoc whose body differs every run must be an authoring step: %+v", d.Steps)
 	}
@@ -125,7 +127,7 @@ func TestFailedRunsAreNotEvidence(t *testing.T) {
 		return []trace.Call{status, push}
 	})
 	r := firstRoutine(t, ss)
-	if r.Runs != 10 || r.FailedRuns != 6 || len(RoutineDraft(r).Inputs) != 1 {
+	if r.Runs != 10 || r.FailedRuns != 6 || len(routine.RoutineDraft(r).Inputs) != 1 {
 		t.Fatalf("runs %d failed %d", r.Runs, r.FailedRuns)
 	}
 	if r.Consistency != 0.4 {
@@ -144,7 +146,7 @@ func TestAValueFromAnEarlierOutputIsTakenFromIt(t *testing.T) {
 		return []trace.Call{search, read}
 	})
 	r := firstRoutine(t, ss)
-	d := RoutineDraft(r)
+	d := routine.RoutineDraft(r)
 	if len(d.Inputs) != 1 || d.Inputs[0].DerivedFrom != 1 || d.Inputs[0].Extract == "" || d.Inputs[0].Position != 0 {
 		t.Fatalf("the thread id came from step 1's output after the same text in every run: %+v", d.Inputs)
 	}
@@ -178,7 +180,7 @@ func TestAValueWithNoCommonAnchorNeedsAuthoring(t *testing.T) {
 		return []trace.Call{search, read}
 	})
 	r := firstRoutine(t, ss)
-	d := RoutineDraft(r)
+	d := routine.RoutineDraft(r)
 	if len(d.Inputs) != 1 || d.Inputs[0].DerivedFrom != 1 || d.Inputs[0].Extract != "" {
 		t.Fatalf("inputs: %+v", d.Inputs)
 	}
@@ -195,7 +197,7 @@ func TestTenOrMoreArgumentsAreBraced(t *testing.T) {
 		}
 		return []trace.Call{{Tool: "mcp:telara_tool_search", Args: map[string]string{"query": "x"}}, {Tool: "mcp:report_file", Args: args}}
 	})
-	sh := string(RoutineDraft(firstRoutine(t, ss)).Files["main.sh"])
+	sh := string(routine.RoutineDraft(firstRoutine(t, ss)).Files["main.sh"])
 	if strings.Contains(sh, `"$10"`) || !strings.Contains(sh, `"${11}"`) {
 		t.Fatalf("$10 is $1 followed by 0 in the shell:\n%s", sh)
 	}
@@ -248,7 +250,7 @@ func TestFunnelCountsMatchDecisions(t *testing.T) {
 	for _, n := range rep.Funnel.Removed {
 		sumRemoved += n
 	}
-	if prims != rep.Funnel.Primitives || authoring != rep.Funnel.NeedsAuthoring || removed != sumRemoved || len(ReportPrimitives(rep)) != prims {
+	if prims != rep.Funnel.Primitives || authoring != rep.Funnel.NeedsAuthoring || removed != sumRemoved || len(routine.ReportPrimitives(rep)) != prims {
 		t.Fatalf("funnel %+v vs %d/%d/%d", rep.Funnel, prims, authoring, removed)
 	}
 }

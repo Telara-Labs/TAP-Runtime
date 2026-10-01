@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
@@ -75,7 +77,7 @@ func TestALineRepeatedInOneSessionIsNotFixed(t *testing.T) {
 	}
 	found := false
 	for _, r := range rep.Routines {
-		sh := string(RoutineDraft(&r).Files["main.sh"])
+		sh := string(routine.RoutineDraft(&r).Files["main.sh"])
 		if strings.Contains(sh, "remaining.py") {
 			t.Fatalf("a line only one session wrote was drafted as fixed:\n%s", sh)
 		}
@@ -109,7 +111,7 @@ func TestAnArgumentAnyRunSentAsJSONIsJSON(t *testing.T) {
 		}
 		return []trace.Call{{Tool: "mcp:telara_tool_search", Args: map[string]string{"query": "jira issue"}}, c}
 	})
-	d := RoutineDraft(firstRoutine(t, ss))
+	d := routine.RoutineDraft(firstRoutine(t, ss))
 	var in *model.DraftInput
 	for k := range d.Inputs {
 		if strings.HasSuffix(d.Inputs[k].Name, "params") {
@@ -131,8 +133,8 @@ func TestEscapedNewlinesStartALineAndBackslashesNeverAnchor(t *testing.T) {
 	}
 	for _, c := range []string{`\"id\":\"`, `a\tb: `} {
 		st := func(v string) trace.Step { return trace.Step{OutIDs: []string{v}, OutCtx: []string{c + "\x00\""}} }
-		d := &drafter{occ: [][]trace.Step{{st("18c0000000000abc1")}, {st("18c0000000000abc2")}}}
-		if _, _, _, ok := d.extraction(0, map[int]string{0: "18c0000000000abc1", 1: "18c0000000000abc2"}); ok {
+		d := &routine.Drafter{Occ: [][]trace.Step{{st("18c0000000000abc1")}, {st("18c0000000000abc2")}}}
+		if _, _, _, ok := d.Extraction(0, map[int]string{0: "18c0000000000abc1", 1: "18c0000000000abc2"}); ok {
 			t.Errorf("anchor %q was recorded escaped and must not be used", c)
 		}
 	}
@@ -215,14 +217,14 @@ func TestConstantOpeningOfVaryingWorkIsNotAProcedure(t *testing.T) {
 			Contract: model.Contract{Goal: model.GoalStated, Effect: model.EffectReadOnly}}
 	}
 	low := mk(0.3)
-	decide(&low, &model.Draft{}, nil, 0, 0)
-	if low.Suitability == model.SuitUseful || firstReason(low) != "constant_part_of_larger_work" {
+	routine.Decide(&low, &model.Draft{}, nil, 0, 0)
+	if low.Suitability == model.SuitUseful || routine.FirstReason(low) != "constant_part_of_larger_work" {
 		t.Fatalf("suitability %q reasons %v", low.Suitability, low.Reasons)
 	}
 	// The same constant steps that ARE the work (a scheduled fetch and log)
 	// stay a procedure.
 	high := mk(1)
-	decide(&high, &model.Draft{}, nil, 0, 0)
+	routine.Decide(&high, &model.Draft{}, nil, 0, 0)
 	if high.Suitability != model.SuitUseful {
 		t.Fatalf("a constant procedure that is the whole task: %q %v", high.Suitability, high.Reasons)
 	}
@@ -236,7 +238,7 @@ func TestValuesComposedFromTheRequest(t *testing.T) {
 		"needle42=billing-4":            false, // an unrequested value beside a requested one
 		"billing-4":                     false, // not composed (inRequest handles it)
 	} {
-		if got := composedFromRequest(v, "why is deployment billing-4 on v1.2.0 not v1.2.1"); got != want {
+		if got := routine.ComposedFromRequest(v, "why is deployment billing-4 on v1.2.0 not v1.2.1"); got != want {
 			t.Errorf("%q: %v, want %v", v, got, want)
 		}
 	}

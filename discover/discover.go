@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -152,7 +154,7 @@ func Run(o model.Options) (*model.Report, error) {
 			}
 		}
 	}
-	rep.Funnel, rep.Routines = requestRoutines(sessions, ids, names, o, totalCalls)
+	rep.Funnel, rep.Routines = routine.RequestRoutines(sessions, ids, names, o, totalCalls)
 	optionsLog(o, "requests: %d with replayable steps, %d routines, %d primitives", rep.Funnel.RequestsWithSteps, rep.Funnel.Routines, rep.Funnel.Primitives)
 	if !o.Patterns {
 		return rep, nil
@@ -222,13 +224,13 @@ func Run(o model.Options) (*model.Report, error) {
 	index := model.LabelIndex(seqs)
 	keep := func(items []int, k, nPrefix int) bool {
 		// The last step first: exact and free (the prefix's support is known).
-		if binomialUpper(k, max(nPrefix, k), share[items[len(items)-1]]) > o.Alpha {
+		if routine.BinomialUpper(k, max(nPrefix, k), share[items[len(items)-1]]) > o.Alpha {
 			return false
 		}
 		// Then every other step, stopping at the first that fails.
 		return necessityP(items, k, seqs, index, df, share, o.Window, o.Alpha) <= o.Alpha
 	}
-	mined, examined, truncated := minePatterns(seqs, mineLimits{window: o.Window, minSupport: o.MinSupport, maxLen: o.MaxLen, maxOut: o.MaxPatterns, canQualify: canQualify, keep: keep})
+	mined, examined, truncated := routine.MinePatterns(seqs, routine.MineLimits{Window: o.Window, MinSupport: o.MinSupport, MaxLen: o.MaxLen, MaxOut: o.MaxPatterns, CanQualify: canQualify, Keep: keep})
 	rep.Mined, rep.Examined, rep.Truncated, rep.MinSupportUsed = len(mined), examined, truncated, o.MinSupport
 	optionsLog(o, "examined %d patterns at support >= %d over %d sessions and %d labels; %d kept", examined, o.MinSupport, len(seqs), len(names), len(mined))
 
@@ -240,12 +242,12 @@ func Run(o model.Options) (*model.Report, error) {
 	// Every step must be necessary (see necessity), with FDR over all
 	// patterns examined. Only patterns passing it go on to the shuffle tests,
 	// which cost a pass over the corpus per permutation.
-	closed := closedOnly(mined)
+	closed := routine.ClosedOnly(mined)
 	pNeedAll := make([]float64, len(closed))
 	util.ParallelFor(len(closed), func(i int) {
 		pNeedAll[i] = necessity(closed[i], seqs, index, df, share, o.Window)
 	})
-	qNeedAll := benjaminiHochbergOf(pNeedAll, examined)
+	qNeedAll := routine.BenjaminiHochbergOf(pNeedAll, examined)
 	var cands []model.Pattern
 	var qNeed []float64
 	for i, p := range closed {
@@ -257,18 +259,18 @@ func Run(o model.Options) (*model.Report, error) {
 	rep.Tested = len(cands)
 	optionsLog(o, "%d closed patterns; %d pass the per-step test and go to %d permutations per shuffle test", len(closed), len(cands), o.Permutations)
 
-	across := permuteCounts(seqs, group, cands, o, shuffleAcross)
+	across := permuteCounts(seqs, group, cands, o, routine.ShuffleAcross)
 	optionsLog(o, "between-session null done")
-	within := permuteCounts(seqs, group, cands, o, shuffleWithin)
+	within := permuteCounts(seqs, group, cands, o, routine.ShuffleWithin)
 	optionsLog(o, "within-session null done")
 	pAcross := make([]float64, len(cands))
 	pWithin := make([]float64, len(cands))
 	for i, p := range cands {
-		pAcross[i] = pValue(len(p.Sessions), across[i])
-		pWithin[i] = pValue(len(p.Sessions), within[i])
+		pAcross[i] = routine.PValue(len(p.Sessions), across[i])
+		pWithin[i] = routine.PValue(len(p.Sessions), within[i])
 	}
-	qAcross := benjaminiHochberg(pAcross)
-	qWithin := benjaminiHochberg(pWithin)
+	qAcross := routine.BenjaminiHochberg(pAcross)
+	qWithin := routine.BenjaminiHochberg(pWithin)
 
 	for i, p := range cands {
 		c := model.Describe(p, corpus, seqs, names, idf, o.Window)
@@ -300,7 +302,7 @@ func Run(o model.Options) (*model.Report, error) {
 		return ca.Score > cb.Score
 	})
 	rep.Recall = recall(corpus, rep.Candidates)
-	rep.Skills = skillProcedures(corpus, seqs, closed, names, idf, o)
+	rep.Skills = routine.SkillProcedures(corpus, seqs, closed, names, idf, o)
 	rep.Corpus, rep.Seqs, rep.Names, rep.Window = corpus, seqs, names, o.Window
 	optionsLog(o, "skill comparison: %d skills with enriched procedures", len(rep.Skills))
 	rep.Families = assignFamilies(rep.Candidates)
@@ -321,7 +323,7 @@ func permuteCounts(seqs [][]int, group []int, ps []model.Pattern, o model.Option
 			defer wg.Done()
 			defer func() { <-sem }()
 			rng := rand.New(rand.NewSource(o.Seed + int64(k)*7919))
-			counts := nullSupport(permute(seqs, group, rng), ps, o.Window)
+			counts := routine.NullSupport(permute(seqs, group, rng), ps, o.Window)
 			for i, n := range counts {
 				out[i][k] = n
 			}
@@ -454,7 +456,7 @@ func necessityP(items []int, k int, seqs [][]int, index map[int]map[int]bool, df
 		} else {
 			n = df[rest[0]]
 		}
-		pv := binomialUpper(k, max(n, k), share[x])
+		pv := routine.BinomialUpper(k, max(n, k), share[x])
 		if pv > worst {
 			worst = pv
 			if worst > stopAbove {

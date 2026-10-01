@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -113,7 +115,7 @@ func TestCreatedIssueLinkFanoutReachesLogicQueue(t *testing.T) {
 func TestLogicCandidatesArePrimaryDiscoverQueue(t *testing.T) {
 	r := model.Report{SpanProposals: []model.SpanProposal{{}}, LogicCandidates: []model.LogicCandidate{{ID: "lc_example", Sessions: 2, Executions: 3, Actions: []string{"jira.create_issue", "jira.transition_issue"}, Cautions: []string{"source_role_uncertain"}}}}
 	var out bytes.Buffer
-	WriteSpanProposals(&out, &r, 10)
+	routine.WriteSpanProposals(&out, &r, 10)
 	if !strings.Contains(out.String(), "lc_example") || !strings.Contains(out.String(), "--logic") || strings.Contains(out.String(), "Task-first queue: 0") {
 		t.Fatalf("logic candidates should be primary rather than complete-task gate: %s", out.String())
 	}

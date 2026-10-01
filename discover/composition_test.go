@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -30,7 +32,7 @@ func TestWriteSpanProposalsUsesCompositionGroups(t *testing.T) {
 	p := model.SpanProposal{ID: "sp_example", Composition: model.SpanComposition{Actions: []string{"jira.create_issue", "jira.transition_issue"}}}
 	r := &model.Report{SpanProposals: []model.SpanProposal{p}, SpanGroups: []model.SpanGroup{{Proposals: 1}}, CompositionGroups: []model.SpanCompositionGroup{{Proposals: 1, Sessions: 1, Example: p}}}
 	var out bytes.Buffer
-	WriteSpanProposals(&out, r, 1)
+	routine.WriteSpanProposals(&out, r, 1)
 	if !strings.Contains(out.String(), "1 composition groups") || !strings.Contains(out.String(), "jira.create_issue > jira.transition_issue") {
 		t.Fatalf("composition review index absent from CLI output: %s", out.String())
 	}

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -135,7 +137,7 @@ func TestSpanReportShowsComponentQueueWhenTaskQueueEmpty(t *testing.T) {
 	p := model.SpanProposal{ID: "sp_component", Review: model.SpanTaskReview{Source: "user", Component: true}, Composition: model.SpanComposition{Actions: []string{"gitlab.list_jobs", "gitlab.get_job"}}}
 	r := model.Report{SpanProposals: []model.SpanProposal{p}, ComponentSpans: []model.SpanProposal{p}, ComponentGroups: []model.SpanCompositionGroup{{Proposals: 1, Sessions: 1, Example: p}}}
 	var out bytes.Buffer
-	WriteSpanProposals(&out, &r, 10)
+	routine.WriteSpanProposals(&out, &r, 10)
 	if !strings.Contains(out.String(), "Task-first queue: 0") || !strings.Contains(out.String(), "component queue: 1") || !strings.Contains(out.String(), "gitlab.list_jobs") {
 		t.Fatalf("component queue hidden behind empty strict queue: %s", out.String())
 	}

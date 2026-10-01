@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -106,14 +108,14 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 		}
 		return 0
 	}
-	WriteFunnel(out, rep, *top, *rejected)
-	WriteOpportunities(out, rep, *nOps)
+	routine.WriteFunnel(out, rep, *top, *rejected)
+	routine.WriteOpportunities(out, rep, *nOps)
 	if d.Spans {
-		WriteSpanProposals(out, rep, *nSpans)
+		routine.WriteSpanProposals(out, rep, *nSpans)
 	}
 	if *patterns {
 		fmt.Fprintln(out)
-		WriteText(out, rep, *top)
+		routine.WriteText(out, rep, *top)
 	}
 	if !*review {
 		return 0
@@ -124,7 +126,7 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "discover:", err)
 		return 2
 	}
-	err = Review(in, out, rep, ReviewConfig{Top: *top}, ReviewActions{
+	err = routine.Review(in, out, rep, routine.ReviewConfig{Top: *top}, routine.ReviewActions{
 		Save: func(dr *model.Draft) (string, error) {
 			path, unchanged, err := pack.SaveDraft(dr, root)
 			if unchanged {

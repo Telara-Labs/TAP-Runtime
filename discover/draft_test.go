@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -36,7 +38,7 @@ func runAndFind(t *testing.T, ss []trace.Session, labels string) (*model.Report,
 
 func TestDraftReplaysThePlantedProcedure(t *testing.T) {
 	rep, i := runAndFind(t, plantedCorpus(), "sh:make build → sh:go test → sh:git push")
-	d, err := ReportDraft(rep, i, model.DraftOptions{})
+	d, err := routine.ReportDraft(rep, i, model.DraftOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +72,7 @@ func TestDraftReplaysThePlantedProcedure(t *testing.T) {
 
 func TestDraftReadOnlyIsTheUsersCall(t *testing.T) {
 	rep, i := runAndFind(t, plantedCorpus(), "sh:make build → sh:go test → sh:git push")
-	d, err := ReportDraft(rep, i, model.DraftOptions{ReadOnly: map[int]bool{2: true}})
+	d, err := routine.ReportDraft(rep, i, model.DraftOptions{ReadOnly: map[int]bool{2: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +105,7 @@ func toolCorpus() []trace.Session {
 
 func TestDraftMCPToolsCarryContractsThatPassPublishChecks(t *testing.T) {
 	rep, i := runAndFind(t, toolCorpus(), "mcp:telara_task_create → mcp:telara_jira_transition_issue")
-	d, err := ReportDraft(rep, i, model.DraftOptions{Publisher: "dev.example"})
+	d, err := routine.ReportDraft(rep, i, model.DraftOptions{Publisher: "dev.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +145,7 @@ func TestDraftKeepsRecordedArgumentTypes(t *testing.T) {
 		}
 	}
 	rep, i := runAndFind(t, ss, "mcp:telara_task_create → mcp:telara_jira_transition_issue")
-	d, err := ReportDraft(rep, i, model.DraftOptions{Publisher: "dev.example"})
+	d, err := routine.ReportDraft(rep, i, model.DraftOptions{Publisher: "dev.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,11 +177,11 @@ func TestDraftPatchIsAHumanStepNotAGuess(t *testing.T) {
 		ss = append(ss, s)
 	}
 	rep, i := runAndFind(t, ss, "sh:tail → patch:update → sh:git commit")
-	d, err := ReportDraft(rep, i, model.DraftOptions{})
+	d, err := routine.ReportDraft(rep, i, model.DraftOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.HumanSteps != 1 || d.Steps[1].Kind != KindHuman {
+	if d.HumanSteps != 1 || d.Steps[1].Kind != routine.KindHuman {
 		t.Fatalf("steps = %+v", d.Steps)
 	}
 	m, _ := manifest.Parse(d.Files["primitive.yaml"])
@@ -208,7 +210,7 @@ func TestDraftBrowserKeepsObjectsAndDropsVariableNames(t *testing.T) {
 		ss = append(ss, s)
 	}
 	rep, i := runAndFind(t, ss, "js:nameSession → js:goto → js:playwright.evaluate")
-	d, err := ReportDraft(rep, i, model.DraftOptions{})
+	d, err := routine.ReportDraft(rep, i, model.DraftOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +248,7 @@ func TestDraftArgumentOrderDoesNotMakeFlagsInputs(t *testing.T) {
 		ss = append(ss, s)
 	}
 	rep, i := runAndFind(t, ss, "sh:gofmt → sh:go test")
-	d, err := ReportDraft(rep, i, model.DraftOptions{})
+	d, err := routine.ReportDraft(rep, i, model.DraftOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
@@ -240,7 +242,7 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 			// The transcript does not prove the full live argument/result schema,
 			// so do not invent a capability contract. The exact pin is checked
 			// against the active client's inventory at run time.
-			capability := m.Metadata.Publisher + "/" + capName(tool) + "@1"
+			capability := m.Metadata.Publisher + "/" + routine.CapName(tool) + "@1"
 			m.Tools = append(m.Tools, manifest.Tool{Alias: alias, Capability: capability, Effect: st.Effect,
 				Pin: &manifest.Pin{Server: st.Binding.Server, Tool: st.Binding.Tool}})
 		}

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -143,7 +145,7 @@ func assessEpisode(ns *trace.NormSession, req int, ec *EpisodeClaim) {
 				continue // a fixed word of the command: a resource kind, a branch
 			}
 			v := sl.Value
-			if trace.InRequest(v, text) || composedFromRequest(v, text) {
+			if trace.InRequest(v, text) || routine.ComposedFromRequest(v, text) {
 				continue
 			}
 			from := false

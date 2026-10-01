@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -59,10 +61,10 @@ func TestDraftNeverWritesCredentials(t *testing.T) {
 			r = &rep.Routines[i]
 		}
 	}
-	if r == nil || RoutineDraft(r) == nil {
+	if r == nil || routine.RoutineDraft(r) == nil {
 		t.Fatalf("no drafted routine: %+v", rep.Funnel)
 	}
-	d := RoutineDraft(r)
+	d := routine.RoutineDraft(r)
 	for name, body := range d.Files {
 		for _, secret := range []string{"abcDEF1234567890ghiJKL", fakeGitlab, "hunter2secret", "pw-"} {
 			if bytes.Contains(body, []byte(secret)) {
@@ -89,7 +91,7 @@ func TestDraftNeverWritesCredentials(t *testing.T) {
 		t.Fatalf("a clean draft must package: %v", err)
 	}
 	var buf bytes.Buffer
-	WriteFunnel(&buf, rep, 0, true)
+	routine.WriteFunnel(&buf, rep, 0, true)
 	if strings.Contains(buf.String(), "abcDEF1234567890ghiJKL") || strings.Contains(buf.String(), "hunter2secret") {
 		t.Fatal("the printed report leaks a credential")
 	}

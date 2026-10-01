@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -24,7 +26,7 @@ func TestMinePatternsRespectsWindow(t *testing.T) {
 		{1, 9, 2, 9, 3},
 		{1, 9, 9, 9, 2, 3}, // 2 is 4 steps after 1: outside a window of 3
 	}
-	ps, _, _ := minePatterns(seqs, mineLimits{window: 3, minSupport: 2, maxLen: 3, maxOut: 1000})
+	ps, _, _ := routine.MinePatterns(seqs, routine.MineLimits{Window: 3, MinSupport: 2, MaxLen: 3, MaxOut: 1000})
 	got := map[string]int{}
 	for _, p := range ps {
 		got[p.Key()] = len(p.Sessions)
@@ -41,7 +43,7 @@ func TestClosedOnlyDropsSubsumedPatterns(t *testing.T) {
 		{Items: []int{1, 3}, Sessions: []int{0, 1, 2, 3}}, // more support than 1,2,3: stays
 	}
 	var keys []string
-	for _, p := range closedOnly(ps) {
+	for _, p := range routine.ClosedOnly(ps) {
 		keys = append(keys, p.Key())
 	}
 	if strings.Join(keys, " ") != "1,2,3 1,3" {
@@ -51,37 +53,37 @@ func TestClosedOnlyDropsSubsumedPatterns(t *testing.T) {
 
 func TestPoissonUpper(t *testing.T) {
 	// P(X >= 3 | lambda = 1) = 1 - e^-1 (1 + 1 + 1/2) = 0.080301...
-	if got := poissonUpper(3, 1); math.Abs(got-0.0803014) > 1e-6 {
+	if got := routine.PoissonUpper(3, 1); math.Abs(got-0.0803014) > 1e-6 {
 		t.Fatalf("poissonUpper(3,1) = %v", got)
 	}
-	if got := poissonUpper(0, 5); got != 1 {
+	if got := routine.PoissonUpper(0, 5); got != 1 {
 		t.Fatalf("poissonUpper(0,5) = %v", got)
 	}
 	// The true value (~1e-1260) is below float64's range: 0 is correct, and
 	// the old 1-cdf form wrongly returned 2.2e-16 here.
-	if got := poissonUpper(400, 0.1); got < 0 || got > 1e-300 {
+	if got := routine.PoissonUpper(400, 0.1); got < 0 || got > 1e-300 {
 		t.Fatalf("deep tail = %v", got)
 	}
 	// P(X >= 60 | lambda = 20) = 4.2333e-13, from a direct summation of the
 	// pmf over 60..399 in Python, independent of this code.
-	if got := poissonUpper(60, 20); math.Abs(got-4.2333e-13)/4.2333e-13 > 1e-4 {
+	if got := routine.PoissonUpper(60, 20); math.Abs(got-4.2333e-13)/4.2333e-13 > 1e-4 {
 		t.Fatalf("poissonUpper(60,20) = %v", got)
 	}
 }
 
 func TestBinomialUpper(t *testing.T) {
 	// P(X >= 8 | n = 10, p = 0.5) = (45 + 10 + 1) / 1024.
-	if got := binomialUpper(8, 10, 0.5); math.Abs(got-56.0/1024) > 1e-12 {
+	if got := routine.BinomialUpper(8, 10, 0.5); math.Abs(got-56.0/1024) > 1e-12 {
 		t.Fatalf("binomialUpper(8,10,.5) = %v", got)
 	}
-	if binomialUpper(0, 10, 0.3) != 1 || binomialUpper(11, 10, 0.3) != 0 {
+	if routine.BinomialUpper(0, 10, 0.3) != 1 || routine.BinomialUpper(11, 10, 0.3) != 0 {
 		t.Fatal("edge cases")
 	}
 }
 
 func TestBenjaminiHochberg(t *testing.T) {
 	// Worked example: p = .01 .04 .03 .20, m = 4.
-	q := benjaminiHochberg([]float64{0.01, 0.04, 0.03, 0.20})
+	q := routine.BenjaminiHochberg([]float64{0.01, 0.04, 0.03, 0.20})
 	want := []float64{0.04, 0.04 * 4 / 3, 0.04 * 4 / 3, 0.20}
 	for i := range want {
 		if math.Abs(q[i]-want[i]) > 1e-12 {
@@ -253,10 +255,10 @@ func TestPruningDropsNothingThatCouldQualify(t *testing.T) {
 		}
 		return true
 	}
-	lim := mineLimits{window: 4, minSupport: 3, maxLen: 3, maxOut: 1 << 30}
-	all, _, _ := minePatterns(seqs, lim)
-	lim.canQualify = can
-	pruned, _, _ := minePatterns(seqs, lim)
+	lim := routine.MineLimits{Window: 4, MinSupport: 3, MaxLen: 3, MaxOut: 1 << 30}
+	all, _, _ := routine.MinePatterns(seqs, lim)
+	lim.CanQualify = can
+	pruned, _, _ := routine.MinePatterns(seqs, lim)
 	have := map[string]bool{}
 	for _, p := range pruned {
 		have[p.Key()] = true
@@ -332,10 +334,10 @@ func TestTemplateCollapsesVariadicParameters(t *testing.T) {
 func TestHypergeomUpper(t *testing.T) {
 	// 10 sessions, 4 contain the pattern, the skill has 3: P(all 3 hold it)
 	// = C(4,3)/C(10,3) = 4/120.
-	if got := hypergeomUpper(3, 4, 3, 10); math.Abs(got-4.0/120) > 1e-12 {
+	if got := routine.HypergeomUpper(3, 4, 3, 10); math.Abs(got-4.0/120) > 1e-12 {
 		t.Fatalf("hypergeomUpper(3,4,3,10) = %v", got)
 	}
-	if hypergeomUpper(0, 4, 3, 10) < 0.999999 || hypergeomUpper(4, 4, 3, 10) != 0 {
+	if routine.HypergeomUpper(0, 4, 3, 10) < 0.999999 || routine.HypergeomUpper(4, 4, 3, 10) != 0 {
 		t.Fatal("edge cases")
 	}
 }
