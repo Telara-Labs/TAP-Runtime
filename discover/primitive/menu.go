@@ -294,8 +294,8 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	}
 }
 
-// title names a family the way a person would: its first step, and how
-// many optional follow-ups it has.
+// title names a family the way a person would: its first step and the
+// number of observed continuations.
 func title(f Family) string {
 	t := display(f.Head)
 	n := len(f.FollowUps)
@@ -303,7 +303,7 @@ func title(f Family) string {
 	case n == 1:
 		t += " → " + followUpText(f.FollowUps[0])
 	case n > 1:
-		t += fmt.Sprintf(" (+%d follow-ups)", n)
+		t += fmt.Sprintf(" (+%d observed continuations)", n)
 	}
 	return t
 }
@@ -360,8 +360,8 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 	for i, fu := range f.FollowUps {
 		label := ""
 		if i == 0 {
-			label = "Then, optionally"
-			if !fu.Optional {
+			label = "Observed next"
+			if len(f.FollowUps) == 1 && !fu.Optional {
 				label = "Then"
 			}
 		}
@@ -369,7 +369,7 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 	}
 	st.render(out, s)
 	if len(f.FollowUps) > 1 {
-		fmt.Fprintln(out, s.dim("  Each follow-up uses what the first step returned; any of them can run, in any combination."))
+		fmt.Fprintln(out, s.dim("  These are observed continuations, not an inferred combination rule. An installable program must expose an exact choice and result bindings."))
 	}
 
 	section(out, s, "What it saves")
@@ -455,14 +455,14 @@ func submit(out io.Writer, s style, shown []Family, choice []string, byID map[st
 	for i, f := range shown {
 		switch choice[i] {
 		case "accept":
-			if err := acceptFamily(cfg.StateDir, f, byID); err != nil {
-				return err
-			}
 			if cfg.Install == nil {
+				if err := acceptFamily(cfg.StateDir, f, byID); err != nil {
+					return err
+				}
 				if err := appendLedger(cfg.StateDir, entryFor(f, "accept")); err != nil {
 					return err
 				}
-				installed = append(installed, title(f)+" (saved; no installer available here)")
+				installed = append(installed, title(f)+" (candidate saved; no installer available here)")
 				continue
 			}
 			var members []Primitive
@@ -474,6 +474,9 @@ func submit(out io.Writer, s style, shown []Family, choice []string, byID map[st
 				r.Reason = err.Error()
 			}
 			if r.Installed {
+				if err := acceptFamily(cfg.StateDir, f, byID); err != nil {
+					return err
+				}
 				if err := appendLedger(cfg.StateDir, entryFor(f, "accept")); err != nil {
 					return err
 				}

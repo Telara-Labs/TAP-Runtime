@@ -17,11 +17,9 @@ import (
 )
 
 // primitiveInstaller generates an accepted family's program from its
-// recorded runs and installs it privately for the person's agent. It builds
-// the family's most-used chain: the code generator writes one fixed flow,
-// so the other follow-ups are reported as not included. When the program
-// cannot be determined from the runs, nothing is installed and the reason
-// is returned.
+// recorded runs and installs it privately for the person's agent. A family
+// with several continuations needs an executable selection rule; silently
+// installing its most-used chain would change the reviewed contract.
 func primitiveInstaller(sessions []trace.Session, client, home, cwd string) func(primitive.Family, []primitive.Primitive) (primitive.InstallResult, error) {
 	// Discover dropped calls copied between session files before indexing
 	// them; the generator must see the same call positions.
@@ -37,6 +35,19 @@ func primitiveInstaller(sessions []trace.Session, client, home, cwd string) func
 	}
 	return func(f primitive.Family, members []primitive.Primitive) (primitive.InstallResult, error) {
 		var r primitive.InstallResult
+		if len(f.FollowUps) > 1 {
+			g, why := branchGraph(f, members, by)
+			if g == nil {
+				r.Reason = "the recorded uses show multiple continuations, but do not establish an executable selection rule: " + why
+				return r, nil
+			}
+			pkg, err := codegen.GenerateProgramPackage(g)
+			if err != nil {
+				r.Reason = "the branch program could not be generated: " + err.Error()
+				return r, nil
+			}
+			return install(r, pkg, client, home, cwd)
+		}
 		if len(members) == 0 {
 			r.Reason = "no recorded chain"
 			return r, nil
@@ -45,12 +56,6 @@ func primitiveInstaller(sessions []trace.Session, client, home, cwd string) func
 		for _, m := range members[1:] {
 			if m.ExecutionCount > main.ExecutionCount {
 				main = m
-			}
-		}
-		for _, fu := range f.FollowUps {
-			key := strings.Join(fu.Steps, " > ")
-			if key != strings.Join(stepKeys(main.Steps[1:]), " > ") {
-				r.Left = append(r.Left, key)
 			}
 		}
 		// Tool-call chains are built straight from the bindings discovery

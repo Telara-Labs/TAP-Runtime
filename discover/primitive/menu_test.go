@@ -74,3 +74,20 @@ func TestApproveAllGoesThroughReview(t *testing.T) {
 		t.Fatalf("approve all: %d accepted\n%s", len(files), out)
 	}
 }
+
+func TestFailedInstallDoesNotAcceptCandidate(t *testing.T) {
+	res := twoFamilies()
+	dir := t.TempDir()
+	var out bytes.Buffer
+	err := Menu(strings.NewReader("a\ns\n"), &out, res, MenuConfig{StateDir: dir, Home: t.TempDir(), Clients: "claude-code",
+		Install: func(Family, []Primitive) (InstallResult, error) {
+			return InstallResult{Reason: "branch rule unknown"}, nil
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "accepted", "families", "*.json"))
+	if len(files) != 0 || !strings.Contains(out.String(), "branch rule unknown") {
+		t.Fatalf("failed install recorded as accepted: %d files, output %s", len(files), out.String())
+	}
+}
