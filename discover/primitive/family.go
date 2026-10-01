@@ -2,9 +2,9 @@ package primitive
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
-	"encoding/hex"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,14 +40,17 @@ type Family struct {
 	// Confidence is the members' scores weighted by their runs; Weakest is
 	// the lowest member score. NeedsDecision counts members with unresolved
 	// claims.
-	Confidence    int    `json:"confidence"`
-	Weakest       int    `json:"weakest"`
+	Confidence int `json:"confidence"`
+	Weakest    int `json:"weakest"`
 	// Values are the distinct arguments across the family's chains; Traced
 	// are those whose source is known in every run (an earlier step's
 	// result, or the caller). OpenQuestions are the points to resolve.
-	Values        int `json:"values"`
-	Traced        int `json:"traced"`
-	OpenQuestions int `json:"openQuestions"`
+	// TurnsSaved counts the follow-up calls across the counted runs: each
+	// is a model turn the primitive would not need.
+	TurnsSaved    int    `json:"turnsSaved"`
+	Values        int    `json:"values"`
+	Traced        int    `json:"traced"`
+	OpenQuestions int    `json:"openQuestions"`
 	NeedsDecision int    `json:"needsDecision"`
 	Readiness     string `json:"readiness"`
 }
@@ -231,7 +234,7 @@ func families(ps []Primitive) []Family {
 		}
 		out = append(out, buildFamily(f.heads, f.tails, members))
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].SavedTokens > out[j].SavedTokens })
+	sort.SliceStable(out, func(i, j int) bool { return inputEquivalent(out[i].Saved) > inputEquivalent(out[j].Saved) })
 	return out
 }
 
@@ -320,6 +323,7 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 				continue
 			}
 			runs[ex.Session+"/"+strconv.Itoa(ex.Calls[0].Index)] = true
+			f.TurnsSaved += len(ex.Calls) - 1
 			sessions[ex.Session] = true
 		}
 		for _, in := range p.Inputs {
