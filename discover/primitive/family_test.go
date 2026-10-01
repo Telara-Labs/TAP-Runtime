@@ -60,6 +60,7 @@ func TestSharedHeadIsOneProcedureWithOptionalFollowUps(t *testing.T) {
 		case 2:
 			calls = append(calls, call("mcp:issue_link", map[string]string{"inward": key, "type": "relates"}, `{"ok":true}`, 0, time.Second))
 		}
+		calls[1].Tokens = trace.Usage{Fresh: float64(100 + i)}
 		ss = append(ss, session(fmt.Sprint("s", i), []string{"file it"}, calls...))
 	}
 	res := Discover(ss, nil)
@@ -69,6 +70,18 @@ func TestSharedHeadIsOneProcedureWithOptionalFollowUps(t *testing.T) {
 	f := res.Families[0]
 	if f.Head != "mcp:issue_create" || len(f.FollowUps) != 3 || !f.FollowUps[0].Optional || f.ExecutionCount != 6 {
 		t.Fatalf("family %+v", f)
+	}
+	var estimated float64
+	var turns int
+	for _, fu := range f.FollowUps {
+		if len(fu.Members) != 1 || fu.PotentialTokens <= 0 || fu.PotentialTurns != 2 {
+			t.Fatalf("continuation lost its own opportunity: %+v", fu)
+		}
+		estimated += fu.PotentialTokens
+		turns += fu.PotentialTurns
+	}
+	if estimated != inputEquivalent(f.Saved) || turns != f.TurnsSaved {
+		t.Fatalf("option estimates %g/%d differ from family %g/%d", estimated, turns, inputEquivalent(f.Saved), f.TurnsSaved)
 	}
 }
 

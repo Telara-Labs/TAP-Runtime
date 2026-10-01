@@ -16,7 +16,7 @@ func TestBranchGraphKeepsFifteenCallerSelectedOptions(t *testing.T) {
 	var members []primitive.Primitive
 	for branch := 0; branch < count; branch++ {
 		op := fmt.Sprintf("option_%02d", branch)
-		p := primitive.Primitive{ID: "pr_" + op, Steps: []string{"mcp:issue_create", "mcp:" + op}, StepEffects: []string{"write", "write"}, ExecutionCount: 2, SessionCount: 2,
+		p := primitive.Primitive{ID: fmt.Sprintf("pr_%012x", branch+1), Steps: []string{"mcp:issue_create", "mcp:" + op}, StepEffects: []string{"write", "write"}, ExecutionCount: 2, SessionCount: 2,
 			Bindings: []primitive.Binding{{Step: 2, Arg: "issue_key", Source: "step", From: 1, Selector: ".key", Label: primitive.Explicit}}}
 		for use := 0; use < 2; use++ {
 			sid := fmt.Sprintf("s%d_%d", branch, use)
@@ -30,7 +30,7 @@ func TestBranchGraphKeepsFifteenCallerSelectedOptions(t *testing.T) {
 		}
 		members = append(members, p)
 		f.Members = append(f.Members, p.ID)
-		f.FollowUps = append(f.FollowUps, primitive.FollowUp{Steps: []string{"mcp:" + op}, Runs: 2, Optional: true})
+		f.FollowUps = append(f.FollowUps, primitive.FollowUp{Steps: []string{"mcp:" + op}, Runs: 2, Optional: true, Members: []string{p.ID}})
 	}
 	g, reason := branchGraph(f, members, by)
 	if g == nil {
@@ -50,5 +50,10 @@ func TestBranchGraphKeepsFifteenCallerSelectedOptions(t *testing.T) {
 	planPrimitiveFamilies(&res, sessions)
 	if res.Families[0].APIMode != "caller_choice" || len(res.Families[0].APIChoices) != count {
 		t.Fatalf("review did not expose compiled choices: %+v", res.Families[0])
+	}
+	for _, fu := range res.Families[0].FollowUps {
+		if fu.APIMode != "exact_chain" {
+			t.Fatalf("compiled continuation marked %q: %+v", fu.APIMode, fu)
+		}
 	}
 }
