@@ -1,12 +1,12 @@
-// Package redact keeps credentials in recorded session history out of drafts.
 package redact
 
 import (
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
-	"gitlab.com/telara-labs/tap-runtime/discover/util"
 	"regexp"
 	"sort"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
 // SecretShapes are value patterns that are credentials wherever they appear.

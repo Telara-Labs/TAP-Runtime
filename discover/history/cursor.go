@@ -1,0 +1,323 @@
+package history
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+)
+
+// Cursor reads Cursor's chat store, globalStorage/state.vscdb, a SQLite
+// database. No SQLite driver is a dependency of this module, so it runs the
+// system sqlite3 read-only with immutable=1: the file is never written or
+// locked, and a missing sqlite3 makes this reader unavailable, not the run.
+//
+// Each message ("bubble") is a row bubbleId:<composer>:<bubble>; a tool call
+// is a bubble with toolFormerData. A conversation ("composer") lists its
+// bubbles in order in fullConversationHeadersOnly. Early 2025 conversations
+// instead hold their messages inline in composerData.conversation.
+type Cursor struct {
+	DB      string
+	SQLite3 string // path to sqlite3; "" looks it up on PATH
+}
+
+func (Cursor) Client() string { return "cursor" }
+
+// ErrUnavailable reports that a store exists but cannot be read here.
+var ErrUnavailable = errors.New("unavailable")
+
+// CursorArgs keeps each argument's JSON type: text stays text (capped),
+// numbers, booleans, objects and arrays pass through as JSON.
+const CursorArgs = `CASE WHEN json_valid(%[1]s) THEN (SELECT json_group_object(a.key, CASE WHEN a.type = 'text' THEN substr(a.value, 1, 32768) ELSE json(a.value) END) FROM json_each(%[1]s) a) ELSE '{}' END`
+
+var (
+	// The table is aliased c throughout: inside the json_each subquery a bare
+	// "value" would name json_each's own column, not the row's.
+	CursorBubbleSQL = `SELECT substr(c.key, 10, 36) AS composer, substr(c.key, 47) AS bubble,
+  json_extract(c.value, '$.toolFormerData.name') AS name,
+  ` + fmt.Sprintf(CursorArgs, `coalesce(json_extract(c.value, '$.toolFormerData.rawArgs'), json_extract(c.value, '$.toolFormerData.params'))`) + ` AS args,
+  json_extract(c.value, '$.createdAt') AS created,
+  json_extract(c.value, '$.toolFormerData.status') AS status,
+  substr(CAST(json_extract(c.value, '$.toolFormerData.result') AS TEXT), 1, 2048) AS result
+FROM cursorDiskKV c WHERE c.key LIKE 'bubbleId:%' AND json_extract(c.value, '$.toolFormerData.name') IS NOT NULL;`
+
+	CursorComposerSQL = `SELECT substr(c.key, 14) AS composer, json_extract(c.value, '$.createdAt') AS created,
+  (SELECT json_group_array(json_extract(h.value, '$.bubbleId')) FROM json_each(c.value, '$.fullConversationHeadersOnly') h) AS headers
+FROM cursorDiskKV c WHERE c.key LIKE 'composerData:%';`
+
+	// The user's messages (bubble type 1), in both storage forms.
+	CursorUserSQL = `SELECT substr(c.key, 10, 36) AS composer, substr(c.key, 47) AS bubble,
+  substr(json_extract(c.value, '$.text'), 1, 4000) AS text
+FROM cursorDiskKV c WHERE c.key LIKE 'bubbleId:%' AND json_extract(c.value, '$.type') = 1;`
+
+	CursorInlineUserSQL = `SELECT substr(c.key, 14) AS composer, CAST(j.key AS TEXT) AS bubble,
+  substr(json_extract(j.value, '$.text'), 1, 4000) AS text
+FROM cursorDiskKV c, json_each(c.value, '$.conversation') j
+WHERE c.key LIKE 'composerData:%' AND json_extract(j.value, '$.type') = 1;`
+
+	CursorInlineSQL = `SELECT substr(c.key, 14) AS composer, CAST(j.key AS TEXT) AS bubble,
+  json_extract(j.value, '$.toolFormerData.name') AS name,
+  ` + fmt.Sprintf(CursorArgs, `coalesce(json_extract(j.value, '$.toolFormerData.rawArgs'), json_extract(j.value, '$.toolFormerData.params'))`) + ` AS args,
+  NULL AS created,
+  json_extract(j.value, '$.toolFormerData.status') AS status,
+  substr(CAST(json_extract(j.value, '$.toolFormerData.result') AS TEXT), 1, 65536) AS result
+FROM cursorDiskKV c, json_each(c.value, '$.conversation') j
+WHERE c.key LIKE 'composerData:%' AND json_extract(j.value, '$.toolFormerData.name') IS NOT NULL;`
+)
+
+type CursorRow struct {
+	Composer string          `json:"composer"`
+	Bubble   string          `json:"bubble"`
+	Name     string          `json:"name"`
+	Args     string          `json:"args"`
+	Created  json.RawMessage `json:"created"`
+	Status   string          `json:"status"`
+	Result   string          `json:"result"`
+	Headers  string          `json:"headers"`
+	Text     string          `json:"text"`
+}
+
+func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
+	if _, err := os.Stat(r.DB); os.IsNotExist(err) {
+		return nil, nil
+	}
+	bin := r.SQLite3
+	if bin == "" {
+		p, err := exec.LookPath("sqlite3")
+		if err != nil {
+			return nil, fmt.Errorf("cursor: %w: sqlite3 is not installed", ErrUnavailable)
+		}
+		bin = p
+	}
+	query := func(sql string) ([]CursorRow, error) {
+		cmd := exec.Command(bin, "-readonly", "-json", "file:"+r.DB+"?immutable=1", sql)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("cursor: sqlite3: %v: %s", err, strings.TrimSpace(stderr.String()))
+		}
+		var rows []CursorRow
+		if len(bytes.TrimSpace(out)) == 0 {
+			return nil, nil
+		}
+		return rows, json.Unmarshal(out, &rows)
+	}
+	composers, err := query(CursorComposerSQL)
+	if err != nil {
+		return nil, err
+	}
+	bubbles, err := query(CursorBubbleSQL)
+	if err != nil {
+		return nil, err
+	}
+	inline, err := query(CursorInlineSQL)
+	if err != nil {
+		return nil, err
+	}
+	users, err := query(CursorUserSQL)
+	if err != nil {
+		return nil, err
+	}
+	inlineUsers, err := query(CursorInlineUserSQL)
+	if err != nil {
+		return nil, err
+	}
+
+	convs := map[string]*CursorConv{}
+	for _, c := range composers {
+		cv := &CursorConv{Start: CursorTime(c.Created), Order: map[string]int{}}
+		var hs []string
+		_ = json.Unmarshal([]byte(c.Headers), &hs)
+		for i, h := range hs {
+			cv.Order[h] = i
+		}
+		convs[c.Composer] = cv
+	}
+	add := func(row CursorRow, pos int) {
+		cv := convs[row.Composer]
+		if cv == nil {
+			return
+		}
+		call := CursorCall(row)
+		call.Session = row.Composer
+		cv.Calls = append(cv.Calls, CursorPlaced{pos, call})
+		raw, _ := json.Marshal(row)
+		cv.Raw = append(cv.Raw, string(raw))
+	}
+	for _, b := range bubbles {
+		pos, ok := convs[b.Composer].OrderOf(b.Bubble)
+		if !ok {
+			// A bubble the header list does not name: order it by time after the named ones.
+			pos = 1<<30 + int(CursorTime(b.Created).Unix()%(1<<30))
+		}
+		add(b, pos)
+	}
+	for _, b := range inline {
+		i, _ := strconv.Atoi(b.Bubble)
+		add(b, i)
+	}
+	addUser := func(row CursorRow, pos int) {
+		if cv := convs[row.Composer]; cv != nil {
+			cv.Users = append(cv.Users, CursorUser{pos, row.Text})
+			raw, _ := json.Marshal(row)
+			cv.Raw = append(cv.Raw, string(raw))
+		}
+	}
+	for _, u := range users {
+		if pos, ok := convs[u.Composer].OrderOf(u.Bubble); ok {
+			addUser(u, pos)
+		}
+	}
+	for _, u := range inlineUsers {
+		i, _ := strconv.Atoi(u.Bubble)
+		addUser(u, i)
+	}
+
+	var out []trace.Session
+	for id, cv := range convs {
+		if len(cv.Calls) == 0 || cv.Start.Before(since) {
+			continue
+		}
+		sort.SliceStable(cv.Calls, func(i, j int) bool { return cv.Calls[i].Pos < cv.Calls[j].Pos })
+		sort.SliceStable(cv.Users, func(i, j int) bool { return cv.Users[i].Pos < cv.Users[j].Pos })
+		s := trace.Session{Client: "cursor", ID: id, Start: cv.Start}
+		sort.Strings(cv.Raw)
+		h := sha256.New()
+		for _, r := range cv.Raw {
+			h.Write([]byte(r))
+			h.Write([]byte{0})
+		}
+		s.SourceDigest = hex.EncodeToString(h.Sum(nil))
+		u := 0
+		for _, c := range cv.Calls {
+			for u < len(cv.Users) && cv.Users[u].Pos < c.Pos {
+				if trace.IsRequest(cv.Users[u].Text) {
+					s.AddRequest(cv.Users[u].Text)
+				}
+				u++
+			}
+			c.Call.Request = s.Request()
+			s.Calls = append(s.Calls, c.Call)
+		}
+		out = append(out, s)
+	}
+	// Conversations come out of a map; later passes take sessions in order.
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].Start.Equal(out[j].Start) {
+			return out[i].Start.Before(out[j].Start)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+type CursorPlaced struct {
+	Pos  int
+	Call trace.Call
+}
+
+type CursorConv struct {
+	Raw   []string // the rows read for it, for its source digest
+	Start time.Time
+	Order map[string]int
+	Calls []CursorPlaced
+	Users []CursorUser
+}
+
+type CursorUser struct {
+	Pos  int
+	Text string
+}
+
+// orderOf is the bubble's position in its conversation's header list.
+func (c *CursorConv) OrderOf(bubble string) (int, bool) {
+	if c == nil {
+		return 0, false
+	}
+	i, ok := c.Order[bubble]
+	return i, ok
+}
+
+func CursorCall(row CursorRow) trace.Call {
+	c := trace.Call{Client: "cursor", Time: CursorTime(row.Created)}
+	c.OutIDs, c.OutCtx, c.OutPaths = trace.OutputRefsPaths(row.Result)
+	c.OutCollections = trace.ResultCollections(row.Result)
+	c.Output = trace.TruncateUTF8(row.Result, 600)
+	c.OutTokens = trace.OutputTokens(row.Result)
+	switch row.Status {
+	case "completed":
+		c.Outcome = trace.OutcomeOK
+	case "error", "cancelled":
+		c.Outcome = trace.OutcomeFailed
+	}
+	var args map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(row.Args), &args)
+	switch {
+	case strings.HasPrefix(row.Name, "run_terminal"):
+		c.Tool, c.Command = "shell", RawString(args["command"])
+	case strings.HasPrefix(row.Name, "mcp-"):
+		parts := strings.Split(row.Name, "-")
+		args = CursorMCPArgs(args)
+		c.Tool, c.Args, c.RawArgs = "mcp:"+parts[len(parts)-1], Flatten(args), RawKeys(args)
+	default:
+		c.Tool, c.Args, c.RawArgs = row.Name, Flatten(args), RawKeys(args)
+	}
+	return c
+}
+
+// CursorMCPArgs returns the arguments the MCP tool received. Cursor records
+// an MCP call as an envelope, {name, args, toolCallId, providerIdentifier,
+// serverIdentifier, ...} in rawArgs, or {tools: [{name, parameters}]} with
+// the arguments as a JSON string in params. The envelope is Cursor's
+// bookkeeping, not the tool's input.
+func CursorMCPArgs(args map[string]json.RawMessage) map[string]json.RawMessage {
+	inner := args["args"]
+	if inner == nil {
+		var tools []struct {
+			Parameters json.RawMessage `json:"parameters"`
+		}
+		if json.Unmarshal(args["tools"], &tools) != nil || len(tools) != 1 {
+			return args
+		}
+		inner = tools[0].Parameters
+	} else if args["toolCallId"] == nil && args["providerIdentifier"] == nil && args["serverIdentifier"] == nil && args["toolName"] == nil {
+		// A tool whose own argument is named "args".
+		return args
+	}
+	var s string
+	if json.Unmarshal(inner, &s) == nil {
+		inner = json.RawMessage(s)
+	}
+	var out map[string]json.RawMessage
+	if json.Unmarshal(inner, &out) != nil {
+		return map[string]json.RawMessage{}
+	}
+	return out
+}
+
+// CursorTime reads createdAt, which Cursor has written both as epoch
+// milliseconds and as an RFC 3339 string.
+func CursorTime(raw json.RawMessage) time.Time {
+	var ms int64
+	if json.Unmarshal(raw, &ms) == nil && ms > 0 {
+		return time.UnixMilli(ms).UTC()
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			return t.UTC()
+		}
+	}
+	return time.Time{}
+}
