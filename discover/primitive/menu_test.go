@@ -44,7 +44,7 @@ func TestMenuStartsWithSummaryAndQuitSavesNothing(t *testing.T) {
 		t.Fatalf("fixture has %d families", len(res.Families))
 	}
 	out, dir := runMenu(t, res, "i\na\nq\n")
-	if !strings.Contains(out, "Summary") || strings.Index(out, "Summary") > strings.Index(out, "Proposed primitives") || !strings.Contains(out, "Found in 2 runs") || !strings.Contains(out, "Structure") || !strings.Contains(out, "Tools") || !strings.Contains(out, "Metadata") {
+	if !strings.Contains(out, "Summary") || strings.Index(out, "Summary") > strings.Index(out, "Proposed primitives") || !strings.Contains(out, "Used 2 times") || !strings.Contains(out, "What it does") || !strings.Contains(out, "What it saves") || !strings.Contains(out, "Needs attention") {
 		t.Fatalf("card or summary missing:\n%s", out)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "decisions.jsonl")); err == nil {
@@ -57,7 +57,7 @@ func TestInspectPreviousChangesAChoiceBeforeSubmit(t *testing.T) {
 	// Accept #1, deny #2 (that opens the review), go back to #2, change it
 	// to accept, review again, submit.
 	out, dir := runMenu(t, res, "i\na\nd\nb\na\ns\n")
-	if !strings.Contains(out, "Submitted.") {
+	if !strings.Contains(out, "Installed (2)") {
 		t.Fatalf("not submitted:\n%s", out)
 	}
 	files, _ := filepath.Glob(filepath.Join(dir, "accepted", "families", "*.json"))

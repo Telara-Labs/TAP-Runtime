@@ -54,12 +54,18 @@ type Family struct {
 	// result, or the caller). OpenQuestions are the points to resolve.
 	// TurnsSaved counts the follow-up calls across the counted runs: each
 	// is a model turn the primitive would not need.
-	TurnsSaved    int    `json:"turnsSaved"`
-	Values        int    `json:"values"`
-	Traced        int    `json:"traced"`
-	OpenQuestions int    `json:"openQuestions"`
-	NeedsDecision int    `json:"needsDecision"`
-	Readiness     string `json:"readiness"`
+	TurnsSaved    int `json:"turnsSaved"`
+	Values        int `json:"values"`
+	Traced        int `json:"traced"`
+	OpenQuestions int `json:"openQuestions"`
+	// ReadToDecide counts runs whose output the agent then used to decide
+	// its next call: evidence the output was read, so replaying the chain
+	// would not remove those turns.
+	ReadToDecide int `json:"readToDecide"`
+	// Questions are the open questions in plain words, each naming its step.
+	Questions     []string `json:"questions,omitempty"`
+	NeedsDecision int      `json:"needsDecision"`
+	Readiness     string   `json:"readiness"`
 }
 
 // FollowUp is one chain after the head.
@@ -290,6 +296,7 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 	sessions := map[string]bool{}
 	traced := map[string]bool{} // op|arg -> traced in every chain
 	questions := map[string]bool{}
+	readable := map[string]bool{}
 	inputs := map[string]map[string]bool{} // step:op -> arg keys
 	for _, p := range members {
 		f.Members = append(f.Members, p.ID)
@@ -324,10 +331,14 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 		}
 		for _, q := range p.Confidence.NeedsReview {
 			questions[p.ID+" "+q] = true
+			readable[readableQuestion(p, q)] = true
 		}
 		for _, ex := range p.Executions {
 			if ex.Overlaps != "" || len(ex.Calls) == 0 {
 				continue
+			}
+			if !runs[ex.Session+"/"+strconv.Itoa(ex.Calls[0].Index)] && ex.ThenDecided {
+				f.ReadToDecide++
 			}
 			runs[ex.Session+"/"+strconv.Itoa(ex.Calls[0].Index)] = true
 			f.TurnsSaved += len(ex.Calls) - 1
@@ -354,6 +365,10 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 	}
 	f.Fingerprint = headKey(f.Head) + "|" + class
 	f.Values, f.OpenQuestions = len(traced), len(questions)
+	for q := range readable {
+		f.Questions = append(f.Questions, q)
+	}
+	sort.Strings(f.Questions)
 	for _, ok := range traced {
 		if ok {
 			f.Traced++
@@ -411,4 +426,21 @@ func aliases(keys []string) []string {
 		out = append(out, strings.Join(ks, "|"))
 	}
 	return out
+}
+
+// Exploration reports a family whose output the agent mostly read to decide
+// what to do next: replaying it would not remove those turns.
+func (f Family) Exploration() bool { return 2*f.ReadToDecide > f.ExecutionCount }
+
+// readableQuestion names the step a question is about ("step 2 issue_key:
+// ..." becomes "jira add comment, issue_key: ...").
+func readableQuestion(p Primitive, q string) string {
+	var n int
+	var rest string
+	if _, err := fmt.Sscanf(q, "step %d", &n); err != nil || n < 1 || n > len(p.Steps) {
+		return q
+	}
+	_, rest, _ = strings.Cut(q, " ")
+	_, rest, _ = strings.Cut(rest, " ")
+	return display(p.Steps[n-1]) + ", " + rest
 }

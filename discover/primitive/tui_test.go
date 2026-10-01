@@ -77,7 +77,7 @@ func TestTUIDrawFitsTheScreen(t *testing.T) {
 		case listView:
 			ui.drawList(&body)
 		case cardView:
-			card(&body, ui.s, 1, len(ui.shown), ui.shown[0], ui.byID, "")
+			card(&body, ui.s, 1, len(ui.shown), ui.shown[0], ui.byID, "", ui.res.Summary)
 		case reviewView:
 			ui.drawReview(&body)
 		}
@@ -88,7 +88,7 @@ func TestTUIDrawFitsTheScreen(t *testing.T) {
 		}
 		out.Write(body.Bytes())
 	}
-	if !strings.Contains(out.String(), "TAP Discover") || !strings.Contains(out.String(), "Structure") {
+	if !strings.Contains(out.String(), "Discover") || !strings.Contains(out.String(), "What it does") {
 		t.Fatalf("views missing content:\n%s", out.String())
 	}
 }

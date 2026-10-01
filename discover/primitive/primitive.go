@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -108,6 +109,9 @@ type Execution struct {
 	// calls (a command's own running time is included; the client does
 	// not record when a call ended). -1 when times were not recorded.
 	MaxGapSeconds int `json:"maxGapSeconds"`
+	// ThenDecided: the agent's next call was built from this run's output
+	// (a decision), so the output was read, not just passed along.
+	ThenDecided bool `json:"thenDecided,omitempty"`
 	// Overlaps names an earlier counted execution sharing a call with this
 	// one; such a run is indexed but not counted again.
 	Overlaps string `json:"overlaps,omitempty"`
@@ -177,6 +181,9 @@ type Summary struct {
 	Families  int `json:"families"`
 	// Tokens are every turn's tokens in the history read.
 	Tokens trace.Usage `json:"tokens"`
+	// First and Last are when the earliest and latest sessions read began.
+	First time.Time `json:"first"`
+	Last  time.Time `json:"last"`
 }
 
 // Result is the condensed discovery.
@@ -238,8 +245,15 @@ func Discover(ss []trace.Session, known []Known) Result {
 	for si := range cp {
 		s := &cp[si]
 		res.Summary.ToolCalls += len(s.Calls)
+		if !s.Start.IsZero() && (res.Summary.First.IsZero() || s.Start.Before(res.Summary.First)) {
+			res.Summary.First = s.Start
+		}
+		if s.Start.After(res.Summary.Last) {
+			res.Summary.Last = s.Start
+		}
 		for _, c := range s.Calls {
 			res.Summary.Tokens = res.Summary.Tokens.Add(c.Tokens)
+			noteServer(c.Tool, c.MCPServer)
 		}
 		ns := byKey[s.Client+"\x00"+s.ID]
 		if ns == nil {

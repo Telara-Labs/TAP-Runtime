@@ -41,6 +41,46 @@ type tui struct {
 	w, h   int
 	notice string
 	out    *os.File
+	// filter narrows the list to primitives whose name contains it; typing
+	// is true while the person types it after pressing /.
+	filter string
+	typing bool
+	help   bool
+}
+
+// visible lists the primitives the filter keeps, by position in shown.
+func (t *tui) visible() []int {
+	var out []int
+	f := strings.ToLower(t.filter)
+	for i, fam := range t.shown {
+		if f == "" || strings.Contains(strings.ToLower(title(fam)), f) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// step moves the cursor to the next (d=1) or previous (d=-1) visible row.
+func (t *tui) step(d int) {
+	vis := t.visible()
+	for i, v := range vis {
+		if v == t.cursor && i+d >= 0 && i+d < len(vis) {
+			t.cursor = vis[i+d]
+			return
+		}
+	}
+	if len(vis) > 0 && !contains(vis, t.cursor) {
+		t.cursor = vis[0]
+	}
+}
+
+func contains(xs []int, x int) bool {
+	for _, y := range xs {
+		if y == x {
+			return true
+		}
+	}
+	return false
 }
 
 // RunTUI runs the full-screen review on the terminal. Choices are held until
@@ -70,6 +110,7 @@ func RunTUI(in, out *os.File, res Result, cfg MenuConfig) error {
 		if t.w <= 0 {
 			t.w, t.h = 100, 40
 		}
+		t.s.width = t.w
 		t.draw()
 		n, err := in.Read(buf)
 		if err != nil {
@@ -115,6 +156,30 @@ func splitKeys(in string) []string {
 // key handles one key press; it returns true when the person submits.
 func (t *tui) key(k string) bool {
 	t.notice = ""
+	if t.help {
+		t.help = false
+		return false
+	}
+	if t.typing {
+		switch {
+		case k == "\r" || k == "\n":
+			t.typing = false
+		case k == "\x1b":
+			t.typing, t.filter = false, ""
+		case k == "\x7f" || k == "\b":
+			if r := []rune(t.filter); len(r) > 0 {
+				t.filter = string(r[:len(r)-1])
+			}
+		case len(k) > 0 && k[0] >= ' ' && k[0] != 0x7f && !strings.HasPrefix(k, "\x1b"):
+			t.filter += k
+		}
+		t.step(0)
+		return false
+	}
+	if k == "?" {
+		t.help = true
+		return false
+	}
 	up, down := k == "\x1b[A" || k == "k", k == "\x1b[B" || k == "j"
 	left, right := k == "\x1b[D" || k == "h", k == "\x1b[C" || k == "l"
 	pgup, pgdn := k == "\x1b[5~", k == "\x1b[6~" || k == " "
@@ -133,11 +198,15 @@ func (t *tui) key(k string) bool {
 	switch t.view {
 	case listView:
 		switch {
-		case up && t.cursor > 0:
-			t.cursor--
-		case down && t.cursor < len(t.shown)-1:
-			t.cursor++
-		case (enter || right) && len(t.shown) > 0:
+		case up:
+			t.step(-1)
+		case down:
+			t.step(1)
+		case k == "/":
+			t.typing = true
+		case esc && t.filter != "":
+			t.filter = ""
+		case (enter || right) && len(t.visible()) > 0:
 			t.view, t.scroll = cardView, 0
 		case k == "a":
 			set("accept")
@@ -200,26 +269,32 @@ func (t *tui) key(k string) bool {
 func (t *tui) draw() {
 	var body bytes.Buffer
 	var footer string
-	switch t.view {
-	case listView:
+	switch {
+	case t.help:
+		t.drawHelp(&body)
+		footer = t.s.dim(" Press any key to close help.")
+	case t.view == listView:
 		t.drawList(&body)
-		footer = keys(t.s, "↑↓", "move", "enter", "open", "a/d/e", "accept / decline / agent eval", "A", "accept all", "s", "review", "q", "quit")
-	case cardView:
-		card(&body, t.s, t.cursor+1, len(t.shown), t.shown[t.cursor], t.byID, t.choice[t.cursor])
+		footer = keys(t.s, "↑↓", "move", "enter", "open", "a", "accept", "d", "decline", "e", "agent eval", "/", "search", "s", "review", "?", "help", "q", "quit")
+		if t.typing {
+			footer = " Search: " + t.filter + t.s.accent("▌") + t.s.dim("   enter to keep · esc to clear")
+		}
+	case t.view == cardView:
+		card(&body, t.s, t.cursor+1, len(t.shown), t.shown[t.cursor], t.byID, t.choice[t.cursor], t.res.Summary)
 		footer = keys(t.s, "↑↓", "scroll", "←→", "previous / next", "a/d/e", "choose and go on", "esc", "list", "s", "review")
-	case reviewView:
+	case t.view == reviewView:
 		t.drawReview(&body)
 		footer = keys(t.s, "s", "submit", "esc", "back", "q", "quit without saving")
 	}
 	lines := strings.Split(strings.TrimRight(body.String(), "\n"), "\n")
 	room := t.h - 2
-	if t.view == cardView {
+	if t.view == cardView && !t.help {
 		if t.scroll > len(lines)-room {
 			t.scroll = max(0, len(lines)-room)
 		}
 		lines = lines[t.scroll:]
 	}
-	if t.view == listView {
+	if t.view == listView && !t.help {
 		lines = t.keepCursorVisible(lines, room)
 	}
 	if len(lines) > room {
@@ -294,49 +369,67 @@ func fit(l string, w int) string {
 
 func (t *tui) drawList(out *bytes.Buffer) {
 	s := t.s
-	fmt.Fprintln(out, " "+s.accent("▐▛███▜▌")+"  "+s.bold("TAP Discover")+s.dim(fmt.Sprintf("  ·  %s  ·  %s sessions  ·  %s tool calls",
-		t.cfg.Clients, count(t.res.Summary.Sessions), count(t.res.Summary.ToolCalls))))
-	fmt.Fprintln(out, " "+s.accent("▝▜█████▛▘")+s.dim("  Reusable primitives found in your agent history"))
-	var saved, all float64
+	header(out, s, t.res, t.cfg.Clients)
+	var saved float64
 	turns := 0
 	for _, f := range t.shown {
 		saved += inputEquivalent(f.Saved)
 		turns += f.TurnsSaved
 	}
-	all = inputEquivalent(t.res.Summary.Tokens)
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, " %s to review · %s follow-up turns · ≈%s tokens saved (of ≈%s in your history, input-equivalent)\n",
-		s.bold(fmt.Sprint(len(t.shown))), count(turns), tokensText(saved), tokensText(all))
+	fmt.Fprintf(out, " %s to review · they would save %s model turns and about %s tokens (estimate; about %s in your whole history)\n",
+		s.bold(fmt.Sprint(len(t.shown))), count(turns), tokensText(saved), tokensText(inputEquivalent(t.res.Summary.Tokens)))
 	if n := t.hidden["accept"] + t.hidden["deny"] + t.hidden["eval"]; n > 0 {
-		fmt.Fprintln(out, " "+s.dim(fmt.Sprintf("%d decided earlier and not shown: %d accepted, %d declined, %d in refinement (tap discover --revisit to change)",
+		fmt.Fprintln(out, " "+s.dim(fmt.Sprintf("%d decided earlier and not shown: %d accepted, %d declined, %d in agent eval · tap discover --revisit to change",
 			n, t.hidden["accept"], t.hidden["deny"], t.hidden["eval"])))
 	}
 	if len(t.shown) == 0 {
 		fmt.Fprintln(out, "\n Nothing new to review.")
 		return
 	}
-	tab := table{head: []string{" ", "Primitive", "Runs", "Turns saved", "Est. tokens", "Values traced", "Open", "Choice"},
-		widths: []int{1, 44, 5, 11, 11, 13, 4, 8}, right: map[int]bool{2: true, 3: true, 4: true, 5: true, 6: true}}
-	for i, f := range t.shown {
-		mark := " "
-		if i == t.cursor {
-			mark = s.accent("▶")
+	vis := t.visible()
+	fams, choices, cur := make([]Family, len(vis)), make([]string, len(vis)), -1
+	for i, v := range vis {
+		fams[i], choices[i] = t.shown[v], t.choice[v]
+		if v == t.cursor {
+			cur = i
 		}
-		name := title(f)
-		if f.Status == StatusNewSince {
-			name += " (new since " + f.Earlier + ")"
-		} else if f.Status == StatusReevaluated {
-			name += " (re-evaluated)"
-		}
-		name = clip(name, 44) // one line per primitive; the card has the full name
-		if i == t.cursor {
-			name = s.bold(name)
-		}
-		tab.rows = append(tab.rows, []string{mark, name, count(f.ExecutionCount), count(f.TurnsSaved), "≈" + tokensText(inputEquivalent(f.Saved)),
-			fmt.Sprintf("%d of %d", f.Traced, f.Values), fmt.Sprint(f.OpenQuestions), s.choice(t.choice[i])})
 	}
 	fmt.Fprintln(out)
-	tab.render(out, s)
+	if t.filter != "" {
+		fmt.Fprintf(out, " Showing %d of %d matching %q · esc clears\n", len(vis), len(t.shown), t.filter)
+	}
+	if len(vis) == 0 {
+		fmt.Fprintln(out, " No primitive matches.")
+		return
+	}
+	listTable(out, s, fams, choices, cur)
+}
+
+func (t *tui) drawHelp(out *bytes.Buffer) {
+	s := t.s
+	section(out, s, "Keys")
+	table{widths: []int{14, 70}, rows: [][]string{
+		{"↑ ↓  or  k j", "move through the list, or scroll a primitive"},
+		{"enter  or  →", "open the selected primitive"},
+		{"← →", "previous / next primitive, when one is open"},
+		{"a", "accept: generate the primitive and install it for your agent"},
+		{"d", "decline: hide it until something new appears under it"},
+		{"e", "agent eval: write a handoff for your coding agent to refine it"},
+		{"(again)", "pressing the same choice again clears it"},
+		{"A", "mark every primitive accept"},
+		{"/", "search by name; esc clears"},
+		{"s", "review your choices, then submit"},
+		{"esc", "back"},
+		{"q", "quit; nothing is saved before you submit"},
+	}}.render(out, s)
+	section(out, s, "Columns")
+	table{widths: []int{14, 70}, rows: [][]string{
+		{"Uses", "how many times the agent ran this flow in your history"},
+		{"Turns saved", "model round-trips the agent would no longer make"},
+		{"Tokens saved", "an estimate, priced as fresh input; cached re-reads count at about a tenth"},
+		{"Open", "questions to resolve before the flow is fully understood"},
+	}}.render(out, s)
 }
 
 func (t *tui) drawReview(out *bytes.Buffer) {

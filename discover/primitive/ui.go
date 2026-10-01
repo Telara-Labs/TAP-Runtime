@@ -3,6 +3,8 @@ package primitive
 import (
 	"fmt"
 	"io"
+	"math"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -30,8 +32,19 @@ func cachedShare(u trace.Usage) float64 {
 	return 100 * u.Cached / u.Total()
 }
 
-// style colors text when the output is a terminal.
-type style struct{ on bool }
+// style colors text when the output is a terminal; width is the screen's
+// columns (0 means the default).
+type style struct {
+	on    bool
+	width int
+}
+
+func (s style) cols() int {
+	if s.width > 0 {
+		return s.width
+	}
+	return screen
+}
 
 func (s style) wrap(code, t string) string {
 	if !s.on {
@@ -119,28 +132,14 @@ func wrapText(t string, w int) []string {
 
 const screen = 100
 
-func banner(out io.Writer, s style, sub string) {
-	art := []string{
-		"████████╗ █████╗ ██████╗ ",
-		"╚══██╔══╝██╔══██╗██╔══██╗",
-		"   ██║   ███████║██████╔╝",
-		"   ██║   ██╔══██║██╔═══╝ ",
-		"   ██║   ██║  ██║██║     ",
-		"   ╚═╝   ╚═╝  ╚═╝╚═╝     ",
-	}
-	side := []string{"", s.bold("Discover"), "Reusable primitives found in your", "agent history, ready to review.", "", s.dim(sub)}
-	inner := screen - 4
-	fmt.Fprintln(out, s.accent("╭"+strings.Repeat("─", inner+2)+"╮"))
-	for i, a := range art {
-		line := "  " + s.accent(a) + "   " + side[i]
-		fmt.Fprintln(out, s.accent("│")+" "+pad(line, inner, false)+" "+s.accent("│"))
-	}
-	fmt.Fprintln(out, s.accent("╰"+strings.Repeat("─", inner+2)+"╯"))
-}
-
 // table draws rows under a header; right lists right-aligned columns. Cells
 // wider than their column wrap onto further lines.
 type table struct {
+	// oneLine cuts cells to their column instead of wrapping them.
+	oneLine bool
+	// flex names the column that shrinks so the table fits the screen, as
+	// its position counted from 1 (0: none).
+	flex   int
 	head   []string
 	rows   [][]string
 	widths []int
@@ -148,6 +147,16 @@ type table struct {
 }
 
 func (t table) render(out io.Writer, s style) {
+	t.widths = append([]int(nil), t.widths...)
+	if c := t.flex - 1; c >= 0 && c < len(t.widths) {
+		total := 1
+		for _, w := range t.widths {
+			total += w + 3
+		}
+		if over := total - s.cols(); over > 0 {
+			t.widths[c] = max(8, t.widths[c]-over)
+		}
+	}
 	sep := func(l, m, r string) string {
 		var parts []string
 		for _, w := range t.widths {
@@ -165,6 +174,8 @@ func (t table) render(out io.Writer, s style) {
 			}
 			if width(c) != utf8.RuneCountInString(c) { // colored: no wrapping
 				cols[i] = []string{c}
+			} else if t.oneLine {
+				cols[i] = []string{clip(c, w)}
 			} else {
 				cols[i] = wrapText(c, w)
 			}
@@ -228,4 +239,72 @@ func keys(s style, items ...string) string {
 		out = append(out, s.accent("["+items[i]+"]")+" "+items[i+1])
 	}
 	return " " + strings.Join(out, "   ")
+}
+
+// effectText says what an effect means for the person running it.
+func effectText(e string) string {
+	if e == "read" {
+		return "only reads"
+	}
+	return "may change data · you are asked before each call"
+}
+
+// tokensText rounds to two significant figures: these are estimates.
+func tokensText(t float64) string {
+	unit, div := "", 1.0
+	switch {
+	case t >= 1e9:
+		unit, div = "B", 1e9
+	case t >= 1e6:
+		unit, div = "M", 1e6
+	case t >= 1e3:
+		unit, div = "k", 1e3
+	}
+	v := t / div
+	switch {
+	case v >= 100:
+		return fmt.Sprintf("%.0f%s", math.Round(v/10)*10, unit)
+	case v >= 10:
+		return fmt.Sprintf("%.0f%s", v, unit)
+	}
+	return fmt.Sprintf("%.1f%s", v, unit)
+}
+
+// inputsText turns argument keys into what a person supplies: a shell
+// command's positional arguments and options, a tool's named fields.
+func inputsText(keys string) string {
+	var named, opts []string
+	positional := 0
+	seen := map[string]bool{}
+	for _, k := range strings.Split(keys, ", ") {
+		k = strings.TrimSpace(k)
+		switch {
+		case k == "":
+		case len(k) > 1 && k[0] == 'p' && strings.Trim(k[1:], "0123456789") == "":
+			positional++
+		case strings.HasPrefix(k, "-"):
+			o := strings.TrimRight(strings.TrimSuffix(k, "="), "0123456789")
+			for _, alt := range strings.Split(o, "|") {
+				alt = strings.TrimRight(strings.TrimSuffix(alt, "="), "0123456789")
+				if alt != "" && alt != "-" && !seen[alt] {
+					seen[alt] = true
+					opts = append(opts, alt)
+				}
+			}
+		default:
+			named = append(named, strings.ReplaceAll(k, "|", " or "))
+		}
+	}
+	var parts []string
+	if len(named) > 0 {
+		parts = append(parts, strings.Join(named, ", "))
+	}
+	if positional > 0 {
+		parts = append(parts, fmt.Sprintf("%d positional argument(s)", positional))
+	}
+	if len(opts) > 0 {
+		sort.Strings(opts)
+		parts = append(parts, "options "+strings.Join(opts, " "))
+	}
+	return strings.Join(parts, " · ")
 }
