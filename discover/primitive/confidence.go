@@ -18,10 +18,10 @@ const Rubric = "run consistency v3"
 
 // Observation quality: how strongly one run supports a binding.
 const (
-	qExplicit  = 1.0  // a structured field of the producer's result
-	qInferred  = 0.8  // a whole output line, or its first field
-	qInput     = 1.0  // the caller supplies it (typed in the request, or no source)
-	qConflict  = 0.0  // taken from a different step than in most runs
+	qExplicit = 1.0 // a structured field of the producer's result
+	qInferred = 0.8 // a whole output line, or its first field
+	qInput    = 1.0 // the caller supplies it (typed in the request, or no source)
+	qConflict = 0.0 // taken from a different step than in most runs
 )
 
 // Claim is one scored statement about a primitive's flow.

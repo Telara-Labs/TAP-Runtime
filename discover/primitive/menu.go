@@ -94,8 +94,8 @@ func writeSummary(out io.Writer, s style, res Result, clients string) {
 	for _, f := range res.Families {
 		saved = saved.Add(f.Saved)
 	}
-	tot, cached, eq := tokenCells(sm.Tokens)
-	stot, scached, seq := tokenCells(saved)
+	tot, _, eq := tokenCells(sm.Tokens)
+	_, _, seq := tokenCells(saved)
 	table{widths: []int{52, 12}, right: map[int]bool{1: true}, rows: [][]string{
 		{"Sessions read (" + clients + ")", count(sm.Sessions)},
 		{"Tool calls", count(sm.ToolCalls)},
@@ -107,13 +107,18 @@ func writeSummary(out io.Writer, s style, res Result, clients string) {
 		{"Exact chains found", count(sm.Primitives)},
 		{"Proposed primitives", count(sm.Families)},
 	}}.render(out, s)
-	section(out, s, "Tokens")
-	table{head: []string{"", "Total", "Cached", "≈ Input-equivalent"}, widths: []int{46, 10, 8, 18}, right: map[int]bool{1: true, 2: true, 3: true}, rows: [][]string{
-		{"Whole history", tot, cached, eq},
-		{"Follow-up turns the primitives would remove", stot, scached, seq},
+	turns := 0
+	for _, f := range res.Families {
+		turns += f.TurnsSaved
+	}
+	section(out, s, "Estimated savings")
+	table{head: []string{"", "Tool calls", "Est. tokens (input-equivalent)"}, widths: []int{46, 12, 30}, right: map[int]bool{1: true, 2: true}, rows: [][]string{
+		{"Your history", count(sm.ToolCalls), eq},
+		{"Follow-up calls the proposed primitives remove", count(turns), seq},
 	}}.render(out, s)
-	fmt.Fprintln(out, s.dim("  Cached tokens are the conversation re-read from the prompt cache on every turn. Input-equivalent is"))
-	fmt.Fprintln(out, s.dim(fmt.Sprintf("  an estimate: cache reads at %.1f× and output at %.0f× a fresh input token (list-price ratios).", cachedRatio, outputRatio)))
+	fmt.Fprintln(out, s.dim("  A follow-up call waits on an earlier result, so each one is a model turn you no longer wait for."))
+	fmt.Fprintln(out, s.dim(fmt.Sprintf("  Tokens are priced as fresh input: most of a turn re-reads the conversation from the prompt cache at about")))
+	fmt.Fprintln(out, s.dim(fmt.Sprintf("  %.1f× that price, and output costs about %.0f×. Raw counts are about ten times larger (%s for the history).", cachedRatio, outputRatio, tot)))
 }
 
 func describe(p Primitive) string {
@@ -197,9 +202,9 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	}
 	choice := make([]string, len(shown))
 	list := func() {
-		section(out, s, "Proposed primitives (most tokens saved first)")
-		t := table{head: []string{"#", "Primitive", "Runs", "Sessions", "Tokens", "Cached", "Values traced", "Open questions", "Choice"},
-			widths: []int{3, 42, 5, 8, 7, 6, 13, 14, 7}, right: map[int]bool{0: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true}}
+		section(out, s, "Proposed primitives (largest estimated saving first)")
+		t := table{head: []string{"#", "Primitive", "Runs", "Sessions", "Turns saved", "Est. tokens saved", "Values traced", "Open questions", "Choice"},
+			widths: []int{3, 38, 5, 8, 11, 17, 13, 14, 7}, right: map[int]bool{0: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true}}
 		for i, f := range shown {
 			c := choice[i]
 			if c == "" {
@@ -208,7 +213,7 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 				c = s.choice(c)
 			}
 			t.rows = append(t.rows, []string{fmt.Sprint(i + 1), title(f), count(f.ExecutionCount), count(f.SessionCount),
-				tokensText(f.SavedTokens), fmt.Sprintf("%.0f%%", cachedShare(f.Saved)), fmt.Sprintf("%d of %d", f.Traced, f.Values), fmt.Sprint(f.OpenQuestions), c})
+				count(f.TurnsSaved), "≈" + tokensText(inputEquivalent(f.Saved)), fmt.Sprintf("%d of %d", f.Traced, f.Values), fmt.Sprint(f.OpenQuestions), c})
 		}
 		t.render(out, s)
 	}
@@ -405,8 +410,8 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 	conf := fmt.Sprintf("%s; %d of %d exact chains need a decision", f.Readiness, f.NeedsDecision, len(f.Members))
 	mt := table{widths: []int{26, 62}, rows: [][]string{
 		{"Effect", f.Effect + " (unknown is treated as write; the runner asks before each call)"},
-		{"Follow-up turn tokens", fmt.Sprintf("%s total · %s cached · %s fresh · %s output", tot, cached, tokensText(f.Saved.Fresh), tokensText(f.Saved.Output))},
-		{"≈ Input-equivalent", fmt.Sprintf("%s total · %s per run (estimate)", eq, tokensText(per))},
+		{"Estimated saving", fmt.Sprintf("%s model turns · %s tokens (input-equivalent; %s per run)", count(f.TurnsSaved), eq, tokensText(per))},
+		{"How that is priced", fmt.Sprintf("raw %s tokens, %s of them cache re-reads of the conversation (about %.1f× the price of fresh input), %s fresh input, %s output", tot, cached, cachedRatio, tokensText(f.Saved.Fresh), tokensText(f.Saved.Output))},
 		{"Values traced", fmt.Sprintf("%d of %d (the source of each value is known in every run: an earlier result, or the caller)", f.Traced, f.Values)},
 		{"Open questions", fmt.Sprintf("%d (agent eval writes them out with the evidence)", f.OpenQuestions)},
 		{"Status", conf},
