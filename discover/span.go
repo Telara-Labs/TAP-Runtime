@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pyparse"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
 
@@ -460,7 +462,7 @@ func proposalsForRequest(s Session, req int, nodes []spanNode, pairSupport map[s
 		if n.call.Tool != "shell" {
 			continue
 		}
-		shape, family, embedded := inlinePythonSnippet(n.call.Command)
+		shape, family, embedded := pyparse.InlinePythonSnippet(n.call.Command)
 		if shape == "" {
 			continue
 		}
