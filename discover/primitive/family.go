@@ -19,6 +19,13 @@ import (
 // the same value to the same follow-ups.
 type Family struct {
 	ID string `json:"id"`
+	// Fingerprint names the family across runs, whatever its members: the
+	// head command and whether it reads or may write. Decisions attach here.
+	Fingerprint string `json:"fingerprint"`
+	// Status says why it is shown (new, new since your last decision,
+	// re-evaluated by new rules); Earlier is that last decision.
+	Status  string `json:"status,omitempty"`
+	Earlier string `json:"earlier,omitempty"`
 	// Head is the most common first step; Sources are the alternatives.
 	Head    string   `json:"head"`
 	Sources []string `json:"sources,omitempty"`
@@ -335,6 +342,17 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 		}
 	}
 	f.ExecutionCount, f.SessionCount = len(runs), len(sessions)
+	headEffect := "read"
+	for _, p := range members {
+		if len(p.StepEffects) > 0 && rankEffect(p.StepEffects[0]) > rankEffect(headEffect) {
+			headEffect = p.StepEffects[0]
+		}
+	}
+	class := "read"
+	if headEffect != "read" {
+		class = "may-write"
+	}
+	f.Fingerprint = headKey(f.Head) + "|" + class
 	f.Values, f.OpenQuestions = len(traced), len(questions)
 	for _, ok := range traced {
 		if ok {

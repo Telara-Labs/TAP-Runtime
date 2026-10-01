@@ -27,36 +27,61 @@ func flows(a arg) bool {
 	return false
 }
 
-// match says how a producer's recorded result supplies a value, and the
-// selector that takes it out. A value merely mentioned inside text proves
-// nothing: it is ambiguous.
-func match(v string, c trace.Call) (string, string) {
-	for i, id := range c.OutIDs {
-		if id != v {
-			continue
+// result indexes one recorded result once, so finding where a value came
+// from is a lookup rather than a scan of every earlier output.
+type result struct {
+	hits   map[string]hit // values a parser takes: structured fields, lines, first fields
+	digits map[string]bool
+	c      trace.Call
+}
+
+type hit struct{ level, selector string }
+
+func indexResult(c trace.Call) *result {
+	r := &result{hits: map[string]hit{}, digits: map[string]bool{}, c: c}
+	put := func(v string, h hit) {
+		if old, ok := r.hits[v]; !ok || rank(h.level) > rank(old.level) {
+			r.hits[v] = h
 		}
+	}
+	for i, id := range c.OutIDs {
 		if i < len(c.OutPaths) && c.OutPaths[i] != "" && c.OutPaths[i] != "*" {
-			return Explicit, c.OutPaths[i]
+			put(id, hit{Explicit, c.OutPaths[i]})
+			continue
 		}
 		// An identifier at the start of an output line, ending the line or
 		// its first field, is what a line parser takes.
 		if i < len(c.OutCtx) {
 			before, after, _ := strings.Cut(c.OutCtx[i], "\x00")
 			if strings.TrimSpace(before) == "" && (after == "" || after == ":" || after == " " || after == "\t") {
-				return Inferred, "first field of an output line"
+				put(id, hit{Inferred, "first field of an output line"})
 			}
 		}
 	}
 	for _, line := range strings.Split(c.Output, "\n") {
 		line = strings.TrimSpace(line)
-		if line == v {
-			return Inferred, "output line"
+		if line == "" {
+			continue
 		}
-		if f := strings.FieldsFunc(line, func(r rune) bool { return r == ':' || r == ' ' || r == '\t' }); len(f) > 0 && f[0] == v {
-			return Inferred, "first field of an output line"
+		put(line, hit{Inferred, "output line"})
+		if f := strings.FieldsFunc(line, func(r rune) bool { return r == ':' || r == ' ' || r == '\t' }); len(f) > 0 {
+			put(f[0], hit{Inferred, "first field of an output line"})
 		}
 	}
-	if trace.InResult(v, trace.Step{Output: c.Output, OutIDs: c.OutIDs, OutTokens: c.OutTokens}) {
+	for _, t := range digitToken.FindAllString(c.Output, -1) {
+		r.digits[t] = true
+	}
+	return r
+}
+
+// match says how a producer's recorded result supplies a value, and the
+// selector that takes it out. A value merely mentioned inside text proves
+// nothing: it is ambiguous.
+func match(v string, r *result) (string, string) {
+	if h, ok := r.hits[v]; ok {
+		return h.level, h.selector
+	}
+	if trace.InResult(v, trace.Step{Output: r.c.Output, OutIDs: r.c.OutIDs, OutTokens: r.c.OutTokens}) {
 		return Ambiguous, "mentioned in output text"
 	}
 	return "", ""
@@ -81,6 +106,11 @@ func rank(l string) int {
 // only echo it (they took it from that origin) do not compete. Explicit and
 // inferred sources become edges; an ambiguous one is recorded, not chained.
 func link(nodes []node, requests []string) {
+	lowered := make([]string, len(requests))
+	for i, r := range requests {
+		lowered[i] = strings.ToLower(r)
+	}
+	requests = lowered
 	for j := range nodes {
 		n := &nodes[j]
 		for a := range n.args {
@@ -107,7 +137,7 @@ func link(nodes []node, requests []string) {
 			best := 0
 			earlier := false
 			for i := 0; i < j; i++ {
-				l, sel := match(ag.value, nodes[i].c)
+				l, sel := match(ag.value, nodes[i].res)
 				if l == "" {
 					continue
 				}
@@ -173,9 +203,10 @@ func tookFrom(n node, v string) bool {
 	return false
 }
 
+// requested reports v in any request up to upto; requests are lowercased.
 func requested(v string, requests []string, upto int) bool {
 	for r := 0; r <= upto && r < len(requests); r++ {
-		if trace.InRequest(v, requests[r]) {
+		if trace.InLoweredRequest(v, requests[r]) {
 			return true
 		}
 	}
@@ -219,24 +250,14 @@ func constructed(nodes []node, j int) bool {
 			continue
 		}
 		for i := j - 1; i >= 0 && nodes[i].request == n.request; i-- {
-			if l, _ := match(a.value, nodes[i].c); l != "" {
+			if l, _ := match(a.value, nodes[i].res); l != "" {
 				return false // a value the output held: a selection, not a construction
 			}
 			for _, tok := range digitToken.FindAllString(a.value, -1) {
-				if len(tok) >= 2 && tok != a.value && containsToken(nodes[i].c.Output, tok) {
+				if len(tok) >= 2 && tok != a.value && nodes[i].res.digits[tok] {
 					return true
 				}
 			}
-		}
-	}
-	return false
-}
-
-// containsToken reports tok as a whole token of text.
-func containsToken(text, tok string) bool {
-	for _, t := range digitToken.FindAllString(text, -1) {
-		if t == tok {
-			return true
 		}
 	}
 	return false
