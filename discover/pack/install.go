@@ -1,12 +1,9 @@
-// Package pack writes a draft as a TAP package and installs it the way an agent client finds a skill.
 package pack
 
 import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,22 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
-	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
-
-// Artifacts returns the draft's files, or ErrBlocked. Everything that writes
-// or sends a draft goes through it.
-func DraftArtifacts(d *model.Draft) (map[string][]byte, error) {
-	if len(d.Blocked) > 0 {
-		return nil, fmt.Errorf("%w: %s", model.ErrBlocked, strings.Join(d.Blocked, "; "))
-	}
-	return d.Files, nil
-}
 
 // SavedMarker is the file that marks a skills folder as a saved primitive.
 const SavedMarker = ".tap-primitive.json"
@@ -57,19 +42,6 @@ func SkillsDir(client string, project bool, home, cwd string) (string, error) {
 		return filepath.Join(home, ".codex", "skills"), nil
 	}
 	return "", fmt.Errorf("unknown client %q (want claude-code or codex)", client)
-}
-
-type Marker struct {
-	Name   string `json:"name"`
-	Digest string `json:"digest"`
-	// Validation is "not_run": saving is not validating. A validation
-	// result names the exact digest it passed for.
-	Validation string `json:"validation"`
-	// Origin, Receipts and Cases are set for a package a host agent
-	// authored (save.go); a saved draft leaves them out.
-	Origin   string `json:"origin,omitempty"`
-	Receipts string `json:"receipts,omitempty"`
-	Cases    int    `json:"cases,omitempty"`
 }
 
 // ErrNotSaved reports a folder of the draft's name that is not a saved
@@ -242,111 +214,4 @@ func Unpack(pkg []byte, dest string) error {
 		return errors.New("package is empty")
 	}
 	return nil
-}
-
-// Package returns the draft as a gzip tar, the form a registry package and
-// `telara tap pull` use, and its digest. Entries are sorted and carry a fixed
-// time, so the same draft always has the same digest.
-func PackageDraft(d *model.Draft) ([]byte, string, error) {
-	files, err := DraftArtifacts(d)
-	if err != nil {
-		return nil, "", err
-	}
-	return PackFiles(files, func(n string) bool { return n == "main.sh" })
-}
-
-// PatternRoutines lists the pattern-level routines worth reviewing, one per task, most tokens
-// saved over the recorded history first.
-//
-// One task shows up as many overlapping patterns (a five-step window slid
-// along a longer automation, the same checks with and without a git status).
-// Routines that occur in mostly the same sessions are treated as one task,
-// whatever their steps: they are grouped when they share at least half of
-// their sessions (Jaccard), and the group is represented by its longest,
-// most specific routine. Routines with no step a primitive can replay are
-// left out: there is nothing to draft.
-func ReportPatternRoutines(r *model.Report) []int {
-	var cands []int
-	for i, c := range r.Candidates {
-		if !c.Qualified || c.Family != i {
-			continue
-		}
-		for _, s := range c.Steps {
-			if trace.Replayable(s.Label) {
-				cands = append(cands, i)
-				break
-			}
-		}
-	}
-	sort.SliceStable(cands, func(a, b int) bool {
-		return r.Candidates[cands[a]].SavedTotal.Total() > r.Candidates[cands[b]].SavedTotal.Total()
-	})
-	type group struct {
-		lead, best int
-		saved      float64
-	}
-	var groups []group
-	better := func(a, b model.Candidate) bool {
-		if len(a.Steps) != len(b.Steps) {
-			return len(a.Steps) > len(b.Steps)
-		}
-		if a.Specificity != b.Specificity {
-			return a.Specificity > b.Specificity
-		}
-		return a.SavedTotal.Total() > b.SavedTotal.Total()
-	}
-	for _, i := range cands {
-		c := r.Candidates[i]
-		joined := false
-		for g := range groups {
-			if model.JaccardInts(c.SessionSet, r.Candidates[groups[g].lead].SessionSet) >= 0.5 {
-				if better(c, r.Candidates[groups[g].best]) {
-					groups[g].best = i
-				}
-				joined = true
-				break
-			}
-		}
-		if !joined {
-			groups = append(groups, group{lead: i, best: i, saved: c.SavedTotal.Total()})
-		}
-	}
-	out := make([]int, len(groups))
-	for g := range groups {
-		out[g] = groups[g].best
-	}
-	return out
-}
-
-func PackFiles(files map[string][]byte, executable func(string) bool) ([]byte, string, error) {
-	var buf bytes.Buffer
-	gz, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
-	gz.ModTime = time.Unix(0, 0)
-	tw := tar.NewWriter(gz)
-	names := make([]string, 0, len(files))
-	for n := range files {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	for _, n := range names {
-		body := files[n]
-		mode := int64(0o644)
-		if executable(n) {
-			mode = 0o755
-		}
-		if err := tw.WriteHeader(&tar.Header{Name: n, Mode: mode, Size: int64(len(body)), ModTime: time.Unix(0, 0), Format: tar.FormatPAX}); err != nil {
-			return nil, "", err
-		}
-		if _, err := tw.Write(body); err != nil {
-			return nil, "", err
-		}
-	}
-	if err := tw.Close(); err != nil {
-		return nil, "", err
-	}
-	if err := gz.Close(); err != nil {
-		return nil, "", err
-	}
-	sum := sha256.Sum256(buf.Bytes())
-	return buf.Bytes(), "sha256:" + hex.EncodeToString(sum[:]), nil
 }
