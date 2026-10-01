@@ -1,10 +1,11 @@
-package discover
+package integration
 
 import (
 	"fmt"
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover"
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
@@ -16,9 +17,9 @@ import (
 
 func firstRoutine(t *testing.T, ss []trace.Session) *model.Routine {
 	t.Helper()
-	o := DefaultOptions()
+	o := discover.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
-	rep, err := Run(o)
+	rep, err := discover.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,9 +207,9 @@ func TestAStepRepeatedWithDifferentValuesIsALoop(t *testing.T) {
 }
 
 func TestFunnelCountsMatchDecisions(t *testing.T) {
-	o := DefaultOptions()
+	o := discover.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: append(testkit.RequestCorpus(), testkit.CredCorpus()...)}}
-	rep, err := Run(o)
+	rep, err := discover.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-package discover
+package integration
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover"
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
@@ -21,9 +22,9 @@ import (
 )
 
 func TestRecurringRequestsBecomePrimitives(t *testing.T) {
-	o := DefaultOptions()
+	o := discover.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.RequestCorpus()}}
-	rep, err := Run(o)
+	rep, err := discover.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,9 +72,9 @@ func TestRecurringRequestsBecomePrimitives(t *testing.T) {
 }
 
 func TestSaveInstallsOnceAndNeverReplacesAForeignFolder(t *testing.T) {
-	o := DefaultOptions()
+	o := discover.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.RequestCorpus()}}
-	rep, err := Run(o)
+	rep, err := discover.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,9 +100,9 @@ func TestSaveInstallsOnceAndNeverReplacesAForeignFolder(t *testing.T) {
 }
 
 func TestReviewWithoutARegistryOnlySaves(t *testing.T) {
-	o := DefaultOptions()
+	o := discover.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.RequestCorpus()}}
-	rep, _ := Run(o)
+	rep, _ := discover.Run(o)
 	var saved []string
 	var out bytes.Buffer
 	err := routine.Review(strings.NewReader("all\n"), &out, rep, routine.ReviewConfig{}, routine.ReviewActions{
@@ -128,7 +129,7 @@ func TestPick(t *testing.T) {
 func TestCommandRunsWithNoHistory(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	var out, errOut bytes.Buffer
-	if code := Command([]string{"--client", "claude-code,codex"}, strings.NewReader(""), &out, &errOut); code != 0 {
+	if code := discover.Command([]string{"--client", "claude-code,codex"}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("exit %d: %s", code, errOut.String())
 	}
 	if !strings.Contains(out.String(), "Reviewed 0 sessions") {
@@ -155,9 +156,9 @@ func TestExplorationIsNotAPrimitive(t *testing.T) {
 		}
 		ss = append(ss, s)
 	}
-	o := DefaultOptions()
+	o := discover.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
-	rep, err := Run(o)
+	rep, err := discover.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,9 +168,9 @@ func TestExplorationIsNotAPrimitive(t *testing.T) {
 }
 
 func TestFixedShareIsAFractionOfTheRoutine(t *testing.T) {
-	o := DefaultOptions()
+	o := discover.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.RequestCorpus()}}
-	rep, err := Run(o)
+	rep, err := discover.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}

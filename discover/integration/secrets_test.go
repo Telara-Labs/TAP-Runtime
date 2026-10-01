@@ -1,4 +1,4 @@
-package discover
+package integration
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover"
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
@@ -19,9 +20,9 @@ import (
 )
 
 func TestDraftNeverWritesCredentials(t *testing.T) {
-	o := DefaultOptions()
+	o := discover.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: testkit.CredCorpus()}}
-	rep, err := Run(o)
+	rep, err := discover.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}

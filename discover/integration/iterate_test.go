@@ -1,4 +1,4 @@
-package discover
+package integration
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover"
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
@@ -71,9 +72,9 @@ func TestALineRepeatedInOneSessionIsNotFixed(t *testing.T) {
 		ss[0].Calls = append(ss[0].Calls, c)
 	}
 	ss = append(ss[:1], ss[2:]...)
-	o := DefaultOptions()
+	o := discover.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
-	rep, err := Run(o)
+	rep, err := discover.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}

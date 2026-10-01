@@ -1,4 +1,4 @@
-package discover
+package integration
 
 import (
 	"errors"
@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover"
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/eval"
@@ -69,9 +70,9 @@ func TestLineageJoinsCopiesAndTemplatedPrompts(t *testing.T) {
 
 func TestSampleIsReproducibleAndCarriesNoDecision(t *testing.T) {
 	ss := append(testkit.RequestCorpus(), testkit.CredCorpus()...)
-	o := DefaultOptions()
+	o := discover.DefaultOptions()
 	o.Readers = []trace.Reader{testkit.FakeReader{Sessions: ss}}
-	rep, err := Run(o)
+	rep, err := discover.Run(o)
 	if err != nil {
 		t.Fatal(err)
 	}
