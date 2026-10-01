@@ -34,11 +34,6 @@ func AssessSpanTask(s trace.Session, req int, nodes []SpanNode, set []int, input
 		r.Source = "synthetic_context"
 		r.Reasons = append(r.Reasons, "synthetic_request")
 	}
-	if len(set) == 1 {
-		// A direct tool invocation with its raw result is already available
-		// to the agent. It contains no captured composition or transformation.
-		r.Reasons = append(r.Reasons, "single_tool_passthrough")
-	}
 	for _, i := range set {
 		if SpanInlineCode(nodes[i].Call) {
 			// Code written into the call for this run is a decision the
@@ -47,17 +42,8 @@ func AssessSpanTask(s trace.Session, req int, nodes []SpanNode, set []int, input
 			break
 		}
 	}
-	named := false
-	for _, i := range set {
-		if SpanDirectIntent(s.Requests, req, nodes[i]) {
-			named = true
-		}
-	}
-	if !named {
-		// The request names nothing the calls act on: they may be the
-		// agent's own work inside a larger task (a component, not a task).
-		r.Reasons = append(r.Reasons, "request_names_no_target")
-	}
+	// Work the agent started on its own is still repeated work: whether the
+	// request named it never decides readiness.
 	known, unknown := false, false
 	for _, in := range inputs {
 		if in.Source == "unknown" {
@@ -68,8 +54,8 @@ func AssessSpanTask(s trace.Session, req int, nodes []SpanNode, set []int, input
 	}
 	switch {
 	case unknown:
-		r.Input = "unresolved"
-		r.Reasons = append(r.Reasons, "input_provenance_unknown")
+		// A value with no known source is the caller's input, not a blocker.
+		r.Input = "caller_or_result"
 	case known:
 		r.Input = "caller_or_result"
 	default:

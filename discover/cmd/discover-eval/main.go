@@ -23,6 +23,7 @@ import (
 
 	"gitlab.com/telara-labs/tap-runtime/discover/routine"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/primitive"
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -48,6 +49,8 @@ func main() {
 		err = show(os.Args[2:])
 	case "opportunities":
 		err = opportunities(os.Args[2:])
+	case "primitives":
+		err = primitives(os.Args[2:])
 	case "spans":
 		err = spans(os.Args[2:])
 	case "packets":
@@ -422,6 +425,47 @@ func opportunities(args []string) error {
 
 // spans runs model-free bounded-span retrieval on a frozen corpus. Its output
 // is diagnostic and unassessed; it cannot be counted as Gate D recall.
+// primitives replays the condensed primitive discovery over a frozen corpus.
+func primitives(args []string) error {
+	fs := flag.NewFlagSet("primitives", flag.ExitOnError)
+	manifest := fs.String("manifest", "manifest.json", "frozen corpus")
+	out := fs.String("out", "primitives.json", "result to write")
+	client := fs.String("client", "", "optional single client to replay: claude-code, codex or cursor")
+	dropChanged := fs.Bool("drop-changed", false, "leave out sessions changed since the freeze")
+	fs.Parse(args)
+	rs, _, err := frozenReaders(*manifest)
+	if err != nil {
+		return err
+	}
+	if *client != "" {
+		var selected []trace.Reader
+		for _, r := range rs {
+			if r.Client() == *client {
+				selected = append(selected, r)
+			}
+		}
+		if len(selected) == 0 {
+			return fmt.Errorf("unknown client %q", *client)
+		}
+		rs = selected
+	}
+	var dropped []string
+	if *dropChanged {
+		for i, r := range rs {
+			fr := r.(history.FrozenReader)
+			fr.DropChanged, fr.Dropped = true, &dropped
+			rs[i] = fr
+		}
+	}
+	ss, err := readAll(rs)
+	if err != nil {
+		return err
+	}
+	res := primitive.Discover(ss, nil)
+	fmt.Printf("read %d frozen sessions (%d dropped as changed); %d primitives (%d multi-step)\n", len(ss), len(dropped), res.Summary.Primitives, res.Summary.MultiStep)
+	return writeJSON(*out, map[string]any{"manifest": *manifest, "dropped": dropped, "result": res})
+}
+
 func spans(args []string) error {
 	fs := flag.NewFlagSet("spans", flag.ExitOnError)
 	manifest := fs.String("manifest", "manifest.json", "frozen corpus")

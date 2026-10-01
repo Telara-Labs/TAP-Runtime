@@ -1,7 +1,6 @@
 package genreview_test
 
 import (
-	"strings"
 	"testing"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
@@ -154,6 +153,8 @@ func TestGeneratedCandidateTaskEvidenceDoesNotPromoteIncidentalRecurrence(t *tes
 	}
 }
 
+// Work the agent started inside a larger task is repeated work too: a
+// result-linked chain qualifies whether or not the request named it.
 func TestGeneratedCausalComponentsRemainReviewableInsideLargerTasks(t *testing.T) {
 	create := func(id string) trace.Call {
 		return testkit.SpanRefs(trace.Call{Tool: "mcp:telara_jira_create_issue", MCPServer: "telara", MCPTool: "telara_jira_create_issue",
@@ -178,17 +179,12 @@ func TestGeneratedCausalComponentsRemainReviewableInsideLargerTasks(t *testing.T
 		t.Fatalf("result-linked agent component was lost: %+v %v", qualified, ok)
 	}
 	for _, id := range qualified.Members {
-		if bySpan[id].Review.Ready || !genreview.GeneratedCausalComponent(bySpan[id]) {
-			t.Fatalf("test did not exercise the internal-component route: %+v", bySpan[id])
+		if !bySpan[id].Review.Ready {
+			t.Fatalf("agent-started chain was held back by the request's wording: %+v", bySpan[id].Review)
 		}
 	}
 	rows, err := genreview.GeneratedProgramQueue([]model.LogicCandidate{c}, spans, sessions)
-	if err != nil || len(rows) != 1 || !genreview.GeneratedVariantIsInternalComponent(rows[0].Variant, bySpan) || !strings.HasPrefix(rows[0].Shape, "agent component") {
-		t.Fatalf("result-linked component did not reach labeled review: %+v %v", rows, err)
-	}
-	one := c
-	one.Members = one.Members[:1]
-	if _, ok := genreview.GeneratedCandidateTaskEvidence(one, bySpan); ok {
-		t.Fatal("single incidental component entered review without independent support")
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("result-linked chain did not reach review: %+v %v", rows, err)
 	}
 }

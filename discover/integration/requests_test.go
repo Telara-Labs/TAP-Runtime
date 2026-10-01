@@ -131,11 +131,19 @@ func TestPick(t *testing.T) {
 func TestCommandRunsWithNoHistory(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	var out, errOut bytes.Buffer
+	// With no subcommand, discover ends in the primitive menu.
 	if code := discover.Command([]string{"--client", "claude-code,codex"}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("exit %d: %s", code, errOut.String())
 	}
-	if !strings.Contains(out.String(), "Reviewed 0 sessions") {
+	if !strings.Contains(out.String(), "Summary") || !strings.Contains(out.String(), "Read 0 sessions") {
 		t.Fatalf("output:\n%s", out.String())
+	}
+	out.Reset()
+	if code := discover.Command([]string{"report", "--client", "claude-code,codex"}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("report exit %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "Reviewed 0 sessions") {
+		t.Fatalf("report output:\n%s", out.String())
 	}
 }
 
