@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -39,11 +41,11 @@ func TestInlinePythonRepetitionIsRetrievalOnly(t *testing.T) {
 		!strings.Contains(strings.Join(groups[0].Cautions, ","), "inline_program_embedded_in_shell") {
 		t.Fatalf("cross-session inline logic did not group by operations: %+v", groups)
 	}
-	graph, err := SynthesizeProgramGraph(groups[0], spans, []trace.Session{first, second, third})
+	graph, err := codegen.SynthesizeProgramGraph(groups[0], spans, []trace.Session{first, second, third})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := GenerateProgramPackage(graph); err == nil {
+	if _, err := codegen.GenerateProgramPackage(graph); err == nil {
 		t.Fatalf("inline code was offered for installation without internal effect and data-flow proof: %+v", graph)
 	}
 }

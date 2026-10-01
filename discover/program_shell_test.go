@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -14,15 +16,15 @@ import (
 )
 
 func TestGeneratedPipelinePassesStdoutAsStdinAndStopsOnFailure(t *testing.T) {
-	g := &ProgramGraph{CandidateID: "lc_pipe", Inputs: []ProgramInput{
+	g := &codegen.ProgramGraph{CandidateID: "lc_pipe", Inputs: []codegen.ProgramInput{
 		{Name: "path", Type: "string", Source: "supplied at invocation"},
 		{Name: "pattern", Type: "string", Source: "supplied at invocation"},
-	}, Steps: []ProgramStep{{Role: "sh:cat+sh:grep", Tool: "shell", Effect: "read", Pipeline: []ProgramCommand{{Name: "cat", Effect: "read"}, {Name: "grep", Effect: "read", Connector: "pipe"}}, Args: []ProgramArg{
-		{Path: []string{"pipe_0_argv_0"}, Value: ProgramValue{Kind: "input", Input: "path"}},
-		{Path: []string{"pipe_1_argv_0"}, Value: ProgramValue{Kind: "selector", Selector: "-n"}},
-		{Path: []string{"pipe_1_argv_1"}, Value: ProgramValue{Kind: "input", Input: "pattern"}},
+	}, Steps: []codegen.ProgramStep{{Role: "sh:cat+sh:grep", Tool: "shell", Effect: "read", Pipeline: []codegen.ProgramCommand{{Name: "cat", Effect: "read"}, {Name: "grep", Effect: "read", Connector: "pipe"}}, Args: []codegen.ProgramArg{
+		{Path: []string{"pipe_0_argv_0"}, Value: codegen.ProgramValue{Kind: "input", Input: "path"}},
+		{Path: []string{"pipe_1_argv_0"}, Value: codegen.ProgramValue{Kind: "selector", Selector: "-n"}},
+		{Path: []string{"pipe_1_argv_1"}, Value: codegen.ProgramValue{Kind: "input", Input: "pattern"}},
 	}}}}
-	pkg, err := GenerateProgramPackage(g)
+	pkg, err := codegen.GenerateProgramPackage(g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,14 +94,14 @@ func TestSynthesizePipelineFromIndependentExecutions(t *testing.T) {
 			Request: 0, Calls: []int{1}, CallHashes: []string{retrieval.SpanCallHash(s.Calls[0])}})
 	}
 	c := model.LogicCandidate{ID: "lc_abc123", Executions: 2, Sessions: 2, Members: []string{spans[0].ID, spans[1].ID}}
-	g, err := SynthesizeProgramGraph(c, spans, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, spans, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("pipeline graph unresolved: %+v %v", g, err)
 	}
 	if len(g.Steps) != 1 || len(g.Steps[0].Pipeline) != 2 || len(g.Inputs) != 2 {
 		t.Fatalf("pipeline structure or inputs lost: %+v", g)
 	}
-	if _, err := GenerateProgramPackage(g); err != nil {
+	if _, err := codegen.GenerateProgramPackage(g); err != nil {
 		t.Fatalf("pipeline graph did not compile: %v", err)
 	}
 }
@@ -115,31 +117,31 @@ func TestSynthesizeSuccessChainAndKeepConnectorsDistinct(t *testing.T) {
 			Request: 0, Calls: []int{1}, CallHashes: []string{retrieval.SpanCallHash(s.Calls[0])}})
 	}
 	c := model.LogicCandidate{ID: "lc_chain", Executions: 2, Sessions: 2, Members: []string{spans[0].ID, spans[1].ID}}
-	g, err := SynthesizeProgramGraph(c, spans, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, spans, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("success chain graph unresolved: %+v %v", g, err)
 	}
 	if len(g.Steps) != 1 || len(g.Steps[0].Pipeline) != 2 || g.Steps[0].Pipeline[1].Connector != "and" {
 		t.Fatalf("success chain structure lost: %+v", g)
 	}
-	pkg, err := GenerateProgramPackage(g)
+	pkg, err := codegen.GenerateProgramPackage(g)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(pkg.Manifest.Commands) != 2 || !strings.Contains(string(pkg.Files["README.md"]), "success chain") {
 		t.Fatalf("success chain reach not exposed: %+v", pkg.Manifest.Commands)
 	}
-	if programCallToolIdentity(trace.Call{Tool: "shell", Command: "cat a | grep b"}) == programCallToolIdentity(trace.Call{Tool: "shell", Command: "cat a && grep b"}) {
+	if codegen.ProgramCallToolIdentity(trace.Call{Tool: "shell", Command: "cat a | grep b"}) == codegen.ProgramCallToolIdentity(trace.Call{Tool: "shell", Command: "cat a && grep b"}) {
 		t.Fatal("pipe and success chain share an identity")
 	}
 }
 
 func TestGeneratedSuccessChainDoesNotPipeAndStopsOnFailure(t *testing.T) {
-	g := &ProgramGraph{CandidateID: "lc_chain", Steps: []ProgramStep{{Tool: "shell", Effect: "read",
-		Pipeline: []ProgramCommand{{Name: "printf", Effect: "read"}, {Name: "wc", Effect: "read", Connector: "and"}},
-		Args: []ProgramArg{{Path: []string{"pipe_0_argv_0"}, Value: ProgramValue{Kind: "selector", Selector: "hello"}},
-			{Path: []string{"pipe_1_argv_0"}, Value: ProgramValue{Kind: "selector", Selector: "-l"}}}}}}
-	pkg, err := GenerateProgramPackage(g)
+	g := &codegen.ProgramGraph{CandidateID: "lc_chain", Steps: []codegen.ProgramStep{{Tool: "shell", Effect: "read",
+		Pipeline: []codegen.ProgramCommand{{Name: "printf", Effect: "read"}, {Name: "wc", Effect: "read", Connector: "and"}},
+		Args: []codegen.ProgramArg{{Path: []string{"pipe_0_argv_0"}, Value: codegen.ProgramValue{Kind: "selector", Selector: "hello"}},
+			{Path: []string{"pipe_1_argv_0"}, Value: codegen.ProgramValue{Kind: "selector", Selector: "-l"}}}}}}
+	pkg, err := codegen.GenerateProgramPackage(g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,14 +180,14 @@ func TestGeneratedSuccessChainDoesNotPipeAndStopsOnFailure(t *testing.T) {
 }
 
 func TestGeneratedPipelineRejectsUnboundArgumentAndLoop(t *testing.T) {
-	base := ProgramGraph{CandidateID: "lc_def456", Steps: []ProgramStep{{Tool: "shell", Effect: "read", Pipeline: []ProgramCommand{{Name: "cat", Effect: "read"}, {Name: "grep", Effect: "read", Connector: "pipe"}},
-		Args: []ProgramArg{{Path: []string{"pipe_2_argv_0"}, Value: ProgramValue{Kind: "input", Input: "x"}}}}}}
-	if _, err := GenerateProgramPackage(&base); err == nil {
+	base := codegen.ProgramGraph{CandidateID: "lc_def456", Steps: []codegen.ProgramStep{{Tool: "shell", Effect: "read", Pipeline: []codegen.ProgramCommand{{Name: "cat", Effect: "read"}, {Name: "grep", Effect: "read", Connector: "pipe"}},
+		Args: []codegen.ProgramArg{{Path: []string{"pipe_2_argv_0"}, Value: codegen.ProgramValue{Kind: "input", Input: "x"}}}}}}
+	if _, err := codegen.GenerateProgramPackage(&base); err == nil {
 		t.Fatal("out-of-range pipeline argument was silently dropped")
 	}
 	base.Steps[0].Args = nil
 	base.Steps[0].Loop = "items"
-	if _, err := GenerateProgramPackage(&base); err == nil {
+	if _, err := codegen.GenerateProgramPackage(&base); err == nil {
 		t.Fatal("pipeline loop was accepted without generated loop control")
 	}
 }
@@ -193,25 +195,25 @@ func TestGeneratedPipelineRejectsUnboundArgumentAndLoop(t *testing.T) {
 func TestShellVariantIdentityIncludesExecutable(t *testing.T) {
 	git := trace.Call{Tool: "shell", Command: "git add src/a.go"}
 	gh := trace.Call{Tool: "shell", Command: "gh add src/a.go"}
-	if programCallSignature(git) == programCallSignature(gh) || programCallCoreSignature(git) == programCallCoreSignature(gh) {
+	if codegen.ProgramCallSignature(git) == codegen.ProgramCallSignature(gh) || codegen.ProgramCallCoreSignature(git) == codegen.ProgramCallCoreSignature(gh) {
 		t.Fatal("different host commands must not share a program variant")
 	}
 }
 
 func TestGeneratedCommandProgramUsesDeclaredArgvAndStopsOnFailure(t *testing.T) {
-	g := &ProgramGraph{CandidateID: "lc_command", Inputs: []ProgramInput{{Name: "path", Type: "string", Source: "supplied at invocation"}},
-		Steps: []ProgramStep{
-			{Role: "sh:git status", Tool: "shell", Command: "git", Effect: "read", Args: []ProgramArg{
-				{Path: []string{"argv_0"}, Value: ProgramValue{Kind: "selector", Selector: "status"}},
-				{Path: []string{"argv_1"}, Value: ProgramValue{Kind: "selector", Selector: "--short"}},
+	g := &codegen.ProgramGraph{CandidateID: "lc_command", Inputs: []codegen.ProgramInput{{Name: "path", Type: "string", Source: "supplied at invocation"}},
+		Steps: []codegen.ProgramStep{
+			{Role: "sh:git status", Tool: "shell", Command: "git", Effect: "read", Args: []codegen.ProgramArg{
+				{Path: []string{"argv_0"}, Value: codegen.ProgramValue{Kind: "selector", Selector: "status"}},
+				{Path: []string{"argv_1"}, Value: codegen.ProgramValue{Kind: "selector", Selector: "--short"}},
 			}},
-			{Role: "sh:git add", Tool: "shell", Command: "git", Effect: "write", Args: []ProgramArg{
-				{Path: []string{"argv_0"}, Value: ProgramValue{Kind: "selector", Selector: "add"}},
-				{Path: []string{"argv_1"}, Value: ProgramValue{Kind: "input", Input: "path"}},
+			{Role: "sh:git add", Tool: "shell", Command: "git", Effect: "write", Args: []codegen.ProgramArg{
+				{Path: []string{"argv_0"}, Value: codegen.ProgramValue{Kind: "selector", Selector: "add"}},
+				{Path: []string{"argv_1"}, Value: codegen.ProgramValue{Kind: "input", Input: "path"}},
 			}},
 		},
 	}
-	p, err := GenerateProgramPackage(g)
+	p, err := codegen.GenerateProgramPackage(g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,12 +272,12 @@ func TestGeneratedCommandProgramUsesDeclaredArgvAndStopsOnFailure(t *testing.T) 
 }
 
 func TestGeneratedCommandRejectsUndeclaredShape(t *testing.T) {
-	for _, st := range []ProgramStep{
+	for _, st := range []codegen.ProgramStep{
 		{Tool: "shell", Command: "bash", Effect: "read"},
 		{Tool: "shell", Command: "git", Effect: "unknown"},
-		{Tool: "shell", Command: "git", Effect: "read", Args: []ProgramArg{{Path: []string{"argv_1"}, Value: ProgramValue{Kind: "input", Input: "x"}}}},
+		{Tool: "shell", Command: "git", Effect: "read", Args: []codegen.ProgramArg{{Path: []string{"argv_1"}, Value: codegen.ProgramValue{Kind: "input", Input: "x"}}}},
 	} {
-		if _, err := GenerateProgramPackage(&ProgramGraph{CandidateID: "lc_bad", Steps: []ProgramStep{st}}); err == nil {
+		if _, err := codegen.GenerateProgramPackage(&codegen.ProgramGraph{CandidateID: "lc_bad", Steps: []codegen.ProgramStep{st}}); err == nil {
 			t.Fatalf("accepted unresolved command: %+v", st)
 		}
 	}
@@ -291,14 +293,14 @@ func TestSynthesizeLiteralCommandChain(t *testing.T) {
 			trace.Call{Tool: "shell", Command: "git status --short", Outcome: trace.OutcomeOK}),
 	}
 	c, ps := graphCandidateFor(t, ss, "sh:git add", "sh:git status")
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("command graph unresolved: %+v %v", g, err)
 	}
 	if g.Steps[0].Command != "git" || len(g.Inputs) != 1 || g.Inputs[0].Name != "step_1_argv_1" {
 		t.Fatalf("wrong command binding or input: %+v", g)
 	}
-	if _, err := GenerateProgramPackage(g); err != nil {
+	if _, err := codegen.GenerateProgramPackage(g); err != nil {
 		t.Fatalf("determined command graph did not compile: %v", err)
 	}
 	var review strings.Builder

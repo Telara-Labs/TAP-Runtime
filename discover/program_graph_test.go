@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -49,7 +51,7 @@ func TestSynthesizeProgramGraphUsesRolesAndResultFlow(t *testing.T) {
 		selSession("many", "Create follow up and link TENG-8 and TENG-9", created("TENG-7"), link("TENG-7", "TENG-8"), link("TENG-7", "TENG-9")),
 	}
 	c, ps := graphCandidateFor(t, ss, "jira.create_issue", "jira.create_issue_link")
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("graph should be determined: graph=%+v err=%v", g, err)
 	}
@@ -91,7 +93,7 @@ func TestSynthesizeTwoCreatedResultsWithVariableRoleOrder(t *testing.T) {
 		selSession("right-first", "Create Delta and Gamma then link them", create("Delta", "TENG-202"), create("Gamma", "TENG-201"), link("TENG-201", "TENG-202")),
 	}
 	c, spans := graphCandidateFor(t, ss, "mcp:records_create", "mcp:records_create_link")
-	g, err := SynthesizeProgramGraph(c, spans, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, spans, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("two-role result graph unresolved: %+v %v", g, err)
 	}
@@ -105,7 +107,7 @@ func TestSynthesizeTwoCreatedResultsWithVariableRoleOrder(t *testing.T) {
 			}
 		}
 	}
-	if _, err := GenerateProgramPackage(g); err != nil {
+	if _, err := codegen.GenerateProgramPackage(g); err != nil {
 		t.Fatalf("role-selected program did not compile: %v", err)
 	}
 }
@@ -124,7 +126,7 @@ func TestSynthesizeProgramGraphSharesStableInputAcrossLoopSteps(t *testing.T) {
 		selSession("many", "Create and link two", create("project-two", "NEW-2"), link("project-two", "NEW-2", "TENG-2"), link("project-two", "NEW-2", "TENG-3")),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:records_create", "mcp:records_create_link")
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("stable shared scope should produce a program: %+v %v", g, err)
 	}
@@ -154,7 +156,7 @@ func TestSynthesizeProgramGraphMakesUnobservedValuesInvocationInputs(t *testing.
 			trace.Call{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": "91234567"}, Outcome: trace.OutcomeOK}),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:gitlab_list_pipelines", "mcp:gitlab_list_jobs")
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +179,7 @@ func TestSynthesizeProgramGraphRejectsStaleSource(t *testing.T) {
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:gitlab_list_pipelines", "mcp:gitlab_list_jobs")
 	ss[0].Calls[0].Output = `{"id":12345678}`
-	if _, err := SynthesizeProgramGraph(c, ps, ss); err == nil || !strings.Contains(err.Error(), "changed") {
+	if _, err := codegen.SynthesizeProgramGraph(c, ps, ss); err == nil || !strings.Contains(err.Error(), "changed") {
 		t.Fatalf("stale source must refuse synthesis, got %v", err)
 	}
 }
@@ -200,11 +202,11 @@ func TestSynthesizeProgramGraphKeepsOptionalArgument(t *testing.T) {
 		selSession("priority", "Create priority follow up and link TENG-4", create("TENG-3", true), link("TENG-3", "TENG-4")),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:records_create", "mcp:records_create_link")
-	variants, err := GroupProgramVariants(c, ps, ss)
+	variants, err := codegen.GroupProgramVariants(c, ps, ss)
 	if err != nil || len(variants) != 1 || variants[0].Executions != 2 {
 		t.Fatalf("optional argument must not split one program: %+v %v", variants, err)
 	}
-	g, err := SynthesizeProgramGraph(variants[0], ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(variants[0], ps, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("optional caller argument should be determined: %+v %v", g, err)
 	}
@@ -243,7 +245,7 @@ func TestSynthesizeProgramGraphLoopsOverEarlierResultList(t *testing.T) {
 		selSession("two-list", "List the records and link each one", list("TENG-2", "TENG-3"), act("TENG-2"), act("TENG-3")),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:records_list", "mcp:records_create_link")
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("result-list loop should be determined: %+v %v", g, err)
 	}
@@ -284,7 +286,7 @@ func TestSynthesizeProgramGraphExposesPartialResultListSelection(t *testing.T) {
 		selSession("full", "Link selected records", list("TENG-3", "TENG-4"), act("TENG-3"), act("TENG-4")),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:records_list", "mcp:records_create_link")
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +294,7 @@ func TestSynthesizeProgramGraphExposesPartialResultListSelection(t *testing.T) {
 		len(g.Steps) != 2 || g.Steps[1].Args[0].Value.Kind != "collection_index_item" || !g.Steps[1].DistinctLoopSelections {
 		t.Fatalf("partial list must use caller-selected result positions: %+v", g)
 	}
-	if _, err := GenerateProgramPackage(g); err != nil {
+	if _, err := codegen.GenerateProgramPackage(g); err != nil {
 		t.Fatalf("a fully sourced list with caller-selected positions should compile: %v", err)
 	}
 }
@@ -327,11 +329,11 @@ func TestSynthesizeProgramGraphSelectsLargeListByPositionWithoutCopyingIDs(t *te
 		}
 	}
 	farCall := get(base + 199)
-	farTrace := observedTrace{groups: [][]observedOp{
-		{{node: retrieval.SpanNode{Call: farList}, fields: trace.ObservedArgs(farList)}},
-		{{node: retrieval.SpanNode{Call: farCall}, fields: trace.ObservedArgs(farCall)}},
+	farTrace := codegen.ObservedTrace{Groups: [][]codegen.ObservedOp{
+		{{Node: retrieval.SpanNode{Call: farList}, Fields: trace.ObservedArgs(farList)}},
+		{{Node: retrieval.SpanNode{Call: farCall}, Fields: trace.ObservedArgs(farCall)}},
 	}}
-	if !possiblePriorResult([]observedTrace{farTrace}, 1, "params/job_id") {
+	if !codegen.PossiblePriorResult([]codegen.ObservedTrace{farTrace}, 1, "params/job_id") {
 		t.Fatal("a selected item beyond the OutIDs prefix lost its result provenance")
 	}
 	ss := []trace.Session{
@@ -343,7 +345,7 @@ func TestSynthesizeProgramGraphSelectsLargeListByPositionWithoutCopyingIDs(t *te
 		t.Fatalf("numeric ID lost exact decimal form: %q", got)
 	}
 	c, ps := graphCandidateFor(t, ss, "gitlab.list_jobs", "gitlab.get_job")
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +353,7 @@ func TestSynthesizeProgramGraphSelectsLargeListByPositionWithoutCopyingIDs(t *te
 		g.Steps[1].Args[2].Value.Kind != "collection_index_item" || !g.Steps[1].DistinctLoopSelections {
 		t.Fatalf("selection from 200 must use a typed position list, not literal IDs: %+v", g)
 	}
-	if _, err := GenerateProgramPackage(g); err != nil {
+	if _, err := codegen.GenerateProgramPackage(g); err != nil {
 		t.Fatalf("caller-selected list positions should compile without guessing a rule: %v", err)
 	}
 }
@@ -370,7 +372,7 @@ func TestSynthesizeProgramGraphExposesReorderedResultListSelection(t *testing.T)
 		selSession("reverse-b", "Link records in reverse", list("TENG-3", "TENG-4"), act("TENG-4"), act("TENG-3")),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:records_list", "mcp:records_create_link")
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +398,7 @@ func TestSynthesizeProgramGraphUsesCompleteCollectionBeyondPreview(t *testing.T)
 		selSession("long-b", "List and link each record", list("TENG-3", "TENG-4"), act("TENG-3"), act("TENG-4")),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:records_list", "mcp:records_create_link")
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) != 0 || len(g.Steps) != 2 || g.Steps[1].LoopResultPath != ".items" {
 		t.Fatalf("complete collection metadata must survive short preview: %+v %v", g, err)
 	}
@@ -405,7 +407,7 @@ func TestSynthesizeProgramGraphUsesCompleteCollectionBeyondPreview(t *testing.T)
 		t.Fatalf("collection evidence must not retain raw values: %s", encoded)
 	}
 	ss[0].Calls[0].OutCollections[0].Fields[".id"].Digests[0] = "changed"
-	if _, err := SynthesizeProgramGraph(c, ps, ss); err == nil || !strings.Contains(err.Error(), "changed") {
+	if _, err := codegen.SynthesizeProgramGraph(c, ps, ss); err == nil || !strings.Contains(err.Error(), "changed") {
 		t.Fatalf("changed collection evidence must invalidate call hash: %v", err)
 	}
 }
@@ -424,11 +426,11 @@ func TestSynthesizeProgramGraphJoinsRepeatedProducerResults(t *testing.T) {
 		selSession("two", "Create from TENG-2 and TENG-3 then update each", create("TENG-2", "NEW-2"), create("TENG-3", "NEW-3"), update("NEW-2"), update("NEW-3")),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:records_create", "mcp:records_update")
-	variants, err := GroupProgramVariants(c, ps, ss)
+	variants, err := codegen.GroupProgramVariants(c, ps, ss)
 	if err != nil || len(variants) != 1 || variants[0].Executions != 2 || variants[0].Proposals < 3 {
 		t.Fatalf("overlapping pairwise and combined spans must count two disjoint executions: %+v %v", variants, err)
 	}
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("ordered producer results should join consumers: %+v %v", g, err)
 	}
@@ -441,7 +443,7 @@ func TestSynthesizeProgramGraphJoinsRepeatedProducerResults(t *testing.T) {
 	if g.Steps[1].Args[0].Value.Kind != "item_result" || g.Steps[1].Args[0].Value.ResultPath != ".id" {
 		t.Fatalf("consumer item result binding missing: %+v", g.Steps[1].Args)
 	}
-	if _, err := GenerateProgramPackage(g); err != nil {
+	if _, err := codegen.GenerateProgramPackage(g); err != nil {
 		t.Fatalf("joined graph should generate: %v", err)
 	}
 }
@@ -460,7 +462,7 @@ func TestSynthesizeProgramGraphRejectsReorderedProducerResults(t *testing.T) {
 		selSession("reversed", "Create from TENG-2 and TENG-3 then update in reverse", create("TENG-2", "NEW-2"), create("TENG-3", "NEW-3"), update("NEW-3"), update("NEW-2")),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:records_create", "mcp:records_update")
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,14 +479,14 @@ func TestSynthesizeProgramGraphBlocksFailedSourceCall(t *testing.T) {
 	}
 	ss := []trace.Session{makeSession("good", "TENG-1", "TENG-2", trace.OutcomeOK), makeSession("failed", "TENG-3", "TENG-4", trace.OutcomeFailed)}
 	c, ps := graphCandidateFor(t, ss, "mcp:records_get", "mcp:records_update")
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(strings.Join(g.Problems, ";"), "failed in a source execution") {
 		t.Fatalf("failed call must block a generated package: %+v", g)
 	}
-	if _, err := GenerateProgramPackage(g); err == nil {
+	if _, err := codegen.GenerateProgramPackage(g); err == nil {
 		t.Fatal("failed source execution became Accept-ready")
 	}
 }
@@ -506,7 +508,7 @@ func TestSynthesizeProgramGraphSelectsUniqueResultField(t *testing.T) {
 		selSession("first", "Get the failed record", list([]string{"TENG-4", "TENG-5", "TENG-6"}, []string{"failed", "ok", "ok"}), get("TENG-4")),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:records_list", "mcp:records_get")
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil || len(g.Problems) > 0 {
 		t.Fatalf("unique varying-position predicate should be determined: %+v %v", g, err)
 	}
@@ -521,7 +523,7 @@ func TestSynthesizeProgramGraphSelectsUniqueResultField(t *testing.T) {
 	if strings.Contains(string(b), "failed") || strings.Contains(string(b), "TENG-") {
 		t.Fatalf("observed values leaked into program graph: %s", b)
 	}
-	if _, err := GenerateProgramPackage(g); err != nil {
+	if _, err := codegen.GenerateProgramPackage(g); err != nil {
 		t.Fatalf("selection graph should generate: %v", err)
 	}
 }
@@ -539,7 +541,7 @@ func TestSynthesizeProgramGraphLeavesFirstVersusPredicateChoiceToCaller(t *testi
 		selSession("b", "Get failed record", list("TENG-3", "TENG-4"), get("TENG-3")),
 	}
 	c, ps := graphCandidateFor(t, ss, "mcp:records_list", "mcp:records_get")
-	g, err := SynthesizeProgramGraph(c, ps, ss)
+	g, err := codegen.SynthesizeProgramGraph(c, ps, ss)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,7 +549,7 @@ func TestSynthesizeProgramGraphLeavesFirstVersusPredicateChoiceToCaller(t *testi
 		g.Steps[1].Args[0].Value.Kind != "collection_index" {
 		t.Fatalf("ambiguous predicate must become an explicit caller index, not an inferred rule: %+v", g)
 	}
-	if _, err := GenerateProgramPackage(g); err != nil {
+	if _, err := codegen.GenerateProgramPackage(g); err != nil {
 		t.Fatalf("caller-selected subgraph should compile without claiming a failed-status predicate: %v", err)
 	}
 }

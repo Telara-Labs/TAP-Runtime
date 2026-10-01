@@ -5,31 +5,33 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
 )
 
 func TestGenerateProgramPackageExecutesWithNewInputs(t *testing.T) {
-	g := &ProgramGraph{
+	g := &codegen.ProgramGraph{
 		CandidateID: "lc_example",
 		Sources:     []string{"span-a", "span-b"},
-		Inputs: []ProgramInput{
+		Inputs: []codegen.ProgramInput{
 			{Name: "summary", Type: "string", Source: "caller"},
 			{Name: "related_ids", Type: "string", List: true, Source: "caller"},
 		},
-		Steps: []ProgramStep{
-			{Role: "jira.create_issue", Tool: "mcp:telara_execute_action", Binding: &ProgramToolBinding{Server: "telara", Tool: "telara_execute_action"}, Effect: "write", Args: []ProgramArg{
-				{Path: []string{"integration"}, Value: ProgramValue{Kind: "selector", Selector: "jira"}},
-				{Path: []string{"action"}, Value: ProgramValue{Kind: "selector", Selector: "create_issue"}},
-				{Path: []string{"params", "summary"}, JSONString: true, Value: ProgramValue{Kind: "input", Input: "summary"}},
+		Steps: []codegen.ProgramStep{
+			{Role: "jira.create_issue", Tool: "mcp:telara_execute_action", Binding: &codegen.ProgramToolBinding{Server: "telara", Tool: "telara_execute_action"}, Effect: "write", Args: []codegen.ProgramArg{
+				{Path: []string{"integration"}, Value: codegen.ProgramValue{Kind: "selector", Selector: "jira"}},
+				{Path: []string{"action"}, Value: codegen.ProgramValue{Kind: "selector", Selector: "create_issue"}},
+				{Path: []string{"params", "summary"}, JSONString: true, Value: codegen.ProgramValue{Kind: "input", Input: "summary"}},
 			}},
-			{Role: "jira.create_issue_link", Tool: "mcp:telara_execute_action", Binding: &ProgramToolBinding{Server: "telara", Tool: "telara_execute_action"}, Effect: "write", Loop: "related_ids", Args: []ProgramArg{
-				{Path: []string{"integration"}, Value: ProgramValue{Kind: "selector", Selector: "jira"}},
-				{Path: []string{"action"}, Value: ProgramValue{Kind: "selector", Selector: "create_issue_link"}},
-				{Path: []string{"params", "inward_issue_key"}, JSONString: true, Value: ProgramValue{Kind: "result", Step: 1, ResultPath: ".key"}},
-				{Path: []string{"params", "outward_issue_key"}, JSONString: true, Value: ProgramValue{Kind: "item", Input: "related_ids"}},
+			{Role: "jira.create_issue_link", Tool: "mcp:telara_execute_action", Binding: &codegen.ProgramToolBinding{Server: "telara", Tool: "telara_execute_action"}, Effect: "write", Loop: "related_ids", Args: []codegen.ProgramArg{
+				{Path: []string{"integration"}, Value: codegen.ProgramValue{Kind: "selector", Selector: "jira"}},
+				{Path: []string{"action"}, Value: codegen.ProgramValue{Kind: "selector", Selector: "create_issue_link"}},
+				{Path: []string{"params", "inward_issue_key"}, JSONString: true, Value: codegen.ProgramValue{Kind: "result", Step: 1, ResultPath: ".key"}},
+				{Path: []string{"params", "outward_issue_key"}, JSONString: true, Value: codegen.ProgramValue{Kind: "item", Input: "related_ids"}},
 			}},
 		},
 	}
-	p, err := GenerateProgramPackage(g)
+	p, err := codegen.GenerateProgramPackage(g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,37 +89,37 @@ func TestGenerateProgramPackageExecutesWithNewInputs(t *testing.T) {
 }
 
 func TestGenerateProgramPackageRejectsUnknownSource(t *testing.T) {
-	g := &ProgramGraph{CandidateID: "lc_unresolved", Problems: []string{"missing source"}}
-	if _, err := GenerateProgramPackage(g); err == nil {
+	g := &codegen.ProgramGraph{CandidateID: "lc_unresolved", Problems: []string{"missing source"}}
+	if _, err := codegen.GenerateProgramPackage(g); err == nil {
 		t.Fatal("underdetermined graph must not produce an installable package")
 	}
 }
 
 func TestProgramResultPath(t *testing.T) {
-	got, err := programResultPath(".items[0].key")
+	got, err := codegen.ProgramResultPath(".items[0].key")
 	if err != nil || got != "[\"items\", 0, \"key\"]" {
 		t.Fatalf("path = %q, %v", got, err)
 	}
 }
 
 func TestGenerateProgramPackageOmitsOptionalNestedArgument(t *testing.T) {
-	g := &ProgramGraph{CandidateID: "lc_optional",
-		Inputs: []ProgramInput{
+	g := &codegen.ProgramGraph{CandidateID: "lc_optional",
+		Inputs: []codegen.ProgramInput{
 			{Name: "name", Type: "string", Source: "supplied at invocation"},
 			{Name: "priority", Type: "string", Optional: true, Source: "supplied at invocation"},
 			{Name: "labels", Type: "array", Optional: true, Source: "supplied at invocation"},
 		},
-		Steps: []ProgramStep{{Role: "create", Tool: "mcp:execute_action",
-			Binding: &ProgramToolBinding{Server: "example", Tool: "execute_action"}, Effect: "write",
+		Steps: []codegen.ProgramStep{{Role: "create", Tool: "mcp:execute_action",
+			Binding: &codegen.ProgramToolBinding{Server: "example", Tool: "execute_action"}, Effect: "write",
 			OptionalProfiles: [][]string{{}, {"priority"}, {"labels"}},
-			Args: []ProgramArg{
-				{Path: []string{"action"}, Value: ProgramValue{Kind: "selector", Selector: "create"}},
-				{Path: []string{"params", "name"}, JSONString: true, Value: ProgramValue{Kind: "input", Input: "name"}},
-				{Path: []string{"params", "priority"}, JSONString: true, Optional: true, Value: ProgramValue{Kind: "input", Input: "priority"}},
-				{Path: []string{"params", "labels"}, JSONString: true, Optional: true, Value: ProgramValue{Kind: "input", Input: "labels"}},
+			Args: []codegen.ProgramArg{
+				{Path: []string{"action"}, Value: codegen.ProgramValue{Kind: "selector", Selector: "create"}},
+				{Path: []string{"params", "name"}, JSONString: true, Value: codegen.ProgramValue{Kind: "input", Input: "name"}},
+				{Path: []string{"params", "priority"}, JSONString: true, Optional: true, Value: codegen.ProgramValue{Kind: "input", Input: "priority"}},
+				{Path: []string{"params", "labels"}, JSONString: true, Optional: true, Value: codegen.ProgramValue{Kind: "input", Input: "labels"}},
 			}}},
 	}
-	p, err := GenerateProgramPackage(g)
+	p, err := codegen.GenerateProgramPackage(g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,12 +180,12 @@ func TestGenerateProgramPackageOmitsOptionalNestedArgument(t *testing.T) {
 }
 
 func TestGenerateProgramPackageRunsResultListLoop(t *testing.T) {
-	g := &ProgramGraph{CandidateID: "lc_resultitems", Steps: []ProgramStep{
-		{Role: "list", Tool: "mcp:list", Binding: &ProgramToolBinding{Server: "test", Tool: "list"}, Effect: "read"},
-		{Role: "act", Tool: "mcp:act", Binding: &ProgramToolBinding{Server: "test", Tool: "act"}, Effect: "write",
-			LoopResultStep: 1, LoopResultPath: `["items"]`, Args: []ProgramArg{{Path: []string{"id"}, Value: ProgramValue{Kind: "item_result", Step: 1, ResultPath: `["id"]`}}}},
+	g := &codegen.ProgramGraph{CandidateID: "lc_resultitems", Steps: []codegen.ProgramStep{
+		{Role: "list", Tool: "mcp:list", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "list"}, Effect: "read"},
+		{Role: "act", Tool: "mcp:act", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "act"}, Effect: "write",
+			LoopResultStep: 1, LoopResultPath: `["items"]`, Args: []codegen.ProgramArg{{Path: []string{"id"}, Value: codegen.ProgramValue{Kind: "item_result", Step: 1, ResultPath: `["id"]`}}}},
 	}}
-	p, err := GenerateProgramPackage(g)
+	p, err := codegen.GenerateProgramPackage(g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,14 +233,14 @@ func TestGenerateProgramPackageRunsResultListLoop(t *testing.T) {
 }
 
 func TestGenerateProgramPackageSelectsFreshResultSubsetBeforeEffects(t *testing.T) {
-	g := &ProgramGraph{CandidateID: "lc_resultsubset", Inputs: []ProgramInput{
+	g := &codegen.ProgramGraph{CandidateID: "lc_resultsubset", Inputs: []codegen.ProgramInput{
 		{Name: "positions", Type: "integer", List: true, Source: "caller selects result positions"},
-	}, Steps: []ProgramStep{
-		{Role: "list", Tool: "mcp:list", Binding: &ProgramToolBinding{Server: "test", Tool: "list"}, Effect: "read"},
-		{Role: "act", Tool: "mcp:act", Binding: &ProgramToolBinding{Server: "test", Tool: "act"}, Effect: "write", Loop: "positions", DistinctLoopSelections: true,
-			Args: []ProgramArg{{Path: []string{"id"}, Value: ProgramValue{Kind: "collection_index_item", Step: 1, CollectionPath: ".items", ResultPath: ".id", Input: "positions"}}}},
+	}, Steps: []codegen.ProgramStep{
+		{Role: "list", Tool: "mcp:list", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "list"}, Effect: "read"},
+		{Role: "act", Tool: "mcp:act", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "act"}, Effect: "write", Loop: "positions", DistinctLoopSelections: true,
+			Args: []codegen.ProgramArg{{Path: []string{"id"}, Value: codegen.ProgramValue{Kind: "collection_index_item", Step: 1, CollectionPath: ".items", ResultPath: ".id", Input: "positions"}}}},
 	}}
-	p, err := GenerateProgramPackage(g)
+	p, err := codegen.GenerateProgramPackage(g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,12 +310,12 @@ func TestGenerateProgramPackageSelectsFreshResultSubsetBeforeEffects(t *testing.
 	if err != nil || !strings.Contains(string(brokenOutput), "ERROR=") || strings.Contains(string(brokenOutput), `"step_2"`) {
 		t.Fatalf("missing field in later selected item caused partial effects: %v\n%s", err, brokenOutput)
 	}
-	scalar := &ProgramGraph{CandidateID: "lc_resultsingle", Inputs: []ProgramInput{{Name: "position", Type: "integer", Source: "caller"}}, Steps: []ProgramStep{
-		{Role: "list", Tool: "mcp:list", Binding: &ProgramToolBinding{Server: "test", Tool: "list"}, Effect: "read"},
-		{Role: "get", Tool: "mcp:act", Binding: &ProgramToolBinding{Server: "test", Tool: "act"}, Effect: "read",
-			Args: []ProgramArg{{Path: []string{"id"}, Value: ProgramValue{Kind: "collection_index", Step: 1, CollectionPath: ".items", ResultPath: ".id", Input: "position"}}}},
+	scalar := &codegen.ProgramGraph{CandidateID: "lc_resultsingle", Inputs: []codegen.ProgramInput{{Name: "position", Type: "integer", Source: "caller"}}, Steps: []codegen.ProgramStep{
+		{Role: "list", Tool: "mcp:list", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "list"}, Effect: "read"},
+		{Role: "get", Tool: "mcp:act", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "act"}, Effect: "read",
+			Args: []codegen.ProgramArg{{Path: []string{"id"}, Value: codegen.ProgramValue{Kind: "collection_index", Step: 1, CollectionPath: ".items", ResultPath: ".id", Input: "position"}}}},
 	}}
-	singlePackage, err := GenerateProgramPackage(scalar)
+	singlePackage, err := codegen.GenerateProgramPackage(scalar)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,13 +328,13 @@ func TestGenerateProgramPackageSelectsFreshResultSubsetBeforeEffects(t *testing.
 }
 
 func TestGenerateProgramPackageRunsRepeatedProducerJoin(t *testing.T) {
-	g := &ProgramGraph{CandidateID: "lc_paralleljoin", Inputs: []ProgramInput{{Name: "sources", Type: "object", List: true, Source: "caller", Fields: []ProgramInputField{{Name: "source_id", Path: []string{"source_id"}, Type: "string"}, {Name: "name", Path: []string{"name"}, Type: "string"}}}}, Steps: []ProgramStep{
-		{Role: "create", Tool: "mcp:create", Binding: &ProgramToolBinding{Server: "test", Tool: "create"}, Effect: "write", Loop: "sources",
-			Args: []ProgramArg{{Path: []string{"source_id"}, Value: ProgramValue{Kind: "item", Input: "sources", ResultPath: ".source_id"}}, {Path: []string{"name"}, Value: ProgramValue{Kind: "item", Input: "sources", ResultPath: ".name"}}}},
-		{Role: "update", Tool: "mcp:update", Binding: &ProgramToolBinding{Server: "test", Tool: "update"}, Effect: "write", LoopResultStep: 1,
-			Args: []ProgramArg{{Path: []string{"record_id"}, Value: ProgramValue{Kind: "item_result", Step: 1, ResultPath: ".id"}}}},
+	g := &codegen.ProgramGraph{CandidateID: "lc_paralleljoin", Inputs: []codegen.ProgramInput{{Name: "sources", Type: "object", List: true, Source: "caller", Fields: []codegen.ProgramInputField{{Name: "source_id", Path: []string{"source_id"}, Type: "string"}, {Name: "name", Path: []string{"name"}, Type: "string"}}}}, Steps: []codegen.ProgramStep{
+		{Role: "create", Tool: "mcp:create", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "create"}, Effect: "write", Loop: "sources",
+			Args: []codegen.ProgramArg{{Path: []string{"source_id"}, Value: codegen.ProgramValue{Kind: "item", Input: "sources", ResultPath: ".source_id"}}, {Path: []string{"name"}, Value: codegen.ProgramValue{Kind: "item", Input: "sources", ResultPath: ".name"}}}},
+		{Role: "update", Tool: "mcp:update", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "update"}, Effect: "write", LoopResultStep: 1,
+			Args: []codegen.ProgramArg{{Path: []string{"record_id"}, Value: codegen.ProgramValue{Kind: "item_result", Step: 1, ResultPath: ".id"}}}},
 	}}
-	p, err := GenerateProgramPackage(g)
+	p, err := codegen.GenerateProgramPackage(g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,13 +397,13 @@ func TestGenerateProgramPackageRunsRepeatedProducerJoin(t *testing.T) {
 }
 
 func TestGenerateProgramPackageSelectsOneResultItem(t *testing.T) {
-	g := &ProgramGraph{CandidateID: "lc_selectone", Inputs: []ProgramInput{{Name: "wanted_status", Type: "string", Source: "caller"}}, Steps: []ProgramStep{
-		{Role: "list", Tool: "mcp:list", Binding: &ProgramToolBinding{Server: "test", Tool: "list"}, Effect: "read"},
-		{Role: "get", Tool: "mcp:get", Binding: &ProgramToolBinding{Server: "test", Tool: "get"}, Effect: "read", Args: []ProgramArg{
-			{Path: []string{"id"}, Value: ProgramValue{Kind: "selected_result", Step: 1, CollectionPath: ".items", PredicatePath: ".status", ResultPath: ".id", Input: "wanted_status"}},
+	g := &codegen.ProgramGraph{CandidateID: "lc_selectone", Inputs: []codegen.ProgramInput{{Name: "wanted_status", Type: "string", Source: "caller"}}, Steps: []codegen.ProgramStep{
+		{Role: "list", Tool: "mcp:list", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "list"}, Effect: "read"},
+		{Role: "get", Tool: "mcp:get", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "get"}, Effect: "read", Args: []codegen.ProgramArg{
+			{Path: []string{"id"}, Value: codegen.ProgramValue{Kind: "selected_result", Step: 1, CollectionPath: ".items", PredicatePath: ".status", ResultPath: ".id", Input: "wanted_status"}},
 		}},
 	}}
-	p, err := GenerateProgramPackage(g)
+	p, err := codegen.GenerateProgramPackage(g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,15 +462,15 @@ func TestGenerateProgramPackageSelectsOneResultItem(t *testing.T) {
 }
 
 func TestGenerateProgramPackageRejectsScalarResultFromLoop(t *testing.T) {
-	g := &ProgramGraph{CandidateID: "lc_badloop", Inputs: []ProgramInput{{Name: "items", Type: "string", List: true, Source: "caller"}}, Steps: []ProgramStep{
-		{Role: "create", Tool: "mcp:create", Binding: &ProgramToolBinding{Server: "test", Tool: "create"}, Effect: "write", Loop: "items", Args: []ProgramArg{
-			{Path: []string{"name"}, Value: ProgramValue{Kind: "item", Input: "items"}},
+	g := &codegen.ProgramGraph{CandidateID: "lc_badloop", Inputs: []codegen.ProgramInput{{Name: "items", Type: "string", List: true, Source: "caller"}}, Steps: []codegen.ProgramStep{
+		{Role: "create", Tool: "mcp:create", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "create"}, Effect: "write", Loop: "items", Args: []codegen.ProgramArg{
+			{Path: []string{"name"}, Value: codegen.ProgramValue{Kind: "item", Input: "items"}},
 		}},
-		{Role: "link", Tool: "mcp:link", Binding: &ProgramToolBinding{Server: "test", Tool: "link"}, Effect: "write", Args: []ProgramArg{
-			{Path: []string{"id"}, Value: ProgramValue{Kind: "result", Step: 1, ResultPath: ".id"}},
+		{Role: "link", Tool: "mcp:link", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "link"}, Effect: "write", Args: []codegen.ProgramArg{
+			{Path: []string{"id"}, Value: codegen.ProgramValue{Kind: "result", Step: 1, ResultPath: ".id"}},
 		}},
 	}}
-	if _, err := GenerateProgramPackage(g); err == nil || !strings.Contains(err.Error(), "treats looped step 1 as a scalar result") {
+	if _, err := codegen.GenerateProgramPackage(g); err == nil || !strings.Contains(err.Error(), "treats looped step 1 as a scalar result") {
 		t.Fatalf("invalid loop-to-scalar binding compiled: %v", err)
 	}
 }

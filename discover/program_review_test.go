@@ -7,19 +7,21 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 )
 
-func reviewableGraph() *ProgramGraph {
-	return &ProgramGraph{
+func reviewableGraph() *codegen.ProgramGraph {
+	return &codegen.ProgramGraph{
 		CandidateID: "lc_review",
 		Sources:     []string{"src_a", "src_b"},
-		Inputs:      []ProgramInput{{Name: "issue_key", Type: "string", Source: "caller"}},
-		Steps: []ProgramStep{{
+		Inputs:      []codegen.ProgramInput{{Name: "issue_key", Type: "string", Source: "caller"}},
+		Steps: []codegen.ProgramStep{{
 			Role: "get_issue", Tool: "mcp:telara_jira_get_issue",
-			Binding: &ProgramToolBinding{Server: "telara", Tool: "jira_get_issue"},
-			Effect:  "read", Args: []ProgramArg{
-				{Path: []string{"issue_key"}, Value: ProgramValue{Kind: "input", Input: "issue_key"}},
+			Binding: &codegen.ProgramToolBinding{Server: "telara", Tool: "jira_get_issue"},
+			Effect:  "read", Args: []codegen.ProgramArg{
+				{Path: []string{"issue_key"}, Value: codegen.ProgramValue{Kind: "input", Input: "issue_key"}},
 			},
 		}},
 	}
@@ -28,7 +30,7 @@ func reviewableGraph() *ProgramGraph {
 func TestReviewGeneratedAcceptShowsExactPackageThenInstalls(t *testing.T) {
 	graph := reviewableGraph()
 	root, state := t.TempDir(), t.TempDir()
-	pkg, err := GenerateProgramPackage(graph)
+	pkg, err := codegen.GenerateProgramPackage(graph)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,10 +114,10 @@ func TestReviewGeneratedRefineAndUnresolvedGate(t *testing.T) {
 
 func TestReviewGeneratedShowsSharedResultBindings(t *testing.T) {
 	graph := reviewableGraph()
-	graph.Steps = append(graph.Steps, ProgramStep{Role: "link", Tool: "mcp:link", Binding: &ProgramToolBinding{Server: "telara", Tool: "link"}, Effect: "write", Args: []ProgramArg{
-		{Path: []string{"inward", "issue_key"}, Value: ProgramValue{Kind: "result", Step: 1, ResultPath: ".key"}},
-		{Path: []string{"outward", "issue_key"}, Value: ProgramValue{Kind: "result", Step: 1, ResultPath: ".key"}},
-		{Path: []string{"link_type"}, Value: ProgramValue{Kind: "selector", Selector: "relates"}},
+	graph.Steps = append(graph.Steps, codegen.ProgramStep{Role: "link", Tool: "mcp:link", Binding: &codegen.ProgramToolBinding{Server: "telara", Tool: "link"}, Effect: "write", Args: []codegen.ProgramArg{
+		{Path: []string{"inward", "issue_key"}, Value: codegen.ProgramValue{Kind: "result", Step: 1, ResultPath: ".key"}},
+		{Path: []string{"outward", "issue_key"}, Value: codegen.ProgramValue{Kind: "result", Step: 1, ResultPath: ".key"}},
+		{Path: []string{"link_type"}, Value: codegen.ProgramValue{Kind: "selector", Selector: "relates"}},
 	}})
 	var out bytes.Buffer
 	if err := ReviewGenerated(strings.NewReader("q\n"), &out, graph, t.TempDir(), t.TempDir()); err != nil {
@@ -127,14 +129,14 @@ func TestReviewGeneratedShowsSharedResultBindings(t *testing.T) {
 }
 
 func TestReviewGeneratedResultListIndexNeedsSelectionDecision(t *testing.T) {
-	graph := &ProgramGraph{CandidateID: "lc_listlookup", Inputs: []ProgramInput{{Name: "position", Type: "integer", Source: "caller selects position from step 1 result.items"}}, Steps: []ProgramStep{
-		{Role: "list", Tool: "mcp:list", Binding: &ProgramToolBinding{Server: "test", Tool: "list"}, Effect: "read"},
-		{Role: "get", Tool: "mcp:get", Binding: &ProgramToolBinding{Server: "test", Tool: "get"}, Effect: "read", Args: []ProgramArg{
-			{Path: []string{"id"}, Value: ProgramValue{Kind: "collection_index", Step: 1, CollectionPath: ".items", ResultPath: ".id", Input: "position"}},
+	graph := &codegen.ProgramGraph{CandidateID: "lc_listlookup", Inputs: []codegen.ProgramInput{{Name: "position", Type: "integer", Source: "caller selects position from step 1 result.items"}}, Steps: []codegen.ProgramStep{
+		{Role: "list", Tool: "mcp:list", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "list"}, Effect: "read"},
+		{Role: "get", Tool: "mcp:get", Binding: &codegen.ProgramToolBinding{Server: "test", Tool: "get"}, Effect: "read", Args: []codegen.ProgramArg{
+			{Path: []string{"id"}, Value: codegen.ProgramValue{Kind: "collection_index", Step: 1, CollectionPath: ".items", ResultPath: ".id", Input: "position"}},
 		}},
 	}}
 	root, state := t.TempDir(), t.TempDir()
-	pkg, err := GenerateProgramPackage(graph)
+	pkg, err := codegen.GenerateProgramPackage(graph)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,9 +170,9 @@ func TestReviewGeneratedResultListIndexNeedsSelectionDecision(t *testing.T) {
 }
 
 func TestProgramSelectionDecisionKeepsKnownCallerRoleSelection(t *testing.T) {
-	graph := &ProgramGraph{Steps: []ProgramStep{
+	graph := &codegen.ProgramGraph{Steps: []codegen.ProgramStep{
 		{Role: "create", Loop: "caller_items"},
-		{Role: "link", Args: []ProgramArg{{Value: ProgramValue{Kind: "indexed_result", Step: 1, ResultPath: ".id", Input: "source_role"}}}},
+		{Role: "link", Args: []codegen.ProgramArg{{Value: codegen.ProgramValue{Kind: "indexed_result", Step: 1, ResultPath: ".id", Input: "source_role"}}}},
 	}}
 	if got := programSelectionDecision(graph); got != "" {
 		t.Fatalf("pre-existing caller item role was treated as an unknown future-list decision: %s", got)

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -12,18 +14,18 @@ import (
 func TestGeneratedReviewOrderUsesGraphEffectsAndBindings(t *testing.T) {
 	cases := []struct {
 		name  string
-		step  ProgramStep
+		step  codegen.ProgramStep
 		tier  int
 		shape string
 	}{
-		{"dependent write", ProgramStep{Effect: "write", Args: []ProgramArg{{Value: ProgramValue{Kind: "result", Step: 1}}}}, 3, "result-dependent write"},
-		{"write sequence", ProgramStep{Effect: "write", Args: []ProgramArg{{Value: ProgramValue{Kind: "input", Input: "id"}}}}, 2, "write sequence"},
-		{"dependent read", ProgramStep{Effect: "read", Args: []ProgramArg{{Value: ProgramValue{Kind: "result", Step: 1}}}}, 1, "result-dependent read"},
-		{"read sequence", ProgramStep{Effect: "read", Args: []ProgramArg{{Value: ProgramValue{Kind: "input", Input: "id"}}}}, 0, "read sequence"},
+		{"dependent write", codegen.ProgramStep{Effect: "write", Args: []codegen.ProgramArg{{Value: codegen.ProgramValue{Kind: "result", Step: 1}}}}, 3, "result-dependent write"},
+		{"write sequence", codegen.ProgramStep{Effect: "write", Args: []codegen.ProgramArg{{Value: codegen.ProgramValue{Kind: "input", Input: "id"}}}}, 2, "write sequence"},
+		{"dependent read", codegen.ProgramStep{Effect: "read", Args: []codegen.ProgramArg{{Value: codegen.ProgramValue{Kind: "result", Step: 1}}}}, 1, "result-dependent read"},
+		{"read sequence", codegen.ProgramStep{Effect: "read", Args: []codegen.ProgramArg{{Value: codegen.ProgramValue{Kind: "input", Input: "id"}}}}, 0, "read sequence"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tier, shape := programReviewShape(&ProgramGraph{Steps: []ProgramStep{{Effect: "read"}, tc.step}})
+			tier, shape := programReviewShape(&codegen.ProgramGraph{Steps: []codegen.ProgramStep{{Effect: "read"}, tc.step}})
 			if tier != tc.tier || shape != tc.shape {
 				t.Fatalf("tier=%d shape=%s, want %d %s", tier, shape, tc.tier, tc.shape)
 			}
@@ -47,7 +49,7 @@ func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
 		selSession("second", "Create follow up and link TENG-4", create("two", "TENG-3"), link("two", "TENG-3", "TENG-4")),
 	}
 	candidate, spans := graphCandidateFor(t, sessions, "jira.create_issue", "jira.create_issue_link")
-	variants, err := GroupProgramVariants(candidate, spans, sessions)
+	variants, err := codegen.GroupProgramVariants(candidate, spans, sessions)
 	if err != nil || len(variants) != 2 {
 		t.Fatalf("two exact tool bindings should remain separate variants: %+v %v", variants, err)
 	}
@@ -58,11 +60,11 @@ func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
 	if rows[0].variant.ID != variants[0].ID {
 		t.Fatalf("queue chose a different variant from the best-supported deterministic order: %+v", rows[0])
 	}
-	firstGraph, err := SynthesizeProgramGraph(variants[0], spans, sessions)
+	firstGraph, err := codegen.SynthesizeProgramGraph(variants[0], spans, sessions)
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstPackage, err := GenerateProgramPackage(firstGraph)
+	firstPackage, err := codegen.GenerateProgramPackage(firstGraph)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,11 +73,11 @@ func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
 	if err != nil || len(remaining) != 1 || remaining[0].variant.ID != variants[1].ID {
 		t.Fatalf("denied exact draft should not resurface; another variant may be reviewed: %+v %v", remaining, err)
 	}
-	secondGraph, err := SynthesizeProgramGraph(variants[1], spans, sessions)
+	secondGraph, err := codegen.SynthesizeProgramGraph(variants[1], spans, sessions)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondPackage, err := GenerateProgramPackage(secondGraph)
+	secondPackage, err := codegen.GenerateProgramPackage(secondGraph)
 	if err != nil {
 		t.Fatal(err)
 	}
