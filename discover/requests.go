@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -665,7 +667,7 @@ func buildRoutine(corpus []trace.NormSession, inst []reqInstance, g []int, names
 		sort.Float64s(covs)
 		rt.Coverage = covs[len(covs)/2]
 	}
-	rt.Example = trace.OneLine(Redact(inst[g[0]].text), 140)
+	rt.Example = trace.OneLine(redact.Redact(inst[g[0]].text), 140)
 	ran := map[int]bool{}
 	for _, i := range occReq {
 		ran[i] = true

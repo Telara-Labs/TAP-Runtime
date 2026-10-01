@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -146,17 +148,17 @@ func NewBrief(s trace.Session, req int, cand *BriefCandidate) (*Brief, error) {
 	b := &Brief{
 		Kind: "tap.authoring-brief/v1", Status: BriefStatus, Selection: SelectedTask,
 		Ref: OpaqueRef(src), Source: src, Candidate: cand,
-		Evidence: BriefEvidence{Request: Redact(s.Requests[req]), Requests: len(s.Requests)},
+		Evidence: BriefEvidence{Request: redact.Redact(s.Requests[req]), Requests: len(s.Requests)},
 	}
 	for _, c := range s.Calls {
 		if c.Request != req {
 			continue
 		}
-		st := BriefStep{N: len(b.Evidence.Steps) + 1, SourceCall: len(b.Evidence.Steps) + 1, Tool: c.Tool, Command: Redact(c.Command), Outcome: outcomeName(c.Outcome), Output: Redact(c.Output)}
+		st := BriefStep{N: len(b.Evidence.Steps) + 1, SourceCall: len(b.Evidence.Steps) + 1, Tool: c.Tool, Command: redact.Redact(c.Command), Outcome: outcomeName(c.Outcome), Output: redact.Redact(c.Output)}
 		if len(c.Args) > 0 {
 			st.Args = map[string]string{}
 			for k, v := range c.Args {
-				st.Args[k] = Redact(v)
+				st.Args[k] = redact.Redact(v)
 			}
 		}
 		b.Evidence.Steps = append(b.Evidence.Steps, st)
@@ -229,7 +231,7 @@ func NewBriefSpan(s trace.Session, p SpanProposal) (*Brief, error) {
 	}
 	b.Evidence.Steps = selected
 	if p.ContextRequest > 0 && p.ContextRequest <= len(s.Requests) {
-		b.Evidence.PreviousRequest = Redact(s.Requests[p.ContextRequest-1])
+		b.Evidence.PreviousRequest = redact.Redact(s.Requests[p.ContextRequest-1])
 	}
 	b.Selection, b.Span = DiscoverSpan, &p
 	return b, nil
