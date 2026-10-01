@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -303,7 +305,7 @@ func (c *Corpus) RenderEpisode(e Episode) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Episode %s\n\nclient: %s\nstarted: %s\n\n", e.ID, e.Client, e.Start.UTC().Format(time.RFC3339))
 	if e.Request > 0 && e.Request-1 < len(s.Requests) {
-		fmt.Fprintf(&b, "## Previous message (context only)\n\n%s\n\n", indent(trace.TruncateUTF8(Redact(s.Requests[e.Request-1]), 600)))
+		fmt.Fprintf(&b, "## Previous message (context only)\n\n%s\n\n", indent(trace.TruncateUTF8(redact.Redact(s.Requests[e.Request-1]), 600)))
 	}
 	req := ""
 	if e.Request < len(s.Requests) {
@@ -312,9 +314,9 @@ func (c *Corpus) RenderEpisode(e Episode) string {
 	if req == "" {
 		req = "(no user message before these calls)"
 	}
-	fmt.Fprintf(&b, "## Request\n\n%s\n\n", indent(trace.TruncateUTF8(Redact(req), 3000)))
+	fmt.Fprintf(&b, "## Request\n\n%s\n\n", indent(trace.TruncateUTF8(redact.Redact(req), 3000)))
 	if e.Request+1 < len(s.Requests) {
-		fmt.Fprintf(&b, "## Next message (context only)\n\n%s\n\n", indent(trace.TruncateUTF8(Redact(s.Requests[e.Request+1]), 400)))
+		fmt.Fprintf(&b, "## Next message (context only)\n\n%s\n\n", indent(trace.TruncateUTF8(redact.Redact(s.Requests[e.Request+1]), 400)))
 	}
 	var calls []trace.Call
 	for _, cl := range s.Calls {
@@ -344,9 +346,9 @@ func (c *Corpus) RenderEpisode(e Episode) string {
 			what = strings.Join(parts, " ")
 		}
 		outcome := map[trace.Outcome]string{trace.OutcomeUnknown: "unknown", trace.OutcomeOK: "ok", trace.OutcomeFailed: "failed"}[cl.Outcome]
-		fmt.Fprintf(&b, "%d. [%s] (outcome: %s)\n%s\n", i+1, cl.Tool, outcome, indent(trace.TruncateUTF8(Redact(what), 700)))
+		fmt.Fprintf(&b, "%d. [%s] (outcome: %s)\n%s\n", i+1, cl.Tool, outcome, indent(trace.TruncateUTF8(redact.Redact(what), 700)))
 		if cl.Output != "" {
-			fmt.Fprintf(&b, "   result: %s\n", strings.ReplaceAll(trace.TruncateUTF8(Redact(cl.Output), 300), "\n", " ⏎ "))
+			fmt.Fprintf(&b, "   result: %s\n", strings.ReplaceAll(trace.TruncateUTF8(redact.Redact(cl.Output), 300), "\n", " ⏎ "))
 		}
 		b.WriteString("\n")
 	}

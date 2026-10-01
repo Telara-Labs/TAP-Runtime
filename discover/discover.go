@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/util"
@@ -639,7 +641,7 @@ func templateOf(label string, occ [][]trace.Step, i int) StepTemplate {
 		}
 		collapsed = append(collapsed, pt)
 	}
-	st.Template = Redact(strings.Join(collapsed, " "))
+	st.Template = redact.Redact(strings.Join(collapsed, " "))
 	return st
 }
 

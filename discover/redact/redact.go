@@ -1,32 +1,16 @@
-package discover
+// Package redact keeps credentials in recorded session history out of drafts.
+package redact
 
 import (
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
 	"regexp"
 	"sort"
 	"strings"
-
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
-
-	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
-// Session history holds credentials: a bearer header typed into curl, a
-// private token in a GitLab call, a password in a database URL, a key in a
-// tool's arguments. Nothing recorded may leave in a draft. Three layers keep
-// it out:
-//
-//  1. A value found sensitive, by where it sits (an Authorization header, a
-//     --token flag, a "password" argument) or by its shape (a bearer token, a
-//     JWT, a cloud key, a private key, a URL with a password), is never
-//     written: it becomes an input the caller supplies from its own
-//     configuration, marked sensitive, with no recorded default.
-//  2. Recorded values are never written as examples.
-//  3. Every generated file is scanned before it can be saved, packaged or
-//     published; any finding blocks all three. Text shown or written by the
-//     report (request text, templates) is redacted with the same patterns.
-
-// secretShapes are value patterns that are credentials wherever they appear.
-var secretShapes = []struct {
+// SecretShapes are value patterns that are credentials wherever they appear.
+var SecretShapes = []struct {
 	name string
 	re   *regexp.Regexp
 }{
@@ -57,17 +41,17 @@ var secretShapes = []struct {
 	{"secret in JSON", regexp.MustCompile(`(?i)"[A-Za-z0-9_-]*(password|passwd|secret|token|api_?key|authorization|cookie|private_?key|credential)[A-Za-z0-9_-]*"\s*:\s*"[^"$]{6,}"`)},
 }
 
-// sensitiveName matches argument, flag and header names that carry
+// SensitiveName matches argument, flag and header names that carry
 // credentials. Names that merely end in "key" (issue_key) or count tokens
 // (max_output_tokens) do not match.
-var sensitiveName = regexp.MustCompile(`(?i)^-{0,2}(authorization|auth|cookie|set-cookie|x-api-key|api[_-]?key|apikey|secret|client[_-]?secret|password|passwd|pwd|pass|private[_-]?key|private[_-]?token|access[_-]?token|refresh[_-]?token|auth[_-]?token|id[_-]?token|session[_-]?token|bearer|token|credentials?|[a-z0-9_-]*[_-](token|secret|password|passwd|api[_-]?key))=?$`)
+var SensitiveName = regexp.MustCompile(`(?i)^-{0,2}(authorization|auth|cookie|set-cookie|x-api-key|api[_-]?key|apikey|secret|client[_-]?secret|password|passwd|pwd|pass|private[_-]?key|private[_-]?token|access[_-]?token|refresh[_-]?token|auth[_-]?token|id[_-]?token|session[_-]?token|bearer|token|credentials?|[a-z0-9_-]*[_-](token|secret|password|passwd|api[_-]?key))=?$`)
 
-// userFlagPrograms take -u / --user as user:password.
-var userFlagPrograms = map[string]bool{"curl": true, "wget": true, "http": true, "https": true, "xh": true}
+// UserFlagPrograms take -u / --user as user:password.
+var UserFlagPrograms = map[string]bool{"curl": true, "wget": true, "http": true, "https": true, "xh": true}
 
-// secretShape names the credential shape v contains, or "".
-func secretShape(v string) string {
-	for _, s := range secretShapes {
+// SecretShape names the credential shape v contains, or "".
+func SecretShape(v string) string {
+	for _, s := range SecretShapes {
 		if s.re.MatchString(v) {
 			return s.name
 		}
@@ -75,42 +59,42 @@ func secretShape(v string) string {
 	return ""
 }
 
-// sensitiveSlot reports whether a recorded argument must never be written:
+// SensitiveSlot reports whether a recorded argument must never be written:
 // its name says it carries a credential, a flag before it does (-H with an
 // Authorization header is caught by shape), or its value has a credential's
 // shape. -u user:password is a credential by position, but only for the
 // programs where -u means a user (curl, wget, http); date -u and sort -u do
 // not.
-func sensitiveSlot(label string, sl trace.Slot) bool {
+func SensitiveSlot(label string, sl trace.Slot) bool {
 	if sl.Sub || sl.Type == trace.SlotFlag {
 		return false
 	}
 	name := strings.SplitN(sl.Key, "#", 2)[0]
-	if sensitiveName.MatchString(strings.TrimSuffix(name, "=")) {
+	if SensitiveName.MatchString(strings.TrimSuffix(name, "=")) {
 		return true
 	}
-	if (name == "-u=" || name == "--user=") && userFlagPrograms[strings.SplitN(strings.TrimPrefix(label, "sh:"), " ", 2)[0]] && strings.Contains(sl.Value, ":") {
+	if (name == "-u=" || name == "--user=") && UserFlagPrograms[strings.SplitN(strings.TrimPrefix(label, "sh:"), " ", 2)[0]] && strings.Contains(sl.Value, ":") {
 		return true
 	}
-	return secretShape(sl.Value) != ""
+	return SecretShape(sl.Value) != ""
 }
 
 // Redact replaces every credential-shaped part of s with <redacted>. It is
 // applied to all text the report prints or writes.
 func Redact(s string) string {
-	for _, sh := range secretShapes {
+	for _, sh := range SecretShapes {
 		s = sh.re.ReplaceAllString(s, "<redacted "+sh.name+">")
 	}
 	return s
 }
 
-// scanArtifacts returns one finding per file line that still looks like a
+// ScanArtifacts returns one finding per file line that still looks like a
 // credential. It never returns the credential itself.
-func scanArtifacts(files map[string][]byte) []string {
+func ScanArtifacts(files map[string][]byte) []string {
 	var out []string
 	for name, body := range files {
 		for i, line := range strings.Split(string(body), "\n") {
-			if sh := secretShape(line); sh != "" {
+			if sh := SecretShape(line); sh != "" {
 				out = append(out, name+" line "+util.Itoa(i+1)+": "+sh)
 			}
 		}

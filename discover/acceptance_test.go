@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -843,7 +845,7 @@ func TestC22RepairedBehaviorsHoldTogether(t *testing.T) {
 	if c.Args["title"] != "t" || len(c.Args) != 1 {
 		t.Fatalf("cursor envelope: %v", c.Args)
 	}
-	if sensitiveSlot("sh:date", trace.Slot{Key: "-u=", Value: "+%H:%M"}) {
+	if redact.SensitiveSlot("sh:date", trace.Slot{Key: "-u=", Value: "+%H:%M"}) {
 		t.Fatal("date -u is not a credential")
 	}
 	ss := []trace.Session{{Client: "c", ID: "a", Calls: []trace.Call{{ID: "1"}}}, {Client: "c", ID: "b", Calls: []trace.Call{{ID: "1"}, {ID: "2"}}}}

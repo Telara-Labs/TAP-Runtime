@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -33,10 +35,10 @@ func TestCursorMCPEnvelopeIsUnwrapped(t *testing.T) {
 
 func TestDashUIsACredentialOnlyForUserFlagPrograms(t *testing.T) {
 	sl := trace.Slot{Key: "-u=", Type: trace.SlotText, Value: "+%Y-%m-%dT%H:%M:%SZ"}
-	if sensitiveSlot("sh:date", sl) {
+	if redact.SensitiveSlot("sh:date", sl) {
 		t.Error("date -u takes a format, not a user")
 	}
-	if !sensitiveSlot("sh:curl", trace.Slot{Key: "-u=", Type: trace.SlotText, Value: "me:hunter2"}) {
+	if !redact.SensitiveSlot("sh:curl", trace.Slot{Key: "-u=", Type: trace.SlotText, Value: "me:hunter2"}) {
 		t.Error("curl -u user:password is a credential")
 	}
 }

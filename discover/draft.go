@@ -13,6 +13,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
@@ -373,7 +375,7 @@ func buildDraft(c Candidate, occ [][]trace.Step, opt DraftOptions) *Draft {
 		"README.md":      []byte(draftReadme(name, desc, d)),
 	}
 	return &Draft{
-		Blocked: scanArtifacts(files),
+		Blocked: redact.ScanArtifacts(files),
 		Name:    name, Publisher: opt.Publisher, Inputs: d.inputs, Steps: d.steps,
 		RuntimeUnsupported: d.unsupported,
 		listLoop:           d.listLoop, priorLoop: d.priorLoop, humanPos: d.humanPositions(), firstRun: occ[0], posStep: d.posStep,
@@ -454,7 +456,7 @@ func (d *drafter) plan(i int, stepName string) []slotPlan {
 		sensitive := false
 		for _, j := range reps {
 			for _, other := range d.occ[j][i].Slots {
-				if other.Key == sl.Key && sensitiveSlot(d.occ[j][i].Label, other) {
+				if other.Key == sl.Key && redact.SensitiveSlot(d.occ[j][i].Label, other) {
 					sensitive = true
 				}
 				// A tool argument some run sent as JSON (an object, an
@@ -526,7 +528,7 @@ func (d *drafter) input(stepName string, sl trace.Slot, vec map[int]string, sens
 		name = fmt.Sprintf("%s_%d", sanitizeName(base), k)
 	}
 	d.names[name] = true
-	in := DraftInput{Name: name, Type: sl.Type, Raw: sl.Raw, Example: Redact(sl.Value), From: stepName, pos: pos}
+	in := DraftInput{Name: name, Type: sl.Type, Raw: sl.Raw, Example: redact.Redact(sl.Value), From: stepName, pos: pos}
 	if !sensitive {
 		if h := d.derivedFrom(pos, vec); h >= 0 {
 			in.DerivedFrom = d.posStep[h]
@@ -1199,11 +1201,11 @@ func (d *drafter) compound(i, j int) {
 			if v != w.Text {
 				same = false
 			}
-			if secretShape(v) != "" {
+			if redact.SecretShape(v) != "" {
 				sensitive = true
 			}
 		}
-		if p > 0 && sensitiveName.MatchString(strings.TrimSuffix(first.words[p-1].Text, "=")) {
+		if p > 0 && redact.SensitiveName.MatchString(strings.TrimSuffix(first.words[p-1].Text, "=")) {
 			sensitive = true
 		}
 		if same && !sensitive {

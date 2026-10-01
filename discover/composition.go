@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -313,22 +315,22 @@ func spanActionRole(n spanNode) string {
 	var selectors []string
 	for _, st := range n.steps {
 		for _, sl := range spanExpandedSlots(st.Slots) {
-			if sensitiveSlot(st.Label, sl) {
+			if redact.SensitiveSlot(st.Label, sl) {
 				continue
 			}
 			k := strings.ToLower(sl.Key)
 			if trace.ScopeFlags[strings.SplitN(k, "#", 2)[0]] && sl.Value != "" && len(sl.Value) <= 40 {
-				selectors = append(selectors, k+"="+strings.ToLower(Redact(sl.Value)))
+				selectors = append(selectors, k+"="+strings.ToLower(redact.Redact(sl.Value)))
 				continue
 			}
 			switch k {
 			case "status", "state", "transition", "transition_id", "resolution":
 				if sl.Value != "" && len(sl.Value) <= 40 {
-					selectors = append(selectors, k+"="+strings.ToLower(Redact(sl.Value)))
+					selectors = append(selectors, k+"="+strings.ToLower(redact.Redact(sl.Value)))
 				}
 			case "environment", "env", "cluster", "namespace", "context", "profile":
 				if sl.Value != "" && len(sl.Value) <= 40 {
-					selectors = append(selectors, k+"="+strings.ToLower(Redact(sl.Value)))
+					selectors = append(selectors, k+"="+strings.ToLower(redact.Redact(sl.Value)))
 				}
 			}
 		}

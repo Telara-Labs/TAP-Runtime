@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -561,7 +563,7 @@ func ephemeralConstant(d *Draft) bool {
 	}
 	for _, st := range d.firstRun {
 		for _, sl := range st.Slots {
-			if ephemeralPath.MatchString(sl.Value) && !varying[Redact(sl.Value)] {
+			if ephemeralPath.MatchString(sl.Value) && !varying[redact.Redact(sl.Value)] {
 				return true
 			}
 		}

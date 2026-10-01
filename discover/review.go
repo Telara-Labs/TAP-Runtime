@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -89,7 +91,7 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 		if p.Measured > 0 {
 			fmt.Fprintf(out, ", saves %s tokens per run", humanTokens(p.SavedPerRun.Total()))
 		}
-		fmt.Fprintf(out, ")\n   asked as: %s\n", trace.OneLine(Redact(p.Example), 120))
+		fmt.Fprintf(out, ")\n   asked as: %s\n", trace.OneLine(redact.Redact(p.Example), 120))
 		if _, digest, err := d.Package(); err == nil {
 			fmt.Fprintf(out, "   status: unvalidated (validation not run for %s)\n", digest)
 		}
@@ -103,7 +105,7 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 		}
 		fmt.Fprintln(out)
 		for _, s := range d.Steps {
-			fmt.Fprintf(out, "   %d. [%s] %s\n", s.N, s.Kind, trace.OneLine(Redact(s.Line), 130))
+			fmt.Fprintf(out, "   %d. [%s] %s\n", s.N, s.Kind, trace.OneLine(redact.Redact(s.Line), 130))
 		}
 		for _, in := range d.Inputs {
 			if in.Sensitive {
@@ -111,7 +113,7 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 			} else if in.Extract != "" {
 				fmt.Fprintf(out, "   value %s (%s): taken from step %d's output, not an input\n", in.Name, in.Type, in.DerivedFrom)
 			} else {
-				fmt.Fprintf(out, "   input $%d %s (%s), e.g. %s\n", in.Position, in.Name, in.Type, trace.OneLine(Redact(in.Example), 60))
+				fmt.Fprintf(out, "   input $%d %s (%s), e.g. %s\n", in.Position, in.Name, in.Type, trace.OneLine(redact.Redact(in.Example), 60))
 			}
 		}
 		if len(d.Blocked) > 0 {

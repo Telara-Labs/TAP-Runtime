@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/pyparse"
@@ -570,7 +572,7 @@ func spanPairSharesResource(a, b spanNode) bool {
 	values := map[string]bool{}
 	for _, st := range a.steps {
 		for _, slot := range spanExpandedSlots(st.Slots) {
-			if !spanVariable(slot) || !spanPairResourceSlot(slot) || sensitiveSlot(st.Label, slot) {
+			if !spanVariable(slot) || !spanPairResourceSlot(slot) || redact.SensitiveSlot(st.Label, slot) {
 				continue
 			}
 			values[slot.Type+"\x00"+slot.Value] = true
@@ -578,7 +580,7 @@ func spanPairSharesResource(a, b spanNode) bool {
 	}
 	for _, st := range b.steps {
 		for _, slot := range spanExpandedSlots(st.Slots) {
-			if spanVariable(slot) && spanPairResourceSlot(slot) && !sensitiveSlot(st.Label, slot) && values[slot.Type+"\x00"+slot.Value] {
+			if spanVariable(slot) && spanPairResourceSlot(slot) && !redact.SensitiveSlot(st.Label, slot) && values[slot.Type+"\x00"+slot.Value] {
 				return true
 			}
 		}
