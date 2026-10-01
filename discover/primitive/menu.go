@@ -90,8 +90,9 @@ func WriteSummary(out io.Writer, res Result, clients string) {
 		s.Operations, s.DistinctOps, s.JudgmentCalls, s.FailedCalls)
 	fmt.Fprintf(out, "  %d calls through a dispatching route were matched to their direct tool; %d arguments were settings (inputs), not separate operations.\n",
 		s.RouteMerged, s.SettingsAsInput)
-	fmt.Fprintf(out, "  Found %d primitives: %d multi-step, %d single commands that loop over a list; %d are composed of other primitives.\n",
-		s.Primitives, s.MultiStep, s.Primitives-s.MultiStep, s.Composed)
+	fmt.Fprintf(out, "  %d calls were decisions built from an earlier output; each starts a new chain.\n", s.DecisionCalls)
+	fmt.Fprintf(out, "  Found %d exact chains (%d pieces of longer chains dropped), grouped into %d proposed primitives.\n",
+		s.Primitives, s.Fragments, s.Families)
 }
 
 func describe(p Primitive) string {
@@ -148,59 +149,73 @@ func inputNames(p Primitive) string {
 	return s
 }
 
-// Menu shows the summary and every proposed primitive, then takes accept,
-// deny or agent-eval choices. Denied primitives are not shown again.
+// Menu shows the summary and every proposed procedure (a family of exact
+// chains), ranked by the model-turn tokens it would remove, then takes
+// accept, deny or agent-eval choices. Denied families are not shown again.
 func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	decided := loadDecisions(cfg.StateDir)
-	var shown []Primitive
+	byID := map[string]Primitive{}
 	for _, p := range res.Primitives {
-		if decided[p.ID] != "deny" {
-			shown = append(shown, p)
+		byID[p.ID] = p
+	}
+	var shown []Family
+	for _, f := range res.Families {
+		if decided[f.ID] != "deny" {
+			shown = append(shown, f)
 		}
 	}
 	WriteSummary(out, res, cfg.Clients)
-	if hidden := len(res.Primitives) - len(shown); hidden > 0 {
+	if hidden := len(res.Families) - len(shown); hidden > 0 {
 		fmt.Fprintf(out, "  %d denied earlier and hidden.\n", hidden)
 	}
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Proposed primitives")
-	index := map[string]int{}
-	for i, p := range shown {
-		index[p.ID] = i + 1
-	}
-	for i, p := range shown {
+	fmt.Fprintln(out, "Proposed primitives (most tokens saved first)")
+	for i, f := range shown {
 		mark := ""
-		if c := decided[p.ID]; c != "" {
+		if c := decided[f.ID]; c != "" {
 			mark = " [" + c + "ed]"
 		}
-		fmt.Fprintf(out, "%3d. %s%s\n", i+1, describe(p), mark)
-		fmt.Fprintf(out, "     inputs: %s · effect: %s · sessionCount: %d · executionCount: %d\n", inputNames(p), p.Effect, p.SessionCount, p.ExecutionCount)
-		fmt.Fprintf(out, "     flow confidence: %s\n", p.Confidence.Summary())
-		fmt.Fprintf(out, "     bindings: %s\n", bindingSummary(p))
-		for _, u := range p.Unresolved {
-			fmt.Fprintf(out, "     unresolved: %s\n", u)
-		}
-		if len(p.Variants) > 0 {
-			fmt.Fprintf(out, "     variants: %d (choices that change what follows)\n", len(p.Variants))
-		}
-		if len(p.ComposedOf) > 0 {
-			var uses []string
-			for _, c := range p.ComposedOf {
-				if n, ok := index[c]; ok {
-					uses = append(uses, "#"+strconv.Itoa(n))
-				} else {
-					uses = append(uses, c)
-				}
+		head := short(f.Head)
+		if len(f.Sources) > 0 {
+			var alts []string
+			for _, s := range f.Sources {
+				alts = append(alts, short(s))
 			}
-			fmt.Fprintf(out, "     composed of: %s\n", strings.Join(uses, ", "))
+			head += " (or " + strings.Join(alts, ", ") + ")"
+		}
+		fmt.Fprintf(out, "%3d. %s%s\n", i+1, head, mark)
+		for _, fu := range f.FollowUps {
+			var steps []string
+			for _, s := range fu.Steps {
+				steps = append(steps, short(s))
+			}
+			opt := ""
+			if fu.Optional {
+				opt = " (optional)"
+			}
+			fmt.Fprintf(out, "       then %s%s\n", strings.Join(steps, " > "), opt)
+		}
+		fmt.Fprintf(out, "     tokens saved: %s (%s per run) · effect: %s · sessionCount: %d · executionCount: %d\n",
+			tokensText(f.SavedTokens), tokensText(perRun(f)), f.Effect, f.SessionCount, f.ExecutionCount)
+		fmt.Fprintf(out, "     confidence: %d/100 (weakest member; %s) · %s", f.Confidence, Rubric, f.Readiness)
+		if f.NeedsDecision > 0 {
+			fmt.Fprintf(out, " (%d of %d exact chains need a decision)", f.NeedsDecision, len(f.Members))
+		}
+		fmt.Fprintln(out)
+		if len(f.Inputs) > 0 {
+			in := strings.Join(f.Inputs, "; ")
+			if len(in) > 160 {
+				in = in[:159] + "…"
+			}
+			fmt.Fprintf(out, "     inputs: %s\n", in)
 		}
 	}
 	if len(shown) == 0 {
 		return nil
 	}
 	if cfg.All {
-		for _, p := range shown {
-			if err := accept(cfg.StateDir, p); err != nil {
+		for _, f := range shown {
+			if err := acceptFamily(cfg.StateDir, f, byID); err != nil {
 				return err
 			}
 		}
@@ -213,38 +228,41 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 		if !sc.Scan() {
 			return sc.Err()
 		}
-		f := strings.Fields(strings.ToLower(sc.Text()))
-		if len(f) == 0 || f[0] == "q" {
+		fs := strings.Fields(strings.ToLower(sc.Text()))
+		if len(fs) == 0 || fs[0] == "q" {
 			return nil
 		}
-		if len(f) != 2 {
+		if len(fs) != 2 {
 			fmt.Fprintln(out, "  Give a number (or 'all') and a, d or e.")
 			continue
 		}
-		var targets []Primitive
-		if f[0] == "all" {
-			targets = shown
-		} else if n, err := strconv.Atoi(f[0]); err == nil && n >= 1 && n <= len(shown) {
-			targets = []Primitive{shown[n-1]}
+		var targets []int
+		if fs[0] == "all" {
+			for i := range shown {
+				targets = append(targets, i)
+			}
+		} else if n, err := strconv.Atoi(fs[0]); err == nil && n >= 1 && n <= len(shown) {
+			targets = []int{n - 1}
 		} else {
 			fmt.Fprintln(out, "  No such primitive.")
 			continue
 		}
-		for _, p := range targets {
+		for _, i := range targets {
+			f := shown[i]
 			var msg string
 			var err error
-			switch f[1] {
+			switch fs[1] {
 			case "a", "accept":
-				err = accept(cfg.StateDir, p)
-				msg = "accepted: " + filepath.Join(cfg.StateDir, "accepted", p.ID+".json")
+				err = acceptFamily(cfg.StateDir, f, byID)
+				msg = "accepted: " + filepath.Join(cfg.StateDir, "accepted", "families", f.ID+".json")
 			case "d", "deny":
-				err = record(cfg.StateDir, Decision{p.ID, "deny"})
+				err = record(cfg.StateDir, Decision{f.ID, "deny"})
 				msg = "denied; it will not be shown again"
 			case "e", "eval":
-				where := filepath.Join(cfg.StateDir, "eval", p.ID)
-				err = WriteHandoff(where, cfg.Home, p, cfg.Sessions, cfg.Skill)
+				where := filepath.Join(cfg.StateDir, "eval", f.ID)
+				err = WriteFamilyHandoff(where, cfg.Home, f, byID, cfg.Sessions, cfg.Skill)
 				if err == nil {
-					err = record(cfg.StateDir, Decision{p.ID, "eval"})
+					err = record(cfg.StateDir, Decision{f.ID, "eval"})
 				}
 				msg = "agent eval handoff: " + where + " (give your coding agent HANDOFF.md)"
 			default:
@@ -254,9 +272,79 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(out, "  #%d %s\n", index[p.ID], msg)
+			fmt.Fprintf(out, "  #%d %s\n", i+1, msg)
 		}
 	}
+}
+
+func perRun(f Family) float64 {
+	if f.ExecutionCount == 0 {
+		return 0
+	}
+	return f.SavedTokens / float64(f.ExecutionCount)
+}
+
+func tokensText(t float64) string {
+	switch {
+	case t >= 1e6:
+		return fmt.Sprintf("%.1fM", t/1e6)
+	case t >= 1e3:
+		return fmt.Sprintf("%.0fk", t/1e3)
+	}
+	return fmt.Sprintf("%.0f", t)
+}
+
+// acceptFamily keeps the family and its exact chains: the chains are known
+// primitives for later composition.
+func acceptFamily(stateDir string, f Family, byID map[string]Primitive) error {
+	dir := filepath.Join(stateDir, "accepted", "families")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	b, _ := json.MarshalIndent(f, "", "  ")
+	if err := os.WriteFile(filepath.Join(dir, f.ID+".json"), b, 0o600); err != nil {
+		return err
+	}
+	for _, id := range f.Members {
+		if err := accept(stateDir, byID[id]); err != nil {
+			return err
+		}
+	}
+	return record(stateDir, Decision{f.ID, "accept"})
+}
+
+// WriteFamilyHandoff writes one handoff per exact chain under dir, and an
+// index that presents them as one procedure to refine.
+func WriteFamilyHandoff(dir, home string, f Family, byID map[string]Primitive, sessions []trace.Session, skill Skill) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Refine procedure %s\n\nHead: %s", f.ID, f.Head)
+	if len(f.Sources) > 0 {
+		fmt.Fprintf(&b, " (alternative sources: %s)", strings.Join(f.Sources, ", "))
+	}
+	b.WriteString("\n\nFollow-ups:\n\n")
+	for _, fu := range f.FollowUps {
+		opt := ""
+		if fu.Optional {
+			opt = " (optional)"
+		}
+		fmt.Fprintf(&b, "- %s%s, %d runs\n", strings.Join(fu.Steps, " > "), opt, fu.Runs)
+	}
+	fmt.Fprintf(&b, "\nSupport: %d runs across %d sessions; tokens the follow-up turns cost: %s. Confidence: %d/100 (weakest member, %s); %s.\n\n",
+		f.ExecutionCount, f.SessionCount, tokensText(f.SavedTokens), f.Confidence, Rubric, f.Readiness)
+	b.WriteString("Design one primitive: the head, then each follow-up runs only when the caller supplies its inputs. ")
+	b.WriteString("Each exact chain below has its own handoff (prompt, skill, questions, evidence); read them in order:\n\n")
+	for _, id := range f.Members {
+		p := byID[id]
+		sub := filepath.Join(dir, id)
+		if err := WriteHandoff(sub, home, p, sessions, skill); err != nil {
+			return err
+		}
+		fmt.Fprintf(&b, "- `%s/HANDOFF.md`: %s (%d runs, %s)\n", id, describe(p), p.ExecutionCount, p.Confidence.Readiness)
+	}
+	return os.WriteFile(filepath.Join(dir, "HANDOFF.md"), []byte(b.String()), 0o600)
 }
 
 func accept(stateDir string, p Primitive) error {
