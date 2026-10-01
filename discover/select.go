@@ -7,7 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
@@ -38,31 +39,6 @@ import (
 // for authoring. The brief marks it unassessed until the authoring agent
 // establishes the contract.
 
-// Opportunity is the selection pass's judgment of one request.
-type Opportunity struct {
-	ID          string   `json:"id"`
-	Client      string   `json:"client"`
-	Session     string   `json:"session"`
-	Request     int      `json:"request"`
-	Recommended bool     `json:"recommended"`
-	Route       string   `json:"route,omitempty"`
-	Reasons     []string `json:"reasons"`
-	// Task is the reference `tap discover brief --task` takes.
-	Task string `json:"task"`
-	// Contract is what the procedure is, as far as the evidence shows:
-	// the grouping key. Start is when the request began.
-	Contract string    `json:"contract,omitempty"`
-	Start    time.Time `json:"start,omitempty"`
-}
-
-// Selection routes.
-const (
-	RouteStatedTemplate = "stated_template"
-	RouteRerunCheck     = "rerun_check"
-	RouteParamLoop      = "parametric_loop"
-	RouteNamedObject    = "named_object"
-)
-
 // Thresholds, fixed before the lineage-separated holdout was labeled.
 const (
 	templateMinSessions = 3
@@ -86,7 +62,7 @@ var (
 )
 
 // SelectOpportunities judges every request of the corpus that made calls.
-func SelectOpportunities(ss []trace.Session) []Opportunity {
+func SelectOpportunities(ss []trace.Session) []model.Opportunity {
 	ss = append([]trace.Session(nil), ss...)
 	for i := range ss {
 		ss[i].Calls = append([]trace.Call(nil), ss[i].Calls...)
@@ -110,7 +86,7 @@ func SelectOpportunities(ss []trace.Session) []Opportunity {
 			sessionsByText[k][ns.Client+"/"+ns.ID] = true
 		}
 	}
-	var out []Opportunity
+	var out []model.Opportunity
 	for i := range norm {
 		ns := &norm[i]
 		byReq := map[int][]trace.Step{}
@@ -127,7 +103,7 @@ func SelectOpportunities(ss []trace.Session) []Opportunity {
 			if r < len(ns.Requests) {
 				text = ns.Requests[r]
 			}
-			o := Opportunity{ID: trace.EpisodeID(ns.Client, ns.ID, r), Client: ns.Client, Session: ns.ID, Request: r,
+			o := model.Opportunity{ID: trace.EpisodeID(ns.Client, ns.ID, r), Client: ns.Client, Session: ns.ID, Request: r,
 				Task: ns.Client + "/" + ns.ID + "/" + strconv.Itoa(r)}
 			var shell []string
 			for _, c := range raw[ns.Client+"/"+ns.ID] {
@@ -145,7 +121,7 @@ func SelectOpportunities(ss []trace.Session) []Opportunity {
 	return out
 }
 
-func judgeOpportunity(o *Opportunity, text string, steps []trace.Step, shell []string, textSessions int) {
+func judgeOpportunity(o *model.Opportunity, text string, steps []trace.Step, shell []string, textSessions int) {
 	reason := func(s string) { o.Reasons = append(o.Reasons, s) }
 	if strings.TrimSpace(text) == "" || trace.IsHarness(text) || strings.HasPrefix(strings.TrimSpace(text), "<") {
 		reason("no_request_text")
@@ -196,7 +172,7 @@ func judgeOpportunity(o *Opportunity, text string, steps []trace.Step, shell []s
 		case touched == 0:
 			reason("template_anchors_untouched")
 		default:
-			o.Recommended, o.Route = true, RouteStatedTemplate
+			o.Recommended, o.Route = true, model.RouteStatedTemplate
 			o.Contract = "template " + templateTitle(text)
 			reason("template_sessions:" + strconv.Itoa(textSessions))
 			reason("step_lines:" + strconv.Itoa(lines))
@@ -249,7 +225,7 @@ func judgeOpportunity(o *Opportunity, text string, steps []trace.Step, shell []s
 			reason("edit_share:" + strconv.FormatFloat(float64(wEdit)/float64(win), 'f', 2, 64))
 		default:
 			o.Reasons = nil
-			o.Recommended, o.Route = true, RouteNamedObject
+			o.Recommended, o.Route = true, model.RouteNamedObject
 			reason("named_objects_touched:" + strconv.Itoa(named))
 			reason("window_steps:" + strconv.Itoa(win))
 			o.Contract = "single pass " + strings.Join(seq, " > ")
@@ -259,11 +235,11 @@ func judgeOpportunity(o *Opportunity, text string, steps []trace.Step, shell []s
 	case editShare >= editMaxShare:
 		reason("edit_share:" + strconv.FormatFloat(editShare, 'f', 2, 64))
 	case most >= rerunMinRuns:
-		o.Recommended, o.Route = true, RouteRerunCheck
+		o.Recommended, o.Route = true, model.RouteRerunCheck
 		reason("program_runs:" + strconv.Itoa(most))
 		o.Contract = "program " + shortHash(prog) + ": " + trace.OneLine(prog, 60)
 	default:
-		o.Recommended, o.Route = true, RouteParamLoop
+		o.Recommended, o.Route = true, model.RouteParamLoop
 		reason("loop:" + loopLabel + ":" + strconv.Itoa(loopItems))
 		o.Contract = "loop " + loopLabel + " over " + loopArg
 	}
@@ -609,25 +585,12 @@ func shortHash(s string) string {
 	return hex.EncodeToString(h[:4])
 }
 
-// OpportunityGroup is every recommended request with the same contract.
-type OpportunityGroup struct {
-	Contract string    `json:"contract"`
-	Route    string    `json:"route"`
-	Requests int       `json:"requests"`
-	Sessions int       `json:"sessions"`
-	First    time.Time `json:"first"`
-	Last     time.Time `json:"last"`
-	// Example is the most recent member: the one to brief.
-	Example Opportunity `json:"example"`
-	Members []string    `json:"members"`
-}
-
 // GroupOpportunities groups recommended requests by contract and ranks the
 // groups: most distinct sessions first, then most requests, then the most
 // recently seen. Grouping and ranking change what a person reads, not which
 // requests are recommended.
-func GroupOpportunities(ops []Opportunity) []OpportunityGroup {
-	by := map[string]*OpportunityGroup{}
+func GroupOpportunities(ops []model.Opportunity) []model.OpportunityGroup {
+	by := map[string]*model.OpportunityGroup{}
 	sess := map[string]map[string]bool{}
 	var order []string
 	for _, o := range ops {
@@ -637,7 +600,7 @@ func GroupOpportunities(ops []Opportunity) []OpportunityGroup {
 		k := o.Route + "\x00" + o.Contract
 		g := by[k]
 		if g == nil {
-			g = &OpportunityGroup{Contract: o.Contract, Route: o.Route, First: o.Start, Last: o.Start, Example: o}
+			g = &model.OpportunityGroup{Contract: o.Contract, Route: o.Route, First: o.Start, Last: o.Start, Example: o}
 			by[k] = g
 			sess[k] = map[string]bool{}
 			order = append(order, k)
@@ -652,7 +615,7 @@ func GroupOpportunities(ops []Opportunity) []OpportunityGroup {
 			g.Last, g.Example = o.Start, o
 		}
 	}
-	out := make([]OpportunityGroup, 0, len(order))
+	out := make([]model.OpportunityGroup, 0, len(order))
 	for _, k := range order {
 		g := by[k]
 		g.Sessions = len(sess[k])

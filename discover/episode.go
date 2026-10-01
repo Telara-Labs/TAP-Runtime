@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -42,7 +44,7 @@ func (c *Corpus) AssessEpisodes(eps []Episode) []EpisodeClaim {
 		ec := EpisodeClaim{ID: e.ID, Client: e.Client, Session: e.Session, Request: e.Request}
 		ns := byKey[e.Client+"/"+e.Session]
 		if ns == nil {
-			ec.Suitability, ec.Reasons = SuitInsufficient, []string{"no_steps"}
+			ec.Suitability, ec.Reasons = model.SuitInsufficient, []string{"no_steps"}
 			out = append(out, ec)
 			continue
 		}
@@ -65,7 +67,7 @@ func assessEpisode(ns *trace.NormSession, req int, ec *EpisodeClaim) {
 	}
 	reason := func(s string) { ec.Reasons = append(ec.Reasons, s) }
 	if strings.TrimSpace(text) == "" || trace.IsHarness(text) {
-		ec.Suitability = SuitInvalid
+		ec.Suitability = model.SuitInvalid
 		reason("no_request_text")
 		return
 	}
@@ -98,11 +100,11 @@ func assessEpisode(ns *trace.NormSession, req int, ec *EpisodeClaim) {
 	}
 	switch {
 	case plain == 0 && book > 0:
-		ec.Suitability = SuitInsufficient
+		ec.Suitability = model.SuitInsufficient
 		reason("infrastructure_only")
 		return
 	case plain < 2:
-		ec.Suitability = SuitInsufficient
+		ec.Suitability = model.SuitInsufficient
 		reason("fewer_than_two_steps")
 		return
 	}
@@ -169,19 +171,19 @@ func assessEpisode(ns *trace.NormSession, req int, ec *EpisodeClaim) {
 	}
 	switch {
 	case long:
-		ec.Suitability = SuitInvestigation
+		ec.Suitability = model.SuitInvestigation
 		reason(fmt.Sprintf("unbounded_length:%d", len(work)))
 	case judged:
-		ec.Suitability = SuitInsufficient
+		ec.Suitability = model.SuitInsufficient
 		reason("judgment_step")
 	case readChosen > 0 && 2*chosenSteps > plain:
-		ec.Suitability = SuitInvestigation
+		ec.Suitability = model.SuitInvestigation
 		reason("values_chosen_during_run")
 	case chosenSteps > 0:
-		ec.Suitability = SuitInsufficient
+		ec.Suitability = model.SuitInsufficient
 		reason("unexplained_values")
 	default:
-		ec.Suitability = SuitUseful
+		ec.Suitability = model.SuitUseful
 		reason("single_episode_contract")
 		if firstHuman >= 0 {
 			reason("hands_back_before_judgment")

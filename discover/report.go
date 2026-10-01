@@ -8,12 +8,14 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // WriteText prints a report for a person: what was read, the qualified
 // candidates with their templates, and how well known skills were recovered.
-func WriteText(w io.Writer, r *Report, top int) {
+func WriteText(w io.Writer, r *model.Report, top int) {
 	fmt.Fprintf(w, "Rules %s, window %d, min support %d, max length %d, %d permutations, FDR %.2f, seed %d\n\n",
 		r.RulesVersion, r.Options.Window, r.Options.MinSupport, r.Options.MaxLen, r.Options.Permutations, r.Options.Alpha, r.Options.Seed)
 
@@ -136,7 +138,7 @@ func humanTokens(t float64) string {
 // WriteFunnel prints the request-level result: what was read, how it narrowed
 // to primitives, and the primitives. With rejected, it also lists what each
 // check removed and why.
-func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
+func WriteFunnel(w io.Writer, r *model.Report, top int, rejected bool) {
 	f := r.Funnel
 	var clients []string
 	for _, c := range r.Clients {
@@ -174,13 +176,13 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 			suits[suit] += n
 		}
 	}
-	fmt.Fprintf(w, "Who the work is for: %s.\n", count(roles, RoleUser, RoleScheduled, RoleInfrastructure, RoleHarness, RoleUnknown))
-	fmt.Fprintf(w, "Is it a useful procedure: %s.\n", count(suits, SuitUseful, SuitInsufficient, SuitInvestigation, SuitInvalid))
-	useful := f.ByRole[RoleUser][SuitUseful]
+	fmt.Fprintf(w, "Who the work is for: %s.\n", count(roles, model.RoleUser, model.RoleScheduled, model.RoleInfrastructure, model.RoleHarness, model.RoleUnknown))
+	fmt.Fprintf(w, "Is it a useful procedure: %s.\n", count(suits, model.SuitUseful, model.SuitInsufficient, model.SuitInvestigation, model.SuitInvalid))
+	useful := f.ByRole[model.RoleUser][model.SuitUseful]
 	fmt.Fprintf(w, "Useful procedures for user tasks: %d; drafts: %s. Scheduled work that is already automated: %d (a baseline, not new automation).\n",
-		useful, count(f.ByDraft[SuitUseful], DraftComplete, DraftNeedsAuthor, DraftBlocked), f.ByRole[RoleScheduled][SuitUseful])
+		useful, count(f.ByDraft[model.SuitUseful], model.DraftComplete, model.DraftNeedsAuthor, model.DraftBlocked), f.ByRole[model.RoleScheduled][model.SuitUseful])
 	fmt.Fprintf(w, "Outcome evidence: %s. Validation: %s. Value: %s.\n",
-		count(f.ByOutcome, OutcomeToolOK, OutcomeEvUnknown, OutcomeEvFailed), count(f.ByValidation, ValidationNotRun), count(f.ByValue, ValueEstimated, ValueUnmeasured))
+		count(f.ByOutcome, model.OutcomeToolOK, model.OutcomeEvUnknown, model.OutcomeEvFailed), count(f.ByValidation, model.ValidationNotRun), count(f.ByValue, model.ValueEstimated, model.ValueUnmeasured))
 	fmt.Fprintln(w, "No draft has been executed. \"Structurally complete\" means the package is written and passes publish checks, not that it works: validate it on fresh inputs first.")
 	fmt.Fprintln(w, "Savings are estimates from recorded token use, mostly cached input; no primitive run was measured.")
 	fmt.Fprintln(w)
@@ -190,7 +192,7 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 	fmt.Fprintln(tw, "#\tDRAFT\tREQUESTS\tSESSIONS\tWEEKS\tEFFECT\tINPUTS\tSTEPS\tEXAMPLE REQUEST")
 	shown := 0
 	for _, rt := range r.Routines {
-		if rt.Suitability != SuitUseful || rt.SourceRole != RoleUser || rt.MergedInto != "" || (top > 0 && shown >= top) {
+		if rt.Suitability != model.SuitUseful || rt.SourceRole != model.RoleUser || rt.MergedInto != "" || (top > 0 && shown >= top) {
 			continue
 		}
 		shown++
@@ -203,17 +205,17 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 			draft += " (" + strings.Join(rt.Blockers, ", ") + ")"
 		}
 		fmt.Fprintf(tw, "%d\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n", shown, trace.OneLine(draft, 40), rt.Requests, rt.Sessions, rt.Weeks, rt.Contract.Effect,
-			trace.OneLine(strings.Join(ins, ","), 30), trace.OneLine(labelsOf(rt.Candidate), 60), trace.OneLine(rt.Example, 50))
+			trace.OneLine(strings.Join(ins, ","), 30), trace.OneLine(model.LabelsOf(rt.Candidate), 60), trace.OneLine(rt.Example, 50))
 	}
 	tw.Flush()
 	if shown == 0 {
 		fmt.Fprintln(w, "  none")
 	}
-	if n := f.ByRole[RoleScheduled][SuitUseful]; n > 0 {
+	if n := f.ByRole[model.RoleScheduled][model.SuitUseful]; n > 0 {
 		fmt.Fprintln(w, "\nScheduled work (already automated; listed as a baseline):")
 		for _, rt := range r.Routines {
-			if rt.Suitability == SuitUseful && rt.SourceRole == RoleScheduled && rt.MergedInto == "" {
-				fmt.Fprintf(w, "  %d runs: %s\n", rt.Requests, trace.OneLine(labelsOf(rt.Candidate), 100))
+			if rt.Suitability == model.SuitUseful && rt.SourceRole == model.RoleScheduled && rt.MergedInto == "" {
+				fmt.Fprintf(w, "  %d runs: %s\n", rt.Requests, trace.OneLine(model.LabelsOf(rt.Candidate), 100))
 			}
 		}
 	}
@@ -221,10 +223,10 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 		fmt.Fprintln(w, "\n(--rejected lists every other routine by the reason it is not recommended.)")
 		return
 	}
-	byReason := map[string][]Routine{}
+	byReason := map[string][]model.Routine{}
 	var reasons []string
 	for _, rt := range r.Routines {
-		if rt.Suitability == SuitUseful || rt.MergedInto != "" {
+		if rt.Suitability == model.SuitUseful || rt.MergedInto != "" {
 			continue
 		}
 		k := rt.Suitability + ": " + strings.SplitN(firstReason(rt), ":", 2)[0]
@@ -237,12 +239,12 @@ func WriteFunnel(w io.Writer, r *Report, top int, rejected bool) {
 	for _, k := range reasons {
 		fmt.Fprintf(w, "\n%s (%d):\n", k, len(byReason[k]))
 		for _, rt := range byReason[k] {
-			fmt.Fprintf(w, "  %d requests, %s: %s\n      %s\n", rt.Requests, rt.SourceRole, trace.OneLine(labelsOf(rt.Candidate), 90), trace.OneLine(strings.Join(rt.Reasons, "; "), 140))
+			fmt.Fprintf(w, "  %d requests, %s: %s\n      %s\n", rt.Requests, rt.SourceRole, trace.OneLine(model.LabelsOf(rt.Candidate), 90), trace.OneLine(strings.Join(rt.Reasons, "; "), 140))
 		}
 	}
 }
 
-func firstReason(rt Routine) string {
+func firstReason(rt model.Routine) string {
 	if len(rt.Reasons) == 0 {
 		return "unknown"
 	}
@@ -251,8 +253,8 @@ func firstReason(rt Routine) string {
 
 // Primitives returns the routines ready to save (decision "primitive"), in
 // report order.
-func ReportPrimitives(r *Report) []*Routine {
-	var out []*Routine
+func ReportPrimitives(r *model.Report) []*model.Routine {
+	var out []*model.Routine
 	for i := range r.Routines {
 		if r.Routines[i].Decision == "primitive" && r.Routines[i].MergedInto == "" {
 			out = append(out, &r.Routines[i])
@@ -264,13 +266,13 @@ func ReportPrimitives(r *Report) []*Routine {
 // WriteOpportunities says how many requests the selection pass surfaced,
 // by route, and lists the n highest-ranked contract groups with the id of
 // the example an authoring brief takes.
-func WriteOpportunities(w io.Writer, r *Report, n int) {
+func WriteOpportunities(w io.Writer, r *model.Report, n int) {
 	by := map[string]int{}
 	for _, o := range r.Opportunities {
 		by[o.Route]++
 	}
 	fmt.Fprintf(w, "\nSurfaced %d opportunities from the whole history by mechanical evidence (%d stated template, %d re-run check, %d parametric loop, %d single pass), in %d contract groups.\n",
-		len(r.Opportunities), by[RouteStatedTemplate], by[RouteRerunCheck], by[RouteParamLoop], by[RouteNamedObject], len(r.OpportunityGroups))
+		len(r.Opportunities), by[model.RouteStatedTemplate], by[model.RouteRerunCheck], by[model.RouteParamLoop], by[model.RouteNamedObject], len(r.OpportunityGroups))
 	fmt.Fprintln(w, "Each is an unassessed proposal, not a verified procedure. Brief a group's example with `tap discover brief --opportunity <id> --report <file>`.")
 	for i, g := range r.OpportunityGroups {
 		if i == n {
@@ -283,7 +285,7 @@ func WriteOpportunities(w io.Writer, r *Report, n int) {
 
 // WriteSpanProposals lists structural retrieval candidates separately from
 // recommendations. A group is a review aid, not a certified procedure.
-func WriteSpanProposals(w io.Writer, r *Report, n int) {
+func WriteSpanProposals(w io.Writer, r *model.Report, n int) {
 	if len(r.LogicFunnels) > 0 {
 		fmt.Fprintf(w, "\nFound %d result-flow funnels. A root's branches are observed follow-up operations; repeated branches can become loops over runtime inputs. Funnels are structural, not validated primitives.\n", len(r.LogicFunnels))
 		for i, f := range r.LogicFunnels {

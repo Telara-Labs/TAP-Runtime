@@ -4,16 +4,18 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
 )
 
 // nullSupport counts, for each pattern, how many sessions contain it in a
 // corpus built by permute. It is run several times; the mean and variance of
 // those counts are the null model for the pattern's observed support.
-func nullSupport(seqs [][]int, ps []pattern, window int) []int {
-	index := labelIndex(seqs)
+func nullSupport(seqs [][]int, ps []model.Pattern, window int) []int {
+	index := model.LabelIndex(seqs)
 	out := make([]int, len(ps))
 	for i, p := range ps {
-		out[i] = supportIn(seqs, index, p.items, window)
+		out[i] = model.SupportIn(seqs, index, p.Items, window)
 	}
 	return out
 }

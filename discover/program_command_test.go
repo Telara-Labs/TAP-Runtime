@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -49,7 +51,7 @@ func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
 	if err != nil || len(variants) != 2 {
 		t.Fatalf("two exact tool bindings should remain separate variants: %+v %v", variants, err)
 	}
-	rows, err := generatedProgramQueue([]LogicCandidate{candidate}, spans, sessions)
+	rows, err := generatedProgramQueue([]model.LogicCandidate{candidate}, spans, sessions)
 	if err != nil || len(rows) != 1 || rows[0].candidate.ID != candidate.ID {
 		t.Fatalf("queue should show one reviewable variant for the broad family: %+v %v", rows, err)
 	}
@@ -65,7 +67,7 @@ func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstDecision := generatedDecision{Candidate: firstGraph.CandidateID, Digest: firstPackage.Digest, Choice: "deny"}
-	remaining, err := generatedProgramQueue([]LogicCandidate{candidate}, spans, sessions, firstDecision)
+	remaining, err := generatedProgramQueue([]model.LogicCandidate{candidate}, spans, sessions, firstDecision)
 	if err != nil || len(remaining) != 1 || remaining[0].variant.ID != variants[1].ID {
 		t.Fatalf("denied exact draft should not resurface; another variant may be reviewed: %+v %v", remaining, err)
 	}
@@ -78,56 +80,56 @@ func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
 		t.Fatal(err)
 	}
 	secondDecision := generatedDecision{Candidate: secondGraph.CandidateID, Digest: secondPackage.Digest, Choice: "refine"}
-	empty, err := generatedProgramQueue([]LogicCandidate{candidate}, spans, sessions, firstDecision, secondDecision)
+	empty, err := generatedProgramQueue([]model.LogicCandidate{candidate}, spans, sessions, firstDecision, secondDecision)
 	if err != nil || len(empty) != 0 {
 		t.Fatalf("reviewed exact drafts should leave the queue: %+v %v", empty, err)
 	}
 }
 
 func TestGeneratedQueueKeepsUnprovenRepeatedOrderForManualReview(t *testing.T) {
-	v := LogicCandidate{Members: []string{"a", "b"}}
-	spans := map[string]SpanProposal{
+	v := model.LogicCandidate{Members: []string{"a", "b"}}
+	spans := map[string]model.SpanProposal{
 		"a": {ID: "a", Client: "claude-code", Session: "one", Kind: "repeated_order"},
 		"b": {ID: "b", Client: "claude-code", Session: "two", Kind: "repeated_order"},
 	}
 	if generatedVariantHasTaskEvidence(v, spans) {
 		t.Fatal("repeated adjacency with no task contract entered the generated queue")
 	}
-	spans["a"] = SpanProposal{ID: "a", Client: "claude-code", Session: "one", Kind: "repeated_order", Review: SpanTaskReview{Ready: true}}
+	spans["a"] = model.SpanProposal{ID: "a", Client: "claude-code", Session: "one", Kind: "repeated_order", Review: model.SpanTaskReview{Ready: true}}
 	if generatedVariantHasTaskEvidence(v, spans) {
 		t.Fatal("one task-shaped execution is insufficient for a repeated-order queue entry")
 	}
-	spans["b"] = SpanProposal{ID: "b", Client: "claude-code", Session: "two", Kind: "repeated_order", Review: SpanTaskReview{Ready: true}}
+	spans["b"] = model.SpanProposal{ID: "b", Client: "claude-code", Session: "two", Kind: "repeated_order", Review: model.SpanTaskReview{Ready: true}}
 	if !generatedVariantHasTaskEvidence(v, spans) {
 		t.Fatal("two independent task-shaped executions should remain reviewable")
 	}
-	spans["b"] = SpanProposal{ID: "b", Client: "claude-code", Session: "one", Kind: "repeated_order", Review: SpanTaskReview{Ready: true}}
+	spans["b"] = model.SpanProposal{ID: "b", Client: "claude-code", Session: "one", Kind: "repeated_order", Review: model.SpanTaskReview{Ready: true}}
 	if generatedVariantHasTaskEvidence(v, spans) {
 		t.Fatal("duplicate executions in one session counted as independent task evidence")
 	}
-	single := LogicCandidate{Members: []string{"c"}}
-	spans["c"] = SpanProposal{ID: "c", Client: "claude-code", Session: "one", Kind: "single_call"}
+	single := model.LogicCandidate{Members: []string{"c"}}
+	spans["c"] = model.SpanProposal{ID: "c", Client: "claude-code", Session: "one", Kind: "single_call"}
 	if generatedVariantHasTaskEvidence(single, spans) {
 		t.Fatal("one unassessed source call entered the generated queue")
 	}
-	spans["c"] = SpanProposal{ID: "c", Client: "claude-code", Session: "one", Kind: "single_call", Review: SpanTaskReview{Ready: true}}
+	spans["c"] = model.SpanProposal{ID: "c", Client: "claude-code", Session: "one", Kind: "single_call", Review: model.SpanTaskReview{Ready: true}}
 	if !generatedVariantHasTaskEvidence(single, spans) {
 		t.Fatal("a task-shaped one-off execution should remain eligible")
 	}
 }
 
 func TestGeneratedCandidateTaskEvidenceDoesNotPromoteIncidentalRecurrence(t *testing.T) {
-	c := LogicCandidate{ID: "lc_example", Members: []string{"incidental_one", "incidental_two", "component_one", "component_two"}}
-	spans := map[string]SpanProposal{
-		"incidental_one": {ID: "incidental_one", Client: "claude-code", Session: "one", Review: SpanTaskReview{Source: "user", Reasons: []string{"incidental_bookkeeping"}}},
-		"incidental_two": {ID: "incidental_two", Client: "claude-code", Session: "two", Review: SpanTaskReview{Source: "user", Reasons: []string{"incidental_bookkeeping"}}},
-		"component_one":  {ID: "component_one", Client: "claude-code", Session: "three", Review: SpanTaskReview{Source: "user", Component: true}},
-		"component_two":  {ID: "component_two", Client: "claude-code", Session: "four", Review: SpanTaskReview{Source: "user", Component: true}},
+	c := model.LogicCandidate{ID: "lc_example", Members: []string{"incidental_one", "incidental_two", "component_one", "component_two"}}
+	spans := map[string]model.SpanProposal{
+		"incidental_one": {ID: "incidental_one", Client: "claude-code", Session: "one", Review: model.SpanTaskReview{Source: "user", Reasons: []string{"incidental_bookkeeping"}}},
+		"incidental_two": {ID: "incidental_two", Client: "claude-code", Session: "two", Review: model.SpanTaskReview{Source: "user", Reasons: []string{"incidental_bookkeeping"}}},
+		"component_one":  {ID: "component_one", Client: "claude-code", Session: "three", Review: model.SpanTaskReview{Source: "user", Component: true}},
+		"component_two":  {ID: "component_two", Client: "claude-code", Session: "four", Review: model.SpanTaskReview{Source: "user", Component: true}},
 	}
-	if _, ok := generatedCandidateTaskEvidence(LogicCandidate{Members: c.Members[:2]}, spans); ok {
+	if _, ok := generatedCandidateTaskEvidence(model.LogicCandidate{Members: c.Members[:2]}, spans); ok {
 		t.Fatal("repeated incidental actions entered the generated queue")
 	}
-	if _, ok := generatedCandidateTaskEvidence(LogicCandidate{Members: c.Members[:3]}, spans); ok {
+	if _, ok := generatedCandidateTaskEvidence(model.LogicCandidate{Members: c.Members[:3]}, spans); ok {
 		t.Fatal("one component among incidental actions entered the generated queue")
 	}
 	qualified, ok := generatedCandidateTaskEvidence(c, spans)
@@ -135,11 +137,11 @@ func TestGeneratedCandidateTaskEvidenceDoesNotPromoteIncidentalRecurrence(t *tes
 		len(qualified.Members) != 2 || qualified.Members[0] != "component_one" || qualified.Members[1] != "component_two" {
 		t.Fatalf("qualified candidate included incidental evidence or lost independent components: %+v %v", qualified, ok)
 	}
-	spans["component_two"] = SpanProposal{ID: "component_two", Client: "claude-code", Session: "three", Review: SpanTaskReview{Source: "user", Component: true}}
+	spans["component_two"] = model.SpanProposal{ID: "component_two", Client: "claude-code", Session: "three", Review: model.SpanTaskReview{Source: "user", Component: true}}
 	if _, ok := generatedCandidateTaskEvidence(c, spans); ok {
 		t.Fatal("overlapping components in one session counted as independent support")
 	}
-	spans["component_one"] = SpanProposal{ID: "component_one", Client: "claude-code", Session: "three", Review: SpanTaskReview{Source: "user", Ready: true}}
+	spans["component_one"] = model.SpanProposal{ID: "component_one", Client: "claude-code", Session: "three", Review: model.SpanTaskReview{Source: "user", Ready: true}}
 	qualified, ok = generatedCandidateTaskEvidence(c, spans)
 	if !ok || len(qualified.Members) != 1 || qualified.Members[0] != "component_one" {
 		t.Fatalf("explicit task-shaped execution was not eligible on its own: %+v %v", qualified, ok)
@@ -161,7 +163,7 @@ func TestGeneratedCausalComponentsRemainReviewableInsideLargerTasks(t *testing.T
 		selSession("two", "Implement feature B", create("TENG-202"), transition("TENG-202")),
 	}
 	c, spans := graphCandidateFor(t, sessions, "mcp:telara_jira_create_issue", "mcp:telara_jira_transition_issue")
-	bySpan := map[string]SpanProposal{}
+	bySpan := map[string]model.SpanProposal{}
 	for _, span := range spans {
 		bySpan[span.ID] = span
 	}
@@ -174,7 +176,7 @@ func TestGeneratedCausalComponentsRemainReviewableInsideLargerTasks(t *testing.T
 			t.Fatalf("test did not exercise the internal-component route: %+v", bySpan[id])
 		}
 	}
-	rows, err := generatedProgramQueue([]LogicCandidate{c}, spans, sessions)
+	rows, err := generatedProgramQueue([]model.LogicCandidate{c}, spans, sessions)
 	if err != nil || len(rows) != 1 || !generatedVariantIsInternalComponent(rows[0].variant, bySpan) || !strings.HasPrefix(rows[0].shape, "agent component") {
 		t.Fatalf("result-linked component did not reach labeled review: %+v %v", rows, err)
 	}

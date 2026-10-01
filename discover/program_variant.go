@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
@@ -17,8 +19,8 @@ import (
 // graph synthesis and code generation both succeed for their combined spans.
 // Values never enter identity. Different tool bindings remain separate;
 // optional arguments do not make one process look like several primitives.
-func GroupProgramVariants(c LogicCandidate, proposals []SpanProposal, sessions []trace.Session) ([]LogicCandidate, error) {
-	bySpan := map[string]SpanProposal{}
+func GroupProgramVariants(c model.LogicCandidate, proposals []model.SpanProposal, sessions []trace.Session) ([]model.LogicCandidate, error) {
+	bySpan := map[string]model.SpanProposal{}
 	for _, p := range proposals {
 		bySpan[p.ID] = p
 	}
@@ -44,7 +46,7 @@ func GroupProgramVariants(c LogicCandidate, proposals []SpanProposal, sessions [
 		bySession[s.Client+"\x00"+s.ID] = s
 	}
 	type bucket struct {
-		candidate LogicCandidate
+		candidate model.LogicCandidate
 		sessions  map[string]bool
 		core      string
 	}
@@ -118,7 +120,7 @@ func GroupProgramVariants(c LogicCandidate, proposals []SpanProposal, sessions [
 		sort.Strings(b.candidate.Members)
 		byCore[b.core] = append(byCore[b.core], b)
 	}
-	var out []LogicCandidate
+	var out []model.LogicCandidate
 	for core, group := range byCore {
 		sort.Slice(group, func(i, j int) bool {
 			if group[i].candidate.Sessions != group[j].candidate.Sessions {
@@ -126,7 +128,7 @@ func GroupProgramVariants(c LogicCandidate, proposals []SpanProposal, sessions [
 			}
 			return group[i].candidate.ID < group[j].candidate.ID
 		})
-		var merged []LogicCandidate
+		var merged []model.LogicCandidate
 		var mergedShapeKeys [][]string
 		for _, b := range group {
 			joined := false
@@ -185,8 +187,8 @@ func GroupProgramVariants(c LogicCandidate, proposals []SpanProposal, sessions [
 	return out, nil
 }
 
-func variantIndependentExecutions(members []string, bySpan map[string]SpanProposal) int {
-	spans := make([]SpanProposal, 0, len(members))
+func variantIndependentExecutions(members []string, bySpan map[string]model.SpanProposal) int {
+	spans := make([]model.SpanProposal, 0, len(members))
 	for _, id := range members {
 		spans = append(spans, bySpan[id])
 	}

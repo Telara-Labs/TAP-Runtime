@@ -7,12 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 
 	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
 )
 
-func runAndFind(t *testing.T, ss []trace.Session, labels string) (*Report, int) {
+func runAndFind(t *testing.T, ss []trace.Session, labels string) (*model.Report, int) {
 	t.Helper()
 	o := DefaultOptions()
 	o.Patterns = true
@@ -22,7 +24,7 @@ func runAndFind(t *testing.T, ss []trace.Session, labels string) (*Report, int) 
 		t.Fatal(err)
 	}
 	for i, c := range rep.Candidates {
-		if c.Qualified && labelsOf(c) == labels {
+		if c.Qualified && model.LabelsOf(c) == labels {
 			return rep, i
 		}
 	}
@@ -32,7 +34,7 @@ func runAndFind(t *testing.T, ss []trace.Session, labels string) (*Report, int) 
 
 func TestDraftReplaysThePlantedProcedure(t *testing.T) {
 	rep, i := runAndFind(t, plantedCorpus(), "sh:make build → sh:go test → sh:git push")
-	d, err := ReportDraft(rep, i, DraftOptions{})
+	d, err := ReportDraft(rep, i, model.DraftOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +68,7 @@ func TestDraftReplaysThePlantedProcedure(t *testing.T) {
 
 func TestDraftReadOnlyIsTheUsersCall(t *testing.T) {
 	rep, i := runAndFind(t, plantedCorpus(), "sh:make build → sh:go test → sh:git push")
-	d, err := ReportDraft(rep, i, DraftOptions{ReadOnly: map[int]bool{2: true}})
+	d, err := ReportDraft(rep, i, model.DraftOptions{ReadOnly: map[int]bool{2: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +101,7 @@ func toolCorpus() []trace.Session {
 
 func TestDraftMCPToolsCarryContractsThatPassPublishChecks(t *testing.T) {
 	rep, i := runAndFind(t, toolCorpus(), "mcp:telara_task_create → mcp:telara_jira_transition_issue")
-	d, err := ReportDraft(rep, i, DraftOptions{Publisher: "dev.example"})
+	d, err := ReportDraft(rep, i, model.DraftOptions{Publisher: "dev.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +141,7 @@ func TestDraftKeepsRecordedArgumentTypes(t *testing.T) {
 		}
 	}
 	rep, i := runAndFind(t, ss, "mcp:telara_task_create → mcp:telara_jira_transition_issue")
-	d, err := ReportDraft(rep, i, DraftOptions{Publisher: "dev.example"})
+	d, err := ReportDraft(rep, i, model.DraftOptions{Publisher: "dev.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +173,7 @@ func TestDraftPatchIsAHumanStepNotAGuess(t *testing.T) {
 		ss = append(ss, s)
 	}
 	rep, i := runAndFind(t, ss, "sh:tail → patch:update → sh:git commit")
-	d, err := ReportDraft(rep, i, DraftOptions{})
+	d, err := ReportDraft(rep, i, model.DraftOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +206,7 @@ func TestDraftBrowserKeepsObjectsAndDropsVariableNames(t *testing.T) {
 		ss = append(ss, s)
 	}
 	rep, i := runAndFind(t, ss, "js:nameSession → js:goto → js:playwright.evaluate")
-	d, err := ReportDraft(rep, i, DraftOptions{})
+	d, err := ReportDraft(rep, i, model.DraftOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +244,7 @@ func TestDraftArgumentOrderDoesNotMakeFlagsInputs(t *testing.T) {
 		ss = append(ss, s)
 	}
 	rep, i := runAndFind(t, ss, "sh:gofmt → sh:go test")
-	d, err := ReportDraft(rep, i, DraftOptions{})
+	d, err := ReportDraft(rep, i, model.DraftOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,10 +266,10 @@ func TestRoutinesAreOnePerTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs := ReportPatternRoutines(rep)
-	if len(rs) != 1 || labelsOf(rep.Candidates[rs[0]]) != "sh:make build → sh:go test → sh:git push" {
+	if len(rs) != 1 || model.LabelsOf(rep.Candidates[rs[0]]) != "sh:make build → sh:go test → sh:git push" {
 		var got []string
 		for _, i := range rs {
-			got = append(got, labelsOf(rep.Candidates[i]))
+			got = append(got, model.LabelsOf(rep.Candidates[i]))
 		}
 		t.Fatalf("routines = %q: one task, represented by its full procedure", got)
 	}

@@ -3,13 +3,15 @@ package discover
 import (
 	"sort"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // Package returns the draft as a gzip tar, the form a registry package and
 // `telara tap pull` use, and its digest. Entries are sorted and carry a fixed
 // time, so the same draft always has the same digest.
-func PackageDraft(d *Draft) ([]byte, string, error) {
+func PackageDraft(d *model.Draft) ([]byte, string, error) {
 	files, err := DraftArtifacts(d)
 	if err != nil {
 		return nil, "", err
@@ -27,7 +29,7 @@ func PackageDraft(d *Draft) ([]byte, string, error) {
 // their sessions (Jaccard), and the group is represented by its longest,
 // most specific routine. Routines with no step a primitive can replay are
 // left out: there is nothing to draft.
-func ReportPatternRoutines(r *Report) []int {
+func ReportPatternRoutines(r *model.Report) []int {
 	var cands []int
 	for i, c := range r.Candidates {
 		if !c.Qualified || c.Family != i {
@@ -48,7 +50,7 @@ func ReportPatternRoutines(r *Report) []int {
 		saved      float64
 	}
 	var groups []group
-	better := func(a, b Candidate) bool {
+	better := func(a, b model.Candidate) bool {
 		if len(a.Steps) != len(b.Steps) {
 			return len(a.Steps) > len(b.Steps)
 		}
@@ -61,7 +63,7 @@ func ReportPatternRoutines(r *Report) []int {
 		c := r.Candidates[i]
 		joined := false
 		for g := range groups {
-			if jaccardInts(c.sessionSet, r.Candidates[groups[g].lead].sessionSet) >= 0.5 {
+			if model.JaccardInts(c.SessionSet, r.Candidates[groups[g].lead].SessionSet) >= 0.5 {
 				if better(c, r.Candidates[groups[g].best]) {
 					groups[g].best = i
 				}

@@ -5,47 +5,18 @@ import (
 	"math/bits"
 	"sort"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
-// SkillProcedure is a pattern that sessions loading one skill run far more
-// often than sessions that do not: a candidate for what that skill's
-// recurring work actually is, step by step.
-type SkillProcedure struct {
-	Candidate
-	// InSkill is how many of the skill's sessions contain the pattern, and
-	// Coverage that as a share of them.
-	InSkill  int     `json:"in_skill"`
-	Coverage float64 `json:"coverage"`
-	// Outside is how many other sessions contain it.
-	Outside int `json:"outside"`
-	// Lift is the pattern's rate in the skill's sessions over its rate
-	// elsewhere. It is 0 when OnlyInSkill: the pattern never occurs outside
-	// the skill, so the ratio has no finite value (and JSON has no infinity).
-	Lift        float64 `json:"lift"`
-	OnlyInSkill bool    `json:"only_in_skill"`
-	// EnrichmentQ is the Fisher exact test's q-value, FDR-controlled over
-	// every skill and pattern pair tested.
-	EnrichmentQ float64 `json:"enrichment_q"`
-}
-
-// SkillReport lists, for one skill, the procedures its sessions share.
-type SkillReport struct {
-	Skill    string `json:"skill"`
-	Sessions int    `json:"sessions"`
-	// Significant is how many patterns were enriched in this skill's
-	// sessions; Procedures holds the best of them that fix something.
-	Significant int              `json:"significant"`
-	Procedures  []SkillProcedure `json:"procedures"`
-}
-
 // skillProcedures compares, for every skill loaded in at least two sessions,
 // the kept patterns' presence in that skill's sessions against sessions of
 // the same client and similar length. It reuses the patterns the main search
 // kept, so it adds no search.
-func skillProcedures(corpus []trace.NormSession, seqs [][]int, ps []pattern, names []string, idf []float64, o Options) []SkillReport {
+func skillProcedures(corpus []trace.NormSession, seqs [][]int, ps []model.Pattern, names []string, idf []float64, o model.Options) []model.SkillReport {
 	skillSessions := map[string][]int{}
 	for i, s := range corpus {
 		for sk := range s.Skills {
@@ -55,7 +26,7 @@ func skillProcedures(corpus []trace.NormSession, seqs [][]int, ps []pattern, nam
 	// patternsOf[s] lists the patterns session s contains.
 	patternsOf := make([][]int, len(corpus))
 	for pi, p := range ps {
-		for _, s := range p.sessions {
+		for _, s := range p.Sessions {
 			patternsOf[s] = append(patternsOf[s], pi)
 		}
 	}
@@ -94,7 +65,7 @@ func skillProcedures(corpus []trace.NormSession, seqs [][]int, ps []pattern, nam
 	patternStrata := make([]map[int]int, len(ps))
 	for pi, p := range ps {
 		m := map[int]int{}
-		for _, s := range p.sessions {
+		for _, s := range p.Sessions {
 			m[stratum[s]]++
 		}
 		patternStrata[pi] = m
@@ -147,7 +118,7 @@ func skillProcedures(corpus []trace.NormSession, seqs [][]int, ps []pattern, nam
 			} else if float64(a) > e {
 				p = 0
 			}
-			k := len(ps[pi].sessions)
+			k := len(ps[pi].Sessions)
 			tests = append(tests, test{sk, pi, a, k - a, p})
 		}
 	}
@@ -168,7 +139,7 @@ func skillProcedures(corpus []trace.NormSession, seqs [][]int, ps []pattern, nam
 			sig[t.skill] = append(sig[t.skill], t)
 		}
 	}
-	out := make([]SkillReport, len(skills))
+	out := make([]model.SkillReport, len(skills))
 	util.ParallelFor(len(skills), func(si int) {
 		sk := skills[si]
 		ns := len(skillSessions[sk])
@@ -177,18 +148,18 @@ func skillProcedures(corpus []trace.NormSession, seqs [][]int, ps []pattern, nam
 			if ts[a].a != ts[b].a {
 				return ts[a].a > ts[b].a
 			}
-			la, lb := len(ps[ts[a].pattern].items), len(ps[ts[b].pattern].items)
+			la, lb := len(ps[ts[a].pattern].Items), len(ps[ts[b].pattern].Items)
 			if la != lb {
 				return la > lb
 			}
 			return float64(ts[a].a)/float64(ts[a].c+1) > float64(ts[b].a)/float64(ts[b].c+1)
 		})
-		rep := SkillReport{Skill: sk, Sessions: ns, Significant: len(ts)}
+		rep := model.SkillReport{Skill: sk, Sessions: ns, Significant: len(ts)}
 		for _, t := range ts {
 			if len(rep.Procedures) >= o.PerSkill {
 				break
 			}
-			c := describe(ps[t.pattern], corpus, seqs, names, idf, o.Window)
+			c := model.Describe(ps[t.pattern], corpus, seqs, names, idf, o.Window)
 			if c.Specificity == 0 {
 				continue
 			}
@@ -197,8 +168,8 @@ func skillProcedures(corpus []trace.NormSession, seqs [][]int, ps []pattern, nam
 				lift = (float64(t.a) / float64(ns)) / outRate
 			}
 			c.Qualified = true
-			c.sessionSet = nil
-			rep.Procedures = append(rep.Procedures, SkillProcedure{Candidate: c, InSkill: t.a, Coverage: float64(t.a) / float64(ns), Outside: t.c, Lift: lift, OnlyInSkill: t.c == 0, EnrichmentQ: t.p})
+			c.SessionSet = nil
+			rep.Procedures = append(rep.Procedures, model.SkillProcedure{Candidate: c, InSkill: t.a, Coverage: float64(t.a) / float64(ns), Outside: t.c, Lift: lift, OnlyInSkill: t.c == 0, EnrichmentQ: t.p})
 		}
 		out[si] = rep
 	})

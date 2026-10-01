@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -24,7 +26,7 @@ func selSession(id, req string, calls ...trace.Call) trace.Session {
 	return trace.Session{Client: "codex", ID: id, Start: selT0, Requests: []string{req}, Calls: calls}
 }
 
-func judged(t *testing.T, ss []trace.Session, id string) Opportunity {
+func judged(t *testing.T, ss []trace.Session, id string) model.Opportunity {
 	t.Helper()
 	for _, o := range SelectOpportunities(ss) {
 		if o.Session == id {
@@ -32,7 +34,7 @@ func judged(t *testing.T, ss []trace.Session, id string) Opportunity {
 		}
 	}
 	t.Fatalf("no judgment for %s", id)
-	return Opportunity{}
+	return model.Opportunity{}
 }
 
 const statedPrompt = `Automation: queue monitor. Run %d.
@@ -50,7 +52,7 @@ func TestStatedTemplateIsRecommendedAcrossDifferentRuns(t *testing.T) {
 			trace.Call{Tool: "shell", Command: "tail -n 1 /work/tracker/log.jsonl"}))
 	}
 	o := judged(t, ss, "run0")
-	if !o.Recommended || o.Route != RouteStatedTemplate {
+	if !o.Recommended || o.Route != model.RouteStatedTemplate {
 		t.Fatalf("want stated_template, got %+v", o)
 	}
 	if o.Task != "codex/run0/0" || o.ID != trace.EpisodeID("codex", "run0", 0) {
@@ -86,7 +88,7 @@ EOF`
 		trace.Call{Tool: "shell", Command: fmt.Sprintf(script, "/data/a.json")},
 		trace.Call{Tool: "shell", Command: "date -u"},
 		trace.Call{Tool: "shell", Command: fmt.Sprintf(script, "/data/b.json")})
-	if o := judged(t, []trace.Session{check}, "check"); !o.Recommended || o.Route != RouteRerunCheck {
+	if o := judged(t, []trace.Session{check}, "check"); !o.Recommended || o.Route != model.RouteRerunCheck {
 		t.Errorf("want rerun_check, got %+v", o)
 	}
 	view := selSession("view", "look at the handler",
@@ -104,14 +106,14 @@ func TestParametricLoopNeedsIdentifiersNotSearchPhrasings(t *testing.T) {
 		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "log one"},
 		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "log two"},
 		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234612"}, Output: "log three"})
-	if o := judged(t, []trace.Session{ids}, "ids"); !o.Recommended || o.Route != RouteParamLoop {
+	if o := judged(t, []trace.Session{ids}, "ids"); !o.Recommended || o.Route != model.RouteParamLoop {
 		t.Errorf("want parametric_loop, got %+v", o)
 	}
 	fromResult := selSession("from_result", "list the failed jobs, then fetch each log",
 		trace.Call{Tool: "mcp:gitlab_list_failed_jobs", Output: `{"jobs":[{"id":"81234567"},{"id":"81234599"}]}`},
 		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "log one"},
 		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "log two"})
-	if o := judged(t, []trace.Session{fromResult}, "from_result"); !o.Recommended || o.Route != RouteParamLoop || !strings.Contains(o.Contract, "prior_output") {
+	if o := judged(t, []trace.Session{fromResult}, "from_result"); !o.Recommended || o.Route != model.RouteParamLoop || !strings.Contains(o.Contract, "prior_output") {
 		t.Errorf("want loop over the earlier result, got %+v", o)
 	}
 	unknown := selSession("unknown", "tail the failed jobs",
@@ -167,7 +169,7 @@ func TestNamedObjectNeedsATouchedObjectAndADependency(t *testing.T) {
 		trace.Call{Tool: "mcp:jira_list_transitions", Args: map[string]string{"issue_key": "TENG-4321"}, Output: `{"transitions":[{"id":"31","name":"Done"}],"done_id":"trn-31-done"}`},
 		trace.Call{Tool: "mcp:jira_add_comment", Args: map[string]string{"issue_key": "TENG-4321", "body": "shipped"}},
 		trace.Call{Tool: "mcp:jira_transition_issue", Args: map[string]string{"issue_key": "TENG-4321", "transition_id": "trn-31-done"}})
-	if o := judged(t, []trace.Session{close}, "close"); !o.Recommended || o.Route != RouteNamedObject {
+	if o := judged(t, []trace.Session{close}, "close"); !o.Recommended || o.Route != model.RouteNamedObject {
 		t.Errorf("want named_object, got %+v", o)
 	}
 	unrelated := selSession("unrelated", "close TENG-4321 with a note that it shipped",
@@ -207,7 +209,7 @@ func TestGroupOpportunitiesByContractRanksBySessions(t *testing.T) {
 		}
 	}
 	gs := GroupOpportunities(ops)
-	if len(gs) != 2 || gs[0].Route != RouteStatedTemplate || gs[0].Sessions != 3 || gs[0].Requests != 3 || gs[1].Sessions != 1 {
+	if len(gs) != 2 || gs[0].Route != model.RouteStatedTemplate || gs[0].Sessions != 3 || gs[0].Requests != 3 || gs[1].Sessions != 1 {
 		t.Fatalf("want the 3-session template group first, then the loop: %+v", gs)
 	}
 	members := 0

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
 )
 
 // Saving a draft installs it the way an agent client finds a skill: a folder
@@ -73,7 +75,7 @@ var skillName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
 // Save installs the draft into root (a skills directory) and returns the
 // folder. unchanged is true when the same draft was already there.
-func SaveDraft(d *Draft, root string) (path string, unchanged bool, err error) {
+func SaveDraft(d *model.Draft, root string) (path string, unchanged bool, err error) {
 	if !skillName.MatchString(d.Name) {
 		return "", false, fmt.Errorf("%q is not a usable folder name", d.Name)
 	}
@@ -81,7 +83,7 @@ func SaveDraft(d *Draft, root string) (path string, unchanged bool, err error) {
 	if err != nil {
 		return "", false, err
 	}
-	m := savedMarker{Name: d.Publisher + "/" + d.Name, Digest: digest, Validation: ValidationNotRun}
+	m := savedMarker{Name: d.Publisher + "/" + d.Name, Digest: digest, Validation: model.ValidationNotRun}
 	return install(root, d.Name, pkg, m, savedSkillMD(d, filepath.Join(root, d.Name)))
 }
 
@@ -138,7 +140,7 @@ func install(root, name string, pkg []byte, m savedMarker, skillMD string) (path
 	return dest, false, os.Rename(stage, dest)
 }
 
-func savedSkillMD(d *Draft, dir string) string {
+func savedSkillMD(d *model.Draft, dir string) string {
 	desc := d.Name
 	if b := d.Files["README.md"]; len(b) > 0 {
 		if parts := strings.SplitN(string(b), "\n\n", 3); len(parts) > 1 {

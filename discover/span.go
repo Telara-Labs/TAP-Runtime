@@ -9,7 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 
@@ -22,63 +23,13 @@ import (
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
 
-// SpanProposal is a causal slice of a task's recorded calls. It is deliberately
-// unassessed: a data-flow or shared-input shape does not prove the task was
-// useful, safe to replay, or complete. Calls are one-based within Request and
-// may be non-contiguous; a brief includes exactly these calls.
-type SpanProposal struct {
-	ID             string          `json:"id"`
-	Client         string          `json:"client"`
-	Session        string          `json:"session"`
-	Request        int             `json:"request"`
-	Task           string          `json:"task"`
-	Status         string          `json:"status"`
-	Kind           string          `json:"kind"`
-	CodeShape      string          `json:"code_shape,omitempty"`  // normalized inline code, retrieval only
-	CodeFamily     string          `json:"code_family,omitempty"` // broad call-order motif, not equivalence
-	CodeScope      string          `json:"code_scope,omitempty"`  // direct or embedded shell snippet
-	Calls          []int           `json:"calls"`
-	CallHashes     []string        `json:"call_hashes"`
-	Tools          []string        `json:"tools"`
-	Inputs         []SpanInput     `json:"inputs,omitempty"`
-	Effect         string          `json:"effect"`
-	GoalKey        string          `json:"goal_key"`
-	ShapeKey       string          `json:"shape_key"`
-	Composition    SpanComposition `json:"composition"`
-	Review         SpanTaskReview  `json:"review"`
-	ContextRequest int             `json:"context_request,omitempty"`
-	EvidenceScore  int             `json:"evidence_score"`
-	Start          time.Time       `json:"start,omitempty"`
-}
-
-// SpanInput records provenance, not a potentially secret value. FromCall is
-// one-based within the request; FromRequest identifies a previous user turn.
-type SpanInput struct {
-	Key         string `json:"key"`
-	Type        string `json:"type"`
-	Source      string `json:"source"`
-	FromCall    int    `json:"from_call,omitempty"`
-	FromRequest int    `json:"from_request,omitempty"`
-}
-
-// SpanGroup is a review queue bucket, not a claim that its members implement
-// one interchangeable procedure. The key includes goal, ordered call shape,
-// input provenance and observed effect; it does not use tool-label overlap.
-type SpanGroup struct {
-	ShapeKey  string       `json:"shape_key"`
-	Proposals int          `json:"proposals"`
-	Sessions  int          `json:"sessions"`
-	Example   SpanProposal `json:"example"`
-	Members   []string     `json:"members"`
-}
-
 type spanNode struct {
 	call    trace.Call
 	ordinal int
 	steps   []trace.Step
 	label   string
 	effect  string
-	inputs  []SpanInput
+	inputs  []model.SpanInput
 	deps    []int
 	anchors []string
 }
@@ -86,7 +37,7 @@ type spanNode struct {
 // SelectSpanProposals extracts bounded pieces of work without requiring the
 // whole request to be short, multi-call, or to name an object literally. It
 // makes no LLM call and does not change the older recommendation score.
-func SelectSpanProposals(ss []trace.Session) []SpanProposal {
+func SelectSpanProposals(ss []trace.Session) []model.SpanProposal {
 	cp := append([]trace.Session(nil), ss...)
 	for i := range cp {
 		cp[i].Calls = append([]trace.Call(nil), cp[i].Calls...)
@@ -150,7 +101,7 @@ func SelectSpanProposals(ss []trace.Session) []SpanProposal {
 			pairSupport[key] = true
 		}
 	}
-	var out []SpanProposal
+	var out []model.SpanProposal
 	for _, item := range work {
 		out = append(out, proposalsForRequest(cp[item.session], item.request, item.nodes, pairSupport)...)
 	}
@@ -214,7 +165,7 @@ func buildSpanNodes(s trace.Session, req int, calls []int, byCall map[int][]trac
 				if !spanVariable(slot) {
 					continue
 				}
-				input := SpanInput{Key: slot.Key, Type: slot.Type, Source: "unknown"}
+				input := model.SpanInput{Key: slot.Key, Type: slot.Type, Source: "unknown"}
 				v := slot.Value
 				switch {
 				case spanInText(v, slot.Type, s.Requests[req]):
@@ -365,7 +316,7 @@ func appendUniqueInt(xs []int, n int) []int {
 	return append(xs, n)
 }
 
-func proposalsForRequest(s trace.Session, req int, nodes []spanNode, pairSupport map[string]bool) []SpanProposal {
+func proposalsForRequest(s trace.Session, req int, nodes []spanNode, pairSupport map[string]bool) []model.SpanProposal {
 	var sets [][]int
 	authored := map[string]bool{}
 	repeatedOrder := map[string]bool{}
@@ -507,7 +458,7 @@ func proposalsForRequest(s trace.Session, req int, nodes []spanNode, pairSupport
 		sets = append(sets, []int{i})
 	}
 	seenSets := map[string]bool{}
-	var out []SpanProposal
+	var out []model.SpanProposal
 	for _, set := range sets {
 		key := spanSetKey(nodes, set)
 		if seenSets[key] {
@@ -912,13 +863,13 @@ func spanOperationVerb(words map[string]bool, n spanNode) string {
 	return ""
 }
 
-func makeSpanProposal(s trace.Session, req int, nodes []spanNode, set []int, kind string) SpanProposal {
+func makeSpanProposal(s trace.Session, req int, nodes []spanNode, set []int, kind string) model.SpanProposal {
 	var calls []int
 	var callHashes []string
 	var labels, tools, inputShapes []string
 	effect, score := "unknown", 0
 	seenInputs := map[string]bool{}
-	var inputs []SpanInput
+	var inputs []model.SpanInput
 	for _, i := range set {
 		n := nodes[i]
 		calls = append(calls, n.ordinal)
@@ -998,8 +949,8 @@ func makeSpanProposal(s trace.Session, req int, nodes []spanNode, set []int, kin
 	// The ID depends only on source identity and the selected call ordinals.
 	idHash := sha256.Sum256([]byte(trace.EpisodeID(s.Client, s.ID, req) + "/" + strings.Join(intsToStrings(calls), ",")))
 	start := nodes[set[0]].call.Time
-	return SpanProposal{ID: "sp_" + hex.EncodeToString(idHash[:6]), Client: s.Client, Session: s.ID, Request: req,
-		Task: s.Client + "/" + s.ID + "/" + strconv.Itoa(req), Status: BriefStatus, Kind: kind, Calls: calls, CallHashes: callHashes, Tools: tools,
+	return model.SpanProposal{ID: "sp_" + hex.EncodeToString(idHash[:6]), Client: s.Client, Session: s.ID, Request: req,
+		Task: s.Client + "/" + s.ID + "/" + strconv.Itoa(req), Status: model.BriefStatus, Kind: kind, Calls: calls, CallHashes: callHashes, Tools: tools,
 		Inputs: inputs, Effect: effect, GoalKey: hex.EncodeToString(goalHash[:6]), ContextRequest: contextRequest,
 		ShapeKey: "shape_" + hex.EncodeToString(shapeHash[:8]), Composition: spanComposition(nodes, set), Review: assessSpanTask(s, req, nodes, set, inputs), EvidenceScore: score, Start: start}
 }
@@ -1027,13 +978,13 @@ func intsToStrings(xs []int) []string {
 
 // GroupSpanProposals reduces review load without treating similar tool use
 // as proof of one procedure. Exact shape keys must agree before grouping.
-func GroupSpanProposals(ps []SpanProposal) []SpanGroup {
-	by := map[string]*SpanGroup{}
+func GroupSpanProposals(ps []model.SpanProposal) []model.SpanGroup {
+	by := map[string]*model.SpanGroup{}
 	sessions := map[string]map[string]bool{}
 	for _, p := range ps {
 		g := by[p.ShapeKey]
 		if g == nil {
-			g = &SpanGroup{ShapeKey: p.ShapeKey, Example: p}
+			g = &model.SpanGroup{ShapeKey: p.ShapeKey, Example: p}
 			by[p.ShapeKey] = g
 			sessions[p.ShapeKey] = map[string]bool{}
 		}
@@ -1044,7 +995,7 @@ func GroupSpanProposals(ps []SpanProposal) []SpanGroup {
 			g.Example = p
 		}
 	}
-	out := make([]SpanGroup, 0, len(by))
+	out := make([]model.SpanGroup, 0, len(by))
 	for key, g := range by {
 		g.Sessions = len(sessions[key])
 		sort.Strings(g.Members)

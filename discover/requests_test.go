@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -63,9 +65,9 @@ func TestRecurringRequestsBecomePrimitives(t *testing.T) {
 	if f.Sessions != 30 || f.Routines < 2 {
 		t.Fatalf("funnel = %+v", f)
 	}
-	var jira, deploy *Routine
+	var jira, deploy *model.Routine
 	for i := range rep.Routines {
-		l := labelsOf(rep.Routines[i].Candidate)
+		l := model.LabelsOf(rep.Routines[i].Candidate)
 		switch {
 		case strings.Contains(l, "jira_transition_issue"):
 			jira = &rep.Routines[i]
@@ -137,7 +139,7 @@ func TestReviewWithoutARegistryOnlySaves(t *testing.T) {
 	var saved []string
 	var out bytes.Buffer
 	err := Review(strings.NewReader("all\n"), &out, rep, ReviewConfig{}, ReviewActions{
-		Save: func(d *Draft) (string, error) { saved = append(saved, d.Name); return "/skills/" + d.Name, nil },
+		Save: func(d *model.Draft) (string, error) { saved = append(saved, d.Name); return "/skills/" + d.Name, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -193,7 +195,7 @@ func TestExplorationIsNotAPrimitive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Funnel.Routines != 1 || rep.Funnel.Primitives != 0 || rep.Routines[0].Suitability == SuitUseful {
+	if rep.Funnel.Routines != 1 || rep.Funnel.Primitives != 0 || rep.Routines[0].Suitability == model.SuitUseful {
 		t.Fatalf("funnel %+v; failed %q: %s", rep.Funnel, rep.Routines[0].Failed, rep.Routines[0].Why)
 	}
 }
@@ -207,13 +209,13 @@ func TestFixedShareIsAFractionOfTheRoutine(t *testing.T) {
 	}
 	for _, r := range ReportPrimitives(rep) {
 		if s := RoutineDraft(r).FixedShare; s <= 0 || s > 1 {
-			t.Fatalf("fixed share %v out of range for %s", s, labelsOf(r.Candidate))
+			t.Fatalf("fixed share %v out of range for %s", s, model.LabelsOf(r.Candidate))
 		}
 	}
 	// The ticket routine fixes its tools and transition and takes one id; it
 	// is mostly fixed.
 	for _, r := range ReportPrimitives(rep) {
-		if strings.Contains(labelsOf(r.Candidate), "jira_transition_issue") && RoutineDraft(r).FixedShare < 0.6 {
+		if strings.Contains(model.LabelsOf(r.Candidate), "jira_transition_issue") && RoutineDraft(r).FixedShare < 0.6 {
 			t.Fatalf("ticket routine fixed share = %v", RoutineDraft(r).FixedShare)
 		}
 	}

@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
 )
 
 // Saving an authored package. It installs like a saved draft (install.go),
@@ -97,15 +99,15 @@ func ReadAuthoring(pkg string) (*Authoring, error) {
 // passed only when they are for this digest and every case passed.
 func ValidationFor(rec *Receipts, digest string) (string, error) {
 	if rec == nil {
-		return ValidationNotRun, nil
+		return model.ValidationNotRun, nil
 	}
 	if rec.PackageDigest != digest {
-		return ValidationNotRun, fmt.Errorf("the receipts are for %s, not this package (%s)", rec.PackageDigest, digest)
+		return model.ValidationNotRun, fmt.Errorf("the receipts are for %s, not this package (%s)", rec.PackageDigest, digest)
 	}
 	if rec.AllPassed && len(rec.Cases) > 0 {
-		return ValidationPassed, nil
+		return model.ValidationPassed, nil
 	}
-	return ValidationFailed, nil
+	return model.ValidationFailed, nil
 }
 
 // SavePackage installs an authored package directory into root.
@@ -144,9 +146,9 @@ func authoredSkillMD(a *Authoring, m savedMarker, dir string) string {
 	descJSON, _ := json.Marshal(desc)
 	status := "Validation: **" + m.Validation + "**"
 	switch m.Validation {
-	case ValidationPassed:
+	case model.ValidationPassed:
 		status += fmt.Sprintf(" for digest %s, on %d fresh cases through the TAP runner (receipts %s).", m.Digest, m.Cases, m.Receipts)
-	case ValidationFailed:
+	case model.ValidationFailed:
 		status += fmt.Sprintf(": at least one of %d cases failed for digest %s. Do not rely on it.", m.Cases, m.Digest)
 	default:
 		status += ": it has not been run on held-out cases."

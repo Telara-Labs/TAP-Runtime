@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
@@ -49,9 +51,9 @@ func TestDraftNeverWritesCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var r *Routine
+	var r *model.Routine
 	for i := range rep.Routines {
-		if strings.Contains(labelsOf(rep.Routines[i].Candidate), "vault_write") {
+		if strings.Contains(model.LabelsOf(rep.Routines[i].Candidate), "vault_write") {
 			r = &rep.Routines[i]
 		}
 	}
@@ -92,15 +94,15 @@ func TestDraftNeverWritesCredentials(t *testing.T) {
 }
 
 func TestLeftoverCredentialBlocksEverything(t *testing.T) {
-	d := &Draft{Files: map[string][]byte{"main.sh": []byte("curl -H 'Authorization: " + fakeBearer + "' x\n")}}
+	d := &model.Draft{Files: map[string][]byte{"main.sh": []byte("curl -H 'Authorization: " + fakeBearer + "' x\n")}}
 	d.Blocked = redact.ScanArtifacts(d.Files)
 	if len(d.Blocked) != 1 || strings.Contains(d.Blocked[0], "abcDEF") {
 		t.Fatalf("blocked = %v (it must say where, never what)", d.Blocked)
 	}
-	if _, err := DraftArtifacts(d); !errors.Is(err, ErrBlocked) {
+	if _, err := DraftArtifacts(d); !errors.Is(err, model.ErrBlocked) {
 		t.Fatalf("artifacts: %v", err)
 	}
-	if _, _, err := PackageDraft(d); !errors.Is(err, ErrBlocked) {
+	if _, _, err := PackageDraft(d); !errors.Is(err, model.ErrBlocked) {
 		t.Fatalf("package: %v", err)
 	}
 	if _, _, err := SaveDraft(d, t.TempDir()); err == nil {

@@ -13,6 +13,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -46,144 +48,37 @@ const (
 	KindSkipped = "skipped" // the agent's own bookkeeping: nothing to replay
 )
 
-// DraftStep is one step as the review shows it.
-type DraftStep struct {
-	N      int    `json:"n"`
-	Kind   string `json:"kind"`
-	Label  string `json:"label"`
-	Line   string `json:"line"`
-	Effect string `json:"effect,omitempty"`
-	Note   string `json:"note,omitempty"`
-}
-
-// DraftInput is one argument of the drafted primitive: $Position in main.sh.
-type DraftInput struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-	// Raw inputs are passed as JSON (a number, a boolean), not as a string.
-	Raw bool `json:"raw,omitempty"`
-	// Example is one recorded value, redacted, for the person reviewing on
-	// this machine. It is never written into a generated file.
-	Example string `json:"-"`
-	// Sensitive inputs are credentials: the caller supplies them from its
-	// own configuration and no recorded value is kept.
-	Sensitive bool `json:"sensitive,omitempty"`
-	// DerivedFrom is the step (1-based) whose output held this value in most
-	// runs: the program must take it from there, not from the caller.
-	DerivedFrom int `json:"derived_from,omitempty"`
-	// Extract, when set, is how the program takes this value from step
-	// DerivedFrom's output: a grep pattern for the text before it and the
-	// value itself. The caller does not supply it and it has no Position.
-	Extract string `json:"extract,omitempty"`
-	// Binding says how Extract reads the value: "json_path" (a jq path into
-	// a JSON result) or "text_anchor" (the text before it).
-	Binding string `json:"binding,omitempty"`
-	// List marks a caller-given list the program loops over (a JSON array).
-	List bool `json:"list,omitempty"`
-	// Position is the argument number the caller passes it as ($1, $2...);
-	// 0 for an extracted value.
-	Position int    `json:"position"`
-	From     string `json:"from"`
-	// strip is what Extract's match starts with, removed to leave the value.
-	strip string
-	// pos is the template position of the step that takes it.
-	pos int
-}
-
-// Draft is a drafted package and what the review needs to show it.
-type Draft struct {
-	Name      string            `json:"name"`
-	Publisher string            `json:"publisher"`
-	Inputs    []DraftInput      `json:"inputs"`
-	Steps     []DraftStep       `json:"steps"`
-	Files     map[string][]byte `json:"-"`
-	// Blocked lists every place a generated file still looks like it holds a
-	// credential. While it is non-empty the draft cannot be saved, packaged
-	// or published.
-	Blocked []string `json:"blocked,omitempty"`
-	// Problems is what manifest.PublishProblems reports; empty means the
-	// package passes the same checks the registry runs before accepting it.
-	Problems   []string `json:"problems"`
-	HumanSteps int      `json:"human_steps"`
-	// Derived counts inputs an earlier step's output supplied in the
-	// recorded runs that the draft could not extract itself: they need
-	// authoring. Extracted counts those it takes from that output.
-	Derived   int `json:"derived"`
-	Extracted int `json:"extracted"`
-	// FixedSteps counts steps that pin something: a subcommand, an MCP tool,
-	// a constant argument or browser object. None means every command and
-	// argument varied: exploration, not a procedure.
-	FixedSteps int `json:"fixed_steps"`
-	// FixedShare is how much of the routine is fixed: each replayed step's
-	// tool or command plus every argument that never changed, over that plus
-	// the inputs. A procedure is mostly fixed; an investigation, where the
-	// agent chose most values as it went, is mostly inputs.
-	FixedShare float64 `json:"fixed_share"`
-	values     []map[int]string
-	// listLoop names the steps drafted as a loop over a caller list.
-	listLoop map[string]bool
-	// humanPos are template positions drafted as human steps.
-	humanPos map[int]bool
-	// priorLoop names steps that loop over a list an earlier result held.
-	priorLoop map[string]bool
-	// firstRun is the first drafted run's steps, for evidence lookups.
-	firstRun []trace.Step
-	posStep  map[int]int
-	// RuntimeUnsupported names steps the TAP guest runtime would not run
-	// as recorded (a built-in that ignores file arguments, a file read the
-	// manifest cannot declare). They block a structurally complete draft.
-	RuntimeUnsupported []string `json:"runtime_unsupported,omitempty"`
-}
-
 // inputValues is input n's value in each drafted run (by run index).
-func draftInputValues(d *Draft, n int) map[int]string {
-	if n < 0 || n >= len(d.values) {
+func draftInputValues(d *model.Draft, n int) map[int]string {
+	if n < 0 || n >= len(d.Values) {
 		return nil
 	}
-	return d.values[n]
-}
-
-// DraftOptions are the review's answers.
-type DraftOptions struct {
-	Publisher string
-	// ReadOnly lists step numbers (1-based) the user confirmed change nothing.
-	ReadOnly map[int]bool
-	// loops are steps each run made once per item of a list the request
-	// gave: the varying argument and, per occurrence, its values in order.
-	loops map[string]loopSpec
-}
-
-type loopSpec struct {
-	key    string
-	values [][]string // per occurrence (index into occ)
-	// source is where the list came from: "caller" (the request gave it)
-	// or "prior_output" (an earlier step's result held every item).
-	source string
+	return d.Values[n]
 }
 
 // Draft builds the package for Candidates[idx].
-func ReportDraft(r *Report, idx int, opt DraftOptions) (*Draft, error) {
-	if idx < 0 || idx >= len(r.Candidates) || r.corpus == nil {
+func ReportDraft(r *model.Report, idx int, opt model.DraftOptions) (*model.Draft, error) {
+	if idx < 0 || idx >= len(r.Candidates) || r.Corpus == nil {
 		return nil, errors.New("no such candidate in this run")
 	}
 	c := r.Candidates[idx]
-	if len(c.items) == 0 {
+	if len(c.Items) == 0 {
 		return nil, errors.New("this candidate cannot be drafted")
 	}
 	var occ [][]trace.Step
-	sessions := make([]int, 0, len(c.sessionSet))
-	for s := range c.sessionSet {
+	sessions := make([]int, 0, len(c.SessionSet))
+	for s := range c.SessionSet {
 		sessions = append(sessions, s)
 	}
 	sort.Ints(sessions)
 	for _, s := range sessions {
-		idxs := trace.MatchAt(r.seqs[s], c.items, r.window)
+		idxs := trace.MatchAt(r.Seqs[s], c.Items, r.Window)
 		if idxs == nil {
 			continue
 		}
 		steps := make([]trace.Step, len(idxs))
 		for i, j := range idxs {
-			steps[i] = r.corpus[s].Steps[j]
+			steps[i] = r.Corpus[s].Steps[j]
 		}
 		occ = append(occ, steps)
 	}
@@ -201,9 +96,9 @@ type slotPlan struct {
 }
 
 type drafter struct {
-	opt      DraftOptions
+	opt      model.DraftOptions
 	occ      [][]trace.Step
-	inputs   []DraftInput
+	inputs   []model.DraftInput
 	vectors  []map[int]string // per input: occurrence -> value
 	names    map[string]bool
 	mf       manifest.Manifest
@@ -212,7 +107,7 @@ type drafter struct {
 	origins  map[string]bool
 	tools    map[string]bool
 	lines    []string
-	steps    []DraftStep
+	steps    []model.DraftStep
 	humanCnt int
 	fixedCnt int
 	fixedArg int // arguments that had the same value in every run
@@ -275,18 +170,18 @@ func (d *drafter) fileAccess(p slotPlan, n int) {
 // output, that shell variable.
 func (d *drafter) ref(k int) string { return "\x01" + util.Itoa(k) + "\x01" }
 
-func buildDraft(c Candidate, occ [][]trace.Step, opt DraftOptions) *Draft {
+func buildDraft(c model.Candidate, occ [][]trace.Step, opt model.DraftOptions) *model.Draft {
 	if opt.Publisher == "" {
 		opt.Publisher = DefaultPublisher
 	}
 	d := &drafter{opt: opt, occ: occ, listLoop: map[string]bool{}, priorLoop: map[string]bool{}, posStep: map[int]int{}, names: map[string]bool{}, cmds: map[string]bool{}, files: map[string]bool{}, origins: map[string]bool{}, tools: map[string]bool{}}
-	for i := 0; i < len(c.items); {
+	for i := 0; i < len(c.Items); {
 		label := c.Steps[i].Label
 		d.posStep[i] = len(d.steps) + 1
 		if strings.HasPrefix(label, "js:") {
 			// Consecutive browser calls were one script: they stay one call.
 			j := i
-			for j < len(c.items) && strings.HasPrefix(c.Steps[j].Label, "js:") {
+			for j < len(c.Items) && strings.HasPrefix(c.Steps[j].Label, "js:") {
 				d.posStep[j] = len(d.steps) + 1
 				j++
 			}
@@ -298,7 +193,7 @@ func buildDraft(c Candidate, occ [][]trace.Step, opt DraftOptions) *Draft {
 			// One recorded command line (a pipeline, a chain, a heredoc)
 			// that holds this step and possibly the next ones.
 			j := i + 1
-			for j < len(c.items) && sameCall(d.occ, i, j) {
+			for j < len(c.Items) && sameCall(d.occ, i, j) {
 				d.posStep[j] = len(d.steps) + 1
 				j++
 			}
@@ -313,7 +208,7 @@ func buildDraft(c Candidate, occ [][]trace.Step, opt DraftOptions) *Draft {
 	d.finish()
 	name := draftName(c)
 	desc := fmt.Sprintf("Unvalidated draft (never executed). Recurring routine found by tap discover in %d sessions over %d weeks (%s). Steps: %s.",
-		c.Sessions, c.Weeks, clientList(c.ByClient), labelsOf(c))
+		c.Sessions, c.Weeks, clientList(c.ByClient), model.LabelsOf(c))
 	props := map[string]any{}
 	var required []string
 	for _, in := range d.inputs {
@@ -374,12 +269,12 @@ func buildDraft(c Candidate, occ [][]trace.Step, opt DraftOptions) *Draft {
 		"main.sh":        []byte(sh.String()),
 		"README.md":      []byte(draftReadme(name, desc, d)),
 	}
-	return &Draft{
+	return &model.Draft{
 		Blocked: redact.ScanArtifacts(files),
 		Name:    name, Publisher: opt.Publisher, Inputs: d.inputs, Steps: d.steps,
 		RuntimeUnsupported: d.unsupported,
-		listLoop:           d.listLoop, priorLoop: d.priorLoop, humanPos: d.humanPositions(), firstRun: occ[0], posStep: d.posStep,
-		Problems: problems, HumanSteps: d.humanCnt, Derived: d.derivedCnt, Extracted: d.extracted, FixedSteps: d.fixedCnt, FixedShare: fixedShare(d), values: d.vectors,
+		ListLoop:           d.listLoop, PriorLoop: d.priorLoop, HumanPos: d.humanPositions(), FirstRun: occ[0], PosStep: d.posStep,
+		Problems: problems, HumanSteps: d.humanCnt, Derived: d.derivedCnt, Extracted: d.extracted, FixedSteps: d.fixedCnt, FixedShare: fixedShare(d), Values: d.vectors,
 		Files: files,
 	}
 }
@@ -528,12 +423,12 @@ func (d *drafter) input(stepName string, sl trace.Slot, vec map[int]string, sens
 		name = fmt.Sprintf("%s_%d", sanitizeName(base), k)
 	}
 	d.names[name] = true
-	in := DraftInput{Name: name, Type: sl.Type, Raw: sl.Raw, Example: redact.Redact(sl.Value), From: stepName, pos: pos}
+	in := model.DraftInput{Name: name, Type: sl.Type, Raw: sl.Raw, Example: redact.Redact(sl.Value), From: stepName, Pos: pos}
 	if !sensitive {
 		if h := d.derivedFrom(pos, vec); h >= 0 {
 			in.DerivedFrom = d.posStep[h]
 			if pat, strip, binding, ok := d.extraction(h, vec); ok && d.capturable(in.DerivedFrom) {
-				in.Extract, in.strip, in.Binding = pat, strip, binding
+				in.Extract, in.Strip, in.Binding = pat, strip, binding
 				d.extracted++
 			} else {
 				d.derivedCnt++
@@ -569,9 +464,9 @@ func (d *drafter) command(i, n int, label string) {
 	plans := d.plan(i, stepName)
 	// A step run once per item of a list the request gave becomes a loop
 	// over a list input.
-	spec, isLoop := d.opt.loops[label]
+	spec, isLoop := d.opt.Loops[label]
 	loopIn := -1
-	if isLoop && spec.source == "prior_output" {
+	if isLoop && spec.Source == "prior_output" {
 		// The list came from an earlier result; binding a collection out of
 		// a result is not drafted, so this step is marked for authoring.
 		d.priorLoop[label] = true
@@ -579,7 +474,7 @@ func (d *drafter) command(i, n int, label string) {
 	}
 	if isLoop {
 		for _, p := range plans {
-			if p.slot.Key == spec.key && !p.fixed && p.input >= 0 {
+			if p.slot.Key == spec.Key && !p.fixed && p.input >= 0 {
 				loopIn = p.input
 			}
 		}
@@ -588,7 +483,7 @@ func (d *drafter) command(i, n int, label string) {
 		in := &d.inputs[loopIn]
 		in.List, in.Raw, in.Type, in.Example = true, true, "list", ""
 		vec := map[int]string{}
-		for j, vs := range spec.values {
+		for j, vs := range spec.Values {
 			if vs == nil {
 				continue
 			}
@@ -656,7 +551,7 @@ func (d *drafter) command(i, n int, label string) {
 	if fixed {
 		d.fixedCnt++
 	}
-	d.steps = append(d.steps, DraftStep{N: n, Kind: KindCommand, Label: label, Line: line, Effect: eff})
+	d.steps = append(d.steps, model.DraftStep{N: n, Kind: KindCommand, Label: label, Line: line, Effect: eff})
 }
 
 var nonAlias = regexp.MustCompile(`[^a-z0-9_]+`)
@@ -699,7 +594,7 @@ func (d *drafter) tool(i, n int, tool, label string) {
 	d.lines = append(d.lines, pre...)
 	d.lines = append(d.lines, line)
 	d.fixedCnt++ // an MCP tool names one action in one system
-	d.steps = append(d.steps, DraftStep{N: n, Kind: KindTool, Label: label, Line: line, Effect: eff})
+	d.steps = append(d.steps, model.DraftStep{N: n, Kind: KindTool, Label: label, Line: line, Effect: eff})
 }
 
 // browser writes steps i..j-1 (awaited calls of one script) as one call to
@@ -788,7 +683,7 @@ func (d *drafter) browser(i, j int) {
 	if browserFixed {
 		d.fixedCnt++
 	}
-	d.steps = append(d.steps, DraftStep{N: n, Kind: KindBrowser, Label: label, Line: line, Effect: eff, Note: note})
+	d.steps = append(d.steps, model.DraftStep{N: n, Kind: KindBrowser, Label: label, Line: line, Effect: eff, Note: note})
 }
 
 func (d *drafter) human(i, n int, label, fileKey string) {
@@ -806,7 +701,7 @@ func (d *drafter) human(i, n int, label, fileKey string) {
 	}
 	d.humanCnt++
 	d.lines = append(d.lines, fmt.Sprintf("# %d. %s", n, label), "# "+note, line)
-	d.steps = append(d.steps, DraftStep{N: n, Kind: KindHuman, Label: label, Line: line, Note: note})
+	d.steps = append(d.steps, model.DraftStep{N: n, Kind: KindHuman, Label: label, Line: line, Note: note})
 }
 
 func (d *drafter) builtin(i, n int, label string) {
@@ -831,7 +726,7 @@ func (d *drafter) builtin(i, n int, label string) {
 			if p.fixed {
 				d.fixedCnt++
 			}
-			d.steps = append(d.steps, DraftStep{N: n, Kind: KindCommand, Label: label, Line: line, Effect: d.effect(n)})
+			d.steps = append(d.steps, model.DraftStep{N: n, Kind: KindCommand, Label: label, Line: line, Effect: d.effect(n)})
 			return
 		}
 	case trace.EditTools[label]:
@@ -865,13 +760,13 @@ func (d *drafter) builtin(i, n int, label string) {
 				note = "Only " + origin + " is declared; a URL on another site will be refused."
 			}
 			d.lines = append(d.lines, fmt.Sprintf("# %d. %s", n, label), line)
-			d.steps = append(d.steps, DraftStep{N: n, Kind: KindFetch, Label: label, Line: line, Effect: "read", Note: note})
+			d.steps = append(d.steps, model.DraftStep{N: n, Kind: KindFetch, Label: label, Line: line, Effect: "read", Note: note})
 			return
 		}
 	}
 	note := "The agent's own bookkeeping (planning, searching its tools, typing into a terminal it opened): nothing to replay."
 	d.lines = append(d.lines, fmt.Sprintf("# %d. %s: not replayed. %s", n, label, note))
-	d.steps = append(d.steps, DraftStep{N: n, Kind: KindSkipped, Label: label, Note: note})
+	d.steps = append(d.steps, model.DraftStep{N: n, Kind: KindSkipped, Label: label, Note: note})
 }
 
 func draftReadme(name, desc string, d *drafter) string {
@@ -917,7 +812,7 @@ var nameWord = regexp.MustCompile(`[a-z0-9]+`)
 
 // draftName joins the steps' words (git add commit push), keeping the first
 // time each appears, into a manifest name.
-func draftName(c Candidate) string {
+func draftName(c model.Candidate) string {
 	seen := map[string]bool{}
 	var words []string
 	for _, s := range c.Steps {
@@ -1100,14 +995,11 @@ func fixedShare(d *drafter) float64 {
 	return float64(fixed) / float64(fixed+len(d.inputs))
 }
 
-// ErrBlocked is returned when a draft still holds something credential-shaped.
-var ErrBlocked = errors.New("the draft still contains credential-shaped values; it cannot be saved or published until they are removed")
-
 // Artifacts returns the draft's files, or ErrBlocked. Everything that writes
 // or sends a draft goes through it.
-func DraftArtifacts(d *Draft) (map[string][]byte, error) {
+func DraftArtifacts(d *model.Draft) (map[string][]byte, error) {
 	if len(d.Blocked) > 0 {
-		return nil, fmt.Errorf("%w: %s", ErrBlocked, strings.Join(d.Blocked, "; "))
+		return nil, fmt.Errorf("%w: %s", model.ErrBlocked, strings.Join(d.Blocked, "; "))
 	}
 	return d.Files, nil
 }
@@ -1152,7 +1044,7 @@ func (d *drafter) compound(i, j int) {
 		line := fmt.Sprintf(`echo "HUMAN STEP %d: %s" >&2`, n, label)
 		d.humanCnt++
 		d.lines = append(d.lines, fmt.Sprintf("# %d. %s", n, label), "# "+note, line)
-		d.steps = append(d.steps, DraftStep{N: n, Kind: KindHuman, Label: label, Line: line, Note: note})
+		d.steps = append(d.steps, model.DraftStep{N: n, Kind: KindHuman, Label: label, Line: line, Note: note})
 	}
 	type cut struct {
 		raw   string
@@ -1245,7 +1137,7 @@ func (d *drafter) compound(i, j int) {
 	}
 	d.fixedCnt++
 	d.lines = append(d.lines, fmt.Sprintf("# %d. %s (one recorded command line)", n, label), line)
-	d.steps = append(d.steps, DraftStep{N: n, Kind: KindCommand, Label: label, Line: line, Effect: eff, Note: note})
+	d.steps = append(d.steps, model.DraftStep{N: n, Kind: KindCommand, Label: label, Line: line, Effect: eff, Note: note})
 }
 
 var manifestCommand = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._+-]{0,63}$`)
@@ -1475,7 +1367,7 @@ func (d *drafter) finish() {
 				out = append(out,
 					fmt.Sprintf(`%s=$(printf '%%s\n' "$%s" | grep -o -e '%s' || true)`, m, v, in.Extract),
 					fmt.Sprintf(`[ -n "$%s" ] && [ "$(( $(printf '%%s\n' "$%s" | wc -l) ))" = 1 ] || %s`, m, m, fail("did not hold exactly one")),
-					fmt.Sprintf(`%s=${%s#%s}`, in.Name, m, shellQuote(in.strip)))
+					fmt.Sprintf(`%s=${%s#%s}`, in.Name, m, shellQuote(in.Strip)))
 			}
 			// Whatever was read must look like an identifier before any
 			// later step uses it.

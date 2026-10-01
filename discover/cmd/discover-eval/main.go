@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover"
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -176,7 +178,7 @@ func sample(args []string) error {
 	if err != nil {
 		return err
 	}
-	var rep discover.Report
+	var rep model.Report
 	b, err := os.ReadFile(*report)
 	if err != nil {
 		return err

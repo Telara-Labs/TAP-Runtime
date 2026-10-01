@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -126,7 +128,7 @@ func TestSingleEpisodeContract(t *testing.T) {
 	for _, x := range cl {
 		got[x.Session] = x.Suitability
 	}
-	if got["g00"] != SuitUseful || got["b00"] == SuitUseful {
+	if got["g00"] != model.SuitUseful || got["b00"] == model.SuitUseful {
 		t.Fatalf("claims %v", got)
 	}
 }

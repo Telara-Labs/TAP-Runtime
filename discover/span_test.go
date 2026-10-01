@@ -5,10 +5,12 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-func spanWithCalls(ps []SpanProposal, want ...int) *SpanProposal {
+func spanWithCalls(ps []model.SpanProposal, want ...int) *model.SpanProposal {
 	for i := range ps {
 		if reflect.DeepEqual(ps[i].Calls, want) {
 			return &ps[i]
@@ -29,7 +31,7 @@ func TestSpanProposalsTraceResultDerivedIDsWithoutNamedObject(t *testing.T) {
 		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "91234567"}, Output: "assertion failed"})
 	ps := SelectSpanProposals([]trace.Session{s})
 	p := spanWithCalls(ps, 1, 2, 3)
-	if p == nil || p.Kind != "result_chain" || p.Status != BriefStatus {
+	if p == nil || p.Kind != "result_chain" || p.Status != model.BriefStatus {
 		t.Fatalf("want unassessed result chain [1 2 3], got %+v", ps)
 	}
 	from := map[string]bool{}
@@ -173,7 +175,7 @@ func TestSpanProposalsCarryPriorTurnInputWithoutGrantingAuthority(t *testing.T) 
 	s.Requests = append(s.Requests, "Now add the approved comment to that issue")
 	s.Calls = append(s.Calls, trace.Call{Tool: "mcp:jira_add_comment", Args: map[string]string{"issue_key": "TENG-4321", "body": "approved"}, Output: "added", Outcome: trace.OutcomeOK, Request: 1})
 	ps := SelectSpanProposals([]trace.Session{s})
-	var p *SpanProposal
+	var p *model.SpanProposal
 	for i := range ps {
 		if ps[i].Request == 1 {
 			p = &ps[i]
@@ -189,7 +191,7 @@ func TestSpanProposalsCarryPriorTurnInputWithoutGrantingAuthority(t *testing.T) 
 			prior = true
 		}
 	}
-	if !prior || p.Status != BriefStatus {
+	if !prior || p.Status != model.BriefStatus {
 		t.Fatalf("prior context unaccounted or promoted: %+v", p)
 	}
 }
@@ -204,7 +206,7 @@ func TestSpanGroupsSeparateDifferentGoalsWithSameTools(t *testing.T) {
 		t.Fatalf("want two goal-specific groups, one shared by parameterized IDs: %+v", gs)
 	}
 	for _, p := range ps {
-		if p.Status != BriefStatus || strings.Contains(p.ShapeKey, "12345") {
+		if p.Status != model.BriefStatus || strings.Contains(p.ShapeKey, "12345") {
 			t.Fatalf("unassessed private shape expected: %+v", p)
 		}
 	}
@@ -229,7 +231,7 @@ func TestSpanBriefIncludesOnlyVerifiedCallsAndPriorContext(t *testing.T) {
 		trace.Call{Tool: "mcp:telara_task_checkpoint", Request: 1, Output: "recorded", Outcome: trace.OutcomeOK},
 		trace.Call{Tool: "mcp:gitlab_list_jobs", Request: 1, Args: map[string]string{"pipeline_id": "81234567"}, Output: "failed job", Outcome: trace.OutcomeOK})
 	ps := SelectSpanProposals([]trace.Session{s})
-	var p *SpanProposal
+	var p *model.SpanProposal
 	for i := range ps {
 		if ps[i].Request == 1 {
 			p = &ps[i]
@@ -243,7 +245,7 @@ func TestSpanBriefIncludesOnlyVerifiedCallsAndPriorContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Selection != DiscoverSpan || b.Status != BriefStatus || len(b.Evidence.Steps) != 1 || b.Evidence.Steps[0].Tool != "mcp:gitlab_list_jobs" || b.Evidence.Steps[0].SourceCall != 2 {
+	if b.Selection != DiscoverSpan || b.Status != model.BriefStatus || len(b.Evidence.Steps) != 1 || b.Evidence.Steps[0].Tool != "mcp:gitlab_list_jobs" || b.Evidence.Steps[0].SourceCall != 2 {
 		t.Fatalf("span brief included wrong calls: %+v", b)
 	}
 	if !strings.Contains(b.Evidence.PreviousRequest, "project 12345") {

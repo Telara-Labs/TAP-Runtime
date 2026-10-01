@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
@@ -109,7 +111,7 @@ type observedOp struct {
 }
 
 type observedTrace struct {
-	span   SpanProposal
+	span   model.SpanProposal
 	groups [][]observedOp
 }
 
@@ -123,8 +125,8 @@ type observedInputVector struct {
 // from silently generating a program from different history. The classifier
 // is deliberately action-agnostic: it reads operation names, argument trees,
 // typed slots and structured result paths, not Jira/GitLab special cases.
-func SynthesizeProgramGraph(c LogicCandidate, proposals []SpanProposal, sessions []trace.Session) (*ProgramGraph, error) {
-	bySpan := make(map[string]SpanProposal, len(proposals))
+func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanProposal, sessions []trace.Session) (*ProgramGraph, error) {
+	bySpan := make(map[string]model.SpanProposal, len(proposals))
 	for _, p := range proposals {
 		bySpan[p.ID] = p
 	}
@@ -594,7 +596,7 @@ func mergeProgramItemFields(graph *ProgramGraph, ps *ProgramStep, step int) {
 	ps.Loop = name
 }
 
-func observedForEach(p SpanProposal, role string) bool {
+func observedForEach(p model.SpanProposal, role string) bool {
 	for _, r := range p.Composition.Repetition {
 		if logicRole(r.Action) == role && r.Kind == "for_each" {
 			return true

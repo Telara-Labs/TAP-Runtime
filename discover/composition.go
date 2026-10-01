@@ -4,40 +4,18 @@ import (
 	"sort"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-// SpanComposition is a structural retrieval bucket. It describes observed
-// operations and result dependencies, not a safe or useful primitive contract.
-// Repetition is evidence about this trace; the key omits its observed count.
-type SpanComposition struct {
-	Key        string       `json:"key"`
-	Actions    []string     `json:"actions"`
-	Edges      []string     `json:"edges,omitempty"`
-	Repetition []SpanRepeat `json:"repetition,omitempty"`
-}
-
-type SpanRepeat struct {
-	Action string `json:"action"`
-	Count  int    `json:"count"`
-	Kind   string `json:"kind"` // for_each, repeated, or dependent_repeat
-}
-
-type SpanCompositionGroup struct {
-	Key       string       `json:"key"`
-	Proposals int          `json:"proposals"`
-	Sessions  int          `json:"sessions"`
-	Example   SpanProposal `json:"example"`
-	Members   []string     `json:"members"`
-}
-
 // spanComposition keeps the operation's provider and explicit state selector,
 // then records which selected operation supplied each result-derived input.
 // Repeated independent calls and repeated whole motifs share the same action
 // skeleton, while dependency edges keep a sequential state machine distinct.
-func spanComposition(nodes []spanNode, set []int) SpanComposition {
+func spanComposition(nodes []spanNode, set []int) model.SpanComposition {
 	roles := make([]string, len(set))
 	byOrdinal := make(map[int]string, len(set))
 	for j, i := range set {
@@ -115,7 +93,7 @@ func spanComposition(nodes []spanNode, set []int) SpanComposition {
 			break
 		}
 	}
-	var repeats []SpanRepeat
+	var repeats []model.SpanRepeat
 	counts := map[string]int{}
 	seenRepeat := map[string]bool{}
 	for _, role := range roles {
@@ -144,12 +122,12 @@ func spanComposition(nodes []spanNode, set []int) SpanComposition {
 		if kind != "dependent_repeat" && spanRepeatedItems(nodes, set, roles, role) {
 			kind = "for_each"
 		}
-		repeats = append(repeats, SpanRepeat{Action: role, Count: counts[role], Kind: kind})
+		repeats = append(repeats, model.SpanRepeat{Action: role, Count: counts[role], Kind: kind})
 	}
 	// A readable structural key allows reviewers to see exactly why two
 	// traces were bucketed. It is not a hash of prompt text or concrete IDs.
 	key := "actions=" + strings.Join(actions, " -> ") + "|edges=" + strings.Join(edges, ";")
-	return SpanComposition{Key: key, Actions: actions, Edges: edges, Repetition: repeats}
+	return model.SpanComposition{Key: key, Actions: actions, Edges: edges, Repetition: repeats}
 }
 
 func spanDependsOn(n spanNode, ordinal int) bool {
@@ -344,8 +322,8 @@ func spanActionRole(n spanNode) string {
 
 // GroupSpanCompositions is a separate, deliberately broad review index. It
 // must not be interpreted as deduplicated validated primitives.
-func GroupSpanCompositions(ps []SpanProposal) []SpanCompositionGroup {
-	by := map[string]*SpanCompositionGroup{}
+func GroupSpanCompositions(ps []model.SpanProposal) []model.SpanCompositionGroup {
+	by := map[string]*model.SpanCompositionGroup{}
 	sessions := map[string]map[string]bool{}
 	for _, p := range ps {
 		key := p.Composition.Key
@@ -354,7 +332,7 @@ func GroupSpanCompositions(ps []SpanProposal) []SpanCompositionGroup {
 		}
 		g := by[key]
 		if g == nil {
-			g = &SpanCompositionGroup{Key: key, Example: p}
+			g = &model.SpanCompositionGroup{Key: key, Example: p}
 			by[key] = g
 			sessions[key] = map[string]bool{}
 		}
@@ -365,7 +343,7 @@ func GroupSpanCompositions(ps []SpanProposal) []SpanCompositionGroup {
 			g.Example = p
 		}
 	}
-	out := make([]SpanCompositionGroup, 0, len(by))
+	out := make([]model.SpanCompositionGroup, 0, len(by))
 	for key, g := range by {
 		g.Sessions = len(sessions[key])
 		sort.Strings(g.Members)

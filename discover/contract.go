@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -146,7 +148,7 @@ type contractRun struct {
 
 // buildContract fills rt.Contract from the draft and its runs, and sets the
 // remaining dimensions and the decision.
-func buildContract(rt *Routine, d *Draft, runs []contractRun, loops []string) {
+func buildContract(rt *model.Routine, d *model.Draft, runs []contractRun, loops []string) {
 	c := &rt.Contract
 	c.Inputs = nil
 	// Effect and output.
@@ -167,11 +169,11 @@ func buildContract(rt *Routine, d *Draft, runs []contractRun, loops []string) {
 	}
 	switch effect {
 	case "read":
-		c.Effect, c.Output = EffectReadOnly, "report"
+		c.Effect, c.Output = model.EffectReadOnly, "report"
 	case "write":
-		c.Effect, c.Output = EffectWrites, "state_change"
+		c.Effect, c.Output = model.EffectWrites, "state_change"
 	default:
-		c.Effect, c.Output = EffectUnknown, "unknown"
+		c.Effect, c.Output = model.EffectUnknown, "unknown"
 	}
 	// Scope: authority constants.
 	scope := map[string]bool{}
@@ -221,7 +223,7 @@ func buildContract(rt *Routine, d *Draft, runs []contractRun, loops []string) {
 		return trace.StepEffect(runs[0].steps[pos])
 	}
 	for n, in := range d.Inputs {
-		ci := ContractInput{Name: in.Name, Type: in.Type}
+		ci := model.ContractInput{Name: in.Name, Type: in.Type}
 		vals := draftInputValues(d, n)
 		switch {
 		case in.List:
@@ -265,7 +267,7 @@ func buildContract(rt *Routine, d *Draft, runs []contractRun, loops []string) {
 				// selection rule is missing. On a write it is the action's
 				// parameter, which a caller supplies when the goal is stated.
 				ci.Source = InputUnresolved
-				if stepEff(in.pos) == "write" {
+				if stepEff(in.Pos) == "write" {
 					unresolvedWrite++
 				} else {
 					unresolvedRead++
@@ -297,8 +299,8 @@ func buildContract(rt *Routine, d *Draft, runs []contractRun, loops []string) {
 		if in.Source == InputComposed {
 			c.Judgment = append(c.Judgment, "composed:"+in.Name)
 			// A composed value's step is where judgment enters.
-			if k := d.Inputs[n].pos; k >= 0 {
-				if s := d.posStep[k]; s > 0 && (firstJudg < 0 || s-1 < firstJudg) {
+			if k := d.Inputs[n].Pos; k >= 0 {
+				if s := d.PosStep[k]; s > 0 && (firstJudg < 0 || s-1 < firstJudg) {
 					firstJudg = s - 1
 				}
 			}
@@ -334,11 +336,11 @@ func buildContract(rt *Routine, d *Draft, runs []contractRun, loops []string) {
 	}
 	switch {
 	case len(sims) > 0 && sims[len(sims)/2] >= 0.5:
-		c.Goal = GoalStated
+		c.Goal = model.GoalStated
 	case unresolvedRead == 0 && unresolvedWrite == 0 && (len(c.Judgment) == 0 || c.Boundary != "") && hasCaller:
-		c.Goal = GoalSelfContained
+		c.Goal = model.GoalSelfContained
 	default:
-		c.Goal = GoalUnknown
+		c.Goal = model.GoalUnknown
 	}
 	// Family: role, goal template, effect and output.
 	fam := map[string]int{}
@@ -354,7 +356,7 @@ func buildContract(rt *Routine, d *Draft, runs []contractRun, loops []string) {
 		}
 	}
 	sort.Strings(words)
-	if c.Goal == GoalUnknown {
+	if c.Goal == model.GoalUnknown {
 		rt.Family = "unknown:" + rt.ID
 	} else {
 		h := sha256.Sum256([]byte(rt.SourceRole + "\x00" + strings.Join(words, " ") + "\x00" + c.Effect + "\x00" + c.Output))
@@ -366,7 +368,7 @@ func buildContract(rt *Routine, d *Draft, runs []contractRun, loops []string) {
 
 // decide applies the suitability rules in order, then the draft status,
 // outcome and value dimensions, and derives the legacy decision.
-func decide(rt *Routine, d *Draft, loops []string, unresolvedRead, unresolvedWrite int) {
+func decide(rt *model.Routine, d *model.Draft, loops []string, unresolvedRead, unresolvedWrite int) {
 	c := &rt.Contract
 	// A loop is bounded when its list's source is known: the request, or an
 	// earlier result. Otherwise the agent chose the items as it went; over
@@ -374,15 +376,15 @@ func decide(rt *Routine, d *Draft, loops []string, unresolvedRead, unresolvedWri
 	var openReadLoops, openOtherLoops, priorLoops []string
 	for _, l := range loops {
 		switch {
-		case d != nil && d.listLoop[l]:
-		case d != nil && d.priorLoop[l]:
+		case d != nil && d.ListLoop[l]:
+		case d != nil && d.PriorLoop[l]:
 			priorLoops = append(priorLoops, l)
 		default:
 			eff := "unknown"
 			if d != nil {
 				for p, st := range rt.Steps {
-					if st.Label == l && len(d.firstRun) > p {
-						eff = trace.StepEffect(d.firstRun[p])
+					if st.Label == l && len(d.FirstRun) > p {
+						eff = trace.StepEffect(d.FirstRun[p])
 					}
 				}
 			}
@@ -404,66 +406,66 @@ func decide(rt *Routine, d *Draft, loops []string, unresolvedRead, unresolvedWri
 		}
 	}
 	switch {
-	case rt.SourceRole == RoleHarness:
-		rt.Suitability = SuitInvalid
+	case rt.SourceRole == model.RoleHarness:
+		rt.Suitability = model.SuitInvalid
 		reason("harness_request")
-	case rt.SourceRole == RoleInfrastructure:
-		rt.Suitability = SuitInsufficient
+	case rt.SourceRole == model.RoleInfrastructure:
+		rt.Suitability = model.SuitInsufficient
 		reason("infrastructure_only")
-	case len(openReadLoops) > 0 && c.Goal != GoalStated:
+	case len(openReadLoops) > 0 && c.Goal != model.GoalStated:
 		// Different asks, and the agent picked what to read as it went.
-		rt.Suitability = SuitInvestigation
+		rt.Suitability = model.SuitInvestigation
 		reason("loop_unbounded:" + strings.Join(openReadLoops, ","))
 	case len(openReadLoops) > 0:
 		// One stated task whose loop items came from somewhere the history
 		// does not show (a page, a file beyond what was recorded): abstain.
-		rt.Suitability = SuitInsufficient
+		rt.Suitability = model.SuitInsufficient
 		reason("loop_source_unknown:" + strings.Join(openReadLoops, ","))
 	case len(openOtherLoops) > 0:
-		rt.Suitability = SuitInsufficient
+		rt.Suitability = model.SuitInsufficient
 		reason("loop_selection_unknown:" + strings.Join(openOtherLoops, ","))
-	case nIn > 0 && 2*unresolvedRead > nIn && c.Goal != GoalStated:
-		rt.Suitability = SuitInvestigation
+	case nIn > 0 && 2*unresolvedRead > nIn && c.Goal != model.GoalStated:
+		rt.Suitability = model.SuitInvestigation
 		reason("values_chosen_during_run")
 	case unresolvedRead > 0:
-		rt.Suitability = SuitInsufficient
+		rt.Suitability = model.SuitInsufficient
 		unresolvedNames()
 	case len(c.Judgment) > 0 && c.Boundary == "":
-		rt.Suitability = SuitInsufficient
+		rt.Suitability = model.SuitInsufficient
 		reason("judgment_step")
-	case unresolvedWrite > 0 && c.Goal != GoalStated:
-		rt.Suitability = SuitInsufficient
+	case unresolvedWrite > 0 && c.Goal != model.GoalStated:
+		rt.Suitability = model.SuitInsufficient
 		unresolvedNames()
-	case c.Goal == GoalUnknown:
-		rt.Suitability = SuitInsufficient
+	case c.Goal == model.GoalUnknown:
+		rt.Suitability = model.SuitInsufficient
 		reason("goal_unknown")
 	case rt.Consistency < 0.5:
-		rt.Suitability = SuitInsufficient
+		rt.Suitability = model.SuitInsufficient
 		reason("inconsistent_order")
 	case ephemeralConstant(d):
 		// Fixed to a temporary directory (a test scratchpad): it cannot be
 		// rerun anywhere else.
-		rt.Suitability = SuitInsufficient
+		rt.Suitability = model.SuitInsufficient
 		reason("ephemeral_constant")
 	case !hasParam(c) && rt.Coverage < 0.5:
 		// Nothing to parameterize and a small part of what the requests
 		// did: the constant opening of varying work (open the browser,
 		// print the directory), not the procedure.
-		rt.Suitability = SuitInsufficient
+		rt.Suitability = model.SuitInsufficient
 		reason("constant_part_of_larger_work")
 	default:
-		rt.Suitability = SuitUseful
+		rt.Suitability = model.SuitUseful
 		reason("contract_complete:" + c.Goal)
 	}
 	// Draft status.
 	rt.Blockers = nil
 	switch {
-	case rt.Suitability != SuitUseful:
-		rt.DraftStatus = DraftNotAttempted
+	case rt.Suitability != model.SuitUseful:
+		rt.DraftStatus = model.DraftNotAttempted
 	case d == nil:
-		rt.DraftStatus = DraftNotAttempted
+		rt.DraftStatus = model.DraftNotAttempted
 	case len(d.Blocked) > 0:
-		rt.DraftStatus = DraftBlocked
+		rt.DraftStatus = model.DraftBlocked
 	default:
 		for _, in := range d.Inputs {
 			if in.DerivedFrom > 0 && in.Extract == "" {
@@ -481,18 +483,18 @@ func decide(rt *Routine, d *Draft, loops []string, unresolvedRead, unresolvedWri
 			rt.Blockers = append(rt.Blockers, "manifest_problems")
 		}
 		if len(rt.Blockers) > 0 {
-			rt.DraftStatus = DraftNeedsAuthor
+			rt.DraftStatus = model.DraftNeedsAuthor
 		} else {
-			rt.DraftStatus = DraftComplete
+			rt.DraftStatus = model.DraftComplete
 		}
 	}
 	// Legacy single decision, kept for callers that list primitives.
 	switch {
-	case rt.Suitability == SuitUseful && rt.SourceRole == RoleScheduled:
+	case rt.Suitability == model.SuitUseful && rt.SourceRole == model.RoleScheduled:
 		rt.Decision = "baseline"
-	case rt.Suitability == SuitUseful && rt.DraftStatus == DraftComplete:
+	case rt.Suitability == model.SuitUseful && rt.DraftStatus == model.DraftComplete:
 		rt.Decision = "primitive"
-	case rt.Suitability == SuitUseful:
+	case rt.Suitability == model.SuitUseful:
 		rt.Decision = "needs_authoring"
 	default:
 		rt.Decision = "removed"
@@ -509,7 +511,7 @@ func decide(rt *Routine, d *Draft, loops []string, unresolvedRead, unresolvedWri
 }
 
 // hasParam reports an input a caller or an earlier result supplies.
-func hasParam(c *Contract) bool {
+func hasParam(c *model.Contract) bool {
 	for _, in := range c.Inputs {
 		if in.Source == InputCaller || in.Source == InputPriorOutput || in.Source == InputUnresolved {
 			return true
@@ -553,15 +555,15 @@ var ephemeralPath = regexp.MustCompile(`(/private)?/tmp/claude-|/var/folders/|/s
 
 // ephemeralConstant reports a value the same in every drafted run that
 // points into a temporary location.
-func ephemeralConstant(d *Draft) bool {
-	if d == nil || len(d.firstRun) == 0 {
+func ephemeralConstant(d *model.Draft) bool {
+	if d == nil || len(d.FirstRun) == 0 {
 		return false
 	}
 	varying := map[string]bool{}
 	for _, in := range d.Inputs {
 		varying[in.Example] = true
 	}
-	for _, st := range d.firstRun {
+	for _, st := range d.FirstRun {
 		for _, sl := range st.Slots {
 			if ephemeralPath.MatchString(sl.Value) && !varying[redact.Redact(sl.Value)] {
 				return true

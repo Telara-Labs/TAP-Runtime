@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -29,48 +31,48 @@ func TestLogicCandidateAbstractsRuntimeValuesAndTaskWording(t *testing.T) {
 }
 
 func TestLogicCandidateRequiresIndependentRepetition(t *testing.T) {
-	c := SpanComposition{Actions: []string{"gitlab.list_pipelines", "gitlab.list_jobs"}, Edges: []string{"gitlab.list_pipelines -> gitlab.list_jobs (pipeline_id:number)"}}
-	one := SpanProposal{ID: "one", Client: "claude-code", Session: "s", Request: 0, Calls: []int{1, 2}, Composition: c}
+	c := model.SpanComposition{Actions: []string{"gitlab.list_pipelines", "gitlab.list_jobs"}, Edges: []string{"gitlab.list_pipelines -> gitlab.list_jobs (pipeline_id:number)"}}
+	one := model.SpanProposal{ID: "one", Client: "claude-code", Session: "s", Request: 0, Calls: []int{1, 2}, Composition: c}
 	two := one
 	two.ID = "overlapping-selection"
-	if got := GroupLogicCandidates([]SpanProposal{one, two}); len(got) != 0 {
+	if got := GroupLogicCandidates([]model.SpanProposal{one, two}); len(got) != 0 {
 		t.Fatalf("overlapping selections are one execution, not recurrence: %+v", got)
 	}
 	two.ID, two.Calls = "second-execution", []int{3, 4}
-	got := GroupLogicCandidates([]SpanProposal{one, two})
+	got := GroupLogicCandidates([]model.SpanProposal{one, two})
 	if len(got) != 1 || got[0].Executions != 2 || got[0].Sessions != 1 {
 		t.Fatalf("disjoint same-session executions should qualify: %+v", got)
 	}
 }
 
 func TestLogicCandidateIncludesReusedAuthoredProgram(t *testing.T) {
-	p := SpanProposal{ID: "script", Client: "claude-code", Session: "s", Kind: "authored_program", Calls: []int{1, 2, 3},
-		Composition: SpanComposition{Key: "program", Actions: []string{"sh:cat", "sh:python3"}}}
-	got := GroupLogicCandidates([]SpanProposal{p})
+	p := model.SpanProposal{ID: "script", Client: "claude-code", Session: "s", Kind: "authored_program", Calls: []int{1, 2, 3},
+		Composition: model.SpanComposition{Key: "program", Actions: []string{"sh:cat", "sh:python3"}}}
+	got := GroupLogicCandidates([]model.SpanProposal{p})
 	if len(got) != 1 || got[0].Evidence[0] != "authored_program_reused" {
 		t.Fatalf("program written then run repeatedly should qualify alone: %+v", got)
 	}
 }
 
 func TestLogicCandidateOneOrManyResultChildrenShareIdentity(t *testing.T) {
-	one := SpanProposal{ID: "one", Client: "claude-code", Session: "a", Calls: []int{1, 2},
-		Composition: SpanComposition{Actions: []string{"jira.create_issue", "jira.create_issue_link"}, Edges: []string{"jira.create_issue -> jira.create_issue_link (inward_issue_key:id)"}}}
-	many := SpanProposal{ID: "many", Client: "claude-code", Session: "b", Calls: []int{1, 2, 3},
-		Composition: SpanComposition{Actions: []string{"jira.create_issue", "jira.create_issue_link"}, Edges: []string{"jira.create_issue -> jira.create_issue_link (inward_issue_key:id)"}, Repetition: []SpanRepeat{{Action: "jira.create_issue_link", Count: 2, Kind: "for_each"}}}}
-	got := GroupLogicCandidates([]SpanProposal{one, many})
+	one := model.SpanProposal{ID: "one", Client: "claude-code", Session: "a", Calls: []int{1, 2},
+		Composition: model.SpanComposition{Actions: []string{"jira.create_issue", "jira.create_issue_link"}, Edges: []string{"jira.create_issue -> jira.create_issue_link (inward_issue_key:id)"}}}
+	many := model.SpanProposal{ID: "many", Client: "claude-code", Session: "b", Calls: []int{1, 2, 3},
+		Composition: model.SpanComposition{Actions: []string{"jira.create_issue", "jira.create_issue_link"}, Edges: []string{"jira.create_issue -> jira.create_issue_link (inward_issue_key:id)"}, Repetition: []model.SpanRepeat{{Action: "jira.create_issue_link", Count: 2, Kind: "for_each"}}}}
+	got := GroupLogicCandidates([]model.SpanProposal{one, many})
 	if len(got) != 1 || got[0].Sessions != 2 || got[0].Executions != 2 {
 		t.Fatalf("one link and a link loop are one parameterized composition: %+v", got)
 	}
 }
 
 func TestLogicFunnelsCollectIndependentBranchesAndLoops(t *testing.T) {
-	spans := []SpanProposal{
-		{ID: "transition", Client: "claude-code", Session: "a", Composition: SpanComposition{Edges: []string{"jira.create_issue -> jira.transition_issue (issue_key:id)"}}},
-		{ID: "link", Client: "claude-code", Session: "b", Composition: SpanComposition{Edges: []string{"jira.create_issue -> jira.create_issue_link (inward_issue_key:id)"}, Repetition: []SpanRepeat{{Action: "jira.create_issue_link", Count: 2, Kind: "for_each"}}}},
-		{ID: "comment", Client: "claude-code", Session: "c", Composition: SpanComposition{Edges: []string{"jira.create_issue -> jira.add_comment (issue_key:id)"}}},
-		{ID: "shared-text-only", Client: "claude-code", Session: "d", Composition: SpanComposition{Actions: []string{"jira.create_issue", "jira.add_comment"}}},
+	spans := []model.SpanProposal{
+		{ID: "transition", Client: "claude-code", Session: "a", Composition: model.SpanComposition{Edges: []string{"jira.create_issue -> jira.transition_issue (issue_key:id)"}}},
+		{ID: "link", Client: "claude-code", Session: "b", Composition: model.SpanComposition{Edges: []string{"jira.create_issue -> jira.create_issue_link (inward_issue_key:id)"}, Repetition: []model.SpanRepeat{{Action: "jira.create_issue_link", Count: 2, Kind: "for_each"}}}},
+		{ID: "comment", Client: "claude-code", Session: "c", Composition: model.SpanComposition{Edges: []string{"jira.create_issue -> jira.add_comment (issue_key:id)"}}},
+		{ID: "shared-text-only", Client: "claude-code", Session: "d", Composition: model.SpanComposition{Actions: []string{"jira.create_issue", "jira.add_comment"}}},
 	}
-	candidates := []LogicCandidate{
+	candidates := []model.LogicCandidate{
 		{ID: "lc_transition", Members: []string{"transition"}},
 		{ID: "lc_link", Members: []string{"link"}},
 		{ID: "lc_comment", Members: []string{"comment"}},
@@ -107,7 +109,7 @@ func TestCreatedIssueLinkFanoutReachesLogicQueue(t *testing.T) {
 }
 
 func TestLogicCandidatesArePrimaryDiscoverQueue(t *testing.T) {
-	r := Report{SpanProposals: []SpanProposal{{}}, LogicCandidates: []LogicCandidate{{ID: "lc_example", Sessions: 2, Executions: 3, Actions: []string{"jira.create_issue", "jira.transition_issue"}, Cautions: []string{"source_role_uncertain"}}}}
+	r := model.Report{SpanProposals: []model.SpanProposal{{}}, LogicCandidates: []model.LogicCandidate{{ID: "lc_example", Sessions: 2, Executions: 3, Actions: []string{"jira.create_issue", "jira.transition_issue"}, Cautions: []string{"source_role_uncertain"}}}}
 	var out bytes.Buffer
 	WriteSpanProposals(&out, &r, 10)
 	if !strings.Contains(out.String(), "lc_example") || !strings.Contains(out.String(), "--logic") || strings.Contains(out.String(), "Task-first queue: 0") {

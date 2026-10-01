@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
@@ -36,10 +38,6 @@ import (
 // result, from this machine's history, so it is written to a directory the
 // user names and never anywhere else.
 
-// BriefStatus is every brief's status. Handing a task to an agent says
-// nothing about whether it is a useful procedure; the agent establishes that.
-const BriefStatus = "unassessed_proposal"
-
 // Selection kinds.
 const (
 	SelectedTask        = "selected_task"
@@ -57,14 +55,14 @@ type Brief struct {
 	// Ref is an opaque name for the source request, safe to copy into a
 	// package's provenance; Source is the private location it stands for.
 	Ref       string          `json:"ref"`
-	Source    SourceRef       `json:"source"`
+	Source    model.SourceRef `json:"source"`
 	Candidate *BriefCandidate `json:"candidate,omitempty"`
 	// Opportunity is the selection pass's claim, when the task came from it.
-	Opportunity   *Opportunity    `json:"opportunity,omitempty"`
-	Span          *SpanProposal   `json:"span,omitempty"`
-	Logic         *LogicCandidate `json:"logic,omitempty"`
-	LogicExamples []LogicExample  `json:"logic_examples,omitempty"`
-	Evidence      BriefEvidence   `json:"evidence"`
+	Opportunity   *model.Opportunity    `json:"opportunity,omitempty"`
+	Span          *model.SpanProposal   `json:"span,omitempty"`
+	Logic         *model.LogicCandidate `json:"logic,omitempty"`
+	LogicExamples []LogicExample        `json:"logic_examples,omitempty"`
+	Evidence      BriefEvidence         `json:"evidence"`
 	// Missing lists the contract fields nothing has established yet. Every
 	// field is missing for a selected task.
 	Missing  []string      `json:"missing"`
@@ -74,24 +72,24 @@ type Brief struct {
 // LogicExample is one independently observed execution of the same shape.
 // The agent uses differing values to infer parameters, not to bake them in.
 type LogicExample struct {
-	SpanID   string        `json:"span_id"`
-	Ref      string        `json:"ref"`
-	Source   SourceRef     `json:"source"`
-	Evidence BriefEvidence `json:"evidence"`
+	SpanID   string          `json:"span_id"`
+	Ref      string          `json:"ref"`
+	Source   model.SourceRef `json:"source"`
+	Evidence BriefEvidence   `json:"evidence"`
 }
 
 // BriefCandidate is what Discover said about a candidate, carried as its
 // claim, not as the contract.
 type BriefCandidate struct {
-	Routine      string      `json:"routine"`
-	ReportDigest string      `json:"report_digest"`
-	Decision     string      `json:"decision"`
-	Failed       string      `json:"failed,omitempty"`
-	Why          string      `json:"why,omitempty"`
-	SourceRole   string      `json:"source_role"`
-	Suitability  string      `json:"suitability"`
-	Contract     Contract    `json:"contract"`
-	Sources      []SourceRef `json:"sources"`
+	Routine      string            `json:"routine"`
+	ReportDigest string            `json:"report_digest"`
+	Decision     string            `json:"decision"`
+	Failed       string            `json:"failed,omitempty"`
+	Why          string            `json:"why,omitempty"`
+	SourceRole   string            `json:"source_role"`
+	Suitability  string            `json:"suitability"`
+	Contract     model.Contract    `json:"contract"`
+	Sources      []model.SourceRef `json:"sources"`
 }
 
 // BriefEvidence is the source request and the calls it made.
@@ -135,7 +133,7 @@ type BriefContract struct {
 }
 
 // OpaqueRef names a source request without revealing it.
-func OpaqueRef(s SourceRef) string {
+func OpaqueRef(s model.SourceRef) string {
 	sum := sha256.Sum256([]byte(s.Client + "/" + s.Session + "/" + strconv.Itoa(s.Request)))
 	return "src_" + hex.EncodeToString(sum[:6])
 }
@@ -146,9 +144,9 @@ func NewBrief(s trace.Session, req int, cand *BriefCandidate) (*Brief, error) {
 	if req < 0 || req >= len(s.Requests) {
 		return nil, fmt.Errorf("session %s has %d requests; request %d does not exist", s.ID, len(s.Requests), req)
 	}
-	src := SourceRef{Client: s.Client, Session: s.ID, Request: req}
+	src := model.SourceRef{Client: s.Client, Session: s.ID, Request: req}
 	b := &Brief{
-		Kind: "tap.authoring-brief/v1", Status: BriefStatus, Selection: SelectedTask,
+		Kind: "tap.authoring-brief/v1", Status: model.BriefStatus, Selection: SelectedTask,
 		Ref: OpaqueRef(src), Source: src, Candidate: cand,
 		Evidence: BriefEvidence{Request: redact.Redact(s.Requests[req]), Requests: len(s.Requests)},
 	}
@@ -192,7 +190,7 @@ func NewBrief(s trace.Session, req int, cand *BriefCandidate) (*Brief, error) {
 
 // NewBriefSpan narrows the evidence to the exact recorded calls of a span.
 // A stale or ambiguous source is an error rather than a silently wrong brief.
-func NewBriefSpan(s trace.Session, p SpanProposal) (*Brief, error) {
+func NewBriefSpan(s trace.Session, p model.SpanProposal) (*Brief, error) {
 	if s.Client != p.Client || s.ID != p.Session || p.Request < 0 || p.Request >= len(s.Requests) {
 		return nil, fmt.Errorf("span %s source does not match session", p.ID)
 	}
@@ -272,7 +270,7 @@ func CandidateFrom(reportPath, id string) (*BriefCandidate, error) {
 		return nil, err
 	}
 	var rep struct {
-		Routines []Routine `json:"routines"`
+		Routines []model.Routine `json:"routines"`
 	}
 	if err := json.Unmarshal(raw, &rep); err != nil {
 		return nil, fmt.Errorf("%s is not a discover report: %w", reportPath, err)
@@ -335,16 +333,16 @@ func FindSession(client, id, home string) (trace.Session, error) {
 }
 
 // ParseTaskRef reads client/session/request.
-func ParseTaskRef(ref string) (SourceRef, error) {
+func ParseTaskRef(ref string) (model.SourceRef, error) {
 	parts := strings.Split(ref, "/")
 	if len(parts) != 3 {
-		return SourceRef{}, fmt.Errorf("task %q: want client/session/request", ref)
+		return model.SourceRef{}, fmt.Errorf("task %q: want client/session/request", ref)
 	}
 	n, err := strconv.Atoi(parts[2])
 	if err != nil || n < 0 {
-		return SourceRef{}, fmt.Errorf("task %q: request must be a number", ref)
+		return model.SourceRef{}, fmt.Errorf("task %q: request must be a number", ref)
 	}
-	return SourceRef{Client: parts[0], Session: parts[1], Request: n}, nil
+	return model.SourceRef{Client: parts[0], Session: parts[1], Request: n}, nil
 }
 
 func briefCommand(args []string, home string, out, errOut io.Writer) int {
@@ -372,11 +370,11 @@ func briefCommand(args []string, home string, out, errOut io.Writer) int {
 		return 2
 	}
 	var cand *BriefCandidate
-	var opp *Opportunity
-	var spanProposal *SpanProposal
-	var logicCandidate *LogicCandidate
-	var logicMembers []SpanProposal
-	var ref SourceRef
+	var opp *model.Opportunity
+	var spanProposal *model.SpanProposal
+	var logicCandidate *model.LogicCandidate
+	var logicMembers []model.SpanProposal
+	var ref model.SourceRef
 	var err error
 	if *logic != "" {
 		if logicCandidate, logicMembers, err = LogicFrom(*report, *logic); err != nil {
@@ -393,19 +391,19 @@ func briefCommand(args []string, home string, out, errOut io.Writer) int {
 			fmt.Fprintln(errOut, "discover brief: candidate example is absent from report")
 			return 1
 		}
-		ref = SourceRef{Client: spanProposal.Client, Session: spanProposal.Session, Request: spanProposal.Request}
+		ref = model.SourceRef{Client: spanProposal.Client, Session: spanProposal.Session, Request: spanProposal.Request}
 	} else if *span != "" {
 		if spanProposal, err = SpanFrom(*report, *span); err != nil {
 			fmt.Fprintln(errOut, "discover brief:", err)
 			return 1
 		}
-		ref = SourceRef{Client: spanProposal.Client, Session: spanProposal.Session, Request: spanProposal.Request}
+		ref = model.SourceRef{Client: spanProposal.Client, Session: spanProposal.Session, Request: spanProposal.Request}
 	} else if *opportunity != "" {
 		if opp, err = OpportunityFrom(*report, *opportunity); err != nil {
 			fmt.Fprintln(errOut, "discover brief:", err)
 			return 1
 		}
-		ref = SourceRef{Client: opp.Client, Session: opp.Session, Request: opp.Request}
+		ref = model.SourceRef{Client: opp.Client, Session: opp.Session, Request: opp.Request}
 	} else if *candidate != "" {
 		if cand, err = CandidateFrom(*report, *candidate); err != nil {
 			fmt.Fprintln(errOut, "discover brief:", err)
@@ -443,7 +441,7 @@ func briefCommand(args []string, home string, out, errOut io.Writer) int {
 	if logicCandidate != nil {
 		b.Selection, b.Logic = DiscoverLogic, logicCandidate
 		seenSessions := map[string]bool{}
-		for _, member := range append([]SpanProposal{*spanProposal}, logicMembers...) {
+		for _, member := range append([]model.SpanProposal{*spanProposal}, logicMembers...) {
 			key := member.Client + "/" + member.Session
 			if seenSessions[key] || len(b.LogicExamples) >= 3 {
 				continue
@@ -464,7 +462,7 @@ func briefCommand(args []string, home string, out, errOut io.Writer) int {
 					return 1
 				}
 			}
-			src := SourceRef{Client: member.Client, Session: member.Session, Request: member.Request}
+			src := model.SourceRef{Client: member.Client, Session: member.Session, Request: member.Request}
 			b.LogicExamples = append(b.LogicExamples, LogicExample{SpanID: member.ID, Ref: OpaqueRef(src), Source: src, Evidence: example.Evidence})
 		}
 	}
@@ -584,13 +582,13 @@ func (b *Brief) markdown() string {
 
 // OpportunityFrom finds opportunity id in a report written by
 // `tap discover --out`.
-func OpportunityFrom(reportPath, id string) (*Opportunity, error) {
+func OpportunityFrom(reportPath, id string) (*model.Opportunity, error) {
 	raw, err := os.ReadFile(reportPath)
 	if err != nil {
 		return nil, err
 	}
 	var rep struct {
-		Opportunities []Opportunity `json:"opportunities"`
+		Opportunities []model.Opportunity `json:"opportunities"`
 	}
 	if err := json.Unmarshal(raw, &rep); err != nil {
 		return nil, fmt.Errorf("%s is not a discover report: %w", reportPath, err)
@@ -604,13 +602,13 @@ func OpportunityFrom(reportPath, id string) (*Opportunity, error) {
 }
 
 // SpanFrom finds a proposal in a local Discover report.
-func SpanFrom(reportPath, id string) (*SpanProposal, error) {
+func SpanFrom(reportPath, id string) (*model.SpanProposal, error) {
 	raw, err := os.ReadFile(reportPath)
 	if err != nil {
 		return nil, err
 	}
 	var rep struct {
-		SpanProposals []SpanProposal `json:"span_proposals"`
+		SpanProposals []model.SpanProposal `json:"span_proposals"`
 	}
 	if err := json.Unmarshal(raw, &rep); err != nil {
 		return nil, fmt.Errorf("%s is not a discover report: %w", reportPath, err)
@@ -625,14 +623,14 @@ func SpanFrom(reportPath, id string) (*SpanProposal, error) {
 
 // LogicFrom resolves a recurring logic candidate and all of its recorded
 // spans. Call hashes are rechecked when each example is turned into a brief.
-func LogicFrom(reportPath, id string) (*LogicCandidate, []SpanProposal, error) {
+func LogicFrom(reportPath, id string) (*model.LogicCandidate, []model.SpanProposal, error) {
 	raw, err := os.ReadFile(reportPath)
 	if err != nil {
 		return nil, nil, err
 	}
 	var rep struct {
-		LogicCandidates []LogicCandidate `json:"logic_candidates"`
-		SpanProposals   []SpanProposal   `json:"span_proposals"`
+		LogicCandidates []model.LogicCandidate `json:"logic_candidates"`
+		SpanProposals   []model.SpanProposal   `json:"span_proposals"`
 	}
 	if err := json.Unmarshal(raw, &rep); err != nil {
 		return nil, nil, fmt.Errorf("%s is not a discover report: %w", reportPath, err)
@@ -645,7 +643,7 @@ func LogicFrom(reportPath, id string) (*LogicCandidate, []SpanProposal, error) {
 		for _, member := range rep.LogicCandidates[i].Members {
 			wanted[member] = true
 		}
-		var spans []SpanProposal
+		var spans []model.SpanProposal
 		for _, p := range rep.SpanProposals {
 			if wanted[p.ID] {
 				spans = append(spans, p)

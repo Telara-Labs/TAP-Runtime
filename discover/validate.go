@@ -32,12 +32,6 @@ import (
 //	tap discover validate --cases cases.json --freeze
 //	tap discover validate <package> --cases cases.json --out receipts.json
 
-// Validation states beyond not_run. Passed names the digest it passed for.
-const (
-	ValidationPassed = "passed"
-	ValidationFailed = "failed"
-)
-
 // CaseFile is a frozen set of cases for one package.
 type CaseFile struct {
 	Package  string   `json:"package"`

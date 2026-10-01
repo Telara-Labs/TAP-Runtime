@@ -6,53 +6,17 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
 )
-
-// LogicCandidate is a recurring, parameterized execution shape that an agent
-// can author as a primitive. It is evidence of repeated logic, not evidence
-// that replaying the recorded calls verbatim is safe or useful.
-type LogicCandidate struct {
-	ID         string       `json:"id"`
-	Key        string       `json:"key"`
-	Actions    []string     `json:"actions"`
-	Edges      []string     `json:"edges,omitempty"`
-	Parameters []string     `json:"parameters,omitempty"`
-	Proposals  int          `json:"proposals"`
-	Executions int          `json:"executions"`
-	Sessions   int          `json:"sessions"`
-	Evidence   []string     `json:"evidence"`
-	Cautions   []string     `json:"cautions,omitempty"`
-	Example    SpanProposal `json:"example"`
-	Members    []string     `json:"members"`
-}
-
-// LogicFunnel is an observed result-flow root with its distinct follow-up
-// operations. Branches may occur in different requests and in different
-// orders; they are not a claim that all branches belong in one package.
-type LogicFunnel struct {
-	ID           string              `json:"id"`
-	Root         string              `json:"root"`
-	Sessions     int                 `json:"sessions"`
-	Branches     []LogicFunnelBranch `json:"branches"`
-	CandidateIDs []string            `json:"candidate_ids"`
-	Members      []string            `json:"members"`
-}
-
-type LogicFunnelBranch struct {
-	Action       string   `json:"action"`
-	Slots        []string `json:"slots"`
-	Sessions     int      `json:"sessions"`
-	ForEach      bool     `json:"for_each,omitempty"`
-	CandidateIDs []string `json:"candidate_ids"`
-}
 
 // GroupLogicFunnels condenses result-dependent branches across candidate
 // records. One create_issue result feeding transitions, links and comments is
 // one observed funnel. A repeated branch over distinct sourced items is
 // represented as for_each, regardless of the number of observed items. The
 // input spans remain available through candidate IDs for contract review.
-func GroupLogicFunnels(candidates []LogicCandidate, spans []SpanProposal) []LogicFunnel {
-	bySpan := make(map[string]SpanProposal, len(spans))
+func GroupLogicFunnels(candidates []model.LogicCandidate, spans []model.SpanProposal) []model.LogicFunnel {
+	bySpan := make(map[string]model.SpanProposal, len(spans))
 	for _, p := range spans {
 		bySpan[p.ID] = p
 	}
@@ -101,7 +65,7 @@ func GroupLogicFunnels(candidates []LogicCandidate, spans []SpanProposal) []Logi
 			}
 		}
 	}
-	var out []LogicFunnel
+	var out []model.LogicFunnel
 	for root, f := range byRoot {
 		loop := false
 		for _, b := range f.branches {
@@ -111,9 +75,9 @@ func GroupLogicFunnels(candidates []LogicCandidate, spans []SpanProposal) []Logi
 			continue
 		}
 		h := sha256.Sum256([]byte(root))
-		g := LogicFunnel{ID: "lf_" + hex.EncodeToString(h[:6]), Root: root, Sessions: len(f.sessions), CandidateIDs: logicSortedKeys(f.candidates), Members: logicSortedKeys(f.members)}
+		g := model.LogicFunnel{ID: "lf_" + hex.EncodeToString(h[:6]), Root: root, Sessions: len(f.sessions), CandidateIDs: logicSortedKeys(f.candidates), Members: logicSortedKeys(f.members)}
 		for action, b := range f.branches {
-			g.Branches = append(g.Branches, LogicFunnelBranch{Action: action, Slots: logicSortedKeys(b.slots), Sessions: len(b.sessions), ForEach: b.forEach, CandidateIDs: logicSortedKeys(b.candidates)})
+			g.Branches = append(g.Branches, model.LogicFunnelBranch{Action: action, Slots: logicSortedKeys(b.slots), Sessions: len(b.sessions), ForEach: b.forEach, CandidateIDs: logicSortedKeys(b.candidates)})
 		}
 		sort.Slice(g.Branches, func(i, j int) bool {
 			if g.Branches[i].Sessions != g.Branches[j].Sessions {
@@ -160,8 +124,8 @@ func logicSortedKeys(set map[string]bool) []string {
 // is across sessions, disjoint executions within a session, or a loop/program
 // actually run more than once inside one selected span. No user-task completion
 // or fixed input/output value is required for nomination.
-func GroupLogicCandidates(ps []SpanProposal) []LogicCandidate {
-	by := map[string][]SpanProposal{}
+func GroupLogicCandidates(ps []model.SpanProposal) []model.LogicCandidate {
+	by := map[string][]model.SpanProposal{}
 	for _, p := range ps {
 		if !logicHasWork(p) {
 			continue
@@ -169,7 +133,7 @@ func GroupLogicCandidates(ps []SpanProposal) []LogicCandidate {
 		key, _, _ := proposalLogicShape(p)
 		by[key] = append(by[key], p)
 	}
-	out := make([]LogicCandidate, 0)
+	out := make([]model.LogicCandidate, 0)
 	for key, members := range by {
 		sort.Slice(members, func(i, j int) bool {
 			a, b := members[i], members[j]
@@ -189,7 +153,7 @@ func GroupLogicCandidates(ps []SpanProposal) []LogicCandidate {
 		})
 		_, actions, edges := proposalLogicShape(members[0])
 		h := sha256.Sum256([]byte(key))
-		g := LogicCandidate{ID: "lc_" + hex.EncodeToString(h[:6]), Key: key, Actions: actions, Edges: edges, Proposals: len(members), Example: members[0]}
+		g := model.LogicCandidate{ID: "lc_" + hex.EncodeToString(h[:6]), Key: key, Actions: actions, Edges: edges, Proposals: len(members), Example: members[0]}
 		sessions := map[string]bool{}
 		usedCalls := map[string]bool{}
 		params, cautions := map[string]bool{}, map[string]bool{}
@@ -289,11 +253,11 @@ func GroupLogicCandidates(ps []SpanProposal) []LogicCandidate {
 	return out
 }
 
-func logicCallID(p SpanProposal, call int) string {
+func logicCallID(p model.SpanProposal, call int) string {
 	return p.Client + "/" + p.Session + "/" + strconv.Itoa(p.Request) + "/" + strconv.Itoa(call)
 }
 
-func logicHasWork(p SpanProposal) bool {
+func logicHasWork(p model.SpanProposal) bool {
 	c := p.Composition
 	if p.Kind == "authored_program" || len(c.Repetition) > 0 || len(c.Edges) > 0 || len(c.Actions) >= 2 {
 		return true
@@ -301,7 +265,7 @@ func logicHasWork(p SpanProposal) bool {
 	return len(c.Actions) == 1 && strings.Contains(c.Actions[0], "+")
 }
 
-func proposalLogicShape(p SpanProposal) (string, []string, []string) {
+func proposalLogicShape(p model.SpanProposal) (string, []string, []string) {
 	if p.CodeFamily != "" {
 		_, operations, _ := strings.Cut(p.CodeFamily, ":")
 		return "inline_python_family=" + p.CodeFamily, []string{"python.inline " + strings.ReplaceAll(operations, ">", " -> ")}, nil
@@ -316,7 +280,7 @@ func logicRole(role string) string {
 	return role
 }
 
-func logicShape(c SpanComposition) (string, []string, []string) {
+func logicShape(c model.SpanComposition) (string, []string, []string) {
 	actions := make([]string, 0, len(c.Actions))
 	for _, action := range c.Actions {
 		actions = append(actions, logicRole(action))

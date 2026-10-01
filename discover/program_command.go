@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -109,7 +111,7 @@ func generateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintln(out, "Attempt exact program review with: tap discover generate --logic <candidate-id>. Inline code is compilable only for a strictly parsed same-file read/replace/write pattern; other code remains a retrieval lead.")
 		return 0
 	}
-	var selected *LogicCandidate
+	var selected *model.LogicCandidate
 	for i := range candidates {
 		if candidates[i].ID == *logicID {
 			selected = &candidates[i]
@@ -120,7 +122,7 @@ func generateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "discover generate: logic candidate %s was not found in current local history\n", *logicID)
 		return 1
 	}
-	bySpan := make(map[string]SpanProposal, len(spans))
+	bySpan := make(map[string]model.SpanProposal, len(spans))
 	for _, p := range spans {
 		bySpan[p.ID] = p
 	}
@@ -142,7 +144,7 @@ func generateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintf(out, "Review one with: tap discover generate --logic %s --variant <variant-id>\n", selected.ID)
 		return 0
 	}
-	var chosen *LogicCandidate
+	var chosen *model.LogicCandidate
 	if *variantID == "" && len(variants) == 1 {
 		chosen = &variants[0]
 	} else {
@@ -174,7 +176,7 @@ func generateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 1
 	}
 	stateDir := filepath.Join(configRoot, "tap-runtime", "discover")
-	var evidence []SpanProposal
+	var evidence []model.SpanProposal
 	for _, id := range chosen.Members {
 		if p, ok := bySpan[id]; ok {
 			evidence = append(evidence, p)
@@ -188,8 +190,8 @@ func generateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 }
 
 type generatedProgramRow struct {
-	candidate LogicCandidate
-	variant   LogicCandidate
+	candidate model.LogicCandidate
+	variant   model.LogicCandidate
 	tier      int
 	shape     string
 }
@@ -228,9 +230,9 @@ func programReviewShape(g *ProgramGraph) (int, string) {
 // family. Different argument contracts may still need separate review; this
 // queue chooses the best-supported compilable variant without counting every
 // shape as a new primitive or claiming any family is useful.
-func generatedProgramQueue(candidates []LogicCandidate, spans []SpanProposal, sessions []trace.Session, decisions ...generatedDecision) ([]generatedProgramRow, error) {
+func generatedProgramQueue(candidates []model.LogicCandidate, spans []model.SpanProposal, sessions []trace.Session, decisions ...generatedDecision) ([]generatedProgramRow, error) {
 	reviewed := make(map[string]bool, len(decisions))
-	bySpan := make(map[string]SpanProposal, len(spans))
+	bySpan := make(map[string]model.SpanProposal, len(spans))
 	for _, span := range spans {
 		bySpan[span.ID] = span
 	}
@@ -294,7 +296,7 @@ func generatedProgramQueue(candidates []LogicCandidate, spans []SpanProposal, se
 // an agent component, not as the completed user task. Repeated adjacency alone
 // is never sufficient. Exact graph synthesis and codegen remain independent
 // gates after this coarse evidence filter.
-func generatedCandidateTaskEvidence(c LogicCandidate, bySpan map[string]SpanProposal) (LogicCandidate, bool) {
+func generatedCandidateTaskEvidence(c model.LogicCandidate, bySpan map[string]model.SpanProposal) (model.LogicCandidate, bool) {
 	components := map[string]bool{}
 	causalSessions := map[string]bool{}
 	inlineSessions := map[string]bool{}
@@ -313,7 +315,7 @@ func generatedCandidateTaskEvidence(c LogicCandidate, bySpan map[string]SpanProp
 	}
 	qualified := c
 	qualified.Members = nil
-	qualified.Example = SpanProposal{}
+	qualified.Example = model.SpanProposal{}
 	qualified.Proposals, qualified.Executions, qualified.Sessions = 0, 0, 0
 	for _, id := range c.Members {
 		p, ok := bySpan[id]
@@ -329,7 +331,7 @@ func generatedCandidateTaskEvidence(c LogicCandidate, bySpan map[string]SpanProp
 		}
 	}
 	if len(qualified.Members) == 0 {
-		return LogicCandidate{}, false
+		return model.LogicCandidate{}, false
 	}
 	qualified.Proposals = len(qualified.Members)
 	qualified.Executions = variantIndependentExecutions(qualified.Members, bySpan)
@@ -342,7 +344,7 @@ func generatedCandidateTaskEvidence(c LogicCandidate, bySpan map[string]SpanProp
 	return qualified, true
 }
 
-func generatedCausalComponent(p SpanProposal) bool {
+func generatedCausalComponent(p model.SpanProposal) bool {
 	if p.Kind != "result_chain" || len(p.Calls) < 2 || len(p.Composition.Edges) == 0 ||
 		p.Review.Source != "user" && p.Review.Source != "scheduled" {
 		return false
@@ -355,7 +357,7 @@ func generatedCausalComponent(p SpanProposal) bool {
 	return true
 }
 
-func generatedVariantIsInternalComponent(v LogicCandidate, bySpan map[string]SpanProposal) bool {
+func generatedVariantIsInternalComponent(v model.LogicCandidate, bySpan map[string]model.SpanProposal) bool {
 	if len(v.Members) == 0 {
 		return false
 	}
@@ -372,7 +374,7 @@ func generatedVariantIsInternalComponent(v LogicCandidate, bySpan map[string]Spa
 // the two adjacent operations are one user task. Keep such variants available
 // for direct inspection, but do not push them into the generated review queue
 // unless independent executions establish a task-shaped contract.
-func generatedVariantHasTaskEvidence(v LogicCandidate, bySpan map[string]SpanProposal) bool {
+func generatedVariantHasTaskEvidence(v model.LogicCandidate, bySpan map[string]model.SpanProposal) bool {
 	allRepeatedOrder := len(v.Members) > 0
 	readySessions := map[string]bool{}
 	sourceSessions := map[string]bool{}

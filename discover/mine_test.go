@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -25,7 +27,7 @@ func TestMinePatternsRespectsWindow(t *testing.T) {
 	ps, _, _ := minePatterns(seqs, mineLimits{window: 3, minSupport: 2, maxLen: 3, maxOut: 1000})
 	got := map[string]int{}
 	for _, p := range ps {
-		got[p.key()] = len(p.sessions)
+		got[p.Key()] = len(p.Sessions)
 	}
 	if got["1,2,3"] != 2 {
 		t.Fatalf("1,2,3 support = %d, want 2 (third session breaks the window); all: %v", got["1,2,3"], got)
@@ -33,14 +35,14 @@ func TestMinePatternsRespectsWindow(t *testing.T) {
 }
 
 func TestClosedOnlyDropsSubsumedPatterns(t *testing.T) {
-	ps := []pattern{
-		{items: []int{1, 2}, sessions: []int{0, 1, 2}},
-		{items: []int{1, 2, 3}, sessions: []int{0, 1, 2}}, // same support: 1,2 is not closed
-		{items: []int{1, 3}, sessions: []int{0, 1, 2, 3}}, // more support than 1,2,3: stays
+	ps := []model.Pattern{
+		{Items: []int{1, 2}, Sessions: []int{0, 1, 2}},
+		{Items: []int{1, 2, 3}, Sessions: []int{0, 1, 2}}, // same support: 1,2 is not closed
+		{Items: []int{1, 3}, Sessions: []int{0, 1, 2, 3}}, // more support than 1,2,3: stays
 	}
 	var keys []string
 	for _, p := range closedOnly(ps) {
-		keys = append(keys, p.key())
+		keys = append(keys, p.Key())
 	}
 	if strings.Join(keys, " ") != "1,2,3 1,3" {
 		t.Fatalf("closed = %v", keys)
@@ -140,9 +142,9 @@ func TestRunFindsPlantedProcedureAndNotNoise(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var planted *Candidate
+	var planted *model.Candidate
 	for i, c := range rep.Candidates {
-		if labelsOf(c) == "sh:make build → sh:go test → sh:git push" {
+		if model.LabelsOf(c) == "sh:make build → sh:go test → sh:git push" {
 			planted = &rep.Candidates[i]
 		}
 	}
@@ -164,7 +166,7 @@ func TestRunFindsPlantedProcedureAndNotNoise(t *testing.T) {
 			switch s.Label {
 			case "sh:make build", "sh:go test", "sh:git push":
 			default:
-				t.Errorf("a qualified candidate contains noise step %q: %s", s.Label, labelsOf(c))
+				t.Errorf("a qualified candidate contains noise step %q: %s", s.Label, model.LabelsOf(c))
 			}
 		}
 	}
@@ -257,14 +259,14 @@ func TestPruningDropsNothingThatCouldQualify(t *testing.T) {
 	pruned, _, _ := minePatterns(seqs, lim)
 	have := map[string]bool{}
 	for _, p := range pruned {
-		have[p.key()] = true
+		have[p.Key()] = true
 	}
 	admissible := 0
 	for _, p := range all {
-		if can(p.items, len(p.sessions)) {
+		if can(p.Items, len(p.Sessions)) {
 			admissible++
-			if !have[p.key()] {
-				t.Errorf("pruning dropped %s (support %d)", p.key(), len(p.sessions))
+			if !have[p.Key()] {
+				t.Errorf("pruning dropped %s (support %d)", p.Key(), len(p.Sessions))
 			}
 		}
 	}
@@ -308,7 +310,7 @@ func TestClientVocabulariesAreNotRecurrence(t *testing.T) {
 	}
 	for _, c := range rep.Candidates {
 		if c.Qualified {
-			t.Errorf("random calls qualified: %s (q %.2g, order q %.2g, necessity q %.2g)", labelsOf(c), c.Q, c.OrderQ, c.NecessityQ)
+			t.Errorf("random calls qualified: %s (q %.2g, order q %.2g, necessity q %.2g)", model.LabelsOf(c), c.Q, c.OrderQ, c.NecessityQ)
 		}
 	}
 }
@@ -322,7 +324,7 @@ func TestTemplateCollapsesVariadicParameters(t *testing.T) {
 		}
 		occ = append(occ, []trace.Step{st})
 	}
-	if got := templateOf("sh:git add", occ, 0).Template; got != "sh:git add <path>…" {
+	if got := model.TemplateOf("sh:git add", occ, 0).Template; got != "sh:git add <path>…" {
 		t.Fatalf("template = %q", got)
 	}
 }
@@ -358,7 +360,7 @@ func TestSkillComparisonFindsThePlantedProcedure(t *testing.T) {
 	if !top.OnlyInSkill {
 		t.Errorf("planted procedure occurs only in its skill; OnlyInSkill = false")
 	}
-	if labelsOf(top.Candidate) != "sh:make build → sh:go test → sh:git push" || top.InSkill != 20 || top.Outside != 0 {
-		t.Fatalf("top procedure = %s in %d outside %d", labelsOf(top.Candidate), top.InSkill, top.Outside)
+	if model.LabelsOf(top.Candidate) != "sh:make build → sh:go test → sh:git push" || top.InSkill != 20 || top.Outside != 0 {
+		t.Fatalf("top procedure = %s in %d outside %d", model.LabelsOf(top.Candidate), top.InSkill, top.Outside)
 	}
 }
