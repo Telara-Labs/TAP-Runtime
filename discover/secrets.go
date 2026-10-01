@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
@@ -79,8 +81,8 @@ func secretShape(v string) string {
 // shape. -u user:password is a credential by position, but only for the
 // programs where -u means a user (curl, wget, http); date -u and sort -u do
 // not.
-func sensitiveSlot(label string, sl Slot) bool {
-	if sl.Sub || sl.Type == SlotFlag {
+func sensitiveSlot(label string, sl trace.Slot) bool {
+	if sl.Sub || sl.Type == trace.SlotFlag {
 		return false
 	}
 	name := strings.SplitN(sl.Key, "#", 2)[0]

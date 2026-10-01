@@ -3,6 +3,8 @@ package discover
 import (
 	"sort"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // SpanComposition is a structural retrieval bucket. It describes observed
@@ -189,7 +191,7 @@ func spanTargetSlots(n spanNode) map[string]string {
 	for _, st := range n.steps {
 		for _, sl := range spanExpandedSlots(st.Slots) {
 			key := strings.TrimPrefix(strings.ToLower(sl.Key), "params/")
-			if sl.Value == "" || (sl.Type != SlotID && sl.Type != SlotPath && sl.Type != SlotURL && sl.Type != SlotNumber) {
+			if sl.Value == "" || (sl.Type != trace.SlotID && sl.Type != trace.SlotPath && sl.Type != trace.SlotURL && sl.Type != trace.SlotNumber) {
 				continue
 			}
 			switch key {
@@ -217,7 +219,7 @@ func spanRepeatedItems(nodes []spanNode, set []int, roles []string, role string)
 		}
 		for _, st := range nodes[i].steps {
 			for _, sl := range spanExpandedSlots(st.Slots) {
-				if sl.Type != SlotID && sl.Type != SlotURL && sl.Type != SlotPath && sl.Type != SlotNumber {
+				if sl.Type != trace.SlotID && sl.Type != trace.SlotURL && sl.Type != trace.SlotPath && sl.Type != trace.SlotNumber {
 					continue
 				}
 				for _, in := range nodes[i].inputs {
@@ -270,15 +272,15 @@ func spanRepeatedArgumentVariation(nodes []spanNode, set []int, roles []string, 
 	fields := map[string]map[string]bool{}
 	present := map[string]int{}
 	for _, op := range operations {
-		for path, field := range observedArgs(op.call) {
-			if operationSelector(op.call, path) {
+		for path, field := range trace.ObservedArgs(op.call) {
+			if trace.OperationSelector(op.call, path) {
 				continue
 			}
-			key := path + "\x00" + field.typeName
+			key := path + "\x00" + field.TypeName
 			if fields[key] == nil {
 				fields[key] = map[string]bool{}
 			}
-			fields[key][field.value] = true
+			fields[key][field.Value] = true
 			present[key]++
 		}
 	}
@@ -315,7 +317,7 @@ func spanActionRole(n spanNode) string {
 				continue
 			}
 			k := strings.ToLower(sl.Key)
-			if scopeFlags[strings.SplitN(k, "#", 2)[0]] && sl.Value != "" && len(sl.Value) <= 40 {
+			if trace.ScopeFlags[strings.SplitN(k, "#", 2)[0]] && sl.Value != "" && len(sl.Value) <= 40 {
 				selectors = append(selectors, k+"="+strings.ToLower(Redact(sl.Value)))
 				continue
 			}

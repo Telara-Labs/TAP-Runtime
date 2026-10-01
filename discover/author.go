@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // The author path (TENG-2936, doc 26). Discover proposes; it does not
@@ -136,7 +138,7 @@ func OpaqueRef(s SourceRef) string {
 
 // NewBrief builds the brief for request req of session s. cand is the
 // Discover candidate the request came from, or nil for a selected task.
-func NewBrief(s Session, req int, cand *BriefCandidate) (*Brief, error) {
+func NewBrief(s trace.Session, req int, cand *BriefCandidate) (*Brief, error) {
 	if req < 0 || req >= len(s.Requests) {
 		return nil, fmt.Errorf("session %s has %d requests; request %d does not exist", s.ID, len(s.Requests), req)
 	}
@@ -186,7 +188,7 @@ func NewBrief(s Session, req int, cand *BriefCandidate) (*Brief, error) {
 
 // NewBriefSpan narrows the evidence to the exact recorded calls of a span.
 // A stale or ambiguous source is an error rather than a silently wrong brief.
-func NewBriefSpan(s Session, p SpanProposal) (*Brief, error) {
+func NewBriefSpan(s trace.Session, p SpanProposal) (*Brief, error) {
 	if s.Client != p.Client || s.ID != p.Session || p.Request < 0 || p.Request >= len(s.Requests) {
 		return nil, fmt.Errorf("span %s source does not match session", p.ID)
 	}
@@ -247,11 +249,11 @@ func (c BriefContract) missing() []string {
 	return out
 }
 
-func outcomeName(o Outcome) string {
+func outcomeName(o trace.Outcome) string {
 	switch o {
-	case OutcomeOK:
+	case trace.OutcomeOK:
 		return "ok"
-	case OutcomeFailed:
+	case trace.OutcomeFailed:
 		return "failed"
 	}
 	return "unknown"
@@ -287,7 +289,7 @@ func CandidateFrom(reportPath, id string) (*BriefCandidate, error) {
 }
 
 // FindSession reads one session of a client's history under home.
-func FindSession(client, id, home string) (Session, error) {
+func FindSession(client, id, home string) (trace.Session, error) {
 	var files []string
 	switch client {
 	case "claude-code":
@@ -302,7 +304,7 @@ func FindSession(client, id, home string) (Session, error) {
 	case "cursor":
 		ss, err := Cursor{DB: CursorStateDB(home)}.Read(time.Time{})
 		if err != nil {
-			return Session{}, err
+			return trace.Session{}, err
 		}
 		for _, s := range ss {
 			if s.ID == id {
@@ -310,11 +312,11 @@ func FindSession(client, id, home string) (Session, error) {
 			}
 		}
 	default:
-		return Session{}, fmt.Errorf("unknown client %q (want claude-code, codex or cursor)", client)
+		return trace.Session{}, fmt.Errorf("unknown client %q (want claude-code, codex or cursor)", client)
 	}
 	sort.Strings(files)
 	for _, f := range files {
-		var s Session
+		var s trace.Session
 		var err error
 		if client == "claude-code" {
 			s, err = readClaudeFile(f)
@@ -325,7 +327,7 @@ func FindSession(client, id, home string) (Session, error) {
 			return s, nil
 		}
 	}
-	return Session{}, fmt.Errorf("no %s session %s under %s", client, id, home)
+	return trace.Session{}, fmt.Errorf("no %s session %s under %s", client, id, home)
 }
 
 // ParseTaskRef reads client/session/request.
@@ -517,7 +519,7 @@ func (b *Brief) markdown() string {
 		for i, ex := range b.LogicExamples {
 			fmt.Fprintf(&w, "### Execution example %d — %s (ref %s)\n\n> %s\n\n", i+1, ex.SpanID, ex.Ref, strings.ReplaceAll(ex.Evidence.Request, "\n", "\n> "))
 			for _, step := range ex.Evidence.Steps {
-				fmt.Fprintf(&w, "- `%s` %s %v → %s\n", step.Tool, truncateUTF8(strings.ReplaceAll(step.Command, "\n", " "), 160), step.Args, step.Outcome)
+				fmt.Fprintf(&w, "- `%s` %s %v → %s\n", step.Tool, trace.TruncateUTF8(strings.ReplaceAll(step.Command, "\n", " "), 160), step.Args, step.Outcome)
 			}
 			w.WriteString("\n")
 		}
@@ -540,10 +542,10 @@ func (b *Brief) markdown() string {
 			}
 			sort.Strings(keys)
 			for _, k := range keys {
-				what += k + "=" + truncateUTF8(st.Args[k], 120) + " "
+				what += k + "=" + trace.TruncateUTF8(st.Args[k], 120) + " "
 			}
 		}
-		fmt.Fprintf(&w, "%d. `%s` %s [%s; source call %d]\n", st.N, st.Tool, strings.TrimSpace(truncateUTF8(strings.ReplaceAll(what, "\n", " "), 300)), st.Outcome, st.SourceCall)
+		fmt.Fprintf(&w, "%d. `%s` %s [%s; source call %d]\n", st.N, st.Tool, strings.TrimSpace(trace.TruncateUTF8(strings.ReplaceAll(what, "\n", " "), 300)), st.Outcome, st.SourceCall)
 	}
 	w.WriteString(`
 ## What to do

@@ -5,6 +5,8 @@ import (
 	"math/bits"
 	"sort"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
@@ -43,7 +45,7 @@ type SkillReport struct {
 // the kept patterns' presence in that skill's sessions against sessions of
 // the same client and similar length. It reuses the patterns the main search
 // kept, so it adds no search.
-func skillProcedures(corpus []normSession, seqs [][]int, ps []pattern, names []string, idf []float64, o Options) []SkillReport {
+func skillProcedures(corpus []trace.NormSession, seqs [][]int, ps []pattern, names []string, idf []float64, o Options) []SkillReport {
 	skillSessions := map[string][]int{}
 	for i, s := range corpus {
 		for sk := range s.Skills {

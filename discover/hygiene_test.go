@@ -8,22 +8,24 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
 
 func TestAcknowledgementsAndRetriesContinueTheRequest(t *testing.T) {
-	var s Session
-	s.addRequest("please move TENG-3054 to done and comment that it shipped")
+	var s trace.Session
+	s.AddRequest("please move TENG-3054 to done and comment that it shipped")
 	for _, ack := range []string{"yes", "Yes, file", "ok, yes", "already approved.", "continue", "please move TENG-3054 to done and comment that it shipped"} {
-		s.addRequest(ack)
+		s.AddRequest(ack)
 	}
 	if len(s.Requests) != 1 {
 		t.Fatalf("acknowledgements and a re-sent request must continue it: %q", s.Requests)
 	}
 	for _, next := range []string{"please deploy", "yes, and also check TENG-3055", "fix the gateway/src/main.go panic"} {
-		var s2 Session
-		s2.addRequest("first task")
-		s2.addRequest(next)
+		var s2 trace.Session
+		s2.AddRequest("first task")
+		s2.AddRequest(next)
 		if len(s2.Requests) != 2 {
 			t.Errorf("%q is a new request", next)
 		}
@@ -31,8 +33,8 @@ func TestAcknowledgementsAndRetriesContinueTheRequest(t *testing.T) {
 }
 
 func TestCodexContextBlocksYieldTheRealRequest(t *testing.T) {
-	var s Session
-	s.addRequest("# In app browser:\n- The user has the in-app browser open.\n- Current URL: https://www.linkedin.com/feed/\n\n## My request for Codex:\nfind the three newest comments\n")
+	var s trace.Session
+	s.AddRequest("# In app browser:\n- The user has the in-app browser open.\n- Current URL: https://www.linkedin.com/feed/\n\n## My request for Codex:\nfind the three newest comments\n")
 	if len(s.Requests) != 1 || s.Requests[0] != "find the three newest comments" {
 		t.Fatalf("requests = %q", s.Requests)
 	}
@@ -58,20 +60,20 @@ func TestNonCommandsAreNotSteps(t *testing.T) {
 }
 
 func TestTypingOfQuotedURLsAndNumericFlags(t *testing.T) {
-	if got := typeOf(shellparse.Word{Text: "see https://x.dev for why", Quoted: true}); got != SlotText {
+	if got := trace.TypeOf(shellparse.Word{Text: "see https://x.dev for why", Quoted: true}); got != trace.SlotText {
 		t.Errorf("a quoted sentence with a URL is text, got %s", got)
 	}
-	if got := typeOf(shellparse.Word{Text: "-15"}); got != SlotNumber {
+	if got := trace.TypeOf(shellparse.Word{Text: "-15"}); got != trace.SlotNumber {
 		t.Errorf("tail -15 is a count, got %s", got)
 	}
 }
 
 func TestReportTextIsValidUTF8(t *testing.T) {
-	ss := requestSessions(6, func(i int) string { return strings.Repeat("→ déploiement ", 20) }, func(i int) []Call {
-		return []Call{sh("git status --short"), sh("git diff --stat"), sh("git log --oneline -3"), sh("git branch --show-current")}
+	ss := requestSessions(6, func(i int) string { return strings.Repeat("→ déploiement ", 20) }, func(i int) []trace.Call {
+		return []trace.Call{sh("git status --short"), sh("git diff --stat"), sh("git log --oneline -3"), sh("git branch --show-current")}
 	})
 	o := DefaultOptions()
-	o.Readers = []Reader{fakeReader{sessions: ss}}
+	o.Readers = []trace.Reader{fakeReader{sessions: ss}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -84,17 +86,17 @@ func TestReportTextIsValidUTF8(t *testing.T) {
 }
 
 func TestKindsAndMerging(t *testing.T) {
-	book := requestSessions(6, func(i int) string { return fmt.Sprintf("work on ticket %d", i) }, func(i int) []Call {
-		return []Call{{Tool: "mcp:telara_task_list"}, {Tool: "mcp:telara_task_create", Args: map[string]string{"goal": fmt.Sprint("g", i)}}}
+	book := requestSessions(6, func(i int) string { return fmt.Sprintf("work on ticket %d", i) }, func(i int) []trace.Call {
+		return []trace.Call{{Tool: "mcp:telara_task_list"}, {Tool: "mcp:telara_task_create", Args: map[string]string{"goal": fmt.Sprint("g", i)}}}
 	})
-	sched := requestSessions(6, func(i int) string { return "Automation: hourly monitor\nAutomation ID: m-1" }, func(i int) []Call {
-		return []Call{sh("git fetch --all"), sh(fmt.Sprintf("git log --oneline -%d", i+2))}
+	sched := requestSessions(6, func(i int) string { return "Automation: hourly monitor\nAutomation ID: m-1" }, func(i int) []trace.Call {
+		return []trace.Call{sh("git fetch --all"), sh(fmt.Sprintf("git log --oneline -%d", i+2))}
 	})
 	for i := range sched {
 		sched[i].ID = "s" + sched[i].ID
 	}
 	o := DefaultOptions()
-	o.Readers = []Reader{fakeReader{sessions: append(book, sched...)}}
+	o.Readers = []trace.Reader{fakeReader{sessions: append(book, sched...)}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/pyparse"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
@@ -67,9 +69,9 @@ type SpanGroup struct {
 }
 
 type spanNode struct {
-	call    Call
+	call    trace.Call
 	ordinal int
-	steps   []Step
+	steps   []trace.Step
 	label   string
 	effect  string
 	inputs  []SpanInput
@@ -80,14 +82,14 @@ type spanNode struct {
 // SelectSpanProposals extracts bounded pieces of work without requiring the
 // whole request to be short, multi-call, or to name an object literally. It
 // makes no LLM call and does not change the older recommendation score.
-func SelectSpanProposals(ss []Session) []SpanProposal {
-	cp := append([]Session(nil), ss...)
+func SelectSpanProposals(ss []trace.Session) []SpanProposal {
+	cp := append([]trace.Session(nil), ss...)
 	for i := range cp {
-		cp[i].Calls = append([]Call(nil), cp[i].Calls...)
+		cp[i].Calls = append([]trace.Call(nil), cp[i].Calls...)
 	}
-	dropCopiedCalls(cp)
-	norm := normalize(cp)
-	normBySession := make(map[string]*normSession, len(norm))
+	trace.DropCopiedCalls(cp)
+	norm := trace.Normalize(cp)
+	normBySession := make(map[string]*trace.NormSession, len(norm))
 	for i := range norm {
 		normBySession[norm[i].Client+"\x00"+norm[i].ID] = &norm[i]
 	}
@@ -104,7 +106,7 @@ func SelectSpanProposals(ss []Session) []SpanProposal {
 		if ns == nil {
 			continue
 		}
-		byCall := map[int][]Step{}
+		byCall := map[int][]trace.Step{}
 		for _, st := range ns.Steps {
 			byCall[st.Call] = append(byCall[st.Call], st)
 		}
@@ -118,7 +120,7 @@ func SelectSpanProposals(ss []Session) []SpanProposal {
 		}
 		sort.Ints(reqs)
 		for _, r := range reqs {
-			if r >= len(s.Requests) || strings.TrimSpace(s.Requests[r]) == "" || isHarness(s.Requests[r]) {
+			if r >= len(s.Requests) || strings.TrimSpace(s.Requests[r]) == "" || trace.IsHarness(s.Requests[r]) {
 				continue
 			}
 			nodes := buildSpanNodes(*s, r, byReq[r], byCall)
@@ -167,7 +169,7 @@ func SelectSpanProposals(ss []Session) []SpanProposal {
 	return out
 }
 
-func buildSpanNodes(s Session, req int, calls []int, byCall map[int][]Step) []spanNode {
+func buildSpanNodes(s trace.Session, req int, calls []int, byCall map[int][]trace.Step) []spanNode {
 	var nodes []spanNode
 	for ordinal, ci := range calls {
 		steps := byCall[ci]
@@ -178,18 +180,18 @@ func buildSpanNodes(s Session, req int, calls []int, byCall map[int][]Step) []sp
 		effect := "unknown"
 		var labels []string
 		for _, st := range steps {
-			if bookkeepingTools[st.Label] {
+			if trace.BookkeepingTools[st.Label] {
 				continue
 			}
 			work = true
 			label := st.Label
 			for _, sl := range st.Slots {
-				if selectorKeys[sl.Key] && sl.Value != "" {
-					label += "#" + sl.Key + "=" + oneLine(strings.ToLower(sl.Value), 40)
+				if trace.SelectorKeys[sl.Key] && sl.Value != "" {
+					label += "#" + sl.Key + "=" + trace.OneLine(strings.ToLower(sl.Value), 40)
 				}
 			}
 			labels = append(labels, label)
-			switch stepEffect(st) {
+			switch trace.StepEffect(st) {
 			case "write":
 				effect = "write"
 			case "read":
@@ -238,7 +240,7 @@ func buildSpanNodes(s Session, req int, calls []int, byCall map[int][]Step) []sp
 				}
 				n.inputs = append(n.inputs, input)
 				if input.Source == "caller" || input.Source == "prior_request" {
-					if slot.Type == SlotID || slot.Type == SlotPath || slot.Type == SlotURL || slot.Type == SlotNumber {
+					if slot.Type == trace.SlotID || slot.Type == trace.SlotPath || slot.Type == trace.SlotURL || slot.Type == trace.SlotNumber {
 						n.anchors = append(n.anchors, slot.Type+"\x00"+v)
 					}
 				}
@@ -252,8 +254,8 @@ func buildSpanNodes(s Session, req int, calls []int, byCall map[int][]Step) []sp
 // Tool gateways commonly put the real resource parameters inside a JSON
 // string argument such as params={"job_id":123}. Flattening only the outer
 // argument hides both caller inputs and result-derived dependencies.
-func spanExpandedSlots(slots []Slot) []Slot {
-	out := append([]Slot(nil), slots...)
+func spanExpandedSlots(slots []trace.Slot) []trace.Slot {
+	out := append([]trace.Slot(nil), slots...)
 	for _, sl := range slots {
 		if !strings.HasPrefix(strings.TrimSpace(sl.Value), "{") {
 			continue
@@ -267,7 +269,7 @@ func spanExpandedSlots(slots []Slot) []Slot {
 	return out
 }
 
-func spanFlattenObject(out *[]Slot, prefix string, obj map[string]json.RawMessage, depth int) {
+func spanFlattenObject(out *[]trace.Slot, prefix string, obj map[string]json.RawMessage, depth int) {
 	if depth >= 4 {
 		return
 	}
@@ -292,12 +294,12 @@ func spanFlattenObject(out *[]Slot, prefix string, obj map[string]json.RawMessag
 		if v == "" || strings.HasPrefix(v, "[") || v == "null" {
 			continue
 		}
-		*out = append(*out, Slot{Key: key, Type: typeOf(shellparse.Word{Text: v}), Value: v})
+		*out = append(*out, trace.Slot{Key: key, Type: trace.TypeOf(shellparse.Word{Text: v}), Value: v})
 	}
 }
 
-func spanVariable(s Slot) bool {
-	if s.Sub || s.Type == SlotFlag || derived(s.Key) || s.Key == "recv" {
+func spanVariable(s trace.Slot) bool {
+	if s.Sub || s.Type == trace.SlotFlag || trace.Derived(s.Key) || s.Key == "recv" {
 		return false
 	}
 	// Shell flags configure an observed command; their literal values are
@@ -310,9 +312,9 @@ func spanVariable(s Slot) bool {
 		return false
 	}
 	switch s.Type {
-	case SlotWord:
+	case trace.SlotWord:
 		return strings.Contains(s.Key, "query") || strings.Contains(s.Key, "search") || strings.Contains(s.Key, "name")
-	case SlotNumber:
+	case trace.SlotNumber:
 		return len(v) >= 5 || strings.Contains(strings.ToLower(s.Key), "id")
 	default:
 		return true
@@ -320,23 +322,23 @@ func spanVariable(s Slot) bool {
 }
 
 func spanInText(value, kind, text string) bool {
-	if kind == SlotPath || kind == SlotURL {
-		return inRequest(value, text)
+	if kind == trace.SlotPath || kind == trace.SlotURL {
+		return trace.InRequest(value, text)
 	}
 	return containsItem(strings.ToLower(text), strings.ToLower(value))
 }
 
 func spanPriorRequest(value, kind string, requests []string, before int) int {
 	for r := before - 1; r >= 0; r-- {
-		if !isHarness(requests[r]) && !isClaudeContinuationSummary(requests[r]) && spanInText(value, kind, requests[r]) {
+		if !trace.IsHarness(requests[r]) && !isClaudeContinuationSummary(requests[r]) && spanInText(value, kind, requests[r]) {
 			return r
 		}
 	}
 	return -1
 }
 
-func spanResultHas(c Call, value string) bool {
-	if c.Outcome == OutcomeFailed || len(value) < 4 {
+func spanResultHas(c trace.Call, value string) bool {
+	if c.Outcome == trace.OutcomeFailed || len(value) < 4 {
 		return false
 	}
 	for i, id := range c.OutIDs {
@@ -359,7 +361,7 @@ func appendUniqueInt(xs []int, n int) []int {
 	return append(xs, n)
 }
 
-func proposalsForRequest(s Session, req int, nodes []spanNode, pairSupport map[string]bool) []SpanProposal {
+func proposalsForRequest(s trace.Session, req int, nodes []spanNode, pairSupport map[string]bool) []SpanProposal {
 	var sets [][]int
 	authored := map[string]bool{}
 	repeatedOrder := map[string]bool{}
@@ -424,7 +426,7 @@ func proposalsForRequest(s Session, req int, nodes []spanNode, pairSupport map[s
 			// A shared file path mostly joins incidental source reads and edits.
 			// Resource IDs, URLs and explicit numbers identify a caller's
 			// bounded target more reliably for this independent sequence route.
-			if kind != SlotID && kind != SlotURL && kind != SlotNumber {
+			if kind != trace.SlotID && kind != trace.SlotURL && kind != trace.SlotNumber {
 				continue
 			}
 			byAnchor[anchor] = appendUniqueInt(byAnchor[anchor], i)
@@ -546,7 +548,7 @@ func spanPairCovered(sets [][]int, first, second int) bool {
 }
 
 func spanAdjacentPairKey(a, b spanNode) string {
-	if a.effect != "read" && a.effect != "write" || b.effect != "read" && b.effect != "write" || a.effect != "write" && b.effect != "write" || a.call.Outcome == OutcomeFailed || b.call.Outcome == OutcomeFailed {
+	if a.effect != "read" && a.effect != "write" || b.effect != "read" && b.effect != "write" || a.effect != "write" && b.effect != "write" || a.call.Outcome == trace.OutcomeFailed || b.call.Outcome == trace.OutcomeFailed {
 		return ""
 	}
 	// Repeated order alone is not a process: an issue comment followed by a
@@ -584,12 +586,12 @@ func spanPairSharesResource(a, b spanNode) bool {
 	return false
 }
 
-func spanPairResourceSlot(slot Slot) bool {
+func spanPairResourceSlot(slot trace.Slot) bool {
 	if len(slot.Value) < 4 || slot.Value == "/dev/null" {
 		return false
 	}
 	switch slot.Type {
-	case SlotID, SlotURL, SlotPath:
+	case trace.SlotID, trace.SlotURL, trace.SlotPath:
 		return true
 	}
 	return false
@@ -608,7 +610,7 @@ func spanExplicitCommand(request string, n spanNode) bool {
 		return false
 	}
 	first := strings.ToLower(words[1])
-	return typeOf(shellparse.Word{Text: first}) == SlotWord && mentioned[first]
+	return trace.TypeOf(shellparse.Word{Text: first}) == trace.SlotWord && mentioned[first]
 }
 
 func spanRepeatedMotifSets(nodes []spanNode, sets [][]int) [][]int {
@@ -738,7 +740,7 @@ func spanProgramPath(path string) bool {
 	return false
 }
 
-func spanRunsScript(c Call, path string) bool {
+func spanRunsScript(c trace.Call, path string) bool {
 	if c.Tool != "shell" {
 		return false
 	}
@@ -787,7 +789,7 @@ func spanDirectIntent(requests []string, req int, n spanNode) bool {
 	want := current
 	if req > 0 && spanHasReference(current) {
 		for r := req - 1; r >= 0; r-- {
-			if strings.TrimSpace(requests[r]) != "" && !isHarness(requests[r]) && !isClaudeContinuationSummary(requests[r]) {
+			if strings.TrimSpace(requests[r]) != "" && !trace.IsHarness(requests[r]) && !isClaudeContinuationSummary(requests[r]) {
 				want = spanWords(requests[r] + " " + requests[req])
 				break
 			}
@@ -807,7 +809,7 @@ func spanDirectIntent(requests []string, req int, n spanNode) bool {
 	}
 	for _, st := range n.steps {
 		for _, slot := range st.Slots {
-			if !slot.Sub && !derived(slot.Key) && selectorKeys[slot.Key] && len(slot.Value) >= 4 {
+			if !slot.Sub && !trace.Derived(slot.Key) && trace.SelectorKeys[slot.Key] && len(slot.Value) >= 4 {
 				operation += " " + slot.Value
 			}
 		}
@@ -906,7 +908,7 @@ func spanOperationVerb(words map[string]bool, n spanNode) string {
 	return ""
 }
 
-func makeSpanProposal(s Session, req int, nodes []spanNode, set []int, kind string) SpanProposal {
+func makeSpanProposal(s trace.Session, req int, nodes []spanNode, set []int, kind string) SpanProposal {
 	var calls []int
 	var callHashes []string
 	var labels, tools, inputShapes []string
@@ -919,7 +921,7 @@ func makeSpanProposal(s Session, req int, nodes []spanNode, set []int, kind stri
 		callHashes = append(callHashes, spanCallHash(n.call))
 		labels = append(labels, n.label)
 		for _, st := range n.steps {
-			if !bookkeepingTools[st.Label] {
+			if !trace.BookkeepingTools[st.Label] {
 				tools = append(tools, st.Label)
 			}
 		}
@@ -928,7 +930,7 @@ func makeSpanProposal(s Session, req int, nodes []spanNode, set []int, kind stri
 		} else if n.effect == "read" && effect != "write" {
 			effect = "read"
 		}
-		if n.call.Outcome == OutcomeOK {
+		if n.call.Outcome == trace.OutcomeOK {
 			score++
 		}
 		if n.call.Output != "" {
@@ -953,7 +955,7 @@ func makeSpanProposal(s Session, req int, nodes []spanNode, set []int, kind stri
 	// same short phrase in an unrelated session; it is not an authority grant.
 	if req > 0 {
 		for r := req - 1; r >= 0; r-- {
-			if strings.TrimSpace(s.Requests[r]) != "" && !isHarness(s.Requests[r]) && !spanSyntheticRequest(s, r) {
+			if strings.TrimSpace(s.Requests[r]) != "" && !trace.IsHarness(s.Requests[r]) && !spanSyntheticRequest(s, r) {
 				text = s.Requests[r] + "\n" + text
 				contextRequest = r + 1
 				break
@@ -976,7 +978,7 @@ func makeSpanProposal(s Session, req int, nodes []spanNode, set []int, kind stri
 	for _, i := range set {
 		for _, st := range nodes[i].steps {
 			for _, sl := range st.Slots {
-				if !isScopeSlot(st, sl) {
+				if !trace.IsScopeSlot(st, sl) {
 					continue
 				}
 				k := strings.ToLower(sl.Key)
@@ -990,7 +992,7 @@ func makeSpanProposal(s Session, req int, nodes []spanNode, set []int, kind stri
 	shape := strings.Join([]string{hex.EncodeToString(goalHash[:6]), strings.Join(labels, ">"), strings.Join(inputShapes, ","), effect, strings.Join(scope, ",")}, "|")
 	shapeHash := sha256.Sum256([]byte(shape))
 	// The ID depends only on source identity and the selected call ordinals.
-	idHash := sha256.Sum256([]byte(EpisodeID(s.Client, s.ID, req) + "/" + strings.Join(intsToStrings(calls), ",")))
+	idHash := sha256.Sum256([]byte(trace.EpisodeID(s.Client, s.ID, req) + "/" + strings.Join(intsToStrings(calls), ",")))
 	start := nodes[set[0]].call.Time
 	return SpanProposal{ID: "sp_" + hex.EncodeToString(idHash[:6]), Client: s.Client, Session: s.ID, Request: req,
 		Task: s.Client + "/" + s.ID + "/" + strconv.Itoa(req), Status: BriefStatus, Kind: kind, Calls: calls, CallHashes: callHashes, Tools: tools,
@@ -1000,12 +1002,12 @@ func makeSpanProposal(s Session, req int, nodes []spanNode, set []int, kind stri
 
 // spanCallHash lets a brief match selected calls against the source session
 // even when resumed-session copy removal shifted their numeric positions.
-func spanCallHash(c Call) string {
+func spanCallHash(c trace.Call) string {
 	b, _ := json.Marshal(struct {
 		ID, Tool, MCPServer, MCPTool, Command, Output string
 		Args                                          map[string]string
-		Outcome                                       Outcome
-		OutCollections                                []ResultCollection `json:",omitempty"`
+		Outcome                                       trace.Outcome
+		OutCollections                                []trace.ResultCollection `json:",omitempty"`
 	}{c.ID, c.Tool, c.MCPServer, c.MCPTool, c.Command, c.Output, c.Args, c.Outcome, c.OutCollections})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:12])

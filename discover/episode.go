@@ -3,6 +3,8 @@ package discover
 import (
 	"fmt"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // A useful procedure does not have to recur to be an authoring
@@ -28,14 +30,10 @@ type EpisodeClaim struct {
 	Accounted []bool `json:"accounted,omitempty"`
 }
 
-// searchPrograms read what the agent chose to look for: an unexplained
-// pattern or target on them is a choice made during the run.
-var searchPrograms = map[string]bool{"grep": true, "rg": true, "find": true, "ag": true}
-
 // AssessEpisodes judges each episode on its own contract.
 func (c *Corpus) AssessEpisodes(eps []Episode) []EpisodeClaim {
-	norm := normalize(c.Sessions)
-	byKey := map[string]*normSession{}
+	norm := trace.Normalize(c.Sessions)
+	byKey := map[string]*trace.NormSession{}
 	for i := range norm {
 		byKey[norm[i].Client+"/"+norm[i].ID] = &norm[i]
 	}
@@ -54,19 +52,19 @@ func (c *Corpus) AssessEpisodes(eps []Episode) []EpisodeClaim {
 	return out
 }
 
-func assessEpisode(ns *normSession, req int, ec *EpisodeClaim) {
+func assessEpisode(ns *trace.NormSession, req int, ec *EpisodeClaim) {
 	text := ""
 	if req < len(ns.Requests) {
 		text = ns.Requests[req]
 	}
-	var all []Step
+	var all []trace.Step
 	for _, st := range ns.Steps {
 		if st.Request == req {
 			all = append(all, st)
 		}
 	}
 	reason := func(s string) { ec.Reasons = append(ec.Reasons, s) }
-	if strings.TrimSpace(text) == "" || isHarness(text) {
+	if strings.TrimSpace(text) == "" || trace.IsHarness(text) {
 		ec.Suitability = SuitInvalid
 		reason("no_request_text")
 		return
@@ -74,18 +72,18 @@ func assessEpisode(ns *normSession, req int, ec *EpisodeClaim) {
 	// The work: replayable steps that are not the agent's bookkeeping, and
 	// edits (judgment) in their position.
 	type item struct {
-		st    Step
+		st    trace.Step
 		human bool
 	}
 	var work []item
 	book := 0
 	for _, st := range all {
 		switch {
-		case bookkeepingTools[st.Label]:
+		case trace.BookkeepingTools[st.Label]:
 			book++
-		case editTools[st.Label] || strings.HasPrefix(st.Label, "patch:"):
+		case trace.EditTools[st.Label] || strings.HasPrefix(st.Label, "patch:"):
 			work = append(work, item{st, true})
-		case replayable(st.Label):
+		case trace.Replayable(st.Label):
 			work = append(work, item{st, false})
 		}
 	}
@@ -136,14 +134,14 @@ func assessEpisode(ns *normSession, req int, ec *EpisodeClaim) {
 		prog := strings.Fields(strings.TrimPrefix(w.st.Label, "sh:"))[0]
 		unexplained := false
 		for _, sl := range w.st.Slots {
-			if sl.Sub || sl.Type == SlotFlag || sl.Type == SlotNumber || derived(sl.Key) || sl.Key == "recv" || len(sl.Value) < 3 {
+			if sl.Sub || sl.Type == trace.SlotFlag || sl.Type == trace.SlotNumber || trace.Derived(sl.Key) || sl.Key == "recv" || len(sl.Value) < 3 {
 				continue
 			}
-			if sl.Type == SlotWord && !(strings.HasPrefix(w.st.Label, "sh:") && searchPrograms[prog]) {
+			if sl.Type == trace.SlotWord && !(strings.HasPrefix(w.st.Label, "sh:") && trace.SearchPrograms[prog]) {
 				continue // a fixed word of the command: a resource kind, a branch
 			}
 			v := sl.Value
-			if inRequest(v, text) || composedFromRequest(v, text) {
+			if trace.InRequest(v, text) || composedFromRequest(v, text) {
 				continue
 			}
 			from := false
@@ -151,7 +149,7 @@ func assessEpisode(ns *normSession, req int, ec *EpisodeClaim) {
 				if prev.Call >= w.st.Call {
 					break
 				}
-				if inResult(v, prev) {
+				if trace.InResult(v, prev) {
 					from = true
 					break
 				}
@@ -164,7 +162,7 @@ func assessEpisode(ns *normSession, req int, ec *EpisodeClaim) {
 		}
 		if unexplained {
 			chosenSteps++
-			if stepEffect(w.st) != "write" {
+			if trace.StepEffect(w.st) != "write" {
 				readChosen++
 			}
 		}

@@ -16,20 +16,22 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // eps builds n sessions named prefix00.., each one request, four days apart.
 // Calls without a recorded outcome are marked ok.
-func eps(prefix string, n int, text func(i int) string, calls func(i int) []Call) []Session {
+func eps(prefix string, n int, text func(i int) string, calls func(i int) []trace.Call) []trace.Session {
 	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
-	var out []Session
+	var out []trace.Session
 	for i := 0; i < n; i++ {
-		s := Session{Client: "fake", ID: fmt.Sprintf("%s%02d", prefix, i), Start: t0.AddDate(0, 0, 4*i)}
-		s.addRequest(text(i))
+		s := trace.Session{Client: "fake", ID: fmt.Sprintf("%s%02d", prefix, i), Start: t0.AddDate(0, 0, 4*i)}
+		s.AddRequest(text(i))
 		for _, c := range calls(i) {
 			c.Request, c.Time = 0, s.Start
-			if c.Outcome == OutcomeUnknown {
-				c.Outcome = OutcomeOK
+			if c.Outcome == trace.OutcomeUnknown {
+				c.Outcome = trace.OutcomeOK
 			}
 			s.Calls = append(s.Calls, c)
 		}
@@ -38,14 +40,14 @@ func eps(prefix string, n int, text func(i int) string, calls func(i int) []Call
 	return out
 }
 
-func runOn(t *testing.T, ss ...[]Session) *Report {
+func runOn(t *testing.T, ss ...[]trace.Session) *Report {
 	t.Helper()
-	var all []Session
+	var all []trace.Session
 	for _, s := range ss {
 		all = append(all, s...)
 	}
 	o := DefaultOptions()
-	o.Readers = []Reader{fakeReader{sessions: all}}
+	o.Readers = []trace.Reader{fakeReader{sessions: all}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -163,14 +165,14 @@ func runDraftDir(t *testing.T, d *Draft, outputs map[string]string, args ...stri
 // C01: the same tool labels asking for different outcomes are different
 // task contracts, never one routine with the operation as an input.
 func TestC01SameToolsDifferentOutcomesAreDistinct(t *testing.T) {
-	create := eps("create", 6, func(i int) string { return fmt.Sprintf("open a merge request for branch feat-%d", i) }, func(i int) []Call {
-		return []Call{
+	create := eps("create", 6, func(i int) string { return fmt.Sprintf("open a merge request for branch feat-%d", i) }, func(i int) []trace.Call {
+		return []trace.Call{
 			{Tool: "mcp:gitlab_list_branches", Args: map[string]string{"project": "telara/gateway"}},
 			{Tool: "mcp:gitlab_merge_request", Args: map[string]string{"action": "create", "source_branch": fmt.Sprintf("feat-%d", i), "target_branch": "main"}},
 		}
 	})
-	list := eps("list", 6, func(i int) string { return fmt.Sprintf("list the open merge requests for branch feat-%d", i) }, func(i int) []Call {
-		return []Call{
+	list := eps("list", 6, func(i int) string { return fmt.Sprintf("list the open merge requests for branch feat-%d", i) }, func(i int) []trace.Call {
+		return []trace.Call{
 			{Tool: "mcp:gitlab_list_branches", Args: map[string]string{"project": "telara/gateway"}},
 			{Tool: "mcp:gitlab_merge_request", Args: map[string]string{"action": "list", "source_branch": fmt.Sprintf("feat-%d", i), "state": "opened"}},
 		}
@@ -197,9 +199,9 @@ func TestC01SameToolsDifferentOutcomesAreDistinct(t *testing.T) {
 // C02: the same procedure on different resources is one parameterized
 // routine, with the resource as the caller's input.
 func TestC02DifferentResourceIDsAreOneParameterizedRoutine(t *testing.T) {
-	ss := eps("pipe", 6, func(i int) string { return fmt.Sprintf("show me the jobs of pipeline %d", 100200+i) }, func(i int) []Call {
+	ss := eps("pipe", 6, func(i int) string { return fmt.Sprintf("show me the jobs of pipeline %d", 100200+i) }, func(i int) []trace.Call {
 		id := fmt.Sprint(100200 + i)
-		return []Call{
+		return []trace.Call{
 			{Tool: "mcp:gitlab_get_pipeline", Args: map[string]string{"pipeline_id": id}},
 			{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": id}},
 		}
@@ -224,9 +226,9 @@ func TestC02DifferentResourceIDsAreOneParameterizedRoutine(t *testing.T) {
 // C03: a staging write and a production write are different authority
 // scopes: no routine spans both, and each names its scope.
 func TestC03StagingAndProductionWritesDoNotShareAScope(t *testing.T) {
-	roll := func(prefix, env, ctx string) []Session {
-		return eps(prefix, 6, func(i int) string { return fmt.Sprintf("roll the gateway to image v1.%d in %s", i, env) }, func(i int) []Call {
-			return []Call{
+	roll := func(prefix, env, ctx string) []trace.Session {
+		return eps(prefix, 6, func(i int) string { return fmt.Sprintf("roll the gateway to image v1.%d in %s", i, env) }, func(i int) []trace.Call {
+			return []trace.Call{
 				sh(fmt.Sprintf("kubectl --context %s -n gateway set image deploy/gateway gateway=registry.example/gw:v1.%d", ctx, i)),
 				sh(fmt.Sprintf("kubectl --context %s -n gateway rollout status deploy/gateway", ctx)),
 			}
@@ -254,14 +256,14 @@ func TestC03StagingAndProductionWritesDoNotShareAScope(t *testing.T) {
 // C04: two providers for a similar goal may share a family but are never
 // merged into one implementation.
 func TestC04DifferentProvidersAreNotInterchangeable(t *testing.T) {
-	gl := eps("gl", 6, func(i int) string { return fmt.Sprintf("show the failing job log for pipeline %d", 300+i) }, func(i int) []Call {
-		return []Call{
+	gl := eps("gl", 6, func(i int) string { return fmt.Sprintf("show the failing job log for pipeline %d", 300+i) }, func(i int) []trace.Call {
+		return []trace.Call{
 			{Tool: "mcp:gitlab_get_pipeline", Args: map[string]string{"pipeline_id": fmt.Sprint(300 + i)}},
 			{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"pipeline_id": fmt.Sprint(300 + i), "status": "failed"}},
 		}
 	})
-	gh := eps("gh", 6, func(i int) string { return fmt.Sprintf("show the failing job log for run %d", 900+i) }, func(i int) []Call {
-		return []Call{sh(fmt.Sprintf("gh run view %d --json jobs", 900+i)), sh(fmt.Sprintf("gh run view %d --log-failed", 900+i))}
+	gh := eps("gh", 6, func(i int) string { return fmt.Sprintf("show the failing job log for run %d", 900+i) }, func(i int) []trace.Call {
+		return []trace.Call{sh(fmt.Sprintf("gh run view %d --json jobs", 900+i)), sh(fmt.Sprintf("gh run view %d --log-failed", 900+i))}
 	})
 	rep := runOn(t, gl, gh)
 	for _, r := range rep.Routines {
@@ -280,9 +282,9 @@ func TestC04DifferentProvidersAreNotInterchangeable(t *testing.T) {
 func TestC05BoundedReadOnlyDiffCheckIsUseful(t *testing.T) {
 	ss := eps("diff", 6, func(i int) string {
 		return fmt.Sprintf("did we add tests without service changes between %07x and %07x?", 0xa1b2c00+i, 0xd4e5f00+i)
-	}, func(i int) []Call {
+	}, func(i int) []trace.Call {
 		a, b := fmt.Sprintf("%07x", 0xa1b2c00+i), fmt.Sprintf("%07x", 0xd4e5f00+i)
-		return []Call{sh("git diff --name-only " + a + " " + b + " -- services"), sh("git diff --name-only " + a + " " + b + " -- tests")}
+		return []trace.Call{sh("git diff --name-only " + a + " " + b + " -- services"), sh("git diff --name-only " + a + " " + b + " -- tests")}
 	})
 	rep := runOn(t, ss)
 	if len(rep.Routines) != 1 {
@@ -312,8 +314,8 @@ func TestC06ExplicitListLoopIsAUsefulProcedure(t *testing.T) {
 			fs = append(fs, fmt.Sprintf("docs/r%d-%d.txt", i, f))
 		}
 		return "compute the sha256 of " + strings.Join(fs, " ")
-	}, func(i int) []Call {
-		var cs []Call
+	}, func(i int) []trace.Call {
+		var cs []trace.Call
 		for f := 0; f < 2+i%3; f++ {
 			cs = append(cs, sh(fmt.Sprintf("shasum -a 256 docs/r%d-%d.txt", i, f)))
 		}
@@ -362,10 +364,10 @@ func TestC06ExplicitListLoopIsAUsefulProcedure(t *testing.T) {
 
 // explore is an open-ended investigation: each run reads and searches
 // places the agent chose as it went.
-func explore(prefix string, n int) []Session {
+func explore(prefix string, n int) []trace.Session {
 	svc := []string{"billing", "gateway", "search", "tenants", "storage", "knowledge", "scheduler", "vault", "agents"}
-	return eps(prefix, n, func(i int) string { return fmt.Sprintf("why does the %s service fail on startup?", svc[i%len(svc)]) }, func(i int) []Call {
-		return []Call{
+	return eps(prefix, n, func(i int) string { return fmt.Sprintf("why does the %s service fail on startup?", svc[i%len(svc)]) }, func(i int) []trace.Call {
+		return []trace.Call{
 			{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("src/mod%d/init_%d.go", i*7, i)}},
 			sh(fmt.Sprintf("rg -n handler%d src/mod%d", i*3, i*5)),
 			{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("src/mod%d/config_%d.go", i*11, i)}},
@@ -393,12 +395,12 @@ func TestC08BoundedLogCollectionInsideInvestigation(t *testing.T) {
 		pod := fmt.Sprintf("api-7d9f8b6c%d-x2x9k", i)
 		ex[i].Requests[0] = fmt.Sprintf("the api is crashlooping in namespace %s, find out why", ns)
 		get := sh("kubectl --context minikube -n " + ns + " get pods")
-		get.Outcome, get.Output = OutcomeOK, "NAME READY STATUS RESTARTS AGE\n"+pod+" 0/1 CrashLoopBackOff 7 3m"
-		get.OutIDs, get.OutCtx, get.OutPaths = outputRefsPaths(get.Output)
+		get.Outcome, get.Output = trace.OutcomeOK, "NAME READY STATUS RESTARTS AGE\n"+pod+" 0/1 CrashLoopBackOff 7 3m"
+		get.OutIDs, get.OutCtx, get.OutPaths = trace.OutputRefsPaths(get.Output)
 		logs := sh("kubectl --context minikube -n " + ns + " logs " + pod + " --tail=200")
-		logs.Outcome = OutcomeOK
+		logs.Outcome = trace.OutcomeOK
 		get.Time, logs.Time = ex[i].Start, ex[i].Start
-		ex[i].Calls = append([]Call{get, logs}, ex[i].Calls...)
+		ex[i].Calls = append([]trace.Call{get, logs}, ex[i].Calls...)
 	}
 	rep := runOn(t, ex)
 	var sub *Routine
@@ -427,15 +429,15 @@ func TestC08BoundedLogCollectionInsideInvestigation(t *testing.T) {
 // C09: a value composed from an earlier read (a comment written from the
 // issue) is neither a caller input nor a reason to drop the read.
 func TestC09ReadResultsFeedingAWriteArePreserved(t *testing.T) {
-	ss := eps("sum", 6, func(i int) string { return fmt.Sprintf("summarize the status of TENG-%d on the ticket", 4100+i) }, func(i int) []Call {
+	ss := eps("sum", 6, func(i int) string { return fmt.Sprintf("summarize the status of TENG-%d on the ticket", 4100+i) }, func(i int) []trace.Call {
 		key := fmt.Sprintf("TENG-%d", 4100+i)
 		summaries := []string{"Gateway pods restart during node upgrade", "Billing export misses the last day of the month", "Search index lags behind writes by an hour", "Vault token renewal fails after rotation", "Scheduler double-fires the nightly backfill", "Tenant provisioning stalls on quota check"}
-		get := Call{Tool: "mcp:telara_jira_get_issue", Args: map[string]string{"issue_key": key},
+		get := trace.Call{Tool: "mcp:telara_jira_get_issue", Args: map[string]string{"issue_key": key},
 			Output: fmt.Sprintf(`{"key":"%s","summary":"%s","status":"In Progress"}`, key, summaries[i])}
-		get.OutIDs, get.OutCtx, get.OutPaths = outputRefsPaths(get.Output)
-		add := Call{Tool: "mcp:telara_jira_add_comment", Args: map[string]string{"issue_key": key,
+		get.OutIDs, get.OutCtx, get.OutPaths = trace.OutputRefsPaths(get.Output)
+		add := trace.Call{Tool: "mcp:telara_jira_add_comment", Args: map[string]string{"issue_key": key,
 			"body": fmt.Sprintf("Status: In Progress. %s; next step is to confirm the fix in staging.", summaries[i])}}
-		return []Call{get, add}
+		return []trace.Call{get, add}
 	})
 	rep := runOn(t, ss)
 	seen := false
@@ -462,8 +464,8 @@ func TestC09ReadResultsFeedingAWriteArePreserved(t *testing.T) {
 // C10: a read that checks state before a write stays before it, and a
 // failing check stops the program.
 func TestC10PreWriteCheckIsPreservedAndStopsOnFailure(t *testing.T) {
-	ss := eps("roll", 6, func(i int) string { return fmt.Sprintf("roll the gateway to v2.%d", i) }, func(i int) []Call {
-		return []Call{
+	ss := eps("roll", 6, func(i int) string { return fmt.Sprintf("roll the gateway to v2.%d", i) }, func(i int) []trace.Call {
+		return []trace.Call{
 			sh("kubectl --context minikube -n gateway get deploy gateway -o jsonpath={..image}"),
 			sh(fmt.Sprintf("kubectl --context minikube -n gateway set image deploy/gateway gateway=registry.example/gw:v2.%d", i)),
 			sh("kubectl --context minikube -n gateway rollout status deploy/gateway"),
@@ -490,12 +492,12 @@ func TestC10PreWriteCheckIsPreservedAndStopsOnFailure(t *testing.T) {
 // creates, checkpoints and completes a task without the work would claim
 // work that never happened.
 func TestC11BookkeepingIsNotCollapsedIntoAFakeCompletion(t *testing.T) {
-	ss := eps("bk", 8, func(i int) string { return fmt.Sprintf("fix the flaky test in package p%d", i) }, func(i int) []Call {
-		create := Call{Tool: "mcp:telara_task_create", Args: map[string]string{"name": fmt.Sprintf("fix flaky p%d", i)}}
+	ss := eps("bk", 8, func(i int) string { return fmt.Sprintf("fix the flaky test in package p%d", i) }, func(i int) []trace.Call {
+		create := trace.Call{Tool: "mcp:telara_task_create", Args: map[string]string{"name": fmt.Sprintf("fix flaky p%d", i)}}
 		id := fmt.Sprintf("%08x-de01-4847-a933-187b18ef29%02d", 0x90991e90+i, i)
 		create.Output = "Task created successfully.\n\n- **Task ID:** `" + id + "`"
-		create.OutIDs, create.OutCtx, create.OutPaths = outputRefsPaths(create.Output)
-		return []Call{
+		create.OutIDs, create.OutCtx, create.OutPaths = trace.OutputRefsPaths(create.Output)
+		return []trace.Call{
 			{Tool: "mcp:telara_task_list"},
 			create,
 			sh(fmt.Sprintf("go test ./p%d/... -run TestFlaky%d -count=5", i, i)),
@@ -525,9 +527,9 @@ func TestC11BookkeepingIsNotCollapsedIntoAFakeCompletion(t *testing.T) {
 // are different outcomes; the recurring discovery calls alone are not one.
 func TestC12DiscoveryThenDifferentActionsAreDistinct(t *testing.T) {
 	actions := []string{"jira_get_issue", "gitlab_list_pipelines", "slack_send_message"}
-	ss := eps("act", 12, func(i int) string { return fmt.Sprintf("use telara to run %s for item %d", actions[i%3], 500+i) }, func(i int) []Call {
+	ss := eps("act", 12, func(i int) string { return fmt.Sprintf("use telara to run %s for item %d", actions[i%3], 500+i) }, func(i int) []trace.Call {
 		a := actions[i%3]
-		return []Call{
+		return []trace.Call{
 			{Tool: "mcp:telara_tool_search", Args: map[string]string{"query": strings.ReplaceAll(a, "_", " ")}},
 			{Tool: "mcp:telara_tool_describe", Args: map[string]string{"name": a}},
 			{Tool: "mcp:telara_execute_action", Args: map[string]string{"action": a, "params": fmt.Sprintf(`{"id":"%d"}`, 500+i)}, RawArgs: map[string]bool{"params": true}},
@@ -584,8 +586,8 @@ func TestC13OrderAndMultiplicityAreNotDeduplicatedAway(t *testing.T) {
 // C14: a recorded compound line (conditional, redirect, pipeline, cd) is
 // replayed as that line, with only the varying word as an input.
 func TestC14ConditionalsAndRedirectsAreReplayedFaithfully(t *testing.T) {
-	ss := eps("cond", 6, func(i int) string { return fmt.Sprintf("run the tests for svc%d", i) }, func(i int) []Call {
-		return []Call{
+	ss := eps("cond", 6, func(i int) string { return fmt.Sprintf("run the tests for svc%d", i) }, func(i int) []trace.Call {
+		return []trace.Call{
 			sh(fmt.Sprintf("cd services/svc%d && if [ -f go.mod ]; then go test ./... 2>&1 | tail -5; else echo no-module; fi > /dev/null || echo failed", i)),
 			sh("git status --short"),
 		}
@@ -600,18 +602,18 @@ func TestC14ConditionalsAndRedirectsAreReplayedFaithfully(t *testing.T) {
 // C15: a resumed copy is not a second task; an approval given between steps
 // is recorded and does not carry over to a new run.
 func TestC15ResumedCopiesAndApprovals(t *testing.T) {
-	ss := eps("br", 6, func(i int) string { return fmt.Sprintf("delete the merged branches in repo%d", i) }, func(i int) []Call { return nil })
+	ss := eps("br", 6, func(i int) string { return fmt.Sprintf("delete the merged branches in repo%d", i) }, func(i int) []trace.Call { return nil })
 	for i := range ss {
 		s := &ss[i]
-		list := Call{ID: fmt.Sprintf("toolu_%d_a", i), Tool: "shell", Command: fmt.Sprintf("git -C repo%d branch --merged main", i), Time: s.Start, Outcome: OutcomeOK}
+		list := trace.Call{ID: fmt.Sprintf("toolu_%d_a", i), Tool: "shell", Command: fmt.Sprintf("git -C repo%d branch --merged main", i), Time: s.Start, Outcome: trace.OutcomeOK}
 		s.Calls = append(s.Calls, list)
-		s.addRequest("yes") // the user approves the deletion shown by the list
-		del := Call{ID: fmt.Sprintf("toolu_%d_b", i), Tool: "shell", Command: fmt.Sprintf("git -C repo%d branch -d feat-%d", i, i), Time: s.Start, Outcome: OutcomeOK, Request: s.request()}
+		s.AddRequest("yes") // the user approves the deletion shown by the list
+		del := trace.Call{ID: fmt.Sprintf("toolu_%d_b", i), Tool: "shell", Command: fmt.Sprintf("git -C repo%d branch -d feat-%d", i, i), Time: s.Start, Outcome: trace.OutcomeOK, Request: s.Request()}
 		s.Calls = append(s.Calls, del)
 	}
 	resumed := ss[0]
 	resumed.ID = "brcopy"
-	resumed.Calls = append([]Call(nil), ss[0].Calls...)
+	resumed.Calls = append([]trace.Call(nil), ss[0].Calls...)
 	rep := runOn(t, append(ss, resumed))
 	if len(rep.Routines) != 1 {
 		t.Fatalf("want one routine:\n%s", dump(rep))
@@ -637,13 +639,13 @@ func TestC16HarnessPromptsAreNotTasks(t *testing.T) {
 	// machine-sent task (scheduled), not harness text.
 	commit := eps("cm", 6, func(i int) string {
 		return "# In app browser:\n- The user has the in-app browser open.\n- Current URL: http://localhost:3010/preview\n- Open tabs: 2"
-	}, func(i int) []Call {
-		return []Call{sh("git diff --stat"), sh(fmt.Sprintf("git log --oneline -%d", 3+i))}
+	}, func(i int) []trace.Call {
+		return []trace.Call{sh("git diff --stat"), sh(fmt.Sprintf("git log --oneline -%d", 3+i))}
 	})
 	agents := eps("ag", 6, func(i int) string {
 		return "# AGENTS.md instructions for /Users/dev/repo\n\n<INSTRUCTIONS>\n# Rules\n- never push to main\n</INSTRUCTIONS>"
-	}, func(i int) []Call {
-		return []Call{sh("git status --short"), sh(fmt.Sprintf("git log --oneline -%d", 2+i))}
+	}, func(i int) []trace.Call {
+		return []trace.Call{sh("git status --short"), sh(fmt.Sprintf("git log --oneline -%d", 2+i))}
 	})
 	rep := runOn(t, commit, agents)
 	if len(rep.Routines) == 0 {
@@ -659,11 +661,11 @@ func TestC16HarnessPromptsAreNotTasks(t *testing.T) {
 // C17: work already scheduled or covered by a skill names that baseline;
 // it is neither rejected for it nor counted as new user automation.
 func TestC17ScheduledAndSkillBaselines(t *testing.T) {
-	sched := eps("sc", 6, func(i int) string { return "Automation: nightly repo health\nAutomation ID: auto-1\nCheck the repo." }, func(i int) []Call {
-		return []Call{sh("git fetch --all"), sh(fmt.Sprintf("git log --oneline -%d", 5+i))}
+	sched := eps("sc", 6, func(i int) string { return "Automation: nightly repo health\nAutomation ID: auto-1\nCheck the repo." }, func(i int) []trace.Call {
+		return []trace.Call{sh("git fetch --all"), sh(fmt.Sprintf("git log --oneline -%d", 5+i))}
 	})
-	skill := eps("sk", 6, func(i int) string { return fmt.Sprintf("release version 1.%d of the cli", i) }, func(i int) []Call {
-		return []Call{
+	skill := eps("sk", 6, func(i int) string { return fmt.Sprintf("release version 1.%d of the cli", i) }, func(i int) []trace.Call {
+		return []trace.Call{
 			{Tool: "Skill", Args: map[string]string{"skill": "cli-release"}},
 			sh(fmt.Sprintf("git tag v1.%d", i)),
 			sh(fmt.Sprintf("git push origin v1.%d", i)),
@@ -701,23 +703,23 @@ func TestC17ScheduledAndSkillBaselines(t *testing.T) {
 
 // C18: no recorded result, or only a tool's own success, is never verified.
 func TestC18OutcomesAreNotOverstated(t *testing.T) {
-	unknown := eps("un", 6, func(i int) string { return fmt.Sprintf("show pipeline %d", 700+i) }, func(i int) []Call {
-		return []Call{
-			{Tool: "mcp:gitlab_get_pipeline", Args: map[string]string{"pipeline_id": fmt.Sprint(700 + i)}, Outcome: OutcomeUnknown},
-			{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": fmt.Sprint(700 + i)}, Outcome: OutcomeUnknown},
+	unknown := eps("un", 6, func(i int) string { return fmt.Sprintf("show pipeline %d", 700+i) }, func(i int) []trace.Call {
+		return []trace.Call{
+			{Tool: "mcp:gitlab_get_pipeline", Args: map[string]string{"pipeline_id": fmt.Sprint(700 + i)}, Outcome: trace.OutcomeUnknown},
+			{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": fmt.Sprint(700 + i)}, Outcome: trace.OutcomeUnknown},
 		}
 	})
 	for i := range unknown {
 		for j := range unknown[i].Calls {
-			unknown[i].Calls[j].Outcome = OutcomeUnknown
+			unknown[i].Calls[j].Outcome = trace.OutcomeUnknown
 		}
 	}
 	rep := runOn(t, unknown)
 	if len(rep.Routines) != 1 || rep.Routines[0].OutcomeEvidence != OutcomeEvUnknown {
 		t.Fatalf("no recorded result must stay unknown:\n%s", dump(rep))
 	}
-	ok := runOn(t, eps("ok", 6, func(i int) string { return fmt.Sprintf("show pipeline %d", 800+i) }, func(i int) []Call {
-		return []Call{
+	ok := runOn(t, eps("ok", 6, func(i int) string { return fmt.Sprintf("show pipeline %d", 800+i) }, func(i int) []trace.Call {
+		return []trace.Call{
 			{Tool: "mcp:gitlab_get_pipeline", Args: map[string]string{"pipeline_id": fmt.Sprint(800 + i)}},
 			{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": fmt.Sprint(800 + i)}},
 		}
@@ -730,13 +732,13 @@ func TestC18OutcomesAreNotOverstated(t *testing.T) {
 // C19: an id taken from a JSON result is bound by its path, and the
 // program fails, calling nothing further, when it is missing.
 func TestC19JSONDerivedIDIsATypedBinding(t *testing.T) {
-	ss := eps("js", 8, func(i int) string { return "reply to the newest intro email" }, func(i int) []Call {
+	ss := eps("js", 8, func(i int) string { return "reply to the newest intro email" }, func(i int) []trace.Call {
 		thread := fmt.Sprintf("18c%013x", 0xabc0+i)
 		other := fmt.Sprintf("18d%013x", 0xabc0+i)
-		search := Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"},
+		search := trace.Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"},
 			Output: fmt.Sprintf(`{"threads":[{"id":"%s","subject":"a"},{"id":"%s","subject":"b"}]}`, thread, other)}
-		search.OutIDs, search.OutCtx, search.OutPaths = outputRefsPaths(search.Output)
-		return []Call{search, {Tool: "mcp:gmail_read_email_thread", Args: map[string]string{"thread_id": thread}}}
+		search.OutIDs, search.OutCtx, search.OutPaths = trace.OutputRefsPaths(search.Output)
+		return []trace.Call{search, {Tool: "mcp:gmail_read_email_thread", Args: map[string]string{"thread_id": thread}}}
 	})
 	rep := runOn(t, ss)
 	d := rep.Routines[0].Draft()
@@ -757,16 +759,16 @@ func TestC19JSONDerivedIDIsATypedBinding(t *testing.T) {
 // C19b: when runs picked different results, the choice was the agent's: no
 // path is invented and the value is not bound.
 func TestC19VaryingSelectionIsNotBound(t *testing.T) {
-	ss := eps("sel", 8, func(i int) string { return "reply to the right intro email" }, func(i int) []Call {
+	ss := eps("sel", 8, func(i int) string { return "reply to the right intro email" }, func(i int) []trace.Call {
 		a, b := fmt.Sprintf("18c%013x", 0xabc0+i), fmt.Sprintf("18d%013x", 0xabc0+i)
-		search := Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"},
+		search := trace.Call{Tool: "mcp:gmail_search_emails", Args: map[string]string{"query": "intro"},
 			Output: fmt.Sprintf(`{"threads":[{"id":"%s"},{"id":"%s"}]}`, a, b)}
-		search.OutIDs, search.OutCtx, search.OutPaths = outputRefsPaths(search.Output)
+		search.OutIDs, search.OutCtx, search.OutPaths = trace.OutputRefsPaths(search.Output)
 		pick := a
 		if i%2 == 1 {
 			pick = b
 		}
-		return []Call{search, {Tool: "mcp:gmail_read_email_thread", Args: map[string]string{"thread_id": pick}}}
+		return []trace.Call{search, {Tool: "mcp:gmail_read_email_thread", Args: map[string]string{"thread_id": pick}}}
 	})
 	rep := runOn(t, ss)
 	r := rep.Routines[0]
@@ -778,12 +780,12 @@ func TestC19VaryingSelectionIsNotBound(t *testing.T) {
 // C20: an id taken from text fails closed when its anchor is missing,
 // repeated, or appears inside quoted text, and never runs what it extracts.
 func TestC20TextDerivedIDFailsClosed(t *testing.T) {
-	ss := eps("tx", 8, func(i int) string { return fmt.Sprintf("track the rollout of release %d", i) }, func(i int) []Call {
+	ss := eps("tx", 8, func(i int) string { return fmt.Sprintf("track the rollout of release %d", i) }, func(i int) []trace.Call {
 		id := fmt.Sprintf("%08x-de01-4847-a933-187b18ef2985", 0x90991e90+i)
-		create := Call{Tool: "mcp:records_create", Args: map[string]string{"name": fmt.Sprintf("release %d", i)},
+		create := trace.Call{Tool: "mcp:records_create", Args: map[string]string{"name": fmt.Sprintf("release %d", i)},
 			Output: "Created successfully.\n\n- **Record ID:** `" + id + "`\n- **Name:** release"}
-		create.OutIDs, create.OutCtx, create.OutPaths = outputRefsPaths(create.Output)
-		return []Call{create, {Tool: "mcp:records_watch", Args: map[string]string{"record_id": id}}}
+		create.OutIDs, create.OutCtx, create.OutPaths = trace.OutputRefsPaths(create.Output)
+		return []trace.Call{create, {Tool: "mcp:records_watch", Args: map[string]string{"record_id": id}}}
 	})
 	rep := runOn(t, ss)
 	d := rep.Routines[0].Draft()
@@ -812,8 +814,8 @@ func TestC20TextDerivedIDFailsClosed(t *testing.T) {
 // this adds a nested varying secret in a JSON argument of a routine that is
 // otherwise complete.
 func TestC21NestedVaryingCredentialsNeverLeak(t *testing.T) {
-	ss := eps("cr", 6, func(i int) string { return fmt.Sprintf("store the config for app%d", i) }, func(i int) []Call {
-		return []Call{
+	ss := eps("cr", 6, func(i int) string { return fmt.Sprintf("store the config for app%d", i) }, func(i int) []trace.Call {
+		return []trace.Call{
 			{Tool: "mcp:vault_read", Args: map[string]string{"path": fmt.Sprintf("secret/app%d", i)}},
 			{Tool: "mcp:vault_write", Args: map[string]string{"path": fmt.Sprintf("secret/app%d", i), "data": fmt.Sprintf(`{"db":{"password":"pw-%d-abcdefgh","user":"svc"}}`, i)}, RawArgs: map[string]bool{"data": true}},
 		}
@@ -841,11 +843,11 @@ func TestC22RepairedBehaviorsHoldTogether(t *testing.T) {
 	if c.Args["title"] != "t" || len(c.Args) != 1 {
 		t.Fatalf("cursor envelope: %v", c.Args)
 	}
-	if sensitiveSlot("sh:date", Slot{Key: "-u=", Value: "+%H:%M"}) {
+	if sensitiveSlot("sh:date", trace.Slot{Key: "-u=", Value: "+%H:%M"}) {
 		t.Fatal("date -u is not a credential")
 	}
-	ss := []Session{{Client: "c", ID: "a", Calls: []Call{{ID: "1"}}}, {Client: "c", ID: "b", Calls: []Call{{ID: "1"}, {ID: "2"}}}}
-	dropCopiedCalls(ss)
+	ss := []trace.Session{{Client: "c", ID: "a", Calls: []trace.Call{{ID: "1"}}}, {Client: "c", ID: "b", Calls: []trace.Call{{ID: "1"}, {ID: "2"}}}}
+	trace.DropCopiedCalls(ss)
 	if len(ss[1].Calls) != 1 {
 		t.Fatal("copied call read twice")
 	}
@@ -854,13 +856,13 @@ func TestC22RepairedBehaviorsHoldTogether(t *testing.T) {
 // C23: the same frozen input read in a different order gives the same
 // report: the same routines, ids, decisions and sources.
 func TestC23ReportDoesNotDependOnReadOrder(t *testing.T) {
-	var all []Session
+	var all []trace.Session
 	all = append(all, requestCorpus()...)
 	all = append(all, explore("ex", 9)...)
-	all = append(all, eps("pipe", 6, func(i int) string { return fmt.Sprintf("show me the jobs of pipeline %d", 100200+i) }, func(i int) []Call {
-		return []Call{{Tool: "mcp:gitlab_get_pipeline", Args: map[string]string{"pipeline_id": fmt.Sprint(100200 + i)}}, {Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": fmt.Sprint(100200 + i)}}}
+	all = append(all, eps("pipe", 6, func(i int) string { return fmt.Sprintf("show me the jobs of pipeline %d", 100200+i) }, func(i int) []trace.Call {
+		return []trace.Call{{Tool: "mcp:gitlab_get_pipeline", Args: map[string]string{"pipeline_id": fmt.Sprint(100200 + i)}}, {Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": fmt.Sprint(100200 + i)}}}
 	})...)
-	summary := func(ss []Session) string {
+	summary := func(ss []trace.Session) string {
 		rep := runOn(t, ss)
 		var lines []string
 		for _, r := range rep.Routines {
@@ -875,7 +877,7 @@ func TestC23ReportDoesNotDependOnReadOrder(t *testing.T) {
 		return strings.Join(lines, "\n")
 	}
 	want := summary(all)
-	rev := make([]Session, len(all))
+	rev := make([]trace.Session, len(all))
 	for i := range all {
 		rev[len(all)-1-i] = all[i]
 	}
@@ -889,9 +891,9 @@ func TestC23ReportDoesNotDependOnReadOrder(t *testing.T) {
 func TestC24KnownUsefulProcedureIsFoundAmongNoise(t *testing.T) {
 	diff := eps("dc", 6, func(i int) string {
 		return fmt.Sprintf("did we add tests without service changes between %07x and %07x?", 0xa1b2c00+i, 0xd4e5f00+i)
-	}, func(i int) []Call {
+	}, func(i int) []trace.Call {
 		a, b := fmt.Sprintf("%07x", 0xa1b2c00+i), fmt.Sprintf("%07x", 0xd4e5f00+i)
-		return []Call{sh("git diff --name-only " + a + " " + b + " -- services"), sh("git diff --name-only " + a + " " + b + " -- tests")}
+		return []trace.Call{sh("git diff --name-only " + a + " " + b + " -- services"), sh("git diff --name-only " + a + " " + b + " -- tests")}
 	})
 	rep := runOn(t, requestCorpus(), explore("ex", 9), diff)
 	for _, r := range rep.Routines {
@@ -907,9 +909,9 @@ func TestC24KnownUsefulProcedureIsFoundAmongNoise(t *testing.T) {
 func TestProceduresRankAboveInvestigations(t *testing.T) {
 	diff := eps("dc", 6, func(i int) string {
 		return fmt.Sprintf("did we add tests without service changes between %07x and %07x?", 0xa1b2c00+i, 0xd4e5f00+i)
-	}, func(i int) []Call {
+	}, func(i int) []trace.Call {
 		a, b := fmt.Sprintf("%07x", 0xa1b2c00+i), fmt.Sprintf("%07x", 0xd4e5f00+i)
-		return []Call{sh("git diff --name-only " + a + " " + b + " -- services"), sh("git diff --name-only " + a + " " + b + " -- tests")}
+		return []trace.Call{sh("git diff --name-only " + a + " " + b + " -- services"), sh("git diff --name-only " + a + " " + b + " -- tests")}
 	})
 	rep := runOn(t, explore("ex", 9), diff)
 	useful, investigation := -1, -1

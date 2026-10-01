@@ -6,6 +6,8 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // The review lists the primitives that passed every check once, then asks
@@ -87,7 +89,7 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 		if p.Measured > 0 {
 			fmt.Fprintf(out, ", saves %s tokens per run", humanTokens(p.SavedPerRun.Total()))
 		}
-		fmt.Fprintf(out, ")\n   asked as: %s\n", oneLine(Redact(p.Example), 120))
+		fmt.Fprintf(out, ")\n   asked as: %s\n", trace.OneLine(Redact(p.Example), 120))
 		if _, digest, err := d.Package(); err == nil {
 			fmt.Fprintf(out, "   status: unvalidated (validation not run for %s)\n", digest)
 		}
@@ -101,7 +103,7 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 		}
 		fmt.Fprintln(out)
 		for _, s := range d.Steps {
-			fmt.Fprintf(out, "   %d. [%s] %s\n", s.N, s.Kind, oneLine(Redact(s.Line), 130))
+			fmt.Fprintf(out, "   %d. [%s] %s\n", s.N, s.Kind, trace.OneLine(Redact(s.Line), 130))
 		}
 		for _, in := range d.Inputs {
 			if in.Sensitive {
@@ -109,14 +111,14 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 			} else if in.Extract != "" {
 				fmt.Fprintf(out, "   value %s (%s): taken from step %d's output, not an input\n", in.Name, in.Type, in.DerivedFrom)
 			} else {
-				fmt.Fprintf(out, "   input $%d %s (%s), e.g. %s\n", in.Position, in.Name, in.Type, oneLine(Redact(in.Example), 60))
+				fmt.Fprintf(out, "   input $%d %s (%s), e.g. %s\n", in.Position, in.Name, in.Type, trace.OneLine(Redact(in.Example), 60))
 			}
 		}
 		if len(d.Blocked) > 0 {
 			fmt.Fprintf(out, "   BLOCKED: still credential-shaped (%s); it cannot be saved or published\n", strings.Join(d.Blocked, "; "))
 		}
 		if len(d.Problems) > 0 {
-			fmt.Fprintf(out, "   publish checks: %d problem(s): %s\n", len(d.Problems), oneLine(d.Problems[0], 100))
+			fmt.Fprintf(out, "   publish checks: %d problem(s): %s\n", len(d.Problems), trace.OneLine(d.Problems[0], 100))
 		}
 	}
 	fmt.Fprintln(out, "\nEvery step is drafted as a change: the runner asks before running it. Read main.sh in a saved folder before you run it.")
@@ -181,7 +183,7 @@ func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act Revi
 		case !accepted:
 			fmt.Fprintf(out, "%d. %s refused by the registry:\n%s\n", i+1, d.Name, msg)
 		default:
-			fmt.Fprintf(out, "%d. published %s/%s@0.1.0 to %s. %s\n", i+1, d.Publisher, d.Name, audience, oneLine(msg, 200))
+			fmt.Fprintf(out, "%d. published %s/%s@0.1.0 to %s. %s\n", i+1, d.Publisher, d.Name, audience, trace.OneLine(msg, 200))
 		}
 	}
 	return nil

@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // The evaluation corpus is a reproducible sample of task episodes from a
@@ -37,12 +39,6 @@ type Episode struct {
 	Routine string `json:"routine,omitempty"`
 }
 
-// EpisodeID is the opaque identifier of a session's request.
-func EpisodeID(client, session string, request int) string {
-	h := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", client, session, request)))
-	return "ep_" + hex.EncodeToString(h[:6])
-}
-
 // EpisodeKey locates a request in the corpus.
 type EpisodeKey struct {
 	Client, Session string
@@ -51,13 +47,13 @@ type EpisodeKey struct {
 
 // Corpus indexes the frozen sessions for sampling and rendering.
 type Corpus struct {
-	Sessions []Session
+	Sessions []trace.Session
 	byKey    map[string]int // client/session -> index
 	lineage  map[string]string
 }
 
 // NewCorpus drops copied calls, as Run does, and computes lineages.
-func NewCorpus(ss []Session) *Corpus {
+func NewCorpus(ss []trace.Session) *Corpus {
 	// Copied calls tie a resumed session to its original; compute that
 	// before the copies are dropped.
 	parent := map[string]string{}
@@ -122,12 +118,12 @@ func NewCorpus(ss []Session) *Corpus {
 			break
 		}
 	}
-	cp := make([]Session, len(ss))
+	cp := make([]trace.Session, len(ss))
 	copy(cp, ss)
 	for i := range cp {
-		cp[i].Calls = append([]Call(nil), cp[i].Calls...)
+		cp[i].Calls = append([]trace.Call(nil), cp[i].Calls...)
 	}
-	dropCopiedCalls(cp)
+	trace.DropCopiedCalls(cp)
 	c := &Corpus{Sessions: cp, byKey: map[string]int{}, lineage: map[string]string{}}
 	for i, s := range cp {
 		k := s.Client + "/" + s.ID
@@ -139,10 +135,10 @@ func NewCorpus(ss []Session) *Corpus {
 }
 
 // Session returns the session a key names.
-func (c *Corpus) Session(client, id string) (Session, bool) {
+func (c *Corpus) Session(client, id string) (trace.Session, bool) {
 	i, ok := c.byKey[client+"/"+id]
 	if !ok {
-		return Session{}, false
+		return trace.Session{}, false
 	}
 	return c.Sessions[i], true
 }
@@ -165,7 +161,7 @@ func (c *Corpus) Episodes() []Episode {
 		}
 		sort.Ints(reqs)
 		for _, r := range reqs {
-			out = append(out, Episode{ID: EpisodeID(s.Client, s.ID, r), Client: s.Client, Session: s.ID, Request: r,
+			out = append(out, Episode{ID: trace.EpisodeID(s.Client, s.ID, r), Client: s.Client, Session: s.ID, Request: r,
 				Calls: n[r], Start: first[r], Lineage: c.lineage[s.Client+"/"+s.ID]})
 		}
 	}
@@ -307,7 +303,7 @@ func (c *Corpus) RenderEpisode(e Episode) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Episode %s\n\nclient: %s\nstarted: %s\n\n", e.ID, e.Client, e.Start.UTC().Format(time.RFC3339))
 	if e.Request > 0 && e.Request-1 < len(s.Requests) {
-		fmt.Fprintf(&b, "## Previous message (context only)\n\n%s\n\n", indent(truncateUTF8(Redact(s.Requests[e.Request-1]), 600)))
+		fmt.Fprintf(&b, "## Previous message (context only)\n\n%s\n\n", indent(trace.TruncateUTF8(Redact(s.Requests[e.Request-1]), 600)))
 	}
 	req := ""
 	if e.Request < len(s.Requests) {
@@ -316,11 +312,11 @@ func (c *Corpus) RenderEpisode(e Episode) string {
 	if req == "" {
 		req = "(no user message before these calls)"
 	}
-	fmt.Fprintf(&b, "## Request\n\n%s\n\n", indent(truncateUTF8(Redact(req), 3000)))
+	fmt.Fprintf(&b, "## Request\n\n%s\n\n", indent(trace.TruncateUTF8(Redact(req), 3000)))
 	if e.Request+1 < len(s.Requests) {
-		fmt.Fprintf(&b, "## Next message (context only)\n\n%s\n\n", indent(truncateUTF8(Redact(s.Requests[e.Request+1]), 400)))
+		fmt.Fprintf(&b, "## Next message (context only)\n\n%s\n\n", indent(trace.TruncateUTF8(Redact(s.Requests[e.Request+1]), 400)))
 	}
-	var calls []Call
+	var calls []trace.Call
 	for _, cl := range s.Calls {
 		if cl.Request == e.Request {
 			calls = append(calls, cl)
@@ -343,14 +339,14 @@ func (c *Corpus) RenderEpisode(e Episode) string {
 			sort.Strings(keys)
 			var parts []string
 			for _, k := range keys {
-				parts = append(parts, k+"="+truncateUTF8(cl.Args[k], 300))
+				parts = append(parts, k+"="+trace.TruncateUTF8(cl.Args[k], 300))
 			}
 			what = strings.Join(parts, " ")
 		}
-		outcome := map[Outcome]string{OutcomeUnknown: "unknown", OutcomeOK: "ok", OutcomeFailed: "failed"}[cl.Outcome]
-		fmt.Fprintf(&b, "%d. [%s] (outcome: %s)\n%s\n", i+1, cl.Tool, outcome, indent(truncateUTF8(Redact(what), 700)))
+		outcome := map[trace.Outcome]string{trace.OutcomeUnknown: "unknown", trace.OutcomeOK: "ok", trace.OutcomeFailed: "failed"}[cl.Outcome]
+		fmt.Fprintf(&b, "%d. [%s] (outcome: %s)\n%s\n", i+1, cl.Tool, outcome, indent(trace.TruncateUTF8(Redact(what), 700)))
 		if cl.Output != "" {
-			fmt.Fprintf(&b, "   result: %s\n", strings.ReplaceAll(truncateUTF8(Redact(cl.Output), 300), "\n", " ⏎ "))
+			fmt.Fprintf(&b, "   result: %s\n", strings.ReplaceAll(trace.TruncateUTF8(Redact(cl.Output), 300), "\n", " ⏎ "))
 		}
 		b.WriteString("\n")
 	}
@@ -375,7 +371,7 @@ type HoldoutOptions struct {
 // templateKey is a session's first substantive request with digits and
 // spacing normalized, so a scheduled prompt that differs only in its run
 // stamp is one template.
-func templateKey(s Session) string {
+func templateKey(s trace.Session) string {
 	for _, t := range s.Requests {
 		t = strings.Join(strings.Fields(strings.ToLower(t)), " ")
 		if t == "" || strings.ContainsAny(t[:1], "#<[") {

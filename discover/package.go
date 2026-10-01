@@ -1,6 +1,10 @@
 package discover
 
-import "sort"
+import (
+	"sort"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+)
 
 // Package returns the draft as a gzip tar, the form a registry package and
 // `telara tap pull` use, and its digest. Entries are sorted and carry a fixed
@@ -30,7 +34,7 @@ func (r *Report) PatternRoutines() []int {
 			continue
 		}
 		for _, s := range c.Steps {
-			if replayable(s.Label) {
+			if trace.Replayable(s.Label) {
 				cands = append(cands, i)
 				break
 			}

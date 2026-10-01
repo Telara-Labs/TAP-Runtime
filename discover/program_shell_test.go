@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 func TestGeneratedPipelinePassesStdoutAsStdinAndStopsOnFailure(t *testing.T) {
@@ -76,9 +78,9 @@ func TestGeneratedPipelinePassesStdoutAsStdinAndStopsOnFailure(t *testing.T) {
 }
 
 func TestSynthesizePipelineFromIndependentExecutions(t *testing.T) {
-	ss := []Session{
-		selSession("pipe-one", "Filter one log", Call{Tool: "shell", Command: "cat logs/one.txt | grep ERROR", Outcome: OutcomeOK}),
-		selSession("pipe-two", "Filter another log", Call{Tool: "shell", Command: "cat logs/two.txt | grep WARN", Outcome: OutcomeOK}),
+	ss := []trace.Session{
+		selSession("pipe-one", "Filter one log", trace.Call{Tool: "shell", Command: "cat logs/one.txt | grep ERROR", Outcome: trace.OutcomeOK}),
+		selSession("pipe-two", "Filter another log", trace.Call{Tool: "shell", Command: "cat logs/two.txt | grep WARN", Outcome: trace.OutcomeOK}),
 	}
 	var spans []SpanProposal
 	for i, s := range ss {
@@ -99,9 +101,9 @@ func TestSynthesizePipelineFromIndependentExecutions(t *testing.T) {
 }
 
 func TestSynthesizeSuccessChainAndKeepConnectorsDistinct(t *testing.T) {
-	ss := []Session{
-		selSession("chain-one", "Stage one file", Call{Tool: "shell", Command: "git add src/one.go && git status --short", Outcome: OutcomeOK}),
-		selSession("chain-two", "Stage another file", Call{Tool: "shell", Command: "git add src/two.go && git status --short", Outcome: OutcomeOK}),
+	ss := []trace.Session{
+		selSession("chain-one", "Stage one file", trace.Call{Tool: "shell", Command: "git add src/one.go && git status --short", Outcome: trace.OutcomeOK}),
+		selSession("chain-two", "Stage another file", trace.Call{Tool: "shell", Command: "git add src/two.go && git status --short", Outcome: trace.OutcomeOK}),
 	}
 	var spans []SpanProposal
 	for i, s := range ss {
@@ -123,7 +125,7 @@ func TestSynthesizeSuccessChainAndKeepConnectorsDistinct(t *testing.T) {
 	if len(pkg.Manifest.Commands) != 2 || !strings.Contains(string(pkg.Files["README.md"]), "success chain") {
 		t.Fatalf("success chain reach not exposed: %+v", pkg.Manifest.Commands)
 	}
-	if programCallToolIdentity(Call{Tool: "shell", Command: "cat a | grep b"}) == programCallToolIdentity(Call{Tool: "shell", Command: "cat a && grep b"}) {
+	if programCallToolIdentity(trace.Call{Tool: "shell", Command: "cat a | grep b"}) == programCallToolIdentity(trace.Call{Tool: "shell", Command: "cat a && grep b"}) {
 		t.Fatal("pipe and success chain share an identity")
 	}
 }
@@ -185,8 +187,8 @@ func TestGeneratedPipelineRejectsUnboundArgumentAndLoop(t *testing.T) {
 }
 
 func TestShellVariantIdentityIncludesExecutable(t *testing.T) {
-	git := Call{Tool: "shell", Command: "git add src/a.go"}
-	gh := Call{Tool: "shell", Command: "gh add src/a.go"}
+	git := trace.Call{Tool: "shell", Command: "git add src/a.go"}
+	gh := trace.Call{Tool: "shell", Command: "gh add src/a.go"}
 	if programCallSignature(git) == programCallSignature(gh) || programCallCoreSignature(git) == programCallCoreSignature(gh) {
 		t.Fatal("different host commands must not share a program variant")
 	}
@@ -276,13 +278,13 @@ func TestGeneratedCommandRejectsUndeclaredShape(t *testing.T) {
 }
 
 func TestSynthesizeLiteralCommandChain(t *testing.T) {
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("shell-one", "Run git add on the changed file, then git status",
-			Call{Tool: "shell", Command: "git add src/one.go", Outcome: OutcomeOK},
-			Call{Tool: "shell", Command: "git status --short", Outcome: OutcomeOK}),
+			trace.Call{Tool: "shell", Command: "git add src/one.go", Outcome: trace.OutcomeOK},
+			trace.Call{Tool: "shell", Command: "git status --short", Outcome: trace.OutcomeOK}),
 		selSession("shell-two", "Run git add on the changed file, then git status",
-			Call{Tool: "shell", Command: "git add src/two.go", Outcome: OutcomeOK},
-			Call{Tool: "shell", Command: "git status --short", Outcome: OutcomeOK}),
+			trace.Call{Tool: "shell", Command: "git add src/two.go", Outcome: trace.OutcomeOK},
+			trace.Call{Tool: "shell", Command: "git status --short", Outcome: trace.OutcomeOK}),
 	}
 	c, ps := graphCandidateFor(t, ss, "sh:git add", "sh:git status")
 	g, err := SynthesizeProgramGraph(c, ps, ss)
@@ -303,7 +305,7 @@ func TestSynthesizeLiteralCommandChain(t *testing.T) {
 		t.Fatalf("review omitted command reach or effect: %s", review.String())
 	}
 	for _, request := range []string{"Stage and inspect a changed file", "Run git add on the changed file"} {
-		copy := append([]Session(nil), ss[:1]...)
+		copy := append([]trace.Session(nil), ss[:1]...)
 		for i := range copy {
 			copy[i].Requests = []string{request}
 		}
@@ -316,13 +318,13 @@ func TestSynthesizeLiteralCommandChain(t *testing.T) {
 }
 
 func TestRepeatedCommandOrderSurfacesWithoutPromptWording(t *testing.T) {
-	ss := []Session{
+	ss := []trace.Session{
 		selSession("implicit-one", "Prepare the change",
-			Call{Tool: "shell", Command: "git add src/one.go", Outcome: OutcomeOK},
-			Call{Tool: "shell", Command: "git status src/one.go --short", Outcome: OutcomeOK}),
+			trace.Call{Tool: "shell", Command: "git add src/one.go", Outcome: trace.OutcomeOK},
+			trace.Call{Tool: "shell", Command: "git status src/one.go --short", Outcome: trace.OutcomeOK}),
 		selSession("implicit-two", "Prepare another change",
-			Call{Tool: "shell", Command: "git add src/two.go", Outcome: OutcomeOK},
-			Call{Tool: "shell", Command: "git status src/two.go --short", Outcome: OutcomeOK}),
+			trace.Call{Tool: "shell", Command: "git add src/two.go", Outcome: trace.OutcomeOK},
+			trace.Call{Tool: "shell", Command: "git status src/two.go --short", Outcome: trace.OutcomeOK}),
 	}
 	proposals := SelectSpanProposals(ss)
 	seen := 0

@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // generateCommand is the model-free local path from observed call spans to an
@@ -45,7 +47,7 @@ func generateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	if *days > 0 {
 		since = time.Now().AddDate(0, 0, -*days)
 	}
-	var sessions []Session
+	var sessions []trace.Session
 	for _, reader := range readers {
 		ss, err := reader.Read(since)
 		if err != nil {
@@ -224,7 +226,7 @@ func programReviewShape(g *ProgramGraph) (int, string) {
 // family. Different argument contracts may still need separate review; this
 // queue chooses the best-supported compilable variant without counting every
 // shape as a new primitive or claiming any family is useful.
-func generatedProgramQueue(candidates []LogicCandidate, spans []SpanProposal, sessions []Session, decisions ...generatedDecision) ([]generatedProgramRow, error) {
+func generatedProgramQueue(candidates []LogicCandidate, spans []SpanProposal, sessions []trace.Session, decisions ...generatedDecision) ([]generatedProgramRow, error) {
 	reviewed := make(map[string]bool, len(decisions))
 	bySpan := make(map[string]SpanProposal, len(spans))
 	for _, span := range spans {

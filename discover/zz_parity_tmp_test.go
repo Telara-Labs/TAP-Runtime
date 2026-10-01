@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/pyparse"
 )
 
@@ -14,7 +16,7 @@ import (
 func TestZZParityGoVsPython(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	var bodies []string
-	readers := []Reader{ClaudeCode{Dir: filepath.Join(home, ".claude", "projects")}}
+	readers := []trace.Reader{ClaudeCode{Dir: filepath.Join(home, ".claude", "projects")}}
 	for _, r := range readers {
 		ss, err := r.Read(time.Time{})
 		if err != nil {

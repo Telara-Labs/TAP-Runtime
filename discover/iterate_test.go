@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 func TestCursorMCPEnvelopeIsUnwrapped(t *testing.T) {
@@ -30,11 +32,11 @@ func TestCursorMCPEnvelopeIsUnwrapped(t *testing.T) {
 }
 
 func TestDashUIsACredentialOnlyForUserFlagPrograms(t *testing.T) {
-	sl := Slot{Key: "-u=", Type: SlotText, Value: "+%Y-%m-%dT%H:%M:%SZ"}
+	sl := trace.Slot{Key: "-u=", Type: trace.SlotText, Value: "+%Y-%m-%dT%H:%M:%SZ"}
 	if sensitiveSlot("sh:date", sl) {
 		t.Error("date -u takes a format, not a user")
 	}
-	if !sensitiveSlot("sh:curl", Slot{Key: "-u=", Type: SlotText, Value: "me:hunter2"}) {
+	if !sensitiveSlot("sh:curl", trace.Slot{Key: "-u=", Type: trace.SlotText, Value: "me:hunter2"}) {
 		t.Error("curl -u user:password is a credential")
 	}
 }
@@ -49,18 +51,18 @@ func TestALineRepeatedInOneSessionIsNotFixed(t *testing.T) {
 		"python3 remaining.py --all | head -20",
 		"python3 other.py > out.txt; head out.txt",
 	}
-	ss := requestSessions(4, func(i int) string { return "how much is left" }, func(i int) []Call {
-		return []Call{sh(lines[i]), sh("git status --short")}
+	ss := requestSessions(4, func(i int) string { return "how much is left" }, func(i int) []trace.Call {
+		return []trace.Call{sh(lines[i]), sh("git status --short")}
 	})
-	ss[0].addRequest("deploy the gateway to staging")
-	ss[0].addRequest("how much is left")
+	ss[0].AddRequest("deploy the gateway to staging")
+	ss[0].AddRequest("how much is left")
 	for _, c := range ss[1].Calls {
 		c.Request = 2
 		ss[0].Calls = append(ss[0].Calls, c)
 	}
 	ss = append(ss[:1], ss[2:]...)
 	o := DefaultOptions()
-	o.Readers = []Reader{fakeReader{sessions: ss}}
+	o.Readers = []trace.Reader{fakeReader{sessions: ss}}
 	rep, err := Run(o)
 	if err != nil {
 		t.Fatal(err)
@@ -81,25 +83,25 @@ func TestALineRepeatedInOneSessionIsNotFixed(t *testing.T) {
 }
 
 func TestCopiedCallsAreReadOnce(t *testing.T) {
-	ss := []Session{
-		{Client: "claude-code", ID: "a", Calls: []Call{{ID: "toolu_1"}, {ID: "toolu_2"}, {}}},
-		{Client: "claude-code", ID: "b", Calls: []Call{{ID: "toolu_1"}, {ID: "toolu_3"}, {}}},
-		{Client: "codex", ID: "c", Calls: []Call{{ID: "toolu_1"}}},
+	ss := []trace.Session{
+		{Client: "claude-code", ID: "a", Calls: []trace.Call{{ID: "toolu_1"}, {ID: "toolu_2"}, {}}},
+		{Client: "claude-code", ID: "b", Calls: []trace.Call{{ID: "toolu_1"}, {ID: "toolu_3"}, {}}},
+		{Client: "codex", ID: "c", Calls: []trace.Call{{ID: "toolu_1"}}},
 	}
-	dropCopiedCalls(ss)
+	trace.DropCopiedCalls(ss)
 	if got := fmt.Sprint(len(ss[0].Calls), len(ss[1].Calls), len(ss[2].Calls)); got != "3 2 1" {
 		t.Fatalf("calls kept = %s", got)
 	}
 }
 
 func TestAnArgumentAnyRunSentAsJSONIsJSON(t *testing.T) {
-	ss := requestSessions(6, func(i int) string { return "run the action" }, func(i int) []Call {
+	ss := requestSessions(6, func(i int) string { return "run the action" }, func(i int) []trace.Call {
 		params := fmt.Sprintf(`{"issue_key":"TENG-%d"}`, 100+i)
-		c := Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"action": "jira_get_issue", "params": params}}
+		c := trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"action": "jira_get_issue", "params": params}}
 		if i%2 == 1 { // the first run recorded it as text
 			c.RawArgs = map[string]bool{"params": true}
 		}
-		return []Call{{Tool: "mcp:telara_tool_search", Args: map[string]string{"query": "jira issue"}}, c}
+		return []trace.Call{{Tool: "mcp:telara_tool_search", Args: map[string]string{"query": "jira issue"}}, c}
 	})
 	d := firstRoutine(t, ss).Draft()
 	var in *DraftInput
@@ -117,13 +119,13 @@ func TestAnArgumentAnyRunSentAsJSONIsJSON(t *testing.T) {
 }
 
 func TestEscapedNewlinesStartALineAndBackslashesNeverAnchor(t *testing.T) {
-	_, ctx := outputRefs(`"Task created successfully.\n\n- **Task ID:** ` + "`" + `90991e90-de01-4847-a933-187b18ef2985` + "`\"")
+	_, ctx := trace.OutputRefs(`"Task created successfully.\n\n- **Task ID:** ` + "`" + `90991e90-de01-4847-a933-187b18ef2985` + "`\"")
 	if len(ctx) != 1 || ctx[0] != "- **Task ID:** `\x00`" {
 		t.Fatalf("ctx = %q", ctx)
 	}
 	for _, c := range []string{`\"id\":\"`, `a\tb: `} {
-		st := func(v string) Step { return Step{OutIDs: []string{v}, OutCtx: []string{c + "\x00\""}} }
-		d := &drafter{occ: [][]Step{{st("18c0000000000abc1")}, {st("18c0000000000abc2")}}}
+		st := func(v string) trace.Step { return trace.Step{OutIDs: []string{v}, OutCtx: []string{c + "\x00\""}} }
+		d := &drafter{occ: [][]trace.Step{{st("18c0000000000abc1")}, {st("18c0000000000abc2")}}}
 		if _, _, _, ok := d.extraction(0, map[int]string{0: "18c0000000000abc1", 1: "18c0000000000abc2"}); ok {
 			t.Errorf("anchor %q was recorded escaped and must not be used", c)
 		}
@@ -166,11 +168,11 @@ func TestCodexSessionIdentityIsTheFilesOwnAndUnique(t *testing.T) {
 func TestIncidentalStepsAreNotTheProcedureForAStatedGoal(t *testing.T) {
 	// Ten requests say the same thing; three of them happened to run the
 	// same two constant commands, the rest did other things.
-	ss := eps("la", 10, func(i int) string { return "look around the repo" }, func(i int) []Call {
+	ss := eps("la", 10, func(i int) string { return "look around the repo" }, func(i int) []trace.Call {
 		if i < 3 {
-			return []Call{sh("pwd"), sh("id")}
+			return []trace.Call{sh("pwd"), sh("id")}
 		}
-		return []Call{sh(fmt.Sprintf("ls dir%d", i)), sh(fmt.Sprintf("cat f%d.txt", i))}
+		return []trace.Call{sh(fmt.Sprintf("ls dir%d", i)), sh(fmt.Sprintf("cat f%d.txt", i))}
 	})
 	rep := runOn(t, ss)
 	for _, r := range rep.Routines {
@@ -183,8 +185,8 @@ func TestIncidentalStepsAreNotTheProcedureForAStatedGoal(t *testing.T) {
 func TestConstantScaffoldingIsNotABoundedPart(t *testing.T) {
 	// Every run opens the browser the same way, then explores pages the
 	// agent chose: the opening is not a procedure of its own.
-	ss := eps("sc", 8, func(i int) string { return fmt.Sprintf("why is page %d slow", i) }, func(i int) []Call {
-		return []Call{
+	ss := eps("sc", 8, func(i int) string { return fmt.Sprintf("why is page %d slow", i) }, func(i int) []trace.Call {
+		return []trace.Call{
 			sh("pwd"), sh("git status --short"),
 			{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("web/p%d/page.tsx", i*7)}},
 			{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("web/p%d/layout.tsx", i*5)}},

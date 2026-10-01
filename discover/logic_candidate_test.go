@@ -4,16 +4,18 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 func TestLogicCandidateAbstractsRuntimeValuesAndTaskWording(t *testing.T) {
 	first := selSession("one", "Fix the indexing tab reload",
-		spanRefs(Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "create_issue", "params": `{"summary":"indexing tab"}`}, Output: `{"key":"TENG-4321"}`, Outcome: OutcomeOK}),
-		Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "transition_issue", "params": `{"issue_key":"TENG-4321","transition_id":"11"}`}, Output: `{"status":"In Progress"}`, Outcome: OutcomeOK})
+		spanRefs(trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "create_issue", "params": `{"summary":"indexing tab"}`}, Output: `{"key":"TENG-4321"}`, Outcome: trace.OutcomeOK}),
+		trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "transition_issue", "params": `{"issue_key":"TENG-4321","transition_id":"11"}`}, Output: `{"status":"In Progress"}`, Outcome: trace.OutcomeOK})
 	second := selSession("two", "Remove the old integrations page",
-		spanRefs(Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "create_issue", "params": `{"summary":"integrations page"}`}, Output: `{"key":"TENG-9876"}`, Outcome: OutcomeOK}),
-		Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "transition_issue", "params": `{"issue_key":"TENG-9876","transition_id":"21"}`}, Output: `{"status":"Todo"}`, Outcome: OutcomeOK})
-	ps := SelectSpanProposals([]Session{first, second})
+		spanRefs(trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "create_issue", "params": `{"summary":"integrations page"}`}, Output: `{"key":"TENG-9876"}`, Outcome: trace.OutcomeOK}),
+		trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "transition_issue", "params": `{"issue_key":"TENG-9876","transition_id":"21"}`}, Output: `{"status":"Todo"}`, Outcome: trace.OutcomeOK})
+	ps := SelectSpanProposals([]trace.Session{first, second})
 	if spanWithCalls(ps, 1, 2) == nil {
 		t.Fatalf("missing observed result-linked workflow: %+v", ps)
 	}
@@ -86,13 +88,13 @@ func TestLogicFunnelsCollectIndependentBranchesAndLoops(t *testing.T) {
 }
 
 func TestCreatedIssueLinkFanoutReachesLogicQueue(t *testing.T) {
-	created := spanRefs(Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "create_issue", "params": `{"summary":"follow-up"}`}, Output: `{"key":"TENG-1"}`, Outcome: OutcomeOK})
-	link := func(related string) Call {
-		return Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "create_issue_link", "params": `{"inward_issue_key":"TENG-1","outward_issue_key":"` + related + `"}`}, Output: `{"status":"linked"}`, Outcome: OutcomeOK}
+	created := spanRefs(trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "create_issue", "params": `{"summary":"follow-up"}`}, Output: `{"key":"TENG-1"}`, Outcome: trace.OutcomeOK})
+	link := func(related string) trace.Call {
+		return trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": "jira", "action": "create_issue_link", "params": `{"inward_issue_key":"TENG-1","outward_issue_key":"` + related + `"}`}, Output: `{"status":"linked"}`, Outcome: trace.OutcomeOK}
 	}
 	one := selSession("one-link", "Create an issue and link TENG-2", created, link("TENG-2"))
 	many := selSession("many-links", "Create an issue and link TENG-2 and TENG-3", created, link("TENG-2"), link("TENG-3"))
-	ps := SelectSpanProposals([]Session{one, many})
+	ps := SelectSpanProposals([]trace.Session{one, many})
 	p := spanWithCalls(ps, 1, 2, 3)
 	if p == nil || len(p.Composition.Actions) != 2 || len(p.Composition.Repetition) != 1 || p.Composition.Repetition[0].Kind != "for_each" {
 		t.Fatalf("created issue with two related IDs should be one observed loop: %+v", ps)

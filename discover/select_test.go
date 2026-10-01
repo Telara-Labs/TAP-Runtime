@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // The selection pass (select.go). Each case builds sessions whose evidence
@@ -12,17 +14,17 @@ import (
 
 var selT0 = time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
 
-func selSession(id, req string, calls ...Call) Session {
+func selSession(id, req string, calls ...trace.Call) trace.Session {
 	for i := range calls {
 		calls[i].Time = selT0.Add(time.Duration(i) * time.Second)
-		if calls[i].Outcome == OutcomeUnknown {
-			calls[i].Outcome = OutcomeOK
+		if calls[i].Outcome == trace.OutcomeUnknown {
+			calls[i].Outcome = trace.OutcomeOK
 		}
 	}
-	return Session{Client: "codex", ID: id, Start: selT0, Requests: []string{req}, Calls: calls}
+	return trace.Session{Client: "codex", ID: id, Start: selT0, Requests: []string{req}, Calls: calls}
 }
 
-func judged(t *testing.T, ss []Session, id string) Opportunity {
+func judged(t *testing.T, ss []trace.Session, id string) Opportunity {
 	t.Helper()
 	for _, o := range SelectOpportunities(ss) {
 		if o.Session == id {
@@ -41,27 +43,27 @@ const statedPrompt = `Automation: queue monitor. Run %d.
 // A recurring prompt that states its procedure, and whose calls touch what
 // it names, is recommended even though no two runs call alike.
 func TestStatedTemplateIsRecommendedAcrossDifferentRuns(t *testing.T) {
-	var ss []Session
+	var ss []trace.Session
 	for i := 0; i < 3; i++ {
 		ss = append(ss, selSession(fmt.Sprintf("run%d", i), fmt.Sprintf(statedPrompt, i),
-			Call{Tool: "shell", Command: fmt.Sprintf("jq -r '.[] | .status' /work/tracker/queue.json | sort | uniq -c # %d", i)},
-			Call{Tool: "shell", Command: "tail -n 1 /work/tracker/log.jsonl"}))
+			trace.Call{Tool: "shell", Command: fmt.Sprintf("jq -r '.[] | .status' /work/tracker/queue.json | sort | uniq -c # %d", i)},
+			trace.Call{Tool: "shell", Command: "tail -n 1 /work/tracker/log.jsonl"}))
 	}
 	o := judged(t, ss, "run0")
 	if !o.Recommended || o.Route != RouteStatedTemplate {
 		t.Fatalf("want stated_template, got %+v", o)
 	}
-	if o.Task != "codex/run0/0" || o.ID != EpisodeID("codex", "run0", 0) {
+	if o.Task != "codex/run0/0" || o.ID != trace.EpisodeID("codex", "run0", 0) {
 		t.Errorf("task ref %q id %q", o.Task, o.ID)
 	}
 }
 
 // A recurring prompt that states no procedure (an open goal) is not.
 func TestRecurringOpenGoalIsNotAStatedTemplate(t *testing.T) {
-	var ss []Session
+	var ss []trace.Session
 	for i := 0; i < 3; i++ {
 		ss = append(ss, selSession(fmt.Sprintf("goal%d", i), fmt.Sprintf("Run %d: figure out why the indexer keeps failing and fix it", i),
-			Call{Tool: "shell", Command: "go test ./indexer/..."}, Call{Tool: "shell", Command: "git diff"}))
+			trace.Call{Tool: "shell", Command: "go test ./indexer/..."}, trace.Call{Tool: "shell", Command: "git diff"}))
 	}
 	o := judged(t, ss, "goal0")
 	if o.Recommended {
@@ -81,16 +83,16 @@ rows = json.load(open("%s"))
 print({s: sum(1 for r in rows if r["status"] == s) for s in {r["status"] for r in rows}})
 EOF`
 	check := selSession("check", "how many are in each state now",
-		Call{Tool: "shell", Command: fmt.Sprintf(script, "/data/a.json")},
-		Call{Tool: "shell", Command: "date -u"},
-		Call{Tool: "shell", Command: fmt.Sprintf(script, "/data/b.json")})
-	if o := judged(t, []Session{check}, "check"); !o.Recommended || o.Route != RouteRerunCheck {
+		trace.Call{Tool: "shell", Command: fmt.Sprintf(script, "/data/a.json")},
+		trace.Call{Tool: "shell", Command: "date -u"},
+		trace.Call{Tool: "shell", Command: fmt.Sprintf(script, "/data/b.json")})
+	if o := judged(t, []trace.Session{check}, "check"); !o.Recommended || o.Route != RouteRerunCheck {
 		t.Errorf("want rerun_check, got %+v", o)
 	}
 	view := selSession("view", "look at the handler",
-		Call{Tool: "shell", Command: "sed -n '1,200p' /repo/services/gateway/internal/handlers/very/long/path/to/the/handler_file_name.go"},
-		Call{Tool: "shell", Command: "sed -n '200,400p' /repo/services/gateway/internal/handlers/very/long/path/to/the/handler_file_name.go"})
-	if o := judged(t, []Session{view}, "view"); o.Recommended {
+		trace.Call{Tool: "shell", Command: "sed -n '1,200p' /repo/services/gateway/internal/handlers/very/long/path/to/the/handler_file_name.go"},
+		trace.Call{Tool: "shell", Command: "sed -n '200,400p' /repo/services/gateway/internal/handlers/very/long/path/to/the/handler_file_name.go"})
+	if o := judged(t, []trace.Session{view}, "view"); o.Recommended {
 		t.Errorf("viewing a file twice is navigation, got %+v", o)
 	}
 }
@@ -99,39 +101,39 @@ EOF`
 // is a list a caller could give. A loop over search phrasings is not.
 func TestParametricLoopNeedsIdentifiersNotSearchPhrasings(t *testing.T) {
 	ids := selSession("ids", "tail the failed jobs 81234567, 81234599, and 81234612",
-		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "log one"},
-		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "log two"},
-		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234612"}, Output: "log three"})
-	if o := judged(t, []Session{ids}, "ids"); !o.Recommended || o.Route != RouteParamLoop {
+		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "log one"},
+		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "log two"},
+		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234612"}, Output: "log three"})
+	if o := judged(t, []trace.Session{ids}, "ids"); !o.Recommended || o.Route != RouteParamLoop {
 		t.Errorf("want parametric_loop, got %+v", o)
 	}
 	fromResult := selSession("from_result", "list the failed jobs, then fetch each log",
-		Call{Tool: "mcp:gitlab_list_failed_jobs", Output: `{"jobs":[{"id":"81234567"},{"id":"81234599"}]}`},
-		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "log one"},
-		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "log two"})
-	if o := judged(t, []Session{fromResult}, "from_result"); !o.Recommended || o.Route != RouteParamLoop || !strings.Contains(o.Contract, "prior_output") {
+		trace.Call{Tool: "mcp:gitlab_list_failed_jobs", Output: `{"jobs":[{"id":"81234567"},{"id":"81234599"}]}`},
+		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "log one"},
+		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "log two"})
+	if o := judged(t, []trace.Session{fromResult}, "from_result"); !o.Recommended || o.Route != RouteParamLoop || !strings.Contains(o.Contract, "prior_output") {
 		t.Errorf("want loop over the earlier result, got %+v", o)
 	}
 	unknown := selSession("unknown", "tail the failed jobs",
-		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "log one"},
-		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "log two"})
-	if o := judged(t, []Session{unknown}, "unknown"); o.Recommended {
+		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "log one"},
+		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "log two"})
+	if o := judged(t, []trace.Session{unknown}, "unknown"); o.Recommended {
 		t.Errorf("the list has no visible source, got %+v", o)
 	} else if !strings.Contains(strings.Join(o.Reasons, " "), "loop_source_unknown") {
 		t.Errorf("missing list provenance reason: %+v", o)
 	}
 	search := selSession("search", "why is recall low",
-		Call{Tool: "mcp:telara_knowledge_search", Args: map[string]string{"query": "recall evaluation holdout"}, Output: "a"},
-		Call{Tool: "mcp:telara_knowledge_search", Args: map[string]string{"query": "episode label disagreement"}, Output: "b"},
-		Call{Tool: "mcp:telara_knowledge_search", Args: map[string]string{"query": "routine consistency check"}, Output: "c"})
-	if o := judged(t, []Session{search}, "search"); o.Recommended {
+		trace.Call{Tool: "mcp:telara_knowledge_search", Args: map[string]string{"query": "recall evaluation holdout"}, Output: "a"},
+		trace.Call{Tool: "mcp:telara_knowledge_search", Args: map[string]string{"query": "episode label disagreement"}, Output: "b"},
+		trace.Call{Tool: "mcp:telara_knowledge_search", Args: map[string]string{"query": "routine consistency check"}, Output: "c"})
+	if o := judged(t, []trace.Session{search}, "search"); o.Recommended {
 		t.Errorf("a loop over search phrasings is exploration, got %+v", o)
 	}
 	chained := selSession("chained", "follow the links",
-		Call{Tool: "mcp:web_get", Args: map[string]string{"url": "https://example.com/start"}, Output: "see https://example.com/next"},
-		Call{Tool: "mcp:web_get", Args: map[string]string{"url": "https://example.com/next"}, Output: "see https://example.com/last"},
-		Call{Tool: "mcp:web_get", Args: map[string]string{"url": "https://example.com/last"}, Output: "end"})
-	if o := judged(t, []Session{chained}, "chained"); o.Recommended {
+		trace.Call{Tool: "mcp:web_get", Args: map[string]string{"url": "https://example.com/start"}, Output: "see https://example.com/next"},
+		trace.Call{Tool: "mcp:web_get", Args: map[string]string{"url": "https://example.com/next"}, Output: "see https://example.com/last"},
+		trace.Call{Tool: "mcp:web_get", Args: map[string]string{"url": "https://example.com/last"}, Output: "end"})
+	if o := judged(t, []trace.Session{chained}, "chained"); o.Recommended {
 		t.Errorf("each item came from the previous result: exploration, got %+v", o)
 	}
 }
@@ -140,7 +142,7 @@ func TestLoopListSourceRequiresWholeItems(t *testing.T) {
 	if containsItem("1812345679", "81234567") || !containsItem("jobs 81234567, 81234599", "81234567") {
 		t.Fatal("item boundary mismatch")
 	}
-	steps := []Step{{Output: "job 81234567 only", Outcome: OutcomeOK}}
+	steps := []trace.Step{{Output: "job 81234567 only", Outcome: trace.OutcomeOK}}
 	if source := loopListSource("", steps, 1, []string{"81234567", "81234599"}); source != "" {
 		t.Fatalf("partial list should not establish provenance: %q", source)
 	}
@@ -148,9 +150,9 @@ func TestLoopListSourceRequiresWholeItems(t *testing.T) {
 
 // Harness text and single calls are never recommended.
 func TestSelectionRefusesHarnessAndSingleCalls(t *testing.T) {
-	h := selSession("h", "# AGENTS.md instructions for /repo", Call{Tool: "shell", Command: "ls"}, Call{Tool: "shell", Command: "pwd"})
-	one := selSession("one", "what time is it", Call{Tool: "shell", Command: "date"})
-	for _, o := range SelectOpportunities([]Session{h, one}) {
+	h := selSession("h", "# AGENTS.md instructions for /repo", trace.Call{Tool: "shell", Command: "ls"}, trace.Call{Tool: "shell", Command: "pwd"})
+	one := selSession("one", "what time is it", trace.Call{Tool: "shell", Command: "date"})
+	for _, o := range SelectOpportunities([]trace.Session{h, one}) {
 		if o.Recommended {
 			t.Errorf("%s must not be recommended: %+v", o.Session, o)
 		}
@@ -162,22 +164,22 @@ func TestSelectionRefusesHarnessAndSingleCalls(t *testing.T) {
 // no dependency between its steps, or naming nothing the calls touch, is not.
 func TestNamedObjectNeedsATouchedObjectAndADependency(t *testing.T) {
 	close := selSession("close", "close TENG-4321 with a note that it shipped",
-		Call{Tool: "mcp:jira_list_transitions", Args: map[string]string{"issue_key": "TENG-4321"}, Output: `{"transitions":[{"id":"31","name":"Done"}],"done_id":"trn-31-done"}`},
-		Call{Tool: "mcp:jira_add_comment", Args: map[string]string{"issue_key": "TENG-4321", "body": "shipped"}},
-		Call{Tool: "mcp:jira_transition_issue", Args: map[string]string{"issue_key": "TENG-4321", "transition_id": "trn-31-done"}})
-	if o := judged(t, []Session{close}, "close"); !o.Recommended || o.Route != RouteNamedObject {
+		trace.Call{Tool: "mcp:jira_list_transitions", Args: map[string]string{"issue_key": "TENG-4321"}, Output: `{"transitions":[{"id":"31","name":"Done"}],"done_id":"trn-31-done"}`},
+		trace.Call{Tool: "mcp:jira_add_comment", Args: map[string]string{"issue_key": "TENG-4321", "body": "shipped"}},
+		trace.Call{Tool: "mcp:jira_transition_issue", Args: map[string]string{"issue_key": "TENG-4321", "transition_id": "trn-31-done"}})
+	if o := judged(t, []trace.Session{close}, "close"); !o.Recommended || o.Route != RouteNamedObject {
 		t.Errorf("want named_object, got %+v", o)
 	}
 	unrelated := selSession("unrelated", "close TENG-4321 with a note that it shipped",
-		Call{Tool: "mcp:jira_add_comment", Args: map[string]string{"issue_key": "TENG-4321", "body": "shipped"}},
-		Call{Tool: "mcp:jira_get_issue", Args: map[string]string{"issue_key": "TENG-4321"}})
-	if o := judged(t, []Session{unrelated}, "unrelated"); o.Recommended {
+		trace.Call{Tool: "mcp:jira_add_comment", Args: map[string]string{"issue_key": "TENG-4321", "body": "shipped"}},
+		trace.Call{Tool: "mcp:jira_get_issue", Args: map[string]string{"issue_key": "TENG-4321"}})
+	if o := judged(t, []trace.Session{unrelated}, "unrelated"); o.Recommended {
 		t.Errorf("no step depends on another: not a procedure, got %+v", o)
 	}
 	nothing := selSession("nothing", "why is it slow today",
-		Call{Tool: "mcp:metrics_query", Args: map[string]string{"query": "p95 latency"}, Output: "series-abc123"},
-		Call{Tool: "mcp:metrics_series", Args: map[string]string{"id": "series-abc123"}})
-	if o := judged(t, []Session{nothing}, "nothing"); o.Recommended {
+		trace.Call{Tool: "mcp:metrics_query", Args: map[string]string{"query": "p95 latency"}, Output: "series-abc123"},
+		trace.Call{Tool: "mcp:metrics_series", Args: map[string]string{"id": "series-abc123"}})
+	if o := judged(t, []trace.Session{nothing}, "nothing"); o.Recommended {
 		t.Errorf("the request names nothing the calls act on, got %+v", o)
 	}
 }
@@ -185,15 +187,15 @@ func TestNamedObjectNeedsATouchedObjectAndADependency(t *testing.T) {
 // Grouping puts requests with the same contract together and ranks the
 // group seen in more sessions first; it never changes what is recommended.
 func TestGroupOpportunitiesByContractRanksBySessions(t *testing.T) {
-	var ss []Session
+	var ss []trace.Session
 	for i := 0; i < 3; i++ {
 		ss = append(ss, selSession(fmt.Sprintf("run%d", i), fmt.Sprintf(statedPrompt, i),
-			Call{Tool: "shell", Command: fmt.Sprintf("jq -r '.[] | .status' /work/tracker/queue.json # %d", i)},
-			Call{Tool: "shell", Command: "tail -n 1 /work/tracker/log.jsonl"}))
+			trace.Call{Tool: "shell", Command: fmt.Sprintf("jq -r '.[] | .status' /work/tracker/queue.json # %d", i)},
+			trace.Call{Tool: "shell", Command: "tail -n 1 /work/tracker/log.jsonl"}))
 	}
 	ss = append(ss, selSession("ids", "tail the failed jobs 81234567 and 81234599",
-		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "a"},
-		Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "b"}))
+		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234567"}, Output: "a"},
+		trace.Call{Tool: "mcp:gitlab_get_job_log", Args: map[string]string{"job_id": "81234599"}, Output: "b"}))
 	ops := SelectOpportunities(ss)
 	n := 0
 	for _, o := range ops {

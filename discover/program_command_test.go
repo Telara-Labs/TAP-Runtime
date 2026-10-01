@@ -3,6 +3,8 @@ package discover
 import (
 	"strings"
 	"testing"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 func TestGeneratedReviewOrderUsesGraphEffectsAndBindings(t *testing.T) {
@@ -28,17 +30,17 @@ func TestGeneratedReviewOrderUsesGraphEffectsAndBindings(t *testing.T) {
 }
 
 func TestGeneratedProgramQueueShowsOneVariantPerBroadFamily(t *testing.T) {
-	create := func(server, key string) Call {
-		return spanRefs(Call{Tool: "mcp:telara_execute_action", MCPServer: server, MCPTool: "telara_execute_action",
+	create := func(server, key string) trace.Call {
+		return spanRefs(trace.Call{Tool: "mcp:telara_execute_action", MCPServer: server, MCPTool: "telara_execute_action",
 			Args:   map[string]string{"integration": "jira", "action": "create_issue", "params": `{"summary":"follow up"}`},
-			Output: `{"key":"` + key + `"}`, Outcome: OutcomeOK})
+			Output: `{"key":"` + key + `"}`, Outcome: trace.OutcomeOK})
 	}
-	link := func(server, created, target string) Call {
-		return Call{Tool: "mcp:telara_execute_action", MCPServer: server, MCPTool: "telara_execute_action",
+	link := func(server, created, target string) trace.Call {
+		return trace.Call{Tool: "mcp:telara_execute_action", MCPServer: server, MCPTool: "telara_execute_action",
 			Args: map[string]string{"integration": "jira", "action": "create_issue_link",
-				"params": `{"inward_issue_key":"` + created + `","outward_issue_key":"` + target + `"}`}, Outcome: OutcomeOK}
+				"params": `{"inward_issue_key":"` + created + `","outward_issue_key":"` + target + `"}`}, Outcome: trace.OutcomeOK}
 	}
-	sessions := []Session{
+	sessions := []trace.Session{
 		selSession("first", "Create follow up and link TENG-2", create("one", "TENG-1"), link("one", "TENG-1", "TENG-2")),
 		selSession("second", "Create follow up and link TENG-4", create("two", "TENG-3"), link("two", "TENG-3", "TENG-4")),
 	}
@@ -145,16 +147,16 @@ func TestGeneratedCandidateTaskEvidenceDoesNotPromoteIncidentalRecurrence(t *tes
 }
 
 func TestGeneratedCausalComponentsRemainReviewableInsideLargerTasks(t *testing.T) {
-	create := func(id string) Call {
-		return spanRefs(Call{Tool: "mcp:telara_jira_create_issue", MCPServer: "telara", MCPTool: "telara_jira_create_issue",
+	create := func(id string) trace.Call {
+		return spanRefs(trace.Call{Tool: "mcp:telara_jira_create_issue", MCPServer: "telara", MCPTool: "telara_jira_create_issue",
 			Args:   map[string]string{"project_key": "TENG", "summary": "follow up " + id, "issue_type": "Task"},
-			Output: `{"key":"` + id + `"}`, Outcome: OutcomeOK})
+			Output: `{"key":"` + id + `"}`, Outcome: trace.OutcomeOK})
 	}
-	transition := func(id string) Call {
-		return Call{Tool: "mcp:telara_jira_transition_issue", MCPServer: "telara", MCPTool: "telara_jira_transition_issue",
-			Args: map[string]string{"issue_key": id, "transition_id": "in-progress"}, Output: `{"ok":true}`, Outcome: OutcomeOK}
+	transition := func(id string) trace.Call {
+		return trace.Call{Tool: "mcp:telara_jira_transition_issue", MCPServer: "telara", MCPTool: "telara_jira_transition_issue",
+			Args: map[string]string{"issue_key": id, "transition_id": "in-progress"}, Output: `{"ok":true}`, Outcome: trace.OutcomeOK}
 	}
-	sessions := []Session{
+	sessions := []trace.Session{
 		selSession("one", "Implement feature A", create("TENG-101"), transition("TENG-101")),
 		selSession("two", "Implement feature B", create("TENG-202"), transition("TENG-202")),
 	}

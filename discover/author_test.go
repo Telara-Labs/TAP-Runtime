@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // The author path (TENG-2936): brief, validate, save.
@@ -67,8 +69,8 @@ func TestBriefFromASelectedTaskEstablishesNothing(t *testing.T) {
 }
 
 func TestBriefRedactsCredentials(t *testing.T) {
-	s := Session{Client: "codex", ID: "x", Requests: []string{"deploy with Bearer abcdefghijklmnopqrstu"},
-		Calls: []Call{{Tool: "shell", Command: "curl -H 'Authorization: Bearer abcdefghijklmnopqrstu' https://h", Output: "token glpat-abcdefghijklmnopqrstuv"}}}
+	s := trace.Session{Client: "codex", ID: "x", Requests: []string{"deploy with Bearer abcdefghijklmnopqrstu"},
+		Calls: []trace.Call{{Tool: "shell", Command: "curl -H 'Authorization: Bearer abcdefghijklmnopqrstu' https://h", Output: "token glpat-abcdefghijklmnopqrstuv"}}}
 	b, err := NewBrief(s, 0, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +110,7 @@ func TestBriefFromRecurringLogicShowsDifferentExecutions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spans := SelectSpanProposals([]Session{a, b})
+	spans := SelectSpanProposals([]trace.Session{a, b})
 	groups := GroupLogicCandidates(spans)
 	if len(groups) != 1 {
 		t.Fatalf("want one parameterized flow, got %+v", groups)
@@ -484,7 +486,7 @@ func TestOracleIsFoundFromARelativeCasesPathAndMustReport(t *testing.T) {
 func TestBriefFromASurfacedOpportunity(t *testing.T) {
 	home := homeWithClaudeSession(t)
 	report := filepath.Join(t.TempDir(), "report.json")
-	op := Opportunity{ID: EpisodeID("claude-code", "s1", 0), Client: "claude-code", Session: "s1", Request: 0,
+	op := Opportunity{ID: trace.EpisodeID("claude-code", "s1", 0), Client: "claude-code", Session: "s1", Request: 0,
 		Recommended: true, Route: RouteParamLoop, Reasons: []string{"loop:sh:git log:3"}, Task: "claude-code/s1/0"}
 	b, _ := json.Marshal(map[string]any{"opportunities": []Opportunity{op}})
 	os.WriteFile(report, b, 0o644)

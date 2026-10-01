@@ -10,6 +10,8 @@ import (
 	"os"
 	"sort"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // A frozen corpus lets two runs be compared on identical inputs. Client
@@ -40,7 +42,7 @@ var ErrCorpusChanged = errors.New("frozen corpus changed")
 // SessionDigest identifies a session's input: the digest of what its reader
 // read (SourceDigest) when there is one, so a parser change never reads as
 // changed input; otherwise the sha256 of the session's JSON encoding.
-func SessionDigest(s Session) string {
+func SessionDigest(s trace.Session) string {
 	if s.SourceDigest != "" {
 		return s.SourceDigest
 	}
@@ -50,7 +52,7 @@ func SessionDigest(s Session) string {
 }
 
 // lastActivity is the latest time a session records.
-func lastActivity(s Session) time.Time {
+func lastActivity(s trace.Session) time.Time {
 	t := s.Start
 	for _, c := range s.Calls {
 		if c.Time.After(t) {
@@ -62,7 +64,7 @@ func lastActivity(s Session) time.Time {
 
 // BuildManifest freezes the sessions whose last recorded activity is before
 // cutoff; sessions still in progress are left out.
-func BuildManifest(ss []Session, cutoff time.Time) Manifest {
+func BuildManifest(ss []trace.Session, cutoff time.Time) Manifest {
 	m := Manifest{Cutoff: cutoff.UTC()}
 	for _, s := range ss {
 		if len(s.Calls) == 0 || !lastActivity(s).Before(cutoff) {
@@ -87,7 +89,7 @@ func BuildManifest(ss []Session, cutoff time.Time) Manifest {
 // FrozenReader returns only the sessions a manifest lists for its client,
 // and fails if one is missing or reads differently than when frozen.
 type FrozenReader struct {
-	Inner    Reader
+	Inner    trace.Reader
 	Manifest Manifest
 	// DropChanged leaves out a session that changed or disappeared since
 	// the freeze, instead of failing, and lists it in Dropped. A live
@@ -99,7 +101,7 @@ type FrozenReader struct {
 
 func (f FrozenReader) Client() string { return f.Inner.Client() }
 
-func (f FrozenReader) Read(since time.Time) ([]Session, error) {
+func (f FrozenReader) Read(since time.Time) ([]trace.Session, error) {
 	want := map[string]string{}
 	for _, e := range f.Manifest.Sessions {
 		if e.Client == f.Inner.Client() {
@@ -113,7 +115,7 @@ func (f FrozenReader) Read(since time.Time) ([]Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []Session
+	var out []trace.Session
 	var changed []string
 	for _, s := range ss {
 		d, ok := want[s.ID]

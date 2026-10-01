@@ -9,9 +9,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-func toolsOf(s Session) []string {
+func toolsOf(s trace.Session) []string {
 	var out []string
 	for _, c := range s.Calls {
 		if c.Tool == "shell" {
@@ -56,17 +58,17 @@ func TestCodexReaderDoesNotAttributeSharedExecOutputToEveryNestedCall(t *testing
 		t.Fatalf("calls = %d, want five", len(s.Calls))
 	}
 	for i := 0; i < 2; i++ {
-		if s.Calls[i].Outcome != OutcomeUnknown || len(s.Calls[i].OutIDs) != 0 || len(s.Calls[i].OutPaths) != 0 || s.Calls[i].Output != "" {
+		if s.Calls[i].Outcome != trace.OutcomeUnknown || len(s.Calls[i].OutIDs) != 0 || len(s.Calls[i].OutPaths) != 0 || s.Calls[i].Output != "" {
 			t.Fatalf("nested call %d received an unattributed shared result: %+v", i, s.Calls[i])
 		}
 	}
-	if s.Calls[2].Outcome != OutcomeOK || len(s.Calls[2].OutIDs) != 1 || s.Calls[2].OutIDs[0] != "TENG-1000" || s.Calls[2].OutPaths[0] != ".id" {
+	if s.Calls[2].Outcome != trace.OutcomeOK || len(s.Calls[2].OutIDs) != 1 || s.Calls[2].OutIDs[0] != "TENG-1000" || s.Calls[2].OutPaths[0] != ".id" {
 		t.Fatalf("direct call lost its own result: %+v", s.Calls[2])
 	}
-	if s.Calls[3].Outcome != OutcomeOK || len(s.Calls[3].OutCollections) != 1 || len(s.Calls[3].OutIDs) != 2 || s.Calls[3].OutPaths[0] != ".items[0].id" {
+	if s.Calls[3].Outcome != trace.OutcomeOK || len(s.Calls[3].OutCollections) != 1 || len(s.Calls[3].OutIDs) != 2 || s.Calls[3].OutPaths[0] != ".items[0].id" {
 		t.Fatalf("single passed-through result was not decoded: %+v", s.Calls[3])
 	}
-	if s.Calls[4].Outcome != OutcomeUnknown || len(s.Calls[4].OutIDs) != 0 || s.Calls[4].Output != "" {
+	if s.Calls[4].Outcome != trace.OutcomeUnknown || len(s.Calls[4].OutIDs) != 0 || s.Calls[4].Output != "" {
 		t.Fatalf("transformed result was treated as raw: %+v", s.Calls[4])
 	}
 }
@@ -155,7 +157,7 @@ func TestCodexReaderAttributesIndexedMultiCallResultsAndFailures(t *testing.T) {
 	if err != nil || len(s.Calls) != 2 {
 		t.Fatalf("indexed fixture: %+v %v", s, err)
 	}
-	if s.Calls[0].Outcome != OutcomeOK || len(s.Calls[0].OutIDs) != 1 || s.Calls[0].OutIDs[0] != "TENG-1001" || s.Calls[1].Outcome != OutcomeFailed || len(s.Calls[1].OutIDs) != 0 {
+	if s.Calls[0].Outcome != trace.OutcomeOK || len(s.Calls[0].OutIDs) != 1 || s.Calls[0].OutIDs[0] != "TENG-1001" || s.Calls[1].Outcome != trace.OutcomeFailed || len(s.Calls[1].OutIDs) != 0 {
 		t.Fatalf("indexed calls were not attributed safely: %+v", s.Calls)
 	}
 }
@@ -430,7 +432,7 @@ func TestTokenUsageIsAttributed(t *testing.T) {
 		t.Fatalf("read: %v %+v", err, ss)
 	}
 	for _, c := range ss[0].Calls {
-		if !c.Measured || c.Tokens != (Usage{Fresh: 50, Cached: 500, Output: 20}) {
+		if !c.Measured || c.Tokens != (trace.Usage{Fresh: 50, Cached: 500, Output: 20}) {
 			t.Fatalf("call tokens = %+v measured %v", c.Tokens, c.Measured)
 		}
 	}
@@ -449,7 +451,7 @@ func TestCodexTokenCountAttributesToPrecedingCalls(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	c := ss[0].Calls
-	if !c[0].Measured || c[0].Tokens != (Usage{Fresh: 200, Cached: 800, Output: 30}) {
+	if !c[0].Measured || c[0].Tokens != (trace.Usage{Fresh: 200, Cached: 800, Output: 30}) {
 		t.Fatalf("first call = %+v", c[0])
 	}
 	if c[1].Measured {
@@ -458,29 +460,29 @@ func TestCodexTokenCountAttributesToPrecedingCalls(t *testing.T) {
 }
 
 func TestRunCostSavesAllButOneTurn(t *testing.T) {
-	st := func(turn int, total float64) Step {
-		return Step{Label: "sh:git status", Tokens: Usage{Cached: total}, Turn: turn, Measured: true, Turns: 1}
+	st := func(turn int, total float64) trace.Step {
+		return trace.Step{Label: "sh:git status", Tokens: trace.Usage{Cached: total}, Turn: turn, Measured: true, Turns: 1}
 	}
 	// An edit decided per run is not replayed, so it saves nothing.
-	edit := Step{Label: "patch:update", Tokens: Usage{Cached: 500}, Turn: 9, Measured: true, Turns: 1}
-	if run, saved, ok := runCost([]Step{st(1, 100), edit, st(2, 100)}); !ok || run.Total() != 200 || math.Abs(saved.Total()-100) > 1e-9 {
+	edit := trace.Step{Label: "patch:update", Tokens: trace.Usage{Cached: 500}, Turn: 9, Measured: true, Turns: 1}
+	if run, saved, ok := runCost([]trace.Step{st(1, 100), edit, st(2, 100)}); !ok || run.Total() != 200 || math.Abs(saved.Total()-100) > 1e-9 {
 		t.Fatalf("with an edit: run %v saved %v ok %v", run, saved, ok)
 	}
-	if _, _, ok := runCost([]Step{edit}); ok {
+	if _, _, ok := runCost([]trace.Step{edit}); ok {
 		t.Fatal("a run with nothing replayable has no saving")
 	}
-	run, saved, ok := runCost([]Step{st(1, 100), st(2, 100), st(3, 100)})
+	run, saved, ok := runCost([]trace.Step{st(1, 100), st(2, 100), st(3, 100)})
 	if !ok || run.Total() != 300 || math.Abs(saved.Total()-200) > 1e-9 {
 		t.Fatalf("run %v saved %v", run, saved)
 	}
-	if _, _, ok := runCost([]Step{st(1, 1), {}}); ok {
+	if _, _, ok := runCost([]trace.Step{st(1, 1), {}}); ok {
 		t.Fatal("an unmeasured step must make the run unmeasured")
 	}
 }
 
 func TestOutcomesAreRead(t *testing.T) {
 	ss, err := ClaudeCode{Dir: "testdata/claude"}.Read(time.Time{})
-	if err != nil || ss[0].Calls[0].Outcome != OutcomeOK {
+	if err != nil || ss[0].Calls[0].Outcome != trace.OutcomeOK {
 		t.Fatalf("claude: the tool_result for the git call must mark it OK: %+v %v", ss[0].Calls[0], err)
 	}
 	cs, err := Codex{Dir: "testdata/codex"}.Read(time.Time{})
@@ -488,13 +490,13 @@ func TestOutcomesAreRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := cs[0].Calls[0]
-	if first.Outcome != OutcomeFailed || len(first.OutIDs) != 1 || first.OutIDs[0] != "TENG-1234" {
+	if first.Outcome != trace.OutcomeFailed || len(first.OutIDs) != 1 || first.OutIDs[0] != "TENG-1234" {
 		t.Fatalf("codex: exit code 1 must mark the call failed and keep its ids: %+v", first)
 	}
-	if cs[0].Calls[1].Outcome != OutcomeUnknown {
+	if cs[0].Calls[1].Outcome != trace.OutcomeUnknown {
 		t.Fatalf("codex: a call with no output is unknown: %+v", cs[0].Calls[1])
 	}
-	if c := cursorCall(cursorRow{Name: "run_terminal_cmd", Args: `{"command":"make"}`, Status: "error", Result: `{"output":"see https://ci.example.com/j/42"}`}); c.Outcome != OutcomeFailed || c.OutIDs[0] != "https://ci.example.com/j/42" {
+	if c := cursorCall(cursorRow{Name: "run_terminal_cmd", Args: `{"command":"make"}`, Status: "error", Result: `{"output":"see https://ci.example.com/j/42"}`}); c.Outcome != trace.OutcomeFailed || c.OutIDs[0] != "https://ci.example.com/j/42" {
 		t.Fatalf("cursor: %+v", c)
 	}
 }
@@ -507,10 +509,10 @@ func TestCursorReaderKeepsCompleteCollectionEvidencePastPreview(t *testing.T) {
 	}
 	collection := call.OutCollections[0]
 	field := collection.Fields[".id"]
-	if collection.Path != ".items" || collection.Count != 2 || field.Type != "string" || len(field.Digests) != 2 || field.Digests[0] != resultValueDigest("TENG-1") {
+	if collection.Path != ".items" || collection.Count != 2 || field.Type != "string" || len(field.Digests) != 2 || field.Digests[0] != trace.ResultValueDigest("TENG-1") {
 		t.Fatalf("wrong complete-list evidence: %+v", collection)
 	}
-	if strings.Contains(field.Digests[0], "TENG") || len(resultCollections(full[:600])) != 0 {
+	if strings.Contains(field.Digests[0], "TENG") || len(trace.ResultCollections(full[:600])) != 0 {
 		t.Fatal("raw values or incomplete JSON must not become collection proof")
 	}
 }
@@ -525,7 +527,7 @@ func TestCodexToolNameShapes(t *testing.T) {
 		{"", "mcp__codex_apps__telara_telara_task_list", "mcp:telara_task_list"},
 		{"", "mcp__codex_apps__gmail_search_emails", "mcp:gmail_search_emails"},
 	} {
-		if got := codexCall(Session{}, time.Time{}, c.ns, c.name, nil).Tool; got != c.want {
+		if got := codexCall(trace.Session{}, time.Time{}, c.ns, c.name, nil).Tool; got != c.want {
 			t.Errorf("%q + %q = %q, want %q", c.ns, c.name, got, c.want)
 		}
 	}

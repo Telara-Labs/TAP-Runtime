@@ -5,11 +5,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"path"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // Request-level discovery turns recurring work into a short list of
@@ -145,7 +145,7 @@ type Routine struct {
 	// this machine's history and are for local review only.
 	Sources []SourceRef `json:"sources,omitempty"`
 	draft   *Draft
-	occ     [][]Step
+	occ     [][]trace.Step
 	loops   map[string]loopSpec
 }
 
@@ -188,7 +188,7 @@ type reqInstance struct {
 }
 
 // requestRoutines runs the request-level pass over a normalized corpus.
-func requestRoutines(corpus []normSession, ids map[string]int, names []string, o Options, rawCalls int) (Funnel, []Routine) {
+func requestRoutines(corpus []trace.NormSession, ids map[string]int, names []string, o Options, rawCalls int) (Funnel, []Routine) {
 	f := Funnel{Sessions: len(corpus), Calls: rawCalls, Removed: map[string]int{},
 		Savings: "estimated from recorded token use (mostly cached input); no primitive run was measured"}
 	// Requests and their replayable steps.
@@ -210,7 +210,7 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 			labels := map[int]float64{}
 			nrep := 0
 			for _, i := range steps {
-				if l := s.Steps[i].Label; replayable(l) {
+				if l := s.Steps[i].Label; trace.Replayable(l) {
 					labels[ids[l]] = 1
 					nrep++
 				}
@@ -256,7 +256,7 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 	// whose goal is a stated text must be how most of them were done.
 	instByText := map[string][]int{}
 	for i := range inst {
-		if k := textKey(inst[i].text); k != "" {
+		if k := trace.TextKey(inst[i].text); k != "" {
 			instByText[k] = append(instByText[k], i)
 		}
 	}
@@ -269,7 +269,7 @@ func requestRoutines(corpus []normSession, ids map[string]int, names []string, o
 		}
 		for r := range asked {
 			if r < len(s.Requests) {
-				if k := textKey(s.Requests[r]); k != "" {
+				if k := trace.TextKey(s.Requests[r]); k != "" {
 					byText[k]++
 				}
 			}
@@ -420,7 +420,7 @@ func weightedJaccard(a, b *reqInstance) float64 {
 // buildRoutine makes a group's template (the steps at least half its
 // requests ran together, in a recorded order), finds each request's run of
 // it, drafts it and runs the checks.
-func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []string, o Options) (Routine, bool) {
+func buildRoutine(corpus []trace.NormSession, inst []reqInstance, g []int, names []string, o Options) (Routine, bool) {
 	// The steps that belong to the routine: the largest set of replayable
 	// steps that at least half its requests ran together. Steps are taken in
 	// order of how many requests ran them, and one is kept only if half the
@@ -432,7 +432,7 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 		s := corpus[inst[i].session]
 		has[k] = map[string]bool{}
 		for _, si := range inst[i].steps {
-			if l := s.Steps[si].Label; replayable(l) && !has[k][l] {
+			if l := s.Steps[si].Label; trace.Replayable(l) && !has[k][l] {
 				has[k][l] = true
 				present[l]++
 			}
@@ -536,8 +536,8 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	// values is flagged as a loop to be written by hand.
 	type run struct {
 		inst    int
-		all     []Step
-		first   []Step
+		all     []trace.Step
+		first   []trace.Step
 		repeats map[string]bool
 	}
 	byFull := map[string][]run{}
@@ -581,8 +581,8 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	}
 	type chosenRun struct {
 		inst  int
-		steps []Step
-		all   []Step
+		steps []trace.Step
+		all   []trace.Step
 	}
 	var chosen []chosenRun
 	var tmpl []string
@@ -608,18 +608,18 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 		}
 	}
 	// A run where a step failed is not evidence the procedure works.
-	var occ [][]Step
+	var occ [][]trace.Step
 	var occReq []int // index into inst
-	var occAll [][]Step
+	var occAll [][]trace.Step
 	seqRuns, failedRuns, unknownRuns := 0, 0, 0
 	for _, r := range chosen {
 		seqRuns++
 		failed, unknown := false, false
 		for _, st := range r.steps {
 			switch st.Outcome {
-			case OutcomeFailed:
+			case trace.OutcomeFailed:
 				failed = true
-			case OutcomeUnknown:
+			case trace.OutcomeUnknown:
 				unknown = true
 			}
 		}
@@ -653,7 +653,7 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 	for _, i := range occReq {
 		n := 0
 		for _, si := range inst[i].steps {
-			if replayable(corpus[inst[i].session].Steps[si].Label) {
+			if trace.Replayable(corpus[inst[i].session].Steps[si].Label) {
 				n++
 			}
 		}
@@ -665,7 +665,7 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 		sort.Float64s(covs)
 		rt.Coverage = covs[len(covs)/2]
 	}
-	rt.Example = oneLine(Redact(inst[g[0]].text), 140)
+	rt.Example = trace.OneLine(Redact(inst[g[0]].text), 140)
 	ran := map[int]bool{}
 	for _, i := range occReq {
 		ran[i] = true
@@ -706,12 +706,12 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 		sort.Float64s(gaps)
 		c.MedianGapDays = gaps[len(gaps)/2]
 	}
-	var runs [][2]Usage
+	var runs [][2]trace.Usage
 	for _, steps := range occ {
 		if run, saved, ok := runCost(steps); ok {
 			c.Measured++
-			c.SavedTotal = c.SavedTotal.add(saved)
-			runs = append(runs, [2]Usage{run, saved})
+			c.SavedTotal = c.SavedTotal.Add(saved)
+			runs = append(runs, [2]trace.Usage{run, saved})
 		}
 	}
 	if len(runs) > 0 {
@@ -755,7 +755,7 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 				continue
 			}
 			total++
-			if inRequest(v, inst[occReq[j]].text) {
+			if trace.InRequest(v, inst[occReq[j]].text) {
 				hit++
 			}
 		}
@@ -813,7 +813,7 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 				n++
 			}
 		}
-		var all []Step
+		var all []trace.Step
 		for _, si := range in.steps {
 			all = append(all, s.Steps[si])
 		}
@@ -827,14 +827,14 @@ func buildRoutine(corpus []normSession, inst []reqInstance, g []int, names []str
 // loops over a list the request gave: exactly one argument varies between
 // its occurrences, and in most runs every value of it is in the request.
 // Anything else stays an open loop.
-func loopSpecs(loops []string, occAll [][]Step, occReq []int, inst []reqInstance) map[string]loopSpec {
+func loopSpecs(loops []string, occAll [][]trace.Step, occReq []int, inst []reqInstance) map[string]loopSpec {
 	out := map[string]loopSpec{}
 	for _, l := range loops {
 		varied := map[string]int{}
 		per := make([]map[string][]string, len(occAll))
 		for j, all := range occAll {
 			per[j] = map[string][]string{}
-			var occs []Step
+			var occs []trace.Step
 			for _, st := range all {
 				if st.Label == l {
 					occs = append(occs, st)
@@ -843,7 +843,7 @@ func loopSpecs(loops []string, occAll [][]Step, occReq []int, inst []reqInstance
 			vals := map[string][]string{}
 			for _, st := range occs {
 				for _, sl := range st.Slots {
-					if sl.Sub || sl.Type == SlotFlag || derived(sl.Key) {
+					if sl.Sub || sl.Type == trace.SlotFlag || trace.Derived(sl.Key) {
 						continue
 					}
 					vals[sl.Key] = append(vals[sl.Key], sl.Value)
@@ -884,7 +884,7 @@ func loopSpecs(loops []string, occAll [][]Step, occReq []int, inst []reqInstance
 			spec.values[j] = vs
 			// The steps before the loop's first item, whose results could
 			// have listed the items.
-			var before []Step
+			var before []trace.Step
 			for _, st := range occAll[j] {
 				if st.Label == l {
 					break
@@ -893,17 +893,17 @@ func loopSpecs(loops []string, occAll [][]Step, occReq []int, inst []reqInstance
 			}
 			inReq, inOut := len(vs) > 0, len(vs) > 0
 			for _, v := range vs {
-				if !inRequest(v, inst[occReq[j]].text) {
+				if !trace.InRequest(v, inst[occReq[j]].text) {
 					inReq = false
 				}
 				found := false
 				for _, st := range before {
-					if inResult(v, st) {
+					if trace.InResult(v, st) {
 						found = true
 						break
 					}
 				}
-				if !found && !inRequest(v, inst[occReq[j]].text) {
+				if !found && !trace.InRequest(v, inst[occReq[j]].text) {
 					inOut = false
 				}
 			}
@@ -926,48 +926,14 @@ func loopSpecs(loops []string, occAll [][]Step, occReq []int, inst []reqInstance
 	return out
 }
 
-// unexplained names the first input whose values were mostly not in the
-// request, or "".
-// inRequest reports whether a value was given in the request: the value
-// itself, or for a path its base name, or for a URL its path, appears in the
-// text (case-insensitive).
-func inRequest(v, text string) bool {
-	if text == "" {
-		return false
-	}
-	t := strings.ToLower(text)
-	lv := strings.ToLower(strings.TrimSpace(v))
-	if lv == "" {
-		return false
-	}
-	if strings.Contains(t, lv) {
-		return true
-	}
-	if b := path.Base(lv); len(b) >= 3 && b != "." && strings.Contains(t, b) {
-		return true
-	}
-	return false
-}
-
-// bookkeepingTools are Telara's own recording and tool-discovery calls,
-// which agent instructions make every agent run around its work.
-var bookkeepingTools = map[string]bool{
-	"mcp:telara_task_list": true, "mcp:telara_task_create": true, "mcp:telara_task_resume": true,
-	"mcp:telara_task_checkpoint": true, "mcp:telara_task_complete": true, "mcp:telara_task_pause": true,
-	"mcp:telara_tool_search": true, "mcp:telara_tool_describe": true, "mcp:telara_annotate": true,
-	"mcp:telara_link": true, "get_mcp_tools": true, "ToolSearch": true,
-}
-
-var digits = regexp.MustCompile(`\d+`)
-
 // routineKind says who a routine's work is for. Scheduled: most requests are
 // Codex automation prompts. Automated: most requests carry the same prompt
 // (digits aside), each alone in its session, so a program sent it.
 // Bookkeeping: every step is a Telara recording or discovery call.
-func routineKind(corpus []normSession, inst []reqInstance, g []int, tmpl []string) string {
+func routineKind(corpus []trace.NormSession, inst []reqInstance, g []int, tmpl []string) string {
 	book := true
 	for _, l := range tmpl {
-		if !bookkeepingTools[l] {
+		if !trace.BookkeepingTools[l] {
 			book = false
 		}
 	}
@@ -981,7 +947,7 @@ func routineKind(corpus []normSession, inst []reqInstance, g []int, tmpl []strin
 		if strings.HasPrefix(t, "Automation:") {
 			scheduled++
 		}
-		if isHarness(t) || t == "" {
+		if trace.IsHarness(t) || t == "" {
 			harness++
 		}
 		if len(t) >= 120 {
@@ -990,7 +956,7 @@ func routineKind(corpus []normSession, inst []reqInstance, g []int, tmpl []strin
 		if len(corpus[inst[i].session].Requests) == 1 {
 			single++
 		}
-		texts[digits.ReplaceAllString(truncateUTF8(t, 120), "#")]++
+		texts[trace.Digits.ReplaceAllString(trace.TruncateUTF8(t, 120), "#")]++
 	}
 	if 2*harness > len(g) {
 		return "harness"
@@ -1049,7 +1015,7 @@ func mergeDuplicates(rs []Routine) int {
 // inside a larger investigation, such as collecting a namespace's pod logs
 // before diagnosing. It is judged on its own contract and reported with its
 // parent. It is kept only when useful; the parent is never claimed.
-func boundedPart(corpus []normSession, inst []reqInstance, g []int, names []string, o Options, rt *Routine) (Routine, bool) {
+func boundedPart(corpus []trace.NormSession, inst []reqInstance, g []int, names []string, o Options, rt *Routine) (Routine, bool) {
 	d := rt.draft
 	// Only inside a person's varying work: a scheduled automation is
 	// already automated (its baseline covers its parts), and harness or
@@ -1146,27 +1112,18 @@ func boundedPart(corpus []normSession, inst []reqInstance, g []int, names []stri
 	return part, true
 }
 
-// textKey is a request's text with digits and spacing normalized.
-func textKey(t string) string {
-	t = strings.Join(strings.Fields(strings.ToLower(digits.ReplaceAllString(t, "#"))), " ")
-	if len(t) < 8 {
-		return ""
-	}
-	return t
-}
-
 // goalShare checks a routine whose goal is its requests' shared text: if
 // most requests with that text did something else, these steps are not the
 // procedure for the goal (a few runs happened to share incidental calls).
 // A request with the text counts as doing it this way when it ran every
 // step of the routine, whichever group its other calls put it in.
-func goalShare(rt *Routine, corpus []normSession, inst []reqInstance, g []int, byText map[string]int, instByText map[string][]int) {
+func goalShare(rt *Routine, corpus []trace.NormSession, inst []reqInstance, g []int, byText map[string]int, instByText map[string][]int) {
 	if rt.Suitability != SuitUseful || rt.Contract.Goal != GoalStated {
 		return
 	}
 	count := map[string]int{}
 	for _, i := range g {
-		if k := textKey(inst[i].text); k != "" {
+		if k := trace.TextKey(inst[i].text); k != "" {
 			count[k]++
 		}
 	}
@@ -1214,7 +1171,7 @@ func goalShare(rt *Routine, corpus []normSession, inst []reqInstance, g []int, b
 // incidental calls split one task's requests into several groups, each
 // group fails the check on its own; the steps they share are the procedure
 // for the goal. Built once per text.
-func goalCore(corpus []normSession, inst []reqInstance, names []string, o Options, rt *Routine, byText map[string]int, instByText map[string][]int, seen map[string]bool) (Routine, bool) {
+func goalCore(corpus []trace.NormSession, inst []reqInstance, names []string, o Options, rt *Routine, byText map[string]int, instByText map[string][]int, seen map[string]bool) (Routine, bool) {
 	if firstReason(*rt) == "" || !strings.HasPrefix(firstReason(*rt), "goal_usually_done_differently") {
 		return Routine{}, false
 	}
@@ -1242,7 +1199,7 @@ func goalCore(corpus []normSession, inst []reqInstance, names []string, o Option
 	for k, i := range members {
 		has[k] = map[string]bool{}
 		for _, si := range inst[i].steps {
-			if l := corpus[inst[i].session].Steps[si].Label; replayable(l) && !has[k][l] {
+			if l := corpus[inst[i].session].Steps[si].Label; trace.Replayable(l) && !has[k][l] {
 				has[k][l] = true
 				present[l]++
 			}
@@ -1288,11 +1245,11 @@ func goalCore(corpus []normSession, inst []reqInstance, names []string, o Option
 }
 
 // textKeyOf is the text key of the request a source names.
-func textKeyOf(corpus []normSession, src SourceRef) string {
+func textKeyOf(corpus []trace.NormSession, src SourceRef) string {
 	for _, s := range corpus {
 		if s.Client == src.Client && s.ID == src.Session {
 			if src.Request < len(s.Requests) {
-				return textKey(s.Requests[src.Request])
+				return trace.TextKey(s.Requests[src.Request])
 			}
 		}
 	}

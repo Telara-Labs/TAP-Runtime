@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // Command is `tap discover`: read this machine's agent session history,
@@ -138,8 +140,8 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 
 // DefaultReaders returns readers for the named clients at their usual
 // places under home.
-func DefaultReaders(clients []string, home string) ([]Reader, error) {
-	var out []Reader
+func DefaultReaders(clients []string, home string) ([]trace.Reader, error) {
+	var out []trace.Reader
 	for _, c := range clients {
 		switch strings.TrimSpace(c) {
 		case "claude-code":

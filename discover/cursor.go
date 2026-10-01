@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
 // Cursor reads Cursor's chat store, globalStorage/state.vscdb, a SQLite
@@ -85,7 +87,7 @@ type cursorRow struct {
 	Text     string          `json:"text"`
 }
 
-func (r Cursor) Read(since time.Time) ([]Session, error) {
+func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 	if _, err := os.Stat(r.DB); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -182,14 +184,14 @@ func (r Cursor) Read(since time.Time) ([]Session, error) {
 		addUser(u, i)
 	}
 
-	var out []Session
+	var out []trace.Session
 	for id, cv := range convs {
 		if len(cv.calls) == 0 || cv.start.Before(since) {
 			continue
 		}
 		sort.SliceStable(cv.calls, func(i, j int) bool { return cv.calls[i].pos < cv.calls[j].pos })
 		sort.SliceStable(cv.users, func(i, j int) bool { return cv.users[i].pos < cv.users[j].pos })
-		s := Session{Client: "cursor", ID: id, Start: cv.start}
+		s := trace.Session{Client: "cursor", ID: id, Start: cv.start}
 		sort.Strings(cv.raw)
 		h := sha256.New()
 		for _, r := range cv.raw {
@@ -200,12 +202,12 @@ func (r Cursor) Read(since time.Time) ([]Session, error) {
 		u := 0
 		for _, c := range cv.calls {
 			for u < len(cv.users) && cv.users[u].pos < c.pos {
-				if isRequest(cv.users[u].text) {
-					s.addRequest(cv.users[u].text)
+				if trace.IsRequest(cv.users[u].text) {
+					s.AddRequest(cv.users[u].text)
 				}
 				u++
 			}
-			c.call.Request = s.request()
+			c.call.Request = s.Request()
 			s.Calls = append(s.Calls, c.call)
 		}
 		out = append(out, s)
@@ -222,7 +224,7 @@ func (r Cursor) Read(since time.Time) ([]Session, error) {
 
 type cursorPlaced struct {
 	pos  int
-	call Call
+	call trace.Call
 }
 
 type cursorConv struct {
@@ -247,17 +249,17 @@ func (c *cursorConv) orderOf(bubble string) (int, bool) {
 	return i, ok
 }
 
-func cursorCall(row cursorRow) Call {
-	c := Call{Client: "cursor", Time: cursorTime(row.Created)}
-	c.OutIDs, c.OutCtx, c.OutPaths = outputRefsPaths(row.Result)
-	c.OutCollections = resultCollections(row.Result)
-	c.Output = truncateUTF8(row.Result, 600)
-	c.OutTokens = outputTokens(row.Result)
+func cursorCall(row cursorRow) trace.Call {
+	c := trace.Call{Client: "cursor", Time: cursorTime(row.Created)}
+	c.OutIDs, c.OutCtx, c.OutPaths = trace.OutputRefsPaths(row.Result)
+	c.OutCollections = trace.ResultCollections(row.Result)
+	c.Output = trace.TruncateUTF8(row.Result, 600)
+	c.OutTokens = trace.OutputTokens(row.Result)
 	switch row.Status {
 	case "completed":
-		c.Outcome = OutcomeOK
+		c.Outcome = trace.OutcomeOK
 	case "error", "cancelled":
-		c.Outcome = OutcomeFailed
+		c.Outcome = trace.OutcomeFailed
 	}
 	var args map[string]json.RawMessage
 	_ = json.Unmarshal([]byte(row.Args), &args)
