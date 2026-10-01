@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -20,12 +22,12 @@ import (
 // (the runner alone has no registry); CanPublish then need not be set.
 type ReviewActions struct {
 	// Save installs a draft and returns where it went.
-	Save func(d *Draft) (string, error)
+	Save func(d *model.Draft) (string, error)
 	// CanPublish reports why publishing is unavailable ("" when it is).
 	CanPublish func() string
 	// Publish sends a draft to "user" or "tenant" and returns the
 	// registry's answer and whether it accepted.
-	Publish func(d *Draft, audience string) (string, bool, error)
+	Publish func(d *model.Draft, audience string) (string, bool, error)
 }
 
 // ReviewConfig limits the list and names the publisher for publishing.
@@ -67,7 +69,7 @@ func Pick(answer string, n int) []int {
 }
 
 // Review runs the pick-list over rep's primitives.
-func Review(in io.Reader, out io.Writer, rep *Report, cfg ReviewConfig, act ReviewActions) error {
+func Review(in io.Reader, out io.Writer, rep *model.Report, cfg ReviewConfig, act ReviewActions) error {
 	sc := bufio.NewScanner(in)
 	ask := func(prompt string) (string, bool) {
 		fmt.Fprint(out, prompt)

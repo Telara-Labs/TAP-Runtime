@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -43,7 +45,7 @@ func TestR2EphemeralConstantsAreNotAReusableProcedure(t *testing.T) {
 	})
 	rep := runOn(t, ss)
 	for _, r := range rep.Routines {
-		if r.Suitability == SuitUseful {
+		if r.Suitability == model.SuitUseful {
 			t.Fatalf("a procedure fixed to a scratch directory was recommended:\n%s", dump(rep))
 		}
 		if !strings.Contains(strings.Join(r.Reasons, " "), "ephemeral_constant") {
@@ -126,7 +128,7 @@ func TestR5GuestBuiltinsThatIgnoreFilesBlockTheDraft(t *testing.T) {
 		return cs
 	})
 	r := runOn(t, ss).Routines[0]
-	if r.Suitability != SuitUseful || r.DraftStatus == DraftComplete || !strings.Contains(strings.Join(r.Blockers, " "), "guest_builtin_ignores_files") {
+	if r.Suitability != model.SuitUseful || r.DraftStatus == model.DraftComplete || !strings.Contains(strings.Join(r.Blockers, " "), "guest_builtin_ignores_files") {
 		t.Fatalf("suit %q draft %q blockers %v", r.Suitability, r.DraftStatus, r.Blockers)
 	}
 }
@@ -145,7 +147,7 @@ func TestR6FileReadsAreDeclaredOrBlocked(t *testing.T) {
 		return []trace.Call{{Tool: "Read", Args: map[string]string{"file_path": fmt.Sprintf("notes/day%d.md", i)}}, sh("git status --short")}
 	})
 	r := runOn(t, varying).Routines[0]
-	if r.DraftStatus == DraftComplete || !strings.Contains(strings.Join(r.Blockers, " "), "file_access_undeclared") {
+	if r.DraftStatus == model.DraftComplete || !strings.Contains(strings.Join(r.Blockers, " "), "file_access_undeclared") {
 		t.Fatalf("draft %q blockers %v", r.DraftStatus, r.Blockers)
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -82,12 +84,12 @@ func TestSynthesizePipelineFromIndependentExecutions(t *testing.T) {
 		selSession("pipe-one", "Filter one log", trace.Call{Tool: "shell", Command: "cat logs/one.txt | grep ERROR", Outcome: trace.OutcomeOK}),
 		selSession("pipe-two", "Filter another log", trace.Call{Tool: "shell", Command: "cat logs/two.txt | grep WARN", Outcome: trace.OutcomeOK}),
 	}
-	var spans []SpanProposal
+	var spans []model.SpanProposal
 	for i, s := range ss {
-		spans = append(spans, SpanProposal{ID: "pipe-span-" + string(rune('a'+i)), Client: s.Client, Session: s.ID,
+		spans = append(spans, model.SpanProposal{ID: "pipe-span-" + string(rune('a'+i)), Client: s.Client, Session: s.ID,
 			Request: 0, Calls: []int{1}, CallHashes: []string{spanCallHash(s.Calls[0])}})
 	}
-	c := LogicCandidate{ID: "lc_abc123", Executions: 2, Sessions: 2, Members: []string{spans[0].ID, spans[1].ID}}
+	c := model.LogicCandidate{ID: "lc_abc123", Executions: 2, Sessions: 2, Members: []string{spans[0].ID, spans[1].ID}}
 	g, err := SynthesizeProgramGraph(c, spans, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("pipeline graph unresolved: %+v %v", g, err)
@@ -105,12 +107,12 @@ func TestSynthesizeSuccessChainAndKeepConnectorsDistinct(t *testing.T) {
 		selSession("chain-one", "Stage one file", trace.Call{Tool: "shell", Command: "git add src/one.go && git status --short", Outcome: trace.OutcomeOK}),
 		selSession("chain-two", "Stage another file", trace.Call{Tool: "shell", Command: "git add src/two.go && git status --short", Outcome: trace.OutcomeOK}),
 	}
-	var spans []SpanProposal
+	var spans []model.SpanProposal
 	for i, s := range ss {
-		spans = append(spans, SpanProposal{ID: "chain-span-" + string(rune('a'+i)), Client: s.Client, Session: s.ID,
+		spans = append(spans, model.SpanProposal{ID: "chain-span-" + string(rune('a'+i)), Client: s.Client, Session: s.ID,
 			Request: 0, Calls: []int{1}, CallHashes: []string{spanCallHash(s.Calls[0])}})
 	}
-	c := LogicCandidate{ID: "lc_chain", Executions: 2, Sessions: 2, Members: []string{spans[0].ID, spans[1].ID}}
+	c := model.LogicCandidate{ID: "lc_chain", Executions: 2, Sessions: 2, Members: []string{spans[0].ID, spans[1].ID}}
 	g, err := SynthesizeProgramGraph(c, spans, ss)
 	if err != nil || len(g.Problems) != 0 {
 		t.Fatalf("success chain graph unresolved: %+v %v", g, err)

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 )
 
@@ -121,7 +123,7 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 2
 	}
 	err = Review(in, out, rep, ReviewConfig{Top: *top}, ReviewActions{
-		Save: func(dr *Draft) (string, error) {
+		Save: func(dr *model.Draft) (string, error) {
 			path, unchanged, err := SaveDraft(dr, root)
 			if unchanged {
 				return path + " (already saved)", err

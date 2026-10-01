@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -37,7 +39,7 @@ func TestBriefFromASelectedTaskEstablishesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Status != BriefStatus || b.Selection != SelectedTask {
+	if b.Status != model.BriefStatus || b.Selection != SelectedTask {
 		t.Errorf("status %q selection %q: a brief is an unassessed proposal", b.Status, b.Selection)
 	}
 	if len(b.Missing) != len(contractFields) {
@@ -151,7 +153,7 @@ func TestBriefFromARejectedCandidate(t *testing.T) {
 	report := filepath.Join(t.TempDir(), "report.json")
 	rep := map[string]any{"routines": []map[string]any{{
 		"id": "r1", "decision": "removed", "failed": "inconsistent_order", "why": "only 1 of 19",
-		"source_role": "scheduled", "suitability": SuitInsufficient,
+		"source_role": "scheduled", "suitability": model.SuitInsufficient,
 		"contract": map[string]any{"goal": "unknown", "output": "report", "effect": "read_only",
 			"inputs": []map[string]any{{"name": "repo", "type": "path", "source": "caller"}}},
 		"sources": []map[string]any{{"client": "claude-code", "session": "s1", "request": 0}},
@@ -169,7 +171,7 @@ func TestBriefFromARejectedCandidate(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Selection != DiscoverCandidate || got.Status != BriefStatus || got.Candidate == nil || got.Candidate.Decision != "removed" {
+	if got.Selection != DiscoverCandidate || got.Status != model.BriefStatus || got.Candidate == nil || got.Candidate.Decision != "removed" {
 		t.Errorf("brief does not carry the rejected candidate as a proposal: %+v", got)
 	}
 	if !strings.Contains(got.Contract.Output.EstablishedBy, "unverified") {
@@ -368,20 +370,20 @@ func TestSavePackageBindsValidationToTheDigest(t *testing.T) {
 	root := t.TempDir()
 
 	path, v, unchanged, err := SavePackage(pkg, root, nil, "")
-	if err != nil || v != ValidationNotRun || unchanged {
+	if err != nil || v != model.ValidationNotRun || unchanged {
 		t.Fatalf("save without receipts: %q %v %v", v, unchanged, err)
 	}
 	if _, _, _, err := SavePackage(pkg, root, &Receipts{PackageDigest: "sha256:other", AllPassed: true, Cases: []CaseReceipt{{}}}, "r"); err == nil {
 		t.Error("receipts for another digest must be refused")
 	}
 	pass := &Receipts{PackageDigest: digest, AllPassed: true, Cases: make([]CaseReceipt, 5)}
-	if _, v, unchanged, err = SavePackage(pkg, root, pass, "sha256:r"); err != nil || v != ValidationPassed || unchanged {
+	if _, v, unchanged, err = SavePackage(pkg, root, pass, "sha256:r"); err != nil || v != model.ValidationPassed || unchanged {
 		t.Fatalf("passing receipts must mark it passed and replace the not_run save: %q %v %v", v, unchanged, err)
 	}
 	var m savedMarker
 	b, _ := os.ReadFile(filepath.Join(path, SavedMarker))
 	json.Unmarshal(b, &m)
-	if m.Origin != OriginAgentAuthored || m.Digest != digest || m.Validation != ValidationPassed || m.Cases != 5 || m.Receipts != "sha256:r" {
+	if m.Origin != OriginAgentAuthored || m.Digest != digest || m.Validation != model.ValidationPassed || m.Cases != 5 || m.Receipts != "sha256:r" {
 		t.Errorf("marker %+v", m)
 	}
 	skill, _ := os.ReadFile(filepath.Join(path, "SKILL.md"))
@@ -392,7 +394,7 @@ func TestSavePackageBindsValidationToTheDigest(t *testing.T) {
 		t.Error("saving the same package with the same receipts must change nothing")
 	}
 	fail := &Receipts{PackageDigest: digest, AllPassed: false, Cases: make([]CaseReceipt, 5)}
-	if _, v, _, _ := SavePackage(pkg, root, fail, "sha256:f"); v != ValidationFailed {
+	if _, v, _, _ := SavePackage(pkg, root, fail, "sha256:f"); v != model.ValidationFailed {
 		t.Errorf("failing receipts must mark it failed, got %q", v)
 	}
 }
@@ -449,7 +451,7 @@ func TestReadAuthoringAcceptsParameterizedLogicLineage(t *testing.T) {
 }
 
 func TestSavedDraftMarkerIsUnchanged(t *testing.T) {
-	b, _ := json.Marshal(savedMarker{Name: "a/b", Digest: "sha256:x", Validation: ValidationNotRun})
+	b, _ := json.Marshal(savedMarker{Name: "a/b", Digest: "sha256:x", Validation: model.ValidationNotRun})
 	if string(b) != `{"name":"a/b","digest":"sha256:x","validation":"not_run"}` {
 		t.Errorf("a saved draft's marker changed shape: %s", b)
 	}
@@ -486,9 +488,9 @@ func TestOracleIsFoundFromARelativeCasesPathAndMustReport(t *testing.T) {
 func TestBriefFromASurfacedOpportunity(t *testing.T) {
 	home := homeWithClaudeSession(t)
 	report := filepath.Join(t.TempDir(), "report.json")
-	op := Opportunity{ID: trace.EpisodeID("claude-code", "s1", 0), Client: "claude-code", Session: "s1", Request: 0,
-		Recommended: true, Route: RouteParamLoop, Reasons: []string{"loop:sh:git log:3"}, Task: "claude-code/s1/0"}
-	b, _ := json.Marshal(map[string]any{"opportunities": []Opportunity{op}})
+	op := model.Opportunity{ID: trace.EpisodeID("claude-code", "s1", 0), Client: "claude-code", Session: "s1", Request: 0,
+		Recommended: true, Route: model.RouteParamLoop, Reasons: []string{"loop:sh:git log:3"}, Task: "claude-code/s1/0"}
+	b, _ := json.Marshal(map[string]any{"opportunities": []model.Opportunity{op}})
 	os.WriteFile(report, b, 0o644)
 	out := filepath.Join(t.TempDir(), "brief")
 	var so, se bytes.Buffer
@@ -498,7 +500,7 @@ func TestBriefFromASurfacedOpportunity(t *testing.T) {
 	var got Brief
 	raw, _ := os.ReadFile(filepath.Join(out, "brief.json"))
 	json.Unmarshal(raw, &got)
-	if got.Selection != DiscoverOpportunity || got.Status != BriefStatus || got.Opportunity == nil || got.Opportunity.Route != RouteParamLoop {
+	if got.Selection != DiscoverOpportunity || got.Status != model.BriefStatus || got.Opportunity == nil || got.Opportunity.Route != model.RouteParamLoop {
 		t.Errorf("brief does not carry the opportunity as a proposal: %+v", got)
 	}
 	if len(got.Missing) != len(contractFields) {

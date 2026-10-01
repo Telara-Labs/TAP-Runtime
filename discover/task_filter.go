@@ -3,23 +3,12 @@ package discover
 import (
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
-
-// SpanTaskReview is a deterministic admission check for the human review
-// queue. Ready means the recorded trace has a task-shaped contract, not that
-// it is useful, safe, or a validated primitive.
-type SpanTaskReview struct {
-	Ready     bool     `json:"ready"`
-	Component bool     `json:"component"`
-	Source    string   `json:"source"`
-	Input     string   `json:"input"`
-	Output    string   `json:"output"`
-	Stop      string   `json:"stop"`
-	Reasons   []string `json:"reasons,omitempty"`
-}
 
 func spanSyntheticRequest(s trace.Session, req int) bool {
 	return req >= 0 && req < len(s.Requests) &&
@@ -27,8 +16,8 @@ func spanSyntheticRequest(s trace.Session, req int) bool {
 			history.IsClaudeContinuationSummary(s.Requests[req]))
 }
 
-func assessSpanTask(s trace.Session, req int, nodes []spanNode, set []int, inputs []SpanInput) SpanTaskReview {
-	r := SpanTaskReview{Source: "user", Input: "unresolved", Output: "unobserved", Stop: "single_pass"}
+func assessSpanTask(s trace.Session, req int, nodes []spanNode, set []int, inputs []model.SpanInput) model.SpanTaskReview {
+	r := model.SpanTaskReview{Source: "user", Input: "unresolved", Output: "unobserved", Stop: "single_pass"}
 	if req < len(s.RequestRoles) && s.RequestRoles[req] == "scheduled" {
 		r.Source = "scheduled"
 	}
@@ -172,8 +161,8 @@ func spanOpenEndedTask(request string) bool {
 
 // ReviewSpanProposals keeps the broad causal inventory available for audits
 // while giving the human queue only proposals with an observable task contract.
-func ReviewSpanProposals(ps []SpanProposal) []SpanProposal {
-	out := make([]SpanProposal, 0)
+func ReviewSpanProposals(ps []model.SpanProposal) []model.SpanProposal {
+	out := make([]model.SpanProposal, 0)
 	for _, p := range ps {
 		if p.Review.Ready {
 			out = append(out, p)
@@ -182,8 +171,8 @@ func ReviewSpanProposals(ps []SpanProposal) []SpanProposal {
 	return out
 }
 
-func ReviewSpanComponents(ps []SpanProposal) []SpanProposal {
-	out := make([]SpanProposal, 0)
+func ReviewSpanComponents(ps []model.SpanProposal) []model.SpanProposal {
+	out := make([]model.SpanProposal, 0)
 	for _, p := range ps {
 		if p.Review.Component && !p.Review.Ready {
 			out = append(out, p)

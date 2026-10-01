@@ -6,10 +6,12 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-func compositionNode(ordinal int, action string, args map[string]string, inputs ...SpanInput) spanNode {
+func compositionNode(ordinal int, action string, args map[string]string, inputs ...model.SpanInput) spanNode {
 	if args == nil {
 		args = map[string]string{}
 	}
@@ -23,8 +25,8 @@ func compositionNode(ordinal int, action string, args map[string]string, inputs 
 }
 
 func TestWriteSpanProposalsUsesCompositionGroups(t *testing.T) {
-	p := SpanProposal{ID: "sp_example", Composition: SpanComposition{Actions: []string{"jira.create_issue", "jira.transition_issue"}}}
-	r := &Report{SpanProposals: []SpanProposal{p}, SpanGroups: []SpanGroup{{Proposals: 1}}, CompositionGroups: []SpanCompositionGroup{{Proposals: 1, Sessions: 1, Example: p}}}
+	p := model.SpanProposal{ID: "sp_example", Composition: model.SpanComposition{Actions: []string{"jira.create_issue", "jira.transition_issue"}}}
+	r := &model.Report{SpanProposals: []model.SpanProposal{p}, SpanGroups: []model.SpanGroup{{Proposals: 1}}, CompositionGroups: []model.SpanCompositionGroup{{Proposals: 1, Sessions: 1, Example: p}}}
 	var out bytes.Buffer
 	WriteSpanProposals(&out, r, 1)
 	if !strings.Contains(out.String(), "1 composition groups") || !strings.Contains(out.String(), "jira.create_issue > jira.transition_issue") {
@@ -35,15 +37,15 @@ func TestWriteSpanProposalsUsesCompositionGroups(t *testing.T) {
 func TestSpanCompositionFoldsIndependentRepeatedSteps(t *testing.T) {
 	single := []spanNode{
 		compositionNode(1, "create_issue", nil),
-		compositionNode(2, "transition_issue", nil, SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
+		compositionNode(2, "transition_issue", nil, model.SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
 	}
 	single[0].call.OutIDs = []string{"TENG-1"}
 	single[1].steps[0].Slots = append(single[1].steps[0].Slots, trace.Slot{Key: "issue_key", Type: trace.SlotID, Value: "TENG-1"})
 	repeated := []spanNode{
 		compositionNode(1, "create_issue", nil),
 		compositionNode(2, "create_issue", nil),
-		compositionNode(3, "transition_issue", nil, SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
-		compositionNode(4, "transition_issue", nil, SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 2}),
+		compositionNode(3, "transition_issue", nil, model.SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
+		compositionNode(4, "transition_issue", nil, model.SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 2}),
 	}
 	repeated[0].call.OutIDs = []string{"TENG-1"}
 	repeated[1].call.OutIDs = []string{"TENG-2"}
@@ -108,8 +110,8 @@ func TestSpanCompositionDoesNotFoldMotifWithRepeatedTarget(t *testing.T) {
 func TestSpanCompositionKeepsOrderedTransitionsAndDependencies(t *testing.T) {
 	base := []spanNode{
 		compositionNode(1, "create_issue", nil),
-		compositionNode(2, "transition_issue", map[string]string{"status": "In Progress"}, SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
-		compositionNode(3, "transition_issue", map[string]string{"status": "Done"}, SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
+		compositionNode(2, "transition_issue", map[string]string{"status": "In Progress"}, model.SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
+		compositionNode(3, "transition_issue", map[string]string{"status": "Done"}, model.SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
 	}
 	c := spanComposition(base, []int{0, 1, 2})
 	if len(c.Actions) != 3 || c.Actions[1] == c.Actions[2] {
@@ -117,7 +119,7 @@ func TestSpanCompositionKeepsOrderedTransitionsAndDependencies(t *testing.T) {
 	}
 	sequential := []spanNode{
 		compositionNode(1, "create_issue", nil),
-		compositionNode(2, "create_issue", nil, SpanInput{Key: "parent_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
+		compositionNode(2, "create_issue", nil, model.SpanInput{Key: "parent_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
 	}
 	d := spanComposition(sequential, []int{0, 1})
 	if len(d.Actions) != 2 || !strings.Contains(d.Key, "jira.create_issue -> jira.create_issue") {
@@ -126,8 +128,8 @@ func TestSpanCompositionKeepsOrderedTransitionsAndDependencies(t *testing.T) {
 }
 
 func TestSpanCompositionForEachNeedsDistinctSourcedItems(t *testing.T) {
-	first := compositionNode(1, "transition_issue", nil, SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "caller"})
-	second := compositionNode(2, "transition_issue", nil, SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "caller"})
+	first := compositionNode(1, "transition_issue", nil, model.SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "caller"})
+	second := compositionNode(2, "transition_issue", nil, model.SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "caller"})
 	first.steps[0].Slots = append(first.steps[0].Slots, trace.Slot{Key: "issue_key", Type: trace.SlotID, Value: "TENG-1"})
 	second.steps[0].Slots = append(second.steps[0].Slots, trace.Slot{Key: "issue_key", Type: trace.SlotID, Value: "TENG-2"})
 	c := spanComposition([]spanNode{first, second}, []int{0, 1})
@@ -144,8 +146,8 @@ func TestSpanCompositionForEachNeedsDistinctSourcedItems(t *testing.T) {
 func TestSpanCompositionFoldsLinksSharingOneCreatedIssue(t *testing.T) {
 	makeLink := func(ordinal int, related string) spanNode {
 		n := compositionNode(ordinal, "create_issue_link", nil,
-			SpanInput{Key: "inward_issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1},
-			SpanInput{Key: "outward_issue_key", Type: trace.SlotID, Source: "caller"})
+			model.SpanInput{Key: "inward_issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1},
+			model.SpanInput{Key: "outward_issue_key", Type: trace.SlotID, Source: "caller"})
 		n.steps[0].Slots = append(n.steps[0].Slots,
 			trace.Slot{Key: "inward_issue_key", Type: trace.SlotID, Value: "TENG-1"},
 			trace.Slot{Key: "outward_issue_key", Type: trace.SlotID, Value: related})
@@ -168,11 +170,11 @@ func TestSpanCompositionFoldsLinksSharingOneCreatedIssue(t *testing.T) {
 func TestSpanCompositionParameterizesIssueTypeAndNestedGatewayKey(t *testing.T) {
 	direct := []spanNode{
 		compositionNode(1, "create_issue", nil),
-		compositionNode(2, "transition_issue", nil, SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
+		compositionNode(2, "transition_issue", nil, model.SpanInput{Key: "issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
 	}
 	nested := []spanNode{
 		compositionNode(1, "create_issue", map[string]string{"issue_type": "Task"}),
-		compositionNode(2, "transition_issue", nil, SpanInput{Key: "params/issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
+		compositionNode(2, "transition_issue", nil, model.SpanInput{Key: "params/issue_key", Type: trace.SlotID, Source: "prior_result", FromCall: 1}),
 	}
 	if a, b := spanComposition(direct, []int{0, 1}), spanComposition(nested, []int{0, 1}); a.Key != b.Key {
 		t.Fatalf("equivalent direct/nested flow or variable issue type split: %q vs %q", a.Key, b.Key)

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
@@ -105,7 +107,7 @@ func TestKindsAndMerging(t *testing.T) {
 	for _, r := range rep.Routines {
 		kinds[r.Kind] = true
 		if r.Statistics != "not_run" || r.Validation != "not_run" || r.ID == "" {
-			t.Errorf("routine %s: statistics %q id %q", labelsOf(r.Candidate), r.Statistics, r.ID)
+			t.Errorf("routine %s: statistics %q id %q", model.LabelsOf(r.Candidate), r.Statistics, r.ID)
 		}
 		b, _ := json.Marshal(r)
 		if strings.Contains(string(b), `"qualified"`) || strings.Contains(string(b), `"q":`) {
@@ -115,12 +117,12 @@ func TestKindsAndMerging(t *testing.T) {
 	if !kinds["bookkeeping"] || !kinds["scheduled"] {
 		t.Fatalf("kinds = %v", kinds)
 	}
-	rs := []Routine{
-		{ID: "a", Kind: "user", Family: "fam_1", Decision: "primitive", Candidate: Candidate{Steps: []StepTemplate{{Label: "sh:git status"}, {Label: "sh:git diff"}}}},
+	rs := []model.Routine{
+		{ID: "a", Kind: "user", Family: "fam_1", Decision: "primitive", Candidate: model.Candidate{Steps: []model.StepTemplate{{Label: "sh:git status"}, {Label: "sh:git diff"}}}},
 		// Same kind, same steps in the same order: one procedure found twice.
 		// (A different order is a different procedure: see C13.)
-		{ID: "b", Kind: "user", Family: "fam_1", Decision: "primitive", Candidate: Candidate{Steps: []StepTemplate{{Label: "sh:git status"}, {Label: "sh:git diff"}}}},
-		{ID: "c", Kind: "scheduled", Family: "fam_1", Decision: "primitive", Candidate: Candidate{Steps: []StepTemplate{{Label: "sh:git status"}, {Label: "sh:git diff"}}}},
+		{ID: "b", Kind: "user", Family: "fam_1", Decision: "primitive", Candidate: model.Candidate{Steps: []model.StepTemplate{{Label: "sh:git status"}, {Label: "sh:git diff"}}}},
+		{ID: "c", Kind: "scheduled", Family: "fam_1", Decision: "primitive", Candidate: model.Candidate{Steps: []model.StepTemplate{{Label: "sh:git status"}, {Label: "sh:git diff"}}}},
 	}
 	if n := mergeDuplicates(rs); n != 1 || rs[1].MergedInto != "a" || rs[2].MergedInto != "" {
 		t.Fatalf("merged %d: %+v", n, rs)

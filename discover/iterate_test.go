@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
@@ -108,7 +110,7 @@ func TestAnArgumentAnyRunSentAsJSONIsJSON(t *testing.T) {
 		return []trace.Call{{Tool: "mcp:telara_tool_search", Args: map[string]string{"query": "jira issue"}}, c}
 	})
 	d := RoutineDraft(firstRoutine(t, ss))
-	var in *DraftInput
+	var in *model.DraftInput
 	for k := range d.Inputs {
 		if strings.HasSuffix(d.Inputs[k].Name, "params") {
 			in = &d.Inputs[k]
@@ -180,7 +182,7 @@ func TestIncidentalStepsAreNotTheProcedureForAStatedGoal(t *testing.T) {
 	})
 	rep := runOn(t, ss)
 	for _, r := range rep.Routines {
-		if hasStep(r, "sh:pwd") && r.Suitability == SuitUseful {
+		if hasStep(r, "sh:pwd") && r.Suitability == model.SuitUseful {
 			t.Fatalf("3 of 10 requests ran it: not the procedure for that goal:\n%s", dump(rep))
 		}
 	}
@@ -208,20 +210,20 @@ func TestConstantOpeningOfVaryingWorkIsNotAProcedure(t *testing.T) {
 	// A routine found in stated, consistent runs whose steps take nothing a
 	// caller could vary, and are 30% of what those requests did: the
 	// constant opening of varying work (open the browser, print the dir).
-	mk := func(coverage float64) Routine {
-		return Routine{SourceRole: RoleScheduled, Consistency: 1, Coverage: coverage,
-			Contract: Contract{Goal: GoalStated, Effect: EffectReadOnly}}
+	mk := func(coverage float64) model.Routine {
+		return model.Routine{SourceRole: model.RoleScheduled, Consistency: 1, Coverage: coverage,
+			Contract: model.Contract{Goal: model.GoalStated, Effect: model.EffectReadOnly}}
 	}
 	low := mk(0.3)
-	decide(&low, &Draft{}, nil, 0, 0)
-	if low.Suitability == SuitUseful || firstReason(low) != "constant_part_of_larger_work" {
+	decide(&low, &model.Draft{}, nil, 0, 0)
+	if low.Suitability == model.SuitUseful || firstReason(low) != "constant_part_of_larger_work" {
 		t.Fatalf("suitability %q reasons %v", low.Suitability, low.Reasons)
 	}
 	// The same constant steps that ARE the work (a scheduled fetch and log)
 	// stay a procedure.
 	high := mk(1)
-	decide(&high, &Draft{}, nil, 0, 0)
-	if high.Suitability != SuitUseful {
+	decide(&high, &model.Draft{}, nil, 0, 0)
+	if high.Suitability != model.SuitUseful {
 		t.Fatalf("a constant procedure that is the whole task: %q %v", high.Suitability, high.Reasons)
 	}
 }

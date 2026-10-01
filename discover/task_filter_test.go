@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -33,7 +35,7 @@ func TestClaudeReaderAttributesCompactionTextAsSynthetic(t *testing.T) {
 // unrelated work it is a visible component, not a ready task; when the
 // request asks for exactly that operation it is a ready task.
 func TestTaskReviewIsProviderNeutral(t *testing.T) {
-	chain := func(integration, request, id string) SpanProposal {
+	chain := func(integration, request, id string) model.SpanProposal {
 		s := selSession(id, request,
 			spanRefs(trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": integration, "action": "create_issue", "params": `{"summary":"broken"}`}, Output: `{"key":"TENG-4321"}`, Outcome: trace.OutcomeOK}),
 			trace.Call{Tool: "mcp:telara_execute_action", Args: map[string]string{"integration": integration, "action": "transition_issue", "params": `{"issue_key":"TENG-4321","transition_id":"in_progress"}`}, Output: `{"status":"In Progress"}`, Outcome: trace.OutcomeOK})
@@ -128,8 +130,8 @@ func TestTaskReviewDoesNotTreatToolPassthroughAsComposition(t *testing.T) {
 }
 
 func TestSpanReportShowsComponentQueueWhenTaskQueueEmpty(t *testing.T) {
-	p := SpanProposal{ID: "sp_component", Review: SpanTaskReview{Source: "user", Component: true}, Composition: SpanComposition{Actions: []string{"gitlab.list_jobs", "gitlab.get_job"}}}
-	r := Report{SpanProposals: []SpanProposal{p}, ComponentSpans: []SpanProposal{p}, ComponentGroups: []SpanCompositionGroup{{Proposals: 1, Sessions: 1, Example: p}}}
+	p := model.SpanProposal{ID: "sp_component", Review: model.SpanTaskReview{Source: "user", Component: true}, Composition: model.SpanComposition{Actions: []string{"gitlab.list_jobs", "gitlab.get_job"}}}
+	r := model.Report{SpanProposals: []model.SpanProposal{p}, ComponentSpans: []model.SpanProposal{p}, ComponentGroups: []model.SpanCompositionGroup{{Proposals: 1, Sessions: 1, Example: p}}}
 	var out bytes.Buffer
 	WriteSpanProposals(&out, &r, 10)
 	if !strings.Contains(out.String(), "Task-first queue: 0") || !strings.Contains(out.String(), "component queue: 1") || !strings.Contains(out.String(), "gitlab.list_jobs") {

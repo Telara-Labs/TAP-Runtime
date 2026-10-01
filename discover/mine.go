@@ -2,30 +2,13 @@ package discover
 
 import (
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
-
-// pattern is an ordered list of step labels (as ids) and the sessions that
-// contain it, each step within window steps of the one before.
-type pattern struct {
-	items    []int
-	sessions []int // indexes into the corpus, ascending
-}
-
-func (p pattern) key() string {
-	var b strings.Builder
-	for i, x := range p.items {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		b.WriteString(util.Itoa(x))
-	}
-	return b.String()
-}
 
 type mineLimits struct {
 	window     int // max steps between consecutive pattern items
@@ -52,10 +35,10 @@ type mineLimits struct {
 // label is searched on its own worker; keep and canQualify must be safe to
 // call concurrently. The result is sorted, so it does not depend on
 // scheduling.
-func minePatterns(seqs [][]int, lim mineLimits) ([]pattern, int, bool) {
+func minePatterns(seqs [][]int, lim mineLimits) ([]model.Pattern, int, bool) {
 	var (
 		mu        sync.Mutex
-		out       []pattern
+		out       []model.Pattern
 		examined  atomic.Int64
 		truncated atomic.Bool
 	)
@@ -112,7 +95,7 @@ func minePatterns(seqs [][]int, lim mineLimits) ([]pattern, int, bool) {
 					}
 					sort.Ints(ss)
 					mu.Lock()
-					out = append(out, pattern{items: np, sessions: ss})
+					out = append(out, model.Pattern{Items: np, Sessions: ss})
 					if len(out) >= lim.maxOut {
 						truncated.Store(true)
 					}
@@ -132,7 +115,7 @@ func minePatterns(seqs [][]int, lim mineLimits) ([]pattern, int, bool) {
 	util.ParallelFor(len(roots), func(i int) {
 		grow([]int{roots[i]}, first[roots[i]])
 	})
-	sort.Slice(out, func(a, b int) bool { return lessItems(out[a].items, out[b].items) })
+	sort.Slice(out, func(a, b int) bool { return lessItems(out[a].Items, out[b].Items) })
 	return out, int(examined.Load()), truncated.Load()
 }
 
@@ -155,23 +138,23 @@ func distinct(xs []int) int {
 
 // closedOnly drops a pattern when a pattern one step longer that contains it
 // has the same support: the longer one says everything the shorter one does.
-func closedOnly(ps []pattern) []pattern {
+func closedOnly(ps []model.Pattern) []model.Pattern {
 	sup := make(map[string]int, len(ps))
 	for _, p := range ps {
-		sup[p.key()] = len(p.sessions)
+		sup[p.Key()] = len(p.Sessions)
 	}
 	notClosed := map[string]bool{}
 	for _, q := range ps {
-		for i := range q.items {
-			sub := pattern{items: append(append([]int{}, q.items[:i]...), q.items[i+1:]...)}
-			if k := sub.key(); sup[k] == len(q.sessions) {
+		for i := range q.Items {
+			sub := model.Pattern{Items: append(append([]int{}, q.Items[:i]...), q.Items[i+1:]...)}
+			if k := sub.Key(); sup[k] == len(q.Sessions) {
 				notClosed[k] = true
 			}
 		}
 	}
 	out := ps[:0:0]
 	for _, p := range ps {
-		if !notClosed[p.key()] {
+		if !notClosed[p.Key()] {
 			out = append(out, p)
 		}
 	}

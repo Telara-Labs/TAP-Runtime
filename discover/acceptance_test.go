@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
@@ -44,7 +46,7 @@ func eps(prefix string, n int, text func(i int) string, calls func(i int) []trac
 	return out
 }
 
-func runOn(t *testing.T, ss ...[]trace.Session) *Report {
+func runOn(t *testing.T, ss ...[]trace.Session) *model.Report {
 	t.Helper()
 	var all []trace.Session
 	for _, s := range ss {
@@ -60,7 +62,7 @@ func runOn(t *testing.T, ss ...[]trace.Session) *Report {
 }
 
 // sessionsOf is the set of sessions a routine was found in.
-func sessionsOf(r Routine) map[string]bool {
+func sessionsOf(r model.Routine) map[string]bool {
 	out := map[string]bool{}
 	for _, s := range r.Sources {
 		out[s.Session] = true
@@ -68,7 +70,7 @@ func sessionsOf(r Routine) map[string]bool {
 	return out
 }
 
-func prefixes(r Routine) map[string]bool {
+func prefixes(r model.Routine) map[string]bool {
 	out := map[string]bool{}
 	for s := range sessionsOf(r) {
 		out[strings.TrimRight(s, "0123456789")] = true
@@ -76,7 +78,7 @@ func prefixes(r Routine) map[string]bool {
 	return out
 }
 
-func hasStep(r Routine, label string) bool {
+func hasStep(r model.Routine, label string) bool {
 	for _, s := range r.Steps {
 		if s.Label == label {
 			return true
@@ -85,7 +87,7 @@ func hasStep(r Routine, label string) bool {
 	return false
 }
 
-func stepIndex(r Routine, label string) int {
+func stepIndex(r model.Routine, label string) int {
 	for i, s := range r.Steps {
 		if s.Label == label {
 			return i
@@ -94,7 +96,7 @@ func stepIndex(r Routine, label string) int {
 	return -1
 }
 
-func inputBySuffix(r Routine, suffix string) *ContractInput {
+func inputBySuffix(r model.Routine, suffix string) *model.ContractInput {
 	for i := range r.Contract.Inputs {
 		if strings.HasSuffix(r.Contract.Inputs[i].Name, suffix) {
 			return &r.Contract.Inputs[i]
@@ -103,7 +105,7 @@ func inputBySuffix(r Routine, suffix string) *ContractInput {
 	return nil
 }
 
-func dump(rep *Report) string {
+func dump(rep *model.Report) string {
 	var b strings.Builder
 	for _, r := range rep.Routines {
 		var srcs []string
@@ -112,7 +114,7 @@ func dump(rep *Report) string {
 		}
 		sort.Strings(srcs)
 		fmt.Fprintf(&b, "  %s role=%s suit=%s draft=%s blockers=%v merged=%q steps=%s sources=%v inputs=%+v\n",
-			r.ID, r.SourceRole, r.Suitability, r.DraftStatus, r.Blockers, r.MergedInto, labelsOf(r.Candidate), srcs, r.Contract.Inputs)
+			r.ID, r.SourceRole, r.Suitability, r.DraftStatus, r.Blockers, r.MergedInto, model.LabelsOf(r.Candidate), srcs, r.Contract.Inputs)
 	}
 	return b.String()
 }
@@ -120,14 +122,14 @@ func dump(rep *Report) string {
 // runDraft runs a draft's main.sh with bash, with a stand-in tap that logs
 // each call and prints the canned output for its alias. It returns the
 // combined output, each tool call made (alias + JSON), and the exit error.
-func runDraft(t *testing.T, d *Draft, outputs map[string]string, args ...string) (string, []string, error) {
+func runDraft(t *testing.T, d *model.Draft, outputs map[string]string, args ...string) (string, []string, error) {
 	t.Helper()
 	_, out, calls, err := runDraftDir(t, d, outputs, args...)
 	return out, calls, err
 }
 
 // runDraftDir is runDraft that also returns the directory the program ran in.
-func runDraftDir(t *testing.T, d *Draft, outputs map[string]string, args ...string) (string, string, []string, error) {
+func runDraftDir(t *testing.T, d *model.Draft, outputs map[string]string, args ...string) (string, string, []string, error) {
 	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not available")
@@ -215,7 +217,7 @@ func TestC02DifferentResourceIDsAreOneParameterizedRoutine(t *testing.T) {
 		t.Fatalf("want one routine over all six runs:\n%s", dump(rep))
 	}
 	r := rep.Routines[0]
-	if r.Suitability != SuitUseful {
+	if r.Suitability != model.SuitUseful {
 		t.Fatalf("suitability %q (%v):\n%s", r.Suitability, r.Reasons, dump(rep))
 	}
 	in := inputBySuffix(r, "pipeline_id")
@@ -295,7 +297,7 @@ func TestC05BoundedReadOnlyDiffCheckIsUseful(t *testing.T) {
 		t.Fatalf("want one routine:\n%s", dump(rep))
 	}
 	r := rep.Routines[0]
-	if r.Suitability != SuitUseful || r.DraftStatus != DraftComplete || r.Contract.Effect != EffectReadOnly {
+	if r.Suitability != model.SuitUseful || r.DraftStatus != model.DraftComplete || r.Contract.Effect != model.EffectReadOnly {
 		t.Fatalf("suit %q draft %q effect %q reasons %v:\n%s", r.Suitability, r.DraftStatus, r.Contract.Effect, r.Reasons, dump(rep))
 	}
 	callers := 0
@@ -330,10 +332,10 @@ func TestC06ExplicitListLoopIsAUsefulProcedure(t *testing.T) {
 		t.Fatalf("want one routine:\n%s", dump(rep))
 	}
 	r := rep.Routines[0]
-	if r.Suitability != SuitUseful || r.DraftStatus != DraftComplete {
+	if r.Suitability != model.SuitUseful || r.DraftStatus != model.DraftComplete {
 		t.Fatalf("suit %q draft %q blockers %v:\n%s", r.Suitability, r.DraftStatus, r.Blockers, dump(rep))
 	}
-	var list *ContractInput
+	var list *model.ContractInput
 	for i := range r.Contract.Inputs {
 		if r.Contract.Inputs[i].Type == "list" {
 			list = &r.Contract.Inputs[i]
@@ -384,7 +386,7 @@ func explore(prefix string, n int) []trace.Session {
 func TestC07OpenEndedExplorationIsNotUseful(t *testing.T) {
 	rep := runOn(t, explore("ex", 9))
 	for _, r := range rep.Routines {
-		if r.Suitability == SuitUseful {
+		if r.Suitability == model.SuitUseful {
 			t.Fatalf("exploration claimed as a useful procedure:\n%s", dump(rep))
 		}
 	}
@@ -407,9 +409,9 @@ func TestC08BoundedLogCollectionInsideInvestigation(t *testing.T) {
 		ex[i].Calls = append([]trace.Call{get, logs}, ex[i].Calls...)
 	}
 	rep := runOn(t, ex)
-	var sub *Routine
+	var sub *model.Routine
 	for i, r := range rep.Routines {
-		if hasStep(r, "sh:kubectl get") && hasStep(r, "sh:kubectl logs") && r.Suitability == SuitUseful {
+		if hasStep(r, "sh:kubectl get") && hasStep(r, "sh:kubectl logs") && r.Suitability == model.SuitUseful {
 			sub = &rep.Routines[i]
 		}
 	}
@@ -456,7 +458,7 @@ func TestC09ReadResultsFeedingAWriteArePreserved(t *testing.T) {
 		if in := inputBySuffix(r, "_body"); in == nil || in.Source == InputCaller {
 			t.Fatalf("the comment body was composed from the issue, not given by the caller: %+v", r.Contract.Inputs)
 		}
-		if r.DraftStatus == DraftComplete {
+		if r.DraftStatus == model.DraftComplete {
 			t.Fatalf("a draft that asks the caller for a composed comment is not complete:\n%s", dump(rep))
 		}
 	}
@@ -480,7 +482,7 @@ func TestC10PreWriteCheckIsPreservedAndStopsOnFailure(t *testing.T) {
 		t.Fatalf("want one routine:\n%s", dump(rep))
 	}
 	r := rep.Routines[0]
-	if r.Contract.Effect != EffectWrites {
+	if r.Contract.Effect != model.EffectWrites {
 		t.Fatalf("set image writes: effect %q", r.Contract.Effect)
 	}
 	main := string(RoutineDraft(&r).Files["main.sh"])
@@ -512,7 +514,7 @@ func TestC11BookkeepingIsNotCollapsedIntoAFakeCompletion(t *testing.T) {
 	})
 	rep := runOn(t, ss)
 	for _, r := range rep.Routines {
-		if hasStep(r, "mcp:telara_task_complete") && r.Suitability == SuitUseful {
+		if hasStep(r, "mcp:telara_task_complete") && r.Suitability == model.SuitUseful {
 			t.Fatalf("a routine that completes a task was claimed useful without the work:\n%s", dump(rep))
 		}
 		only := true
@@ -521,7 +523,7 @@ func TestC11BookkeepingIsNotCollapsedIntoAFakeCompletion(t *testing.T) {
 				only = false
 			}
 		}
-		if only && r.SourceRole != RoleInfrastructure {
+		if only && r.SourceRole != model.RoleInfrastructure {
 			t.Fatalf("task bookkeeping is infrastructure, got %q:\n%s", r.SourceRole, dump(rep))
 		}
 	}
@@ -542,7 +544,7 @@ func TestC12DiscoveryThenDifferentActionsAreDistinct(t *testing.T) {
 	rep := runOn(t, ss)
 	for _, r := range rep.Routines {
 		if !hasStep(r, "mcp:telara_execute_action") {
-			if r.Suitability == SuitUseful {
+			if r.Suitability == model.SuitUseful {
 				t.Fatalf("tool discovery alone claimed as a useful procedure:\n%s", dump(rep))
 			}
 			continue
@@ -565,14 +567,14 @@ func TestC12DiscoveryThenDifferentActionsAreDistinct(t *testing.T) {
 // C13: routines with the same labels in a different order or multiplicity
 // are not duplicates.
 func TestC13OrderAndMultiplicityAreNotDeduplicatedAway(t *testing.T) {
-	mk := func(id string, labels ...string) Routine {
-		r := Routine{ID: id, Kind: "user", Family: "fam_1", Decision: "primitive", Suitability: SuitUseful}
+	mk := func(id string, labels ...string) model.Routine {
+		r := model.Routine{ID: id, Kind: "user", Family: "fam_1", Decision: "primitive", Suitability: model.SuitUseful}
 		for _, l := range labels {
-			r.Steps = append(r.Steps, StepTemplate{Label: l})
+			r.Steps = append(r.Steps, model.StepTemplate{Label: l})
 		}
 		return r
 	}
-	rs := []Routine{
+	rs := []model.Routine{
 		mk("a", "sh:git status", "sh:git push"),
 		mk("b", "sh:git push", "sh:git status"),
 		mk("c", "sh:git status", "sh:git push", "sh:git push"),
@@ -629,7 +631,7 @@ func TestC15ResumedCopiesAndApprovals(t *testing.T) {
 	if r.Contract.Approvals == 0 {
 		t.Fatalf("the approval between listing and deleting was not recorded: %+v", r.Contract)
 	}
-	if r.DraftStatus == DraftComplete {
+	if r.DraftStatus == model.DraftComplete {
 		t.Fatalf("a recorded approval cannot be replayed by a program: draft %q blockers %v", r.DraftStatus, r.Blockers)
 	}
 }
@@ -656,7 +658,7 @@ func TestC16HarnessPromptsAreNotTasks(t *testing.T) {
 		t.Fatal("no routine at all: the harness requests should still be reported, as harness")
 	}
 	for _, r := range rep.Routines {
-		if r.SourceRole != RoleHarness || r.Suitability != SuitInvalid {
+		if r.SourceRole != model.RoleHarness || r.Suitability != model.SuitInvalid {
 			t.Fatalf("role %q suit %q:\n%s", r.SourceRole, r.Suitability, dump(rep))
 		}
 	}
@@ -681,7 +683,7 @@ func TestC17ScheduledAndSkillBaselines(t *testing.T) {
 		p := prefixes(r)
 		if p["sc"] {
 			gotSched = true
-			if r.SourceRole != RoleScheduled || r.Baseline != "scheduled_automation" {
+			if r.SourceRole != model.RoleScheduled || r.Baseline != "scheduled_automation" {
 				t.Fatalf("scheduled work: role %q baseline %q", r.SourceRole, r.Baseline)
 			}
 			for _, why := range r.Reasons {
@@ -700,7 +702,7 @@ func TestC17ScheduledAndSkillBaselines(t *testing.T) {
 	if !gotSched || !gotSkill {
 		t.Fatalf("routines missing:\n%s", dump(rep))
 	}
-	if n := rep.Funnel.ByRole[RoleUser][SuitUseful]; n > 1 {
+	if n := rep.Funnel.ByRole[model.RoleUser][model.SuitUseful]; n > 1 {
 		t.Fatalf("scheduled work counted among new user procedures: %v", rep.Funnel.ByRole)
 	}
 }
@@ -719,7 +721,7 @@ func TestC18OutcomesAreNotOverstated(t *testing.T) {
 		}
 	}
 	rep := runOn(t, unknown)
-	if len(rep.Routines) != 1 || rep.Routines[0].OutcomeEvidence != OutcomeEvUnknown {
+	if len(rep.Routines) != 1 || rep.Routines[0].OutcomeEvidence != model.OutcomeEvUnknown {
 		t.Fatalf("no recorded result must stay unknown:\n%s", dump(rep))
 	}
 	ok := runOn(t, eps("ok", 6, func(i int) string { return fmt.Sprintf("show pipeline %d", 800+i) }, func(i int) []trace.Call {
@@ -728,7 +730,7 @@ func TestC18OutcomesAreNotOverstated(t *testing.T) {
 			{Tool: "mcp:gitlab_list_jobs", Args: map[string]string{"pipeline_id": fmt.Sprint(800 + i)}},
 		}
 	}))
-	if ok.Routines[0].OutcomeEvidence != OutcomeToolOK {
+	if ok.Routines[0].OutcomeEvidence != model.OutcomeToolOK {
 		t.Fatalf("tool success is observed, not verified: %q", ok.Routines[0].OutcomeEvidence)
 	}
 }
@@ -776,7 +778,7 @@ func TestC19VaryingSelectionIsNotBound(t *testing.T) {
 	})
 	rep := runOn(t, ss)
 	r := rep.Routines[0]
-	if strings.Contains(string(RoutineDraft(&r).Files["main.sh"]), "threads[") || r.DraftStatus == DraftComplete {
+	if strings.Contains(string(RoutineDraft(&r).Files["main.sh"]), "threads[") || r.DraftStatus == model.DraftComplete {
 		t.Fatalf("a selection that varied was bound to one path: %q\n%s", r.DraftStatus, RoutineDraft(&r).Files["main.sh"])
 	}
 }
@@ -901,7 +903,7 @@ func TestC24KnownUsefulProcedureIsFoundAmongNoise(t *testing.T) {
 	})
 	rep := runOn(t, requestCorpus(), explore("ex", 9), diff)
 	for _, r := range rep.Routines {
-		if prefixes(r)["dc"] && r.Suitability == SuitUseful && r.MergedInto == "" {
+		if prefixes(r)["dc"] && r.Suitability == model.SuitUseful && r.MergedInto == "" {
 			return
 		}
 	}
@@ -923,14 +925,14 @@ func TestProceduresRankAboveInvestigations(t *testing.T) {
 		switch {
 		case prefixes(r)["dc"]:
 			useful = i
-			if r.Suitability != SuitUseful {
+			if r.Suitability != model.SuitUseful {
 				t.Fatalf("the diff check is useful: %q\n%s", r.Suitability, dump(rep))
 			}
 		case prefixes(r)["ex"]:
 			if investigation < 0 {
 				investigation = i
 			}
-			if r.Suitability == SuitUseful {
+			if r.Suitability == model.SuitUseful {
 				t.Fatalf("the exploration is not useful:\n%s", dump(rep))
 			}
 		}

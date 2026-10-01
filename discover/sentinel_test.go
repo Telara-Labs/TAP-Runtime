@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -120,7 +122,7 @@ func TestSentinelSupportedPositivesAreRecommended(t *testing.T) {
 		rep := runOn(t, c.sessions)
 		ok := false
 		for _, r := range rep.Routines {
-			if r.Suitability != SuitUseful || r.MergedInto != "" {
+			if r.Suitability != model.SuitUseful || r.MergedInto != "" {
 				continue
 			}
 			all := true

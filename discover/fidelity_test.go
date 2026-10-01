@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -28,7 +30,7 @@ func requestSessions(n int, text func(i int) string, calls func(i int) []trace.C
 
 func sh(cmd string) trace.Call { return trace.Call{Tool: "shell", Command: cmd} }
 
-func firstRoutine(t *testing.T, ss []trace.Session) *Routine {
+func firstRoutine(t *testing.T, ss []trace.Session) *model.Routine {
 	t.Helper()
 	o := DefaultOptions()
 	o.Readers = []trace.Reader{fakeReader{sessions: ss}}
@@ -74,7 +76,7 @@ func TestDifferingHeredocBodiesNeedAuthoring(t *testing.T) {
 	}
 	// Judgment inside the procedure: not a useful procedure (plan section 3,
 	// item 6), not "needs authoring".
-	if r.Suitability != SuitInsufficient || !strings.Contains(r.Why, "judgment_step") {
+	if r.Suitability != model.SuitInsufficient || !strings.Contains(r.Why, "judgment_step") {
 		t.Fatalf("suitability %q (%s)", r.Suitability, r.Why)
 	}
 }
@@ -89,7 +91,7 @@ func TestDraftFollowsARecordedOrder(t *testing.T) {
 		return []trace.Call{sh("git log --oneline -3"), sh("git status --short"), sh("git diff --stat")}
 	})
 	r := firstRoutine(t, ss)
-	got := labelsOf(r.Candidate)
+	got := model.LabelsOf(r.Candidate)
 	if got != "sh:git status → sh:git diff → sh:git log" {
 		t.Fatalf("draft order = %s", got)
 	}
@@ -107,7 +109,7 @@ func TestDistinctCallsWithTheSameLabelAreKept(t *testing.T) {
 		}
 	})
 	r := firstRoutine(t, ss)
-	if got := labelsOf(r.Candidate); got != "Read → Read → sh:git diff" {
+	if got := model.LabelsOf(r.Candidate); got != "Read → Read → sh:git diff" {
 		t.Fatalf("two reads of different files are two steps: %s", got)
 	}
 }
@@ -208,13 +210,13 @@ func TestAStepRepeatedWithDifferentValuesIsALoop(t *testing.T) {
 		return append(cs, sh("git diff --stat"))
 	})
 	r := firstRoutine(t, ss)
-	if labelsOf(r.Candidate) != "Read → sh:git diff" || len(r.Loops) != 1 || r.Loops[0] != "Read" {
-		t.Fatalf("labels %s loops %v", labelsOf(r.Candidate), r.Loops)
+	if model.LabelsOf(r.Candidate) != "Read → sh:git diff" || len(r.Loops) != 1 || r.Loops[0] != "Read" {
+		t.Fatalf("labels %s loops %v", model.LabelsOf(r.Candidate), r.Loops)
 	}
 	// The files read were not given by the request: a loop over an unknown
 	// collection is not a loop to write. The request is one stated task, so
 	// the program abstains rather than calling it an investigation.
-	if r.Suitability == SuitUseful || !strings.Contains(r.Why, ":Read") {
+	if r.Suitability == model.SuitUseful || !strings.Contains(r.Why, ":Read") {
 		t.Fatalf("suitability %q why %q", r.Suitability, r.Why)
 	}
 }
@@ -239,7 +241,7 @@ func TestFunnelCountsMatchDecisions(t *testing.T) {
 		case "removed":
 			removed++
 		default:
-			t.Fatalf("routine without a decision: %s", labelsOf(r.Candidate))
+			t.Fatalf("routine without a decision: %s", model.LabelsOf(r.Candidate))
 		}
 	}
 	sumRemoved := 0

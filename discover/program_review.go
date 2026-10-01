@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
 )
 
 const OriginDiscoverGenerated = "discover_generated"
@@ -28,7 +30,7 @@ type generatedDecision struct {
 // ReviewGenerated shows the entire exact package before taking one local
 // decision. Accept installs privately; Deny remembers this candidate/digest;
 // Refine makes an inspectable local handoff for the user's chosen coding agent.
-func ReviewGenerated(in io.Reader, out io.Writer, graph *ProgramGraph, skillRoot, stateDir string, evidence ...SpanProposal) error {
+func ReviewGenerated(in io.Reader, out io.Writer, graph *ProgramGraph, skillRoot, stateDir string, evidence ...model.SpanProposal) error {
 	if graph == nil {
 		return fmt.Errorf("no program graph")
 	}
@@ -319,7 +321,7 @@ func saveGeneratedPackage(p *GeneratedPackage, root string) (string, bool, error
 		return "", false, fmt.Errorf("package changed after review")
 	}
 	marker := savedMarker{Name: p.Manifest.Metadata.Publisher + "/" + name, Digest: digest,
-		Validation: ValidationNotRun, Origin: OriginDiscoverGenerated}
+		Validation: model.ValidationNotRun, Origin: OriginDiscoverGenerated}
 	desc, _ := json.Marshal("Locally generated TAP program; review its calls and effects before each run")
 	skill := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n# %s\n\nGenerated locally by TAP Discover. Package digest: %s.\n\nRead README.md, primitive.yaml and main.py before use. Run this folder through tap_run with one JSON object argument. The TAP runner checks declared tools and commands and gates effects.\n", name, desc, name, digest)
 	return install(root, name, archive, marker, skill)
@@ -374,7 +376,7 @@ func appendGeneratedDecision(dir string, decision generatedDecision) error {
 	return os.Rename(temp.Name(), filepath.Join(dir, "decisions.json"))
 }
 
-func writeGeneratedHandoff(g *ProgramGraph, p *GeneratedPackage, stateDir string, evidence []SpanProposal) (string, error) {
+func writeGeneratedHandoff(g *ProgramGraph, p *GeneratedPackage, stateDir string, evidence []model.SpanProposal) (string, error) {
 	digest := unresolvedGraphDigest(g)
 	if p != nil {
 		digest = p.Digest

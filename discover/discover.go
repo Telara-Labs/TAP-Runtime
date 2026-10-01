@@ -2,7 +2,6 @@ package discover
 
 import (
 	"fmt"
-	"io"
 	"math"
 	"math/rand"
 	"runtime"
@@ -11,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 
@@ -22,186 +21,22 @@ import (
 // compared when they were produced by the same rules.
 const RulesVersion = "tap-discover/4"
 
-// Options control a run. Window, MinSupport, MaxLen and MaxPatterns bound the
-// search (compute), Permutations sets how well the null is estimated, Alpha
-// is the false discovery rate. None of them is a quality threshold on a
-// candidate: significance and stability are measured and reported.
-type Options struct {
-	Readers      []trace.Reader
-	Since        time.Time
-	Window       int
-	MinSupport   int
-	MaxLen       int
-	MaxPatterns  int
-	Permutations int
-	Alpha        float64
-	Seed         int64
-	Now          func() time.Time
-	// PerSkill is how many procedures are described per skill in the
-	// report. It bounds the report's size; it does not decide significance.
-	PerSkill int
-	// Patterns also runs the pattern search (fragments, families, skill
-	// comparison): slower, and not needed for the request-level result.
-	Patterns bool
-	// Spans computes unassessed bounded-call proposals from task context and
-	// result provenance. It is opt-in while its review cost is measured.
-	Spans bool
-	// Progress, when set, receives one line per phase.
-	Progress io.Writer
-}
-
 // DefaultOptions are the rules RulesVersion names.
-func DefaultOptions() Options {
-	return Options{Window: 8, MinSupport: 3, MaxLen: 5, MaxPatterns: 2000000, PerSkill: 10, Permutations: 20, Alpha: 0.05, Seed: 1, Now: time.Now}
-}
-
-type ClientStats struct {
-	Client            string    `json:"client"`
-	Sessions          int       `json:"sessions"`
-	Calls             int       `json:"calls"`
-	Steps             int       `json:"steps"`
-	DuplicateSessions int       `json:"duplicate_sessions"`
-	Earliest          time.Time `json:"earliest,omitempty"`
-	Latest            time.Time `json:"latest,omitempty"`
-	Error             string    `json:"error,omitempty"`
-}
-
-type StepTemplate struct {
-	Label     string       `json:"label"`
-	Template  string       `json:"template"`
-	Params    []trace.Slot `json:"params,omitempty"`
-	Stability float64      `json:"stability"`
-	// Weight is the step's inverse document frequency over sessions.
-	Weight float64 `json:"weight"`
-	// Fixed is true when the step pins something beyond the tool: a shell
-	// subcommand, or an argument whose value is the same every time.
-	Fixed bool `json:"fixed"`
-}
-
-type Candidate struct {
-	Steps         []StepTemplate `json:"steps"`
-	Sessions      int            `json:"sessions"`
-	ByClient      map[string]int `json:"by_client"`
-	NullMean      float64        `json:"null_mean,omitempty"`
-	P             float64        `json:"p,omitempty"`
-	Q             float64        `json:"q,omitempty"`
-	OrderQ        float64        `json:"order_q,omitempty"`
-	NecessityQ    float64        `json:"necessity_q,omitempty"`
-	Qualified     bool           `json:"qualified,omitempty"`
-	Ordered       bool           `json:"ordered,omitempty"`
-	Stability     float64        `json:"stability,omitempty"`
-	Specificity   float64        `json:"specificity,omitempty"`
-	CallsSaved    int            `json:"calls_saved,omitempty"`
-	Score         float64        `json:"score,omitempty"`
-	Weeks         int            `json:"weeks"`
-	FirstSeen     time.Time      `json:"first_seen"`
-	LastSeen      time.Time      `json:"last_seen"`
-	MedianGapDays float64        `json:"median_gap_days"`
-	Examples      []string       `json:"examples"`
-	// Token cost, from the usage the clients recorded. PerRun is what one
-	// occurrence cost through the agent (median over measured occurrences),
-	// SavedPerRun what a primitive would save (all of it but one turn, the
-	// one that invokes the primitive), SavedTotal that saving summed over
-	// every measured occurrence. Measured counts those occurrences; Cursor
-	// records no usage, so its occurrences are not measured.
-	PerRun      trace.Usage `json:"tokens_per_run"`
-	SavedPerRun trace.Usage `json:"tokens_saved_per_run"`
-	SavedTotal  trace.Usage `json:"tokens_saved_total"`
-	Measured    int         `json:"measured_runs"`
-	// Family is the rank (index) of the qualified candidate this one is a
-	// variant of; a representative is its own family.
-	Family     int `json:"family,omitempty"`
-	sessionSet map[int]bool
-	items      []int
-}
-
-type SkillMatch struct {
-	Pattern   string  `json:"pattern"`
-	Qualified bool    `json:"qualified,omitempty"`
-	Precision float64 `json:"precision"`
-	Recall    float64 `json:"recall"`
-	F1        float64 `json:"f1"`
-}
-
-type SkillRecall struct {
-	Skill         string      `json:"skill"`
-	Sessions      int         `json:"sessions"`
-	BestQualified *SkillMatch `json:"best_qualified,omitempty"`
-	BestTested    *SkillMatch `json:"best_tested,omitempty"`
-}
-
-type Report struct {
-	RulesVersion   string        `json:"rules_version"`
-	GeneratedAt    time.Time     `json:"generated_at"`
-	Options        optionsOut    `json:"options"`
-	Clients        []ClientStats `json:"clients"`
-	Labels         int           `json:"labels"`
-	Examined       int           `json:"examined"`
-	Mined          int           `json:"kept"`
-	Truncated      bool          `json:"truncated"`
-	MinSupportUsed int           `json:"min_support"`
-	Tested         int           `json:"tested"`
-	Qualified      int           `json:"qualified,omitempty"`
-	Families       int           `json:"families"`
-	Candidates     []Candidate   `json:"candidates"`
-	Recall         []SkillRecall `json:"recall"`
-	Skills         []SkillReport `json:"skills"`
-	// Funnel and Routines are the request-level result: what was read, how
-	// many requests recurred as routines, and which passed every check.
-	Funnel   Funnel    `json:"funnel"`
-	Routines []Routine `json:"routines"`
-	// Opportunities are the requests the selection pass (select.go)
-	// recommends from the whole history, whether or not they recurred.
-	// Each is an unassessed proposal for an authoring agent.
-	Opportunities []Opportunity `json:"opportunities,omitempty"`
-	// OpportunityGroups are the opportunities grouped by contract, ranked.
-	OpportunityGroups []OpportunityGroup `json:"opportunity_groups,omitempty"`
-	// SpanProposals are bounded pieces of work, including pieces of long
-	// requests and single calls. They are retrieval candidates, never a
-	// useful-procedure recommendation or a Gate D true positive.
-	SpanProposals     []SpanProposal         `json:"span_proposals,omitempty"`
-	SpanGroups        []SpanGroup            `json:"span_groups,omitempty"`
-	CompositionGroups []SpanCompositionGroup `json:"composition_groups,omitempty"`
-	// LogicCandidates are recurring parameterized execution shapes. They are
-	// the authoring queue; task-completeness checks below are diagnostics only.
-	LogicCandidates []LogicCandidate       `json:"logic_candidates,omitempty"`
-	LogicFunnels    []LogicFunnel          `json:"logic_funnels,omitempty"`
-	ReviewSpans     []SpanProposal         `json:"review_spans,omitempty"`
-	ReviewGroups    []SpanCompositionGroup `json:"review_groups,omitempty"`
-	ComponentSpans  []SpanProposal         `json:"component_spans,omitempty"`
-	ComponentGroups []SpanCompositionGroup `json:"component_groups,omitempty"`
-
-	// Kept in memory so a candidate can be drafted from its real
-	// occurrences; never written out.
-	corpus []trace.NormSession
-	seqs   [][]int
-	names  []string
-	window int
-}
-
-type optionsOut struct {
-	Since        time.Time `json:"since,omitempty"`
-	Window       int       `json:"window"`
-	MinSupport   int       `json:"min_support"`
-	MaxLen       int       `json:"max_len"`
-	MaxPatterns  int       `json:"max_patterns"`
-	Permutations int       `json:"permutations"`
-	Alpha        float64   `json:"alpha"`
-	Seed         int64     `json:"seed"`
-	Spans        bool      `json:"spans"`
+func DefaultOptions() model.Options {
+	return model.Options{Window: 8, MinSupport: 3, MaxLen: 5, MaxPatterns: 2000000, PerSkill: 10, Permutations: 20, Alpha: 0.05, Seed: 1, Now: time.Now}
 }
 
 // Run reads every client, mines, tests and ranks. It makes no network call
 // and writes nothing.
-func Run(o Options) (*Report, error) {
+func Run(o model.Options) (*model.Report, error) {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	rep := &Report{RulesVersion: RulesVersion, GeneratedAt: o.Now().UTC(), Options: optionsOut{o.Since, o.Window, o.MinSupport, o.MaxLen, o.MaxPatterns, o.Permutations, o.Alpha, o.Seed, o.Spans}}
+	rep := &model.Report{RulesVersion: RulesVersion, GeneratedAt: o.Now().UTC(), Options: model.OptionsOut{Since: o.Since, Window: o.Window, MinSupport: o.MinSupport, MaxLen: o.MaxLen, MaxPatterns: o.MaxPatterns, Permutations: o.Permutations, Alpha: o.Alpha, Seed: o.Seed, Spans: o.Spans}}
 
 	var raw []trace.Session
 	for _, r := range o.Readers {
-		st := ClientStats{Client: r.Client()}
+		st := model.ClientStats{Client: r.Client()}
 		ss, err := r.Read(o.Since)
 		if err != nil {
 			st.Error = err.Error()
@@ -250,7 +85,7 @@ func Run(o Options) (*Report, error) {
 	// test harness, a re-sent prompt), not recurrence.
 	seen := map[string]bool{}
 	var corpus []trace.NormSession
-	stats := map[string]*ClientStats{}
+	stats := map[string]*model.ClientStats{}
 	for i := range rep.Clients {
 		stats[rep.Clients[i].Client] = &rep.Clients[i]
 	}
@@ -263,7 +98,7 @@ func Run(o Options) (*Report, error) {
 		cs := stats[s.Client]
 		if cs == nil {
 			// A reader returned sessions under another client's name.
-			rep.Clients = append(rep.Clients, ClientStats{Client: s.Client})
+			rep.Clients = append(rep.Clients, model.ClientStats{Client: s.Client})
 			for i := range rep.Clients {
 				stats[rep.Clients[i].Client] = &rep.Clients[i]
 			}
@@ -382,7 +217,7 @@ func Run(o Options) (*Report, error) {
 	// search just counted. Failing it means the pattern cannot qualify, so it
 	// is not kept. Every pattern examined still counts toward the FDR
 	// correction, so discarding early does not make the test more lenient.
-	index := labelIndex(seqs)
+	index := model.LabelIndex(seqs)
 	keep := func(items []int, k, nPrefix int) bool {
 		// The last step first: exact and free (the prefix's support is known).
 		if binomialUpper(k, max(nPrefix, k), share[items[len(items)-1]]) > o.Alpha {
@@ -409,7 +244,7 @@ func Run(o Options) (*Report, error) {
 		pNeedAll[i] = necessity(closed[i], seqs, index, df, share, o.Window)
 	})
 	qNeedAll := benjaminiHochbergOf(pNeedAll, examined)
-	var cands []pattern
+	var cands []model.Pattern
 	var qNeed []float64
 	for i, p := range closed {
 		if qNeedAll[i] <= o.Alpha {
@@ -427,14 +262,14 @@ func Run(o Options) (*Report, error) {
 	pAcross := make([]float64, len(cands))
 	pWithin := make([]float64, len(cands))
 	for i, p := range cands {
-		pAcross[i] = pValue(len(p.sessions), across[i])
-		pWithin[i] = pValue(len(p.sessions), within[i])
+		pAcross[i] = pValue(len(p.Sessions), across[i])
+		pWithin[i] = pValue(len(p.Sessions), within[i])
 	}
 	qAcross := benjaminiHochberg(pAcross)
 	qWithin := benjaminiHochberg(pWithin)
 
 	for i, p := range cands {
-		c := describe(p, corpus, seqs, names, idf, o.Window)
+		c := model.Describe(p, corpus, seqs, names, idf, o.Window)
 		var sum float64
 		for _, n := range across[i] {
 			sum += float64(n)
@@ -464,13 +299,13 @@ func Run(o Options) (*Report, error) {
 	})
 	rep.Recall = recall(corpus, rep.Candidates)
 	rep.Skills = skillProcedures(corpus, seqs, closed, names, idf, o)
-	rep.corpus, rep.seqs, rep.names, rep.window = corpus, seqs, names, o.Window
+	rep.Corpus, rep.Seqs, rep.Names, rep.Window = corpus, seqs, names, o.Window
 	optionsLog(o, "skill comparison: %d skills with enriched procedures", len(rep.Skills))
 	rep.Families = assignFamilies(rep.Candidates)
 	return rep, nil
 }
 
-func permuteCounts(seqs [][]int, group []int, ps []pattern, o Options, permute func([][]int, []int, *rand.Rand) [][]int) [][]int {
+func permuteCounts(seqs [][]int, group []int, ps []model.Pattern, o model.Options, permute func([][]int, []int, *rand.Rand) [][]int) [][]int {
 	out := make([][]int, len(ps))
 	for i := range out {
 		out[i] = make([]int, o.Permutations)
@@ -494,174 +329,10 @@ func permuteCounts(seqs [][]int, group []int, ps []pattern, o Options, permute f
 	return out
 }
 
-// describe builds the report entry for a pattern: a template per step from
-// the occurrences whose skeleton is the most common one, the slots that vary
-// as typed parameters, and when the work happened.
-func describe(p pattern, corpus []trace.NormSession, seqs [][]int, names []string, idf []float64, window int) Candidate {
-	c := Candidate{ByClient: map[string]int{}, Sessions: len(p.sessions), sessionSet: map[int]bool{}, items: p.items}
-	occ := make([][]trace.Step, 0, len(p.sessions))
-	var times []time.Time
-	var runs [][2]trace.Usage
-	weeks := map[string]bool{}
-	for _, s := range p.sessions {
-		c.sessionSet[s] = true
-		ns := corpus[s]
-		c.ByClient[ns.Client]++
-		idx := trace.MatchAt(seqs[s], p.items, window)
-		steps := make([]trace.Step, len(idx))
-		for i, j := range idx {
-			steps[i] = ns.Steps[j]
-		}
-		occ = append(occ, steps)
-		if run, saved, ok := runCost(steps); ok {
-			c.Measured++
-			c.SavedTotal = c.SavedTotal.Add(saved)
-			runs = append(runs, [2]trace.Usage{run, saved})
-		}
-		t := ns.Start
-		if t.IsZero() && len(steps) > 0 {
-			t = steps[0].Time
-		}
-		if !t.IsZero() {
-			times = append(times, t)
-			y, w := t.ISOWeek()
-			weeks[fmt.Sprintf("%d-%02d", y, w)] = true
-		}
-		if len(c.Examples) < 3 {
-			c.Examples = append(c.Examples, ns.Client+"/"+ns.ID)
-		}
-	}
-	var stab, weighted float64
-	specific := 0
-	for i := range p.items {
-		st := templateOf(names[p.items[i]], occ, i)
-		st.Weight = idf[p.items[i]]
-		stab += st.Stability
-		if st.Fixed {
-			specific++
-			weighted += st.Weight * st.Stability
-		}
-		c.Steps = append(c.Steps, st)
-	}
-	c.Stability = stab / float64(len(p.items))
-	if len(runs) > 0 {
-		sort.Slice(runs, func(a, b int) bool { return runs[a][0].Total() < runs[b][0].Total() })
-		c.PerRun, c.SavedPerRun = runs[len(runs)/2][0], runs[len(runs)/2][1]
-	}
-	c.Specificity = float64(specific) / float64(len(p.items))
-	c.CallsSaved = c.Sessions * len(p.items)
-	// Score: sessions times the weight of the steps that fix something. A
-	// step whose every argument varies (read <path>) carries the judgment
-	// of which argument, not a procedure, so it adds nothing.
-	c.Score = float64(c.Sessions) * weighted
-	c.Weeks = len(weeks)
-	sort.Slice(times, func(a, b int) bool { return times[a].Before(times[b]) })
-	if len(times) > 0 {
-		c.FirstSeen, c.LastSeen = times[0], times[len(times)-1]
-	}
-	if len(times) > 1 {
-		gaps := make([]float64, 0, len(times)-1)
-		for i := 1; i < len(times); i++ {
-			gaps = append(gaps, times[i].Sub(times[i-1]).Hours()/24)
-		}
-		sort.Float64s(gaps)
-		c.MedianGapDays = gaps[len(gaps)/2]
-	}
-	return c
-}
-
-func templateOf(label string, occ [][]trace.Step, i int) StepTemplate {
-	skel := map[string]int{}
-	for _, o := range occ {
-		skel[o[i].Skeleton]++
-	}
-	modal, n := "", -1
-	for k, v := range skel {
-		if v > n || (v == n && k < modal) {
-			modal, n = k, v
-		}
-	}
-	st := StepTemplate{Label: label, Stability: float64(n) / float64(len(occ))}
-	// A shell subcommand (git commit) or an MCP tool (telara_task_create)
-	// names one specific action; that is the fixed part even when every
-	// argument varies.
-	st.Fixed = (strings.HasPrefix(label, "sh:") && strings.Contains(label, " ")) || strings.HasPrefix(label, "mcp:")
-	// Slots are compared by key among occurrences with the modal skeleton.
-	vals := map[string]map[string]bool{}
-	types := map[string]map[string]int{}
-	var keys []string
-	for _, o := range occ {
-		if o[i].Skeleton != modal {
-			continue
-		}
-		for _, sl := range o[i].Slots {
-			if sl.Sub {
-				continue
-			}
-			if vals[sl.Key] == nil {
-				vals[sl.Key], types[sl.Key] = map[string]bool{}, map[string]int{}
-				keys = append(keys, sl.Key)
-			}
-			vals[sl.Key][sl.Value] = true
-			types[sl.Key][sl.Type]++
-		}
-	}
-	// Keys are shown in the order they first appear (the command's own
-	// order); tool arguments were already sorted by name.
-	parts := []string{label}
-	for _, k := range keys {
-		tp, best := "", -1
-		for t, v := range types[k] {
-			if v > best || (v == best && t < tp) {
-				tp, best = t, v
-			}
-		}
-		if len(vals[k]) == 1 && n > 1 {
-			for v := range vals[k] {
-				parts = append(parts, fmtSlot(label, k, v))
-			}
-			// A constant flag (tail -n) or numeric option (offset=0) says
-			// how a tool is used, not what it acts on; only a constant
-			// word, path, text, id or URL fixes the work.
-			if tp != trace.SlotFlag && tp != trace.SlotNumber {
-				st.Fixed = true
-			}
-			continue
-		}
-		parts = append(parts, fmtSlot(label, k, "<"+tp+">"))
-		st.Params = append(st.Params, trace.Slot{Key: k, Type: tp})
-	}
-	// A run of the same parameter type (git add <path> <path> <path>) is one
-	// variadic parameter.
-	var collapsed []string
-	for _, pt := range parts {
-		if n := len(collapsed); n > 0 && strings.HasPrefix(pt, "<") && strings.TrimSuffix(collapsed[n-1], "…") == pt {
-			collapsed[n-1] = pt + "…"
-			continue
-		}
-		collapsed = append(collapsed, pt)
-	}
-	st.Template = redact.Redact(strings.Join(collapsed, " "))
-	return st
-}
-
-func fmtSlot(label, key, v string) string {
-	if strings.HasPrefix(label, "sh:") {
-		if len(v) > 60 {
-			v = trace.TruncateUTF8(v, 60) + "…"
-		}
-		return v
-	}
-	if len(v) > 40 {
-		v = trace.TruncateUTF8(v, 40) + "…"
-	}
-	return key + "=" + v
-}
-
 // recall scores the miner against work known to recur: every skill loaded in
 // at least two sessions. For each, the candidate whose sessions best match the
 // skill's sessions (F1) is reported, among qualified and among all tested.
-func recall(corpus []trace.NormSession, cands []Candidate) []SkillRecall {
+func recall(corpus []trace.NormSession, cands []model.Candidate) []model.SkillRecall {
 	skillSessions := map[string]map[int]bool{}
 	for i, s := range corpus {
 		for sk := range s.Skills {
@@ -671,15 +342,15 @@ func recall(corpus []trace.NormSession, cands []Candidate) []SkillRecall {
 			skillSessions[sk][i] = true
 		}
 	}
-	var out []SkillRecall
+	var out []model.SkillRecall
 	for sk, truth := range skillSessions {
 		if len(truth) < 2 {
 			continue
 		}
-		r := SkillRecall{Skill: sk, Sessions: len(truth)}
+		r := model.SkillRecall{Skill: sk, Sessions: len(truth)}
 		for _, c := range cands {
 			inter := 0
-			for s := range c.sessionSet {
+			for s := range c.SessionSet {
 				if truth[s] {
 					inter++
 				}
@@ -687,7 +358,7 @@ func recall(corpus []trace.NormSession, cands []Candidate) []SkillRecall {
 			if inter == 0 {
 				continue
 			}
-			m := SkillMatch{Pattern: labelsOf(c), Qualified: c.Qualified, Precision: float64(inter) / float64(len(c.sessionSet)), Recall: float64(inter) / float64(len(truth))}
+			m := model.SkillMatch{Pattern: model.LabelsOf(c), Qualified: c.Qualified, Precision: float64(inter) / float64(len(c.SessionSet)), Recall: float64(inter) / float64(len(truth))}
 			m.F1 = 2 * m.Precision * m.Recall / (m.Precision + m.Recall)
 			if r.BestTested == nil || m.F1 > r.BestTested.F1 {
 				mm := m
@@ -709,19 +380,11 @@ func recall(corpus []trace.NormSession, cands []Candidate) []SkillRecall {
 	return out
 }
 
-func labelsOf(c Candidate) string {
-	ls := make([]string, len(c.Steps))
-	for i, s := range c.Steps {
-		ls[i] = s.Label
-	}
-	return strings.Join(ls, " → ")
-}
-
 // assignFamilies groups qualified candidates that describe the same work: a
 // candidate joins the family of a higher-ranked one when they share at least
 // half their sessions and half their labels (Jaccard). This only folds the
 // report; it does not change what qualified. It returns the family count.
-func assignFamilies(cs []Candidate) int {
+func assignFamilies(cs []model.Candidate) int {
 	var reps []int
 	for i := range cs {
 		cs[i].Family = i
@@ -730,7 +393,7 @@ func assignFamilies(cs []Candidate) int {
 		}
 		joined := false
 		for _, r := range reps {
-			if jaccardInts(cs[i].sessionSet, cs[r].sessionSet) >= 0.5 && jaccardStrings(labelSet(cs[i]), labelSet(cs[r])) >= 0.5 {
+			if model.JaccardInts(cs[i].SessionSet, cs[r].SessionSet) >= 0.5 && jaccardStrings(labelSet(cs[i]), labelSet(cs[r])) >= 0.5 {
 				cs[i].Family = r
 				joined = true
 				break
@@ -743,22 +406,12 @@ func assignFamilies(cs []Candidate) int {
 	return len(reps)
 }
 
-func labelSet(c Candidate) map[string]bool {
+func labelSet(c model.Candidate) map[string]bool {
 	m := map[string]bool{}
 	for _, s := range c.Steps {
 		m[s.Label] = true
 	}
 	return m
-}
-
-func jaccardInts(a, b map[int]bool) float64 {
-	inter := 0
-	for k := range a {
-		if b[k] {
-			inter++
-		}
-	}
-	return float64(inter) / float64(len(a)+len(b)-inter)
 }
 
 func jaccardStrings(a, b map[string]bool) float64 {
@@ -780,8 +433,8 @@ func jaccardStrings(a, b map[string]bool) float64 {
 // conservative. The largest p over the steps is returned: every step must be
 // necessary. Without this, any significant core plus one unrelated common
 // step would qualify on the core's strength.
-func necessity(p pattern, seqs [][]int, index map[int]map[int]bool, df []int, share []float64, window int) float64 {
-	return necessityP(p.items, len(p.sessions), seqs, index, df, share, window, 1)
+func necessity(p model.Pattern, seqs [][]int, index map[int]map[int]bool, df []int, share []float64, window int) float64 {
+	return necessityP(p.Items, len(p.Sessions), seqs, index, df, share, window, 1)
 }
 
 // necessityP is necessity for items with support k. It returns as soon as a
@@ -795,7 +448,7 @@ func necessityP(items []int, k int, seqs [][]int, index map[int]map[int]bool, df
 		rest := append(append([]int{}, items[:i]...), items[i+1:]...)
 		n := k
 		if len(rest) > 1 {
-			n = supportIn(seqs, index, rest, window*2)
+			n = model.SupportIn(seqs, index, rest, window*2)
 		} else {
 			n = df[rest[0]]
 		}
@@ -810,74 +463,8 @@ func necessityP(items []int, k int, seqs [][]int, index map[int]map[int]bool, df
 	return worst
 }
 
-// labelIndex maps each label to the sessions containing it.
-func labelIndex(seqs [][]int) map[int]map[int]bool {
-	index := map[int]map[int]bool{}
-	for s, seq := range seqs {
-		for _, x := range seq {
-			if index[x] == nil {
-				index[x] = map[int]bool{}
-			}
-			index[x][s] = true
-		}
-	}
-	return index
-}
-
-// supportIn counts sessions containing items (gapped, within window), looking
-// only at sessions that hold every one of its labels.
-func supportIn(seqs [][]int, index map[int]map[int]bool, items []int, window int) int {
-	var smallest map[int]bool
-	for _, x := range items {
-		if smallest == nil || len(index[x]) < len(smallest) {
-			smallest = index[x]
-		}
-	}
-	n := 0
-next:
-	for s := range smallest {
-		for _, x := range items {
-			if !index[x][s] {
-				continue next
-			}
-		}
-		if trace.MatchAt(seqs[s], items, window) != nil {
-			n++
-		}
-	}
-	return n
-}
-
-func optionsLog(o Options, format string, a ...any) {
+func optionsLog(o model.Options, format string, a ...any) {
 	if o.Progress != nil {
 		fmt.Fprintf(o.Progress, "%s  "+format+"\n", append([]any{time.Now().Format("15:04:05")}, a...)...)
 	}
-}
-
-// runCost is what one occurrence cost through the agent (the steps' shares
-// of their turns) and what a primitive would save: everything except one
-// turn's worth, the turn that calls the primitive. ok is false unless every
-// step was measured.
-func runCost(steps []trace.Step) (run, saved trace.Usage, ok bool) {
-	// Only steps a primitive can replay count: an edit whose content was
-	// decided per run, or the agent's own bookkeeping, stays with the agent,
-	// and so does what it costs.
-	turns := map[int]bool{}
-	merged := 0
-	for _, st := range steps {
-		if !st.Measured {
-			return trace.Usage{}, trace.Usage{}, false
-		}
-		if !trace.Replayable(st.Label) {
-			continue
-		}
-		run = run.Add(st.Tokens)
-		turns[st.Turn] = true
-		merged += max(st.Turns, 1) - 1
-	}
-	if len(turns) == 0 {
-		return trace.Usage{}, trace.Usage{}, false
-	}
-	one := run.Scale(1 / float64(len(turns)+merged))
-	return run, trace.Usage{Fresh: run.Fresh - one.Fresh, Cached: run.Cached - one.Cached, Output: run.Output - one.Output}, true
 }

@@ -6,10 +6,12 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-func graphCandidateFor(t *testing.T, ss []trace.Session, actions ...string) (LogicCandidate, []SpanProposal) {
+func graphCandidateFor(t *testing.T, ss []trace.Session, actions ...string) (model.LogicCandidate, []model.SpanProposal) {
 	t.Helper()
 	ps := SelectSpanProposals(ss)
 	for _, c := range GroupLogicCandidates(ps) {
@@ -25,7 +27,7 @@ func graphCandidateFor(t *testing.T, ss []trace.Session, actions ...string) (Log
 		}
 	}
 	t.Fatalf("no logic candidate %v among %+v", actions, GroupLogicCandidates(ps))
-	return LogicCandidate{}, nil
+	return model.LogicCandidate{}, nil
 }
 
 func TestSynthesizeProgramGraphUsesRolesAndResultFlow(t *testing.T) {

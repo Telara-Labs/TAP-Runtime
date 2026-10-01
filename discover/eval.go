@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -184,7 +186,7 @@ type SampleOptions struct {
 // primitive, routines from needs_authoring and from each removal check,
 // merged routines, and episodes that produced no routine. At most one
 // episode per session is drawn, so one session cannot fill a stratum.
-func SampleEpisodes(c *Corpus, rep *Report, o SampleOptions) []Episode {
+func SampleEpisodes(c *Corpus, rep *model.Report, o SampleOptions) []Episode {
 	rng := rand.New(rand.NewSource(o.Seed))
 	all := c.Episodes()
 	byKey := map[EpisodeKey]Episode{}
@@ -205,8 +207,8 @@ func SampleEpisodes(c *Corpus, rep *Report, o SampleOptions) []Episode {
 	}
 	// pick draws n episodes from a routine's sources, preferring the ones
 	// that ran its steps.
-	pick := func(r Routine, n int, stratum string) {
-		srcs := append([]SourceRef(nil), r.Sources...)
+	pick := func(r model.Routine, n int, stratum string) {
+		srcs := append([]model.SourceRef(nil), r.Sources...)
 		rng.Shuffle(len(srcs), func(i, j int) { srcs[i], srcs[j] = srcs[j], srcs[i] })
 		sort.SliceStable(srcs, func(i, j int) bool { return srcs[i].Ran && !srcs[j].Ran })
 		got := 0
@@ -219,7 +221,7 @@ func SampleEpisodes(c *Corpus, rep *Report, o SampleOptions) []Episode {
 			}
 		}
 	}
-	groups := map[string][]Routine{}
+	groups := map[string][]model.Routine{}
 	var order []string
 	for _, r := range rep.Routines {
 		var g string
