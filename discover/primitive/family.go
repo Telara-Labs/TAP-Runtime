@@ -286,7 +286,7 @@ func buildFamily(heads, tails map[string]int, members []Primitive) Family {
 			sessions[ex.Session] = true
 		}
 		for _, in := range p.Inputs {
-			op := p.Steps[in.Step-1]
+			op := headKey(p.Steps[in.Step-1])
 			if inputs[op] == nil {
 				inputs[op] = map[string]bool{}
 			}
