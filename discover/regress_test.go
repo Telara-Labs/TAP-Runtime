@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -64,11 +66,11 @@ func TestR2EphemeralConstantsAreNotAReusableProcedure(t *testing.T) {
 // saved folder's marker.
 func TestUnvalidatedDraftsSayUnvalidated(t *testing.T) {
 	rep := runOn(t, requestCorpus())
-	prims := ReportPrimitives(rep)
+	prims := routine.ReportPrimitives(rep)
 	if len(prims) == 0 {
 		t.Fatal("no recommended procedure to review")
 	}
-	d := RoutineDraft(prims[0])
+	d := routine.RoutineDraft(prims[0])
 	if !strings.Contains(string(d.Files["README.md"]), "**Status: unvalidated.**") || !strings.Contains(string(d.Files["primitive.yaml"]), "Unvalidated draft (never executed)") {
 		t.Fatalf("README/manifest do not say unvalidated")
 	}
@@ -77,7 +79,7 @@ func TestUnvalidatedDraftsSayUnvalidated(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out strings.Builder
-	Review(strings.NewReader("\n"), &out, rep, ReviewConfig{}, ReviewActions{})
+	routine.Review(strings.NewReader("\n"), &out, rep, routine.ReviewConfig{}, routine.ReviewActions{})
 	if !strings.Contains(out.String(), "UNVALIDATED") || !strings.Contains(out.String(), "validation not run for "+digest) {
 		t.Fatalf("review output:\n%s", out.String())
 	}
@@ -107,7 +109,7 @@ func TestR3FragmentedGroupsStillShareTheirGoal(t *testing.T) {
 		}
 	})
 	rep := runOn(t, ss)
-	if len(ReportPrimitives(rep)) == 0 {
+	if len(routine.ReportPrimitives(rep)) == 0 {
 		t.Fatalf("every request ran transition then comment; none recommended:\n%s", dump(rep))
 	}
 }
@@ -141,7 +143,7 @@ func TestR6FileReadsAreDeclaredOrBlocked(t *testing.T) {
 	fixed := eps("rf", 6, func(i int) string { return fmt.Sprintf("summarize release %d", i) }, func(i int) []trace.Call {
 		return []trace.Call{{Tool: "Read", Args: map[string]string{"file_path": "docs/RELEASES.md"}}, sh(fmt.Sprintf("git log --oneline v%d..HEAD", i))}
 	})
-	d := RoutineDraft(&runOn(t, fixed).Routines[0])
+	d := routine.RoutineDraft(&runOn(t, fixed).Routines[0])
 	if !strings.Contains(string(d.Files["primitive.yaml"]), "path: docs/RELEASES.md") {
 		t.Fatalf("a fixed read must be declared:\n%s", d.Files["primitive.yaml"])
 	}
@@ -165,11 +167,11 @@ func TestR7CapabilityLabelsAreProviderResourceVerb(t *testing.T) {
 		"tap_run":                 "tap.tap.run",
 		"weird":                   "weird.weird.run",
 	} {
-		if got := capName(tool); got != want {
+		if got := routine.CapName(tool); got != want {
 			t.Errorf("%s: %s, want %s", tool, got, want)
 		}
-		if parts := strings.Split(capName(tool), "."); len(parts) != 3 {
-			t.Errorf("%s: %s is not provider.resource.verb", tool, capName(tool))
+		if parts := strings.Split(routine.CapName(tool), "."); len(parts) != 3 {
+			t.Errorf("%s: %s is not provider.resource.verb", tool, routine.CapName(tool))
 		}
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -93,12 +95,12 @@ func TestRecurringRequestsBecomePrimitives(t *testing.T) {
 			t.Errorf("the image tag never appeared in a request, so explained must be 0: %+v", in)
 		}
 	}
-	sh := string(RoutineDraft(jira).Files["main.sh"])
+	sh := string(routine.RoutineDraft(jira).Files["main.sh"])
 	if !strings.Contains(sh, `"${1}"`) || !strings.Contains(sh, `"transition_id":"21"`) {
 		t.Fatalf("draft:\n%s", sh)
 	}
 	var buf bytes.Buffer
-	WriteFunnel(&buf, rep, 0, true)
+	routine.WriteFunnel(&buf, rep, 0, true)
 	for _, want := range []string{"Reviewed 30 sessions", "Useful procedures for user tasks: ", "No draft has been executed"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("funnel output lacks %q:\n%s", want, buf.String())
@@ -113,7 +115,7 @@ func TestSaveInstallsOnceAndNeverReplacesAForeignFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := RoutineDraft(ReportPrimitives(rep)[0])
+	d := routine.RoutineDraft(routine.ReportPrimitives(rep)[0])
 	root := t.TempDir()
 	path, unchanged, err := pack.SaveDraft(d, root)
 	if err != nil || unchanged {
@@ -140,13 +142,13 @@ func TestReviewWithoutARegistryOnlySaves(t *testing.T) {
 	rep, _ := Run(o)
 	var saved []string
 	var out bytes.Buffer
-	err := Review(strings.NewReader("all\n"), &out, rep, ReviewConfig{}, ReviewActions{
+	err := routine.Review(strings.NewReader("all\n"), &out, rep, routine.ReviewConfig{}, routine.ReviewActions{
 		Save: func(d *model.Draft) (string, error) { saved = append(saved, d.Name); return "/skills/" + d.Name, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(saved) != len(ReportPrimitives(rep)) || strings.Contains(out.String(), "Publish which") {
+	if len(saved) != len(routine.ReportPrimitives(rep)) || strings.Contains(out.String(), "Publish which") {
 		t.Fatalf("saved %v\n%s", saved, out.String())
 	}
 }
@@ -154,7 +156,7 @@ func TestReviewWithoutARegistryOnlySaves(t *testing.T) {
 func TestPick(t *testing.T) {
 	cases := map[string][]int{"1 3": {0, 2}, "2-4": {1, 2, 3}, "all": {0, 1, 2, 3, 4}, "": nil, "9, 1, 1": {0}}
 	for in, want := range cases {
-		got := Pick(in, 5)
+		got := routine.Pick(in, 5)
 		if fmt.Sprint(got) != fmt.Sprint(want) {
 			t.Errorf("Pick(%q) = %v, want %v", in, got, want)
 		}
@@ -209,16 +211,16 @@ func TestFixedShareIsAFractionOfTheRoutine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range ReportPrimitives(rep) {
-		if s := RoutineDraft(r).FixedShare; s <= 0 || s > 1 {
+	for _, r := range routine.ReportPrimitives(rep) {
+		if s := routine.RoutineDraft(r).FixedShare; s <= 0 || s > 1 {
 			t.Fatalf("fixed share %v out of range for %s", s, model.LabelsOf(r.Candidate))
 		}
 	}
 	// The ticket routine fixes its tools and transition and takes one id; it
 	// is mostly fixed.
-	for _, r := range ReportPrimitives(rep) {
-		if strings.Contains(model.LabelsOf(r.Candidate), "jira_transition_issue") && RoutineDraft(r).FixedShare < 0.6 {
-			t.Fatalf("ticket routine fixed share = %v", RoutineDraft(r).FixedShare)
+	for _, r := range routine.ReportPrimitives(rep) {
+		if strings.Contains(model.LabelsOf(r.Candidate), "jira_transition_issue") && routine.RoutineDraft(r).FixedShare < 0.6 {
+			t.Fatalf("ticket routine fixed share = %v", routine.RoutineDraft(r).FixedShare)
 		}
 	}
 }

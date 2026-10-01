@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
@@ -190,7 +192,7 @@ func TestC01SameToolsDifferentOutcomesAreDistinct(t *testing.T) {
 		if p["create"] && p["list"] {
 			t.Fatalf("one routine holds both outcomes:\n%s", dump(rep))
 		}
-		if in := inputBySuffix(r, "_action"); in != nil && in.Source == InputCaller {
+		if in := inputBySuffix(r, "_action"); in != nil && in.Source == routine.InputCaller {
 			t.Fatalf("the operation became a caller input:\n%s", dump(rep))
 		}
 		if p["create"] && len(sessionsOf(r)) >= 3 {
@@ -221,10 +223,10 @@ func TestC02DifferentResourceIDsAreOneParameterizedRoutine(t *testing.T) {
 		t.Fatalf("suitability %q (%v):\n%s", r.Suitability, r.Reasons, dump(rep))
 	}
 	in := inputBySuffix(r, "pipeline_id")
-	if in == nil || in.Source != InputCaller {
+	if in == nil || in.Source != routine.InputCaller {
 		t.Fatalf("pipeline_id must be the caller's input, given in the request: %+v", r.Contract.Inputs)
 	}
-	if strings.Contains(string(RoutineDraft(&r).Files["main.sh"]), "100200") {
+	if strings.Contains(string(routine.RoutineDraft(&r).Files["main.sh"]), "100200") {
 		t.Fatal("a recorded resource id was written into the program")
 	}
 }
@@ -302,7 +304,7 @@ func TestC05BoundedReadOnlyDiffCheckIsUseful(t *testing.T) {
 	}
 	callers := 0
 	for _, in := range r.Contract.Inputs {
-		if in.Source == InputCaller {
+		if in.Source == routine.InputCaller {
 			callers++
 		}
 	}
@@ -341,14 +343,14 @@ func TestC06ExplicitListLoopIsAUsefulProcedure(t *testing.T) {
 			list = &r.Contract.Inputs[i]
 		}
 	}
-	if list == nil || list.Source != InputCaller {
+	if list == nil || list.Source != routine.InputCaller {
 		t.Fatalf("the files are a caller-given list: %+v", r.Contract.Inputs)
 	}
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "x.txt"), []byte("x"), 0o644)
 	os.WriteFile(filepath.Join(dir, "y z.txt"), []byte("y"), 0o644)
 	script := filepath.Join(dir, "main.sh")
-	os.WriteFile(script, RoutineDraft(&r).Files["main.sh"], 0o755)
+	os.WriteFile(script, routine.RoutineDraft(&r).Files["main.sh"], 0o755)
 	bin := filepath.Join(dir, "bin")
 	os.MkdirAll(bin, 0o755)
 	os.WriteFile(filepath.Join(bin, "jq"), []byte("#!/bin/bash\nfilter=.\nraw=\nfor a in \"$@\"; do case \"$a\" in -r) raw=-r;; -*) echo \"jq: unsupported flag $a\" >&2; exit 2;; *) filter=\"$a\";; esac; done\nexec "+realJQ(t)+" -c $raw \"$filter\"\n"), 0o755)
@@ -361,7 +363,7 @@ func TestC06ExplicitListLoopIsAUsefulProcedure(t *testing.T) {
 	}
 	out, err := run(`["x.txt","y z.txt"]`)
 	if err != nil || strings.Count(out, "x.txt") != 1 || strings.Count(out, "y z.txt") != 1 {
-		t.Fatalf("two files, including one with a space: %v\n%s\n%s", err, out, RoutineDraft(&r).Files["main.sh"])
+		t.Fatalf("two files, including one with a space: %v\n%s\n%s", err, out, routine.RoutineDraft(&r).Files["main.sh"])
 	}
 	if out, err := run(`[]`); err != nil || strings.TrimSpace(out) != "" {
 		t.Fatalf("an empty list runs nothing and succeeds: %v %q", err, out)
@@ -423,11 +425,11 @@ func TestC08BoundedLogCollectionInsideInvestigation(t *testing.T) {
 	}
 	pod := inputBySuffix(*sub, "_arg1")
 	for i := range sub.Contract.Inputs {
-		if sub.Contract.Inputs[i].Source == InputPriorOutput {
+		if sub.Contract.Inputs[i].Source == routine.InputPriorOutput {
 			pod = &sub.Contract.Inputs[i]
 		}
 	}
-	if pod == nil || pod.Source != InputPriorOutput || pod.From != 1 {
+	if pod == nil || pod.Source != routine.InputPriorOutput || pod.From != 1 {
 		t.Fatalf("the pod came from step 1's output: %+v", sub.Contract.Inputs)
 	}
 }
@@ -455,7 +457,7 @@ func TestC09ReadResultsFeedingAWriteArePreserved(t *testing.T) {
 		if gi, ai := stepIndex(r, "mcp:telara_jira_get_issue"), stepIndex(r, "mcp:telara_jira_add_comment"); gi < 0 || gi > ai {
 			t.Fatalf("the read that supplied the comment was dropped or moved:\n%s", dump(rep))
 		}
-		if in := inputBySuffix(r, "_body"); in == nil || in.Source == InputCaller {
+		if in := inputBySuffix(r, "_body"); in == nil || in.Source == routine.InputCaller {
 			t.Fatalf("the comment body was composed from the issue, not given by the caller: %+v", r.Contract.Inputs)
 		}
 		if r.DraftStatus == model.DraftComplete {
@@ -485,7 +487,7 @@ func TestC10PreWriteCheckIsPreservedAndStopsOnFailure(t *testing.T) {
 	if r.Contract.Effect != model.EffectWrites {
 		t.Fatalf("set image writes: effect %q", r.Contract.Effect)
 	}
-	main := string(RoutineDraft(&r).Files["main.sh"])
+	main := string(routine.RoutineDraft(&r).Files["main.sh"])
 	if g, s := strings.Index(main, "get deploy"), strings.Index(main, "set image"); g < 0 || s < 0 || g > s {
 		t.Fatalf("the check must run before the write:\n%s", main)
 	}
@@ -580,7 +582,7 @@ func TestC13OrderAndMultiplicityAreNotDeduplicatedAway(t *testing.T) {
 		mk("c", "sh:git status", "sh:git push", "sh:git push"),
 		mk("d", "sh:git status", "sh:git push"),
 	}
-	n := mergeDuplicates(rs)
+	n := routine.MergeDuplicates(rs)
 	if rs[1].MergedInto != "" || rs[2].MergedInto != "" {
 		t.Fatalf("a different order or multiplicity was merged: %+v", rs)
 	}
@@ -599,7 +601,7 @@ func TestC14ConditionalsAndRedirectsAreReplayedFaithfully(t *testing.T) {
 		}
 	})
 	rep := runOn(t, ss)
-	main := string(RoutineDraft(&rep.Routines[0]).Files["main.sh"])
+	main := string(routine.RoutineDraft(&rep.Routines[0]).Files["main.sh"])
 	if !strings.Contains(main, `cd "${1}" && if [ -f go.mod ]; then go test ./... 2>&1 | tail -5; else echo no-module; fi > /dev/null || echo failed`) {
 		t.Fatalf("the recorded structure was not preserved:\n%s", main)
 	}
@@ -747,7 +749,7 @@ func TestC19JSONDerivedIDIsATypedBinding(t *testing.T) {
 		return []trace.Call{search, {Tool: "mcp:gmail_read_email_thread", Args: map[string]string{"thread_id": thread}}}
 	})
 	rep := runOn(t, ss)
-	d := RoutineDraft(&rep.Routines[0])
+	d := routine.RoutineDraft(&rep.Routines[0])
 	main := string(d.Files["main.sh"])
 	if !strings.Contains(main, ".threads[0].id") {
 		t.Fatalf("a JSON result is read by its path, not by text around the value:\n%s", main)
@@ -778,8 +780,8 @@ func TestC19VaryingSelectionIsNotBound(t *testing.T) {
 	})
 	rep := runOn(t, ss)
 	r := rep.Routines[0]
-	if strings.Contains(string(RoutineDraft(&r).Files["main.sh"]), "threads[") || r.DraftStatus == model.DraftComplete {
-		t.Fatalf("a selection that varied was bound to one path: %q\n%s", r.DraftStatus, RoutineDraft(&r).Files["main.sh"])
+	if strings.Contains(string(routine.RoutineDraft(&r).Files["main.sh"]), "threads[") || r.DraftStatus == model.DraftComplete {
+		t.Fatalf("a selection that varied was bound to one path: %q\n%s", r.DraftStatus, routine.RoutineDraft(&r).Files["main.sh"])
 	}
 }
 
@@ -794,7 +796,7 @@ func TestC20TextDerivedIDFailsClosed(t *testing.T) {
 		return []trace.Call{create, {Tool: "mcp:records_watch", Args: map[string]string{"record_id": id}}}
 	})
 	rep := runOn(t, ss)
-	d := RoutineDraft(&rep.Routines[0])
+	d := routine.RoutineDraft(&rep.Routines[0])
 	good := "Created.\n\n- **Record ID:** `11111111-de01-4847-a933-187b18ef2985`\n"
 	if _, calls, err := runDraft(t, d, map[string]string{"records_create": good}, "release 9"); err != nil || len(calls) != 2 || !strings.Contains(calls[1], "11111111-de01") {
 		t.Fatalf("normal run: %v %v\n%s", err, calls, d.Files["main.sh"])
@@ -828,7 +830,7 @@ func TestC21NestedVaryingCredentialsNeverLeak(t *testing.T) {
 	})
 	rep := runOn(t, ss)
 	for _, r := range rep.Routines {
-		for name, body := range RoutineDraft(&r).Files {
+		for name, body := range routine.RoutineDraft(&r).Files {
 			if strings.Contains(string(body), "pw-") {
 				t.Fatalf("%s leaks a recorded credential", name)
 			}

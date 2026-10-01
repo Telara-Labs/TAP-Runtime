@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -157,7 +159,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		discover.WriteFunnel(f, rep, 0, true)
+		routine.WriteFunnel(f, rep, 0, true)
 		f.Close()
 	}
 	return writeJSON(*out, rep)
@@ -252,7 +254,7 @@ func show(args []string) error {
 		if err := writeJSON(filepath.Join(d, "routine.json"), rec); err != nil {
 			return err
 		}
-		if dr := discover.RoutineDraft(r); dr != nil {
+		if dr := routine.RoutineDraft(r); dr != nil {
 			for name, body := range dr.Files {
 				os.WriteFile(filepath.Join(d, name), body, 0o600)
 			}

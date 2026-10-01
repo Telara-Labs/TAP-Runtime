@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -439,7 +441,7 @@ func SynthesizeProgramGraph(c model.LogicCandidate, proposals []model.SpanPropos
 				arg.Value = ProgramValue{Kind: "item", Input: name}
 				graph.Inputs = append(graph.Inputs, ProgramInput{Name: name, Type: base.TypeName, List: true, Source: "supplied at invocation"})
 			case !loop && !optional && (!resultOK || indexedResultPath.MatchString(resultPath)) && selectionOK:
-				name := fmt.Sprintf("step_%d_select_%s", step+1, sanitizeName(selection.predicatePath))
+				name := fmt.Sprintf("step_%d_select_%s", step+1, routine.SanitizeName(selection.predicatePath))
 				arg.Value = ProgramValue{Kind: "selected_result", Step: selection.step, ResultPath: selection.itemPath,
 					CollectionPath: selection.collectionPath, PredicatePath: selection.predicatePath, Input: name}
 				found := false
@@ -571,7 +573,7 @@ func mergeProgramItemFields(graph *ProgramGraph, ps *ProgramStep, step int) {
 			continue
 		}
 		oldInputs[arg.Value.Input] = true
-		base := sanitizeName(strings.Join(arg.Path, "_"))
+		base := routine.SanitizeName(strings.Join(arg.Path, "_"))
 		usedNames[base]++
 		fieldName := base
 		if usedNames[base] > 1 {
@@ -1033,7 +1035,7 @@ func possiblePriorResult(traces []observedTrace, step int, path string) bool {
 }
 
 func programInputName(step int, path []string, list bool) string {
-	name := sanitizeName(strings.Join(path, "_"))
+	name := routine.SanitizeName(strings.Join(path, "_"))
 	if list {
 		name += "s"
 	}
@@ -1061,7 +1063,7 @@ func sameInputVector(prior map[string]observedInputVector, values []string, type
 			match = match && seen[i] == v
 			distinct = distinct || (i > 0 && v != values[0])
 		}
-		if match && strings.HasSuffix(name, "_"+sanitizeName(field)) {
+		if match && strings.HasSuffix(name, "_"+routine.SanitizeName(field)) {
 			return name
 		}
 		if match && distinct {

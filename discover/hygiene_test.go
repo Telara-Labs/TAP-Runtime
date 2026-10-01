@@ -8,6 +8,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -81,7 +83,7 @@ func TestReportTextIsValidUTF8(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	WriteFunnel(&buf, rep, 0, true)
+	routine.WriteFunnel(&buf, rep, 0, true)
 	if !utf8.Valid(buf.Bytes()) {
 		t.Fatal("the report cut a character in half")
 	}
@@ -124,7 +126,7 @@ func TestKindsAndMerging(t *testing.T) {
 		{ID: "b", Kind: "user", Family: "fam_1", Decision: "primitive", Candidate: model.Candidate{Steps: []model.StepTemplate{{Label: "sh:git status"}, {Label: "sh:git diff"}}}},
 		{ID: "c", Kind: "scheduled", Family: "fam_1", Decision: "primitive", Candidate: model.Candidate{Steps: []model.StepTemplate{{Label: "sh:git status"}, {Label: "sh:git diff"}}}},
 	}
-	if n := mergeDuplicates(rs); n != 1 || rs[1].MergedInto != "a" || rs[2].MergedInto != "" {
+	if n := routine.MergeDuplicates(rs); n != 1 || rs[1].MergedInto != "a" || rs[2].MergedInto != "" {
 		t.Fatalf("merged %d: %+v", n, rs)
 	}
 }
