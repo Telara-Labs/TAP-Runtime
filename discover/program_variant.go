@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
 
 // GroupProgramVariants separates incompatible invocation contracts inside one
@@ -252,7 +254,7 @@ func programCallCoreSignature(call Call) string {
 
 func programCallToolIdentity(call Call) string {
 	if call.Tool == "shell" {
-		if plan, err := programShellPlan(call.Command); err == nil {
+		if plan, err := shellparse.ProgramShellPlan(call.Command); err == nil {
 			var names []string
 			for _, stage := range plan {
 				if stage.Connector != "" {

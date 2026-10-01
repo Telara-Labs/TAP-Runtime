@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
+
 	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
 )
 
@@ -514,7 +516,7 @@ func programCommandArgs(st ProgramStep) (string, []string, error) {
 		return "", nil, errors.New("command or effect is unresolved")
 	}
 	if len(st.Args) == 0 {
-		if programCommandRunsCode(st.Command, nil) {
+		if shellparse.ProgramCommandRunsCode(st.Command, nil) {
 			return "", nil, errors.New("command can run code outside declared argv reach")
 		}
 		return "[]", []string{}, nil
@@ -552,7 +554,7 @@ func programCommandArgs(st ProgramStep) (string, []string, error) {
 			return "", nil, fmt.Errorf("command argument %d is missing", i)
 		}
 	}
-	if programCommandRunsCode(st.Command, patterns) {
+	if shellparse.ProgramCommandRunsCode(st.Command, patterns) {
 		return "", nil, errors.New("command can run code outside declared argv reach")
 	}
 	switch st.Command {

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
 
 // Slot types. A primitive takes the varying slots as typed inputs; the
@@ -100,7 +102,7 @@ var (
 	skillRe     = regexp.MustCompile(`([A-Za-z0-9_.:-]+)/SKILL\.md`)
 )
 
-func typeOf(w word) string {
+func typeOf(w shellparse.Word) string {
 	t := w.Text
 	switch {
 	case !w.Quoted && numericFlag.MatchString(t):
@@ -128,7 +130,7 @@ func typeOf(w word) string {
 // subcommandOf is the first bare word after the program that does not follow
 // a flag (which may be that flag's value): "git -C x status" -> "status",
 // "kubectl --context k get" -> "get".
-func subcommandOf(ws []word) string {
+func subcommandOf(ws []shellparse.Word) string {
 	for i := 1; i < len(ws); i++ {
 		tp := typeOf(ws[i])
 		if tp == SlotFlag {
@@ -155,7 +157,7 @@ func normalize(sessions []Session) []normSession {
 			if c.Tool != "shell" {
 				continue
 			}
-			for _, ws := range simpleCommands(c.Command) {
+			for _, ws := range shellparse.SimpleCommands(c.Command) {
 				if sub := subcommandOf(ws); sub != "" {
 					k := ws[0].Text + " " + sub
 					if pairSessions[k] == nil {
@@ -185,7 +187,7 @@ func normalize(sessions []Session) []normSession {
 				steps[i].Turn, steps[i].Measured, steps[i].Turns = c.Turn, c.Measured, 1
 				steps[i].Request, steps[i].Call = c.Request, ci
 				if c.Tool == "shell" {
-					steps[i].Raw, steps[i].Compound = c.Command, isCompound(c.Command)
+					steps[i].Raw, steps[i].Compound = c.Command, shellparse.IsCompound(c.Command)
 				}
 				steps[i].Outcome, steps[i].OutIDs, steps[i].OutCtx, steps[i].OutPaths = c.Outcome, c.OutIDs, c.OutCtx, c.OutPaths
 				steps[i].Output, steps[i].OutTokens = c.Output, c.OutTokens
@@ -260,7 +262,7 @@ func stepsOf(c Call, pairSessions map[string]map[string]bool) []Step {
 		return []Step{st}
 	}
 	var out []Step
-	for _, ws := range simpleCommands(c.Command) {
+	for _, ws := range shellparse.SimpleCommands(c.Command) {
 		label := "sh:" + ws[0].Text
 		sub := subcommandOf(ws)
 		if sub != "" && len(pairSessions[ws[0].Text+" "+sub]) >= 2 {

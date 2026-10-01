@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
 )
 
 // SpanProposal is a causal slice of a task's recorded calls. It is deliberately
@@ -288,7 +290,7 @@ func spanFlattenObject(out *[]Slot, prefix string, obj map[string]json.RawMessag
 		if v == "" || strings.HasPrefix(v, "[") || v == "null" {
 			continue
 		}
-		*out = append(*out, Slot{Key: key, Type: typeOf(word{Text: v}), Value: v})
+		*out = append(*out, Slot{Key: key, Type: typeOf(shellparse.Word{Text: v}), Value: v})
 	}
 }
 
@@ -595,8 +597,8 @@ func spanExplicitCommand(request string, n spanNode) bool {
 	if n.call.Tool != "shell" {
 		return false
 	}
-	words, err := programShellWords(n.call.Command)
-	if err != nil || programCommandRunsCode(words[0], words[1:]) {
+	words, err := shellparse.ProgramShellWords(n.call.Command)
+	if err != nil || shellparse.ProgramCommandRunsCode(words[0], words[1:]) {
 		return false
 	}
 	mentioned := spanWords(request)
@@ -604,7 +606,7 @@ func spanExplicitCommand(request string, n spanNode) bool {
 		return false
 	}
 	first := strings.ToLower(words[1])
-	return typeOf(word{Text: first}) == SlotWord && mentioned[first]
+	return typeOf(shellparse.Word{Text: first}) == SlotWord && mentioned[first]
 }
 
 func spanRepeatedMotifSets(nodes []spanNode, sets [][]int) [][]int {
