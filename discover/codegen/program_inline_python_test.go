@@ -1,4 +1,4 @@
-package discover
+package codegen_test
 
 import (
 	"bytes"
@@ -105,7 +105,7 @@ func TestInlineFileReplaceRunsThroughHostAndRespectsFileReach(t *testing.T) {
 	}
 	bin := filepath.Join(t.TempDir(), "tap")
 	build := exec.Command("go", "build", "-o", bin, "./host")
-	build.Dir = ".."
+	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build TAP host: %v\n%s", err, output)
 	}

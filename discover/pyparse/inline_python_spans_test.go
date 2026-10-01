@@ -1,4 +1,4 @@
-package discover
+package pyparse_test
 
 import (
 	"strings"

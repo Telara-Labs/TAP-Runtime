@@ -1,4 +1,4 @@
-package discover
+package genreview_test
 
 import (
 	"bytes"

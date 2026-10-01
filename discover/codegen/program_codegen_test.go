@@ -1,4 +1,4 @@
-package discover
+package codegen_test
 
 import (
 	"encoding/json"
