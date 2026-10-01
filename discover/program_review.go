@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 )
 
@@ -313,18 +315,18 @@ func saveGeneratedPackage(p *GeneratedPackage, root string) (string, bool, error
 		return "", false, fmt.Errorf("no generated package")
 	}
 	name := p.Manifest.Metadata.Name
-	archive, digest, err := packFiles(p.Files, func(string) bool { return false })
+	archive, digest, err := pack.PackFiles(p.Files, func(string) bool { return false })
 	if err != nil {
 		return "", false, err
 	}
 	if digest != p.Digest {
 		return "", false, fmt.Errorf("package changed after review")
 	}
-	marker := savedMarker{Name: p.Manifest.Metadata.Publisher + "/" + name, Digest: digest,
+	marker := pack.Marker{Name: p.Manifest.Metadata.Publisher + "/" + name, Digest: digest,
 		Validation: model.ValidationNotRun, Origin: OriginDiscoverGenerated}
 	desc, _ := json.Marshal("Locally generated TAP program; review its calls and effects before each run")
 	skill := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n# %s\n\nGenerated locally by TAP Discover. Package digest: %s.\n\nRead README.md, primitive.yaml and main.py before use. Run this folder through tap_run with one JSON object argument. The TAP runner checks declared tools and commands and gates effects.\n", name, desc, name, digest)
-	return install(root, name, archive, marker, skill)
+	return pack.Install(root, name, archive, marker, skill)
 }
 
 func readGeneratedDecisions(dir string) ([]generatedDecision, error) {

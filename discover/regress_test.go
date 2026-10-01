@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -70,7 +72,7 @@ func TestUnvalidatedDraftsSayUnvalidated(t *testing.T) {
 	if !strings.Contains(string(d.Files["README.md"]), "**Status: unvalidated.**") || !strings.Contains(string(d.Files["primitive.yaml"]), "Unvalidated draft (never executed)") {
 		t.Fatalf("README/manifest do not say unvalidated")
 	}
-	_, digest, err := PackageDraft(d)
+	_, digest, err := pack.PackageDraft(d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,11 +82,11 @@ func TestUnvalidatedDraftsSayUnvalidated(t *testing.T) {
 		t.Fatalf("review output:\n%s", out.String())
 	}
 	dir := t.TempDir()
-	path, _, err := SaveDraft(d, dir)
+	path, _, err := pack.SaveDraft(d, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := os.ReadFile(path + "/" + SavedMarker)
+	b, _ := os.ReadFile(path + "/" + pack.SavedMarker)
 	if !strings.Contains(string(b), `"validation": "not_run"`) {
 		t.Fatalf("marker: %s", b)
 	}

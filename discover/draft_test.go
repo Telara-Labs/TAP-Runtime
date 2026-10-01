@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
@@ -265,7 +267,7 @@ func TestRoutinesAreOnePerTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rs := ReportPatternRoutines(rep)
+	rs := pack.ReportPatternRoutines(rep)
 	if len(rs) != 1 || model.LabelsOf(rep.Candidates[rs[0]]) != "sh:make build → sh:go test → sh:git push" {
 		var got []string
 		for _, i := range rs {
