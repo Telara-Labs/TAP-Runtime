@@ -30,20 +30,35 @@ func createCheckpoint(n int, gap time.Duration) []trace.Session {
 	return ss
 }
 
-// A consistent binding is fully consistent however often it was seen; the
-// primitive's score rises with the runs behind it.
-func TestMoreRunsRaiseTheScore(t *testing.T) {
+// A consistent binding is fully consistent however often it was seen, and
+// the run count is not folded into the score (it is shown on its own).
+func TestRunCountIsNotFoldedIntoTheScore(t *testing.T) {
 	few := find(t, Discover(createCheckpoint(2, time.Second), nil), "mcp:task_create", "mcp:task_checkpoint").Confidence
 	many := find(t, Discover(createCheckpoint(40, time.Second), nil), "mcp:task_create", "mcp:task_checkpoint").Confidence
 	a, b := claim(few, "step 2 task_id"), claim(many, "step 2 task_id")
 	if a == nil || b == nil || a.Score != 100 || b.Score != 100 || a.Support != "2/2" {
 		t.Fatalf("a consistent binding is not fully consistent: few %+v many %+v", a, b)
 	}
-	if few.Overall >= many.Overall || many.Overall < 90 {
-		t.Fatalf("run count does not discount: few %d many %d", few.Overall, many.Overall)
+	if few.Overall != many.Overall || many.Readiness != "candidate" {
+		t.Fatalf("few %d many %d (%s)", few.Overall, many.Overall, many.Readiness)
 	}
-	if many.Readiness != "candidate" {
-		t.Fatalf("consistent flow needs a decision: %+v", many.NeedsReview)
+}
+
+// A value only mentioned in earlier text has no proven source: by rule it is
+// a caller input, not a penalty.
+func TestTextMentionIsAnInputNotAPenalty(t *testing.T) {
+	var ss []trace.Session
+	for i := 0; i < 3; i++ {
+		key := fmt.Sprintf("TENG-%d3", i)
+		ss = append(ss, session(fmt.Sprint("s", i), []string{"look around"},
+			call("mcp:issue_create", map[string]string{"summary": "a b"}, `{"key":"KEY-`+fmt.Sprint(i)+`1"}`, 0, 0),
+			call("mcp:issue_link", map[string]string{"inward": "KEY-" + fmt.Sprint(i) + "1", "outward": key}, `{"ok":true}`, 0, time.Second)))
+		ss[i].Calls[0].Output = `{"key":"KEY-` + fmt.Sprint(i) + `1","note":"see ` + key + ` later"}`
+		ss[i].Calls[0].OutIDs, ss[i].Calls[0].OutCtx, ss[i].Calls[0].OutPaths = trace.OutputRefsPaths(ss[i].Calls[0].Output)
+	}
+	c := find(t, Discover(ss, nil), "mcp:issue_create", "mcp:issue_link").Confidence
+	if c.Overall < 90 || c.Readiness != "candidate" {
+		t.Fatalf("a text mention was penalized: %+v", c)
 	}
 }
 
@@ -90,17 +105,5 @@ func TestLongGapIsANoteNotAPenalty(t *testing.T) {
 	slow := find(t, Discover(createCheckpoint(6, 25*time.Minute), nil), "mcp:task_create", "mcp:task_checkpoint").Confidence
 	if slow.Overall != quick.Overall || len(slow.Notes) == 0 {
 		t.Fatalf("quick %d slow %d notes %v", quick.Overall, slow.Overall, slow.Notes)
-	}
-}
-
-func TestWilsonBounds(t *testing.T) {
-	if w := wilson(1, 2); w > 0.4 {
-		t.Fatalf("2 of 2 = %.2f, too sure", w)
-	}
-	if w := wilson(1, 90); w < 0.95 {
-		t.Fatalf("90 of 90 = %.2f, too unsure", w)
-	}
-	if wilson(0.5, 0) != 0 {
-		t.Fatal("no runs must score 0")
 	}
 }

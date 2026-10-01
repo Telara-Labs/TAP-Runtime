@@ -198,8 +198,8 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	choice := make([]string, len(shown))
 	list := func() {
 		section(out, s, "Proposed primitives (most tokens saved first)")
-		t := table{head: []string{"#", "Primitive", "Runs", "Sessions", "Tokens", "Cached", "Confidence", "Choice"},
-			widths: []int{3, 46, 5, 8, 7, 6, 10, 7}, right: map[int]bool{0: true, 2: true, 3: true, 4: true, 5: true, 6: true}}
+		t := table{head: []string{"#", "Primitive", "Runs", "Sessions", "Tokens", "Cached", "Values traced", "Open questions", "Choice"},
+			widths: []int{3, 42, 5, 8, 7, 6, 13, 14, 7}, right: map[int]bool{0: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true}}
 		for i, f := range shown {
 			c := choice[i]
 			if c == "" {
@@ -208,7 +208,7 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 				c = s.choice(c)
 			}
 			t.rows = append(t.rows, []string{fmt.Sprint(i + 1), title(f), count(f.ExecutionCount), count(f.SessionCount),
-				tokensText(f.SavedTokens), fmt.Sprintf("%.0f%%", cachedShare(f.Saved)), fmt.Sprintf("%d/100", f.Confidence), c})
+				tokensText(f.SavedTokens), fmt.Sprintf("%.0f%%", cachedShare(f.Saved)), fmt.Sprintf("%d of %d", f.Traced, f.Values), fmt.Sprint(f.OpenQuestions), c})
 		}
 		t.render(out, s)
 	}
@@ -402,16 +402,15 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 	if f.ExecutionCount > 0 {
 		per = inputEquivalent(f.Saved) / float64(f.ExecutionCount)
 	}
-	conf := fmt.Sprintf("%d/100 (%s, weighted by runs over %d exact chains; weakest %d) · %s", f.Confidence, Rubric, len(f.Members), f.Weakest, f.Readiness)
-	if f.NeedsDecision > 0 {
-		conf += fmt.Sprintf(", %d chains need a decision", f.NeedsDecision)
-	}
+	conf := fmt.Sprintf("%s; %d of %d exact chains need a decision", f.Readiness, f.NeedsDecision, len(f.Members))
 	mt := table{widths: []int{26, 62}, rows: [][]string{
 		{"Effect", f.Effect + " (unknown is treated as write; the runner asks before each call)"},
 		{"Follow-up turn tokens", fmt.Sprintf("%s total · %s cached · %s fresh · %s output", tot, cached, tokensText(f.Saved.Fresh), tokensText(f.Saved.Output))},
 		{"≈ Input-equivalent", fmt.Sprintf("%s total · %s per run (estimate)", eq, tokensText(per))},
-		{"Confidence", conf},
-		{"Open questions", fmt.Sprintf("%d (agent eval writes them out with the evidence)", open)},
+		{"Values traced", fmt.Sprintf("%d of %d (the source of each value is known in every run: an earlier result, or the caller)", f.Traced, f.Values)},
+		{"Open questions", fmt.Sprintf("%d (agent eval writes them out with the evidence)", f.OpenQuestions)},
+		{"Status", conf},
+		{"Run consistency (detail)", fmt.Sprintf("%d/100 weighted by runs, weakest chain %d (%s; describes the evidence, not a probability)", f.Confidence, f.Weakest, Rubric)},
 	}}
 	if earlier != "" {
 		mt.rows = append(mt.rows, []string{"Earlier decision", earlier})
