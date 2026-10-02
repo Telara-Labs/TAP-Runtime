@@ -63,6 +63,7 @@ type client struct {
 	sc      *bufio.Scanner
 	answer  func(params map[string]any) map[string]any // how it answers an elicitation
 	asked   []string
+	runs    string
 	trust   []string // the first-run question about a package, kept apart from the rest
 	noTrust bool
 	done    chan error
@@ -70,18 +71,25 @@ type client struct {
 
 func startServer(t *testing.T, elicitation bool, answer func(map[string]any) map[string]any) *client {
 	t.Helper()
+	return startServerArgs(t, elicitation, answer)
+}
+
+// startServerArgs is startServer with more flags given to serve.
+func startServerArgs(t *testing.T, elicitation bool, answer func(map[string]any) map[string]any, extra ...string) *client {
+	t.Helper()
 	store := interpreterStore(t)
 	// Each server starts with no package trusted, so one test's yes is not
 	// another's.
 	cfg, oldCfg := t.TempDir(), userConfigDir
 	userConfigDir = func() (string, error) { return cfg, nil }
 	t.Cleanup(func() { userConfigDir = oldCfg })
+	runs := t.TempDir()
 	cr, sw := io.Pipe()
 	sr, cw := io.Pipe()
-	c := &client{t: t, in: cw, sc: bufio.NewScanner(cr), answer: answer, done: make(chan error, 1)}
+	c := &client{t: t, runs: runs, in: cw, sc: bufio.NewScanner(cr), answer: answer, done: make(chan error, 1)}
 	c.sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	go func() {
-		c.done <- serve(sr, sw, []string{"--interpreters", store, "--runs", t.TempDir(), "--journal", filepath.Join(t.TempDir(), "journal.jsonl")})
+		c.done <- serve(sr, sw, append([]string{"--interpreters", store, "--runs", runs, "--journal", filepath.Join(t.TempDir(), "journal.jsonl")}, extra...))
 		sw.Close()
 	}()
 	caps := map[string]any{}

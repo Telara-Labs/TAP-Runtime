@@ -32,6 +32,7 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 	retention := fs.Int("retention-days", 30, "remove the records of runs older than this many days; 0 keeps them for ever")
 	serverName := fs.String("name", "tap", "the name the client knows this server by, as given at install")
 	vscodeSocket := fs.String("vscode-socket", "", "the TAP extension's socket, given by the extension that starts this server in VS Code")
+	noRecord := fs.Bool("no-record", false, "keep no record of a run: tool results and requests are not written to disk, and a run cannot be resumed")
 	configDir := fs.String("config-dir", "", "directory for the choices a person made (tool bindings) and the packages they trust; default is the user config directory")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -48,7 +49,7 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 		defer f.Close()
 		journal = &lockedWriter{w: f}
 	}
-	s := &server{out: out, pending: map[int]chan rpcMessage{}, journal: journal, interpDir: *interpDir, cacheDir: *cacheDir, runsDir: *runsDir, retention: *retention, payloads: *otelPayloads, mcpURL: *mcpURL, mcpHeaderFile: *mcpHeaderFile, vscodeSocket: *vscodeSocket}
+	s := &server{out: out, pending: map[int]chan rpcMessage{}, journal: journal, interpDir: *interpDir, cacheDir: *cacheDir, runsDir: *runsDir, retention: *retention, payloads: *otelPayloads, mcpURL: *mcpURL, mcpHeaderFile: *mcpHeaderFile, vscodeSocket: *vscodeSocket, noRecord: *noRecord}
 	if dir, err := relayDir(); err == nil {
 		s.relay = newRelayHub(dir, *serverName)
 		defer s.relay.close()
@@ -100,6 +101,7 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 }
 
 type server struct {
+	noRecord      bool // keep no record of a run
 	mu            sync.Mutex
 	out           io.Writer
 	next          int
@@ -374,7 +376,7 @@ func (s *server) handle(m rpcMessage) {
 		}
 		o := Options{
 			Package: p.Arguments.Package, Args: p.Arguments.Args, Journal: s.journal, Approve: approve, Choose: choose,
-			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, TelemetryPayloads: s.payloads, Client: clientFor(name),
+			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, NoJournal: s.noRecord, TelemetryPayloads: s.payloads, Client: clientFor(name),
 			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile,
 		}
 		if s.vscodeSocket != "" && s.mcpURL == "" {

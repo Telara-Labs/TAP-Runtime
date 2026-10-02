@@ -213,11 +213,11 @@ func fileOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 			// happens and not at close. Nothing is written or recorded.
 			return reply{}
 		}
-		if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(real), 0o700); err != nil {
 			rec.done("failed", map[string]any{"error": err.Error()})
 			return reply{Exit: 1, Stderr: err.Error()}
 		}
-		if err := os.WriteFile(real, []byte(rq.Stdin), 0o644); err != nil {
+		if err := os.WriteFile(real, []byte(rq.Stdin), 0o600); err != nil {
 			rec.done("failed", map[string]any{"error": err.Error()})
 			return reply{Exit: 1, Stderr: err.Error()}
 		}
@@ -258,7 +258,7 @@ func fetchOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 		return reply{Refused: "not a URL"}
 	}
 	if !fetchAllowed(m.Fetch, method, u) {
-		logf("  REFUSED  fetch %s %s  (outside the declared origins)", method, rq.URL)
+		logf("  REFUSED  fetch %s %s  (outside the declared origins)", method, logURL(rq.URL))
 		rec.done("refused_undeclared", nil)
 		return reply{Refused: "origin or method is outside what this primitive declares"}
 	}
@@ -272,7 +272,7 @@ func fetchOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 	// The person is asked once per origin and kind of request, and the full
 	// address is in the record either way.
 	if !approve {
-		logf("  GATED    fetch %s %s  (%s, no approval)", method, rq.URL, effect)
+		logf("  GATED    fetch %s %s  (%s, no approval)", method, logURL(rq.URL), effect)
 		rec.done("gated", nil)
 		if effect == "read" {
 			return reply{Refused: "a request that leaves this machine needs approval, even a read: its address can carry data out", Gated: true}
@@ -304,7 +304,7 @@ func fetchOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 	t0 := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
-		logf("  FAILED   fetch %s %s: %v", method, rq.URL, err)
+		logf("  FAILED   fetch %s %s: %v", method, logURL(rq.URL), err)
 		rec.done("failed", map[string]any{"error": err.Error()})
 		return reply{Exit: 1, Stderr: err.Error()}
 	}
@@ -314,7 +314,7 @@ func fetchOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 		rec.done("failed", map[string]any{"error": "response could not be read or is larger than the limit"})
 		return reply{Exit: 1, Stderr: "response could not be read or is larger than 10 MB"}
 	}
-	logf("  fetch    %s %s  [%s] status=%d %dB %s", method, rq.URL, effect, resp.StatusCode, len(b), time.Since(t0).Round(time.Millisecond))
+	logf("  fetch    %s %s  [%s] status=%d %dB %s", method, logURL(rq.URL), effect, resp.StatusCode, len(b), time.Since(t0).Round(time.Millisecond))
 	rec.done("ran", map[string]any{"status": resp.StatusCode, "bytes": len(b), "ms": time.Since(t0).Milliseconds()})
 	return reply{Result: string(b), Status: resp.StatusCode}
 }

@@ -254,3 +254,20 @@ func TestExtraFilesAreListed(t *testing.T) {
 		t.Error("an extra file replaced one of the release's own")
 	}
 }
+
+// TENG-3104 (G12): piped to sh, a script cut short mid-way would run what
+// arrived. The body is one function, called on the last line, so a partial
+// script defines it and never calls it.
+func TestTheInstallScriptDoesNothingIfItIsCutShort(t *testing.T) {
+	script := strings.NewReplacer("@VERSION@", "9.9.9", "@BASE@", "https://example.test", "@SUMS@", "  linux-amd64) sum=00 ;;").Replace(installSh)
+	if strings.Count(script, "\nmain() {\n") != 1 || !strings.HasSuffix(strings.TrimSpace(script), `main "$@"`) {
+		t.Fatal("the install script's body is not one function called on its last line")
+	}
+	// Cut anywhere after the function opens and before its call: nothing runs.
+	open := strings.Index(script, "\nmain() {\n")
+	for _, cut := range []int{open + 20, (open + len(script)) / 2, len(script) - 12} {
+		if strings.Contains(script[:cut], `main "$@"`) {
+			t.Fatalf("a script cut at %d already calls main", cut)
+		}
+	}
+}
