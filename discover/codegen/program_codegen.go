@@ -156,7 +156,9 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 				itemRequired := make([]string, 0, len(in.Fields))
 				for _, field := range in.Fields {
 					itemProps[field.Name] = map[string]any{"type": ProgramJSONType(field.Type)}
-					itemRequired = append(itemRequired, field.Name)
+					if !field.Optional {
+						itemRequired = append(itemRequired, field.Name)
+					}
 				}
 				sort.Strings(itemRequired)
 				schema = map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": itemProps, "required": itemRequired, "additionalProperties": false}}
@@ -195,7 +197,23 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 			code.WriteString("if " + guard + "not all(_typed(item, " + strconv.Quote(ProgramJSONType(in.Type)) + ") for item in inputs[" + q + "]):\n    raise ValueError('input ' + " + q + " + ' has an item of the wrong type')\n")
 			for _, field := range in.Fields {
 				fq := strconv.Quote(field.Name)
-				code.WriteString("if " + guard + "not all(" + fq + " in item and _typed(item[" + fq + "], " + strconv.Quote(ProgramJSONType(field.Type)) + ") for item in inputs[" + q + "]):\n    raise ValueError('input ' + " + q + " + ' has a missing or mistyped field ' + " + fq + ")\n")
+				check := fq + " in item and _typed(item[" + fq + "], " + strconv.Quote(ProgramJSONType(field.Type)) + ")"
+				if field.Optional {
+					check = fq + " not in item or _typed(item[" + fq + "], " + strconv.Quote(ProgramJSONType(field.Type)) + ")"
+				}
+				code.WriteString("if " + guard + "not all(" + check + " for item in inputs[" + q + "]):\n    raise ValueError('input ' + " + q + " + ' has a missing or mistyped field ' + " + fq + ")\n")
+			}
+			if len(in.ItemProfiles) > 0 {
+				var optional []string
+				for _, field := range in.Fields {
+					if field.Optional {
+						optional = append(optional, field.Name)
+					}
+				}
+				sort.Strings(optional)
+				names, _ := json.Marshal(optional)
+				profiles, _ := json.Marshal(in.ItemProfiles)
+				code.WriteString("if " + guard + "any((set(item) & set(" + string(names) + ")) not in [set(profile) for profile in " + string(profiles) + "] for item in inputs[" + q + "]):\n    raise ValueError('input ' + " + q + " + ' has an unobserved optional item field combination')\n")
 			}
 			if len(in.Fields) > 0 {
 				var names []string
@@ -452,7 +470,11 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 		}
 		fmt.Fprintf(&readme, "- `%s`: %s, from %s\n", in.Name, kind, in.Source)
 		for _, field := range in.Fields {
-			fmt.Fprintf(&readme, "  - `%s`: %s -> tool argument `%s`\n", field.Name, field.Type, strings.Join(field.Path, "."))
+			optional := ""
+			if field.Optional {
+				optional = " (optional)"
+			}
+			fmt.Fprintf(&readme, "  - `%s`: %s%s -> tool argument `%s`\n", field.Name, field.Type, optional, strings.Join(field.Path, "."))
 		}
 	}
 	readme.WriteString("\n## Ordered calls\n\n")
@@ -552,6 +574,9 @@ func ProgramOptionalNames(st ProgramStep) ([]string, error) {
 	for _, arg := range st.Args {
 		if !arg.Optional {
 			continue
+		}
+		if arg.Value.Kind == "item" && st.Loop != "" {
+			continue // validated against the loop input's item profiles
 		}
 		if arg.Value.Kind != "input" || arg.Value.Input == "" {
 			return nil, fmt.Errorf("optional argument %s is not bound to a caller input", strings.Join(arg.Path, "/"))
@@ -711,10 +736,17 @@ func RenderProgramTree(n *ProgramArgTree) (string, string, error) {
 	if n.Value != nil {
 		presence := "True"
 		if n.Optional {
-			if n.Value.Kind != "input" {
+			if n.Value.Kind == "item" {
+				field := strings.TrimPrefix(n.Value.ResultPath, ".")
+				if field == "" || strings.ContainsAny(field, ".[]") {
+					return "", "", fmt.Errorf("optional item argument must be one item field")
+				}
+				presence = strconv.Quote(field) + " in item"
+			} else if n.Value.Kind != "input" {
 				return "", "", fmt.Errorf("optional argument must be a caller input")
+			} else {
+				presence = strconv.Quote(n.Value.Input) + " in inputs"
 			}
-			presence = strconv.Quote(n.Value.Input) + " in inputs"
 		}
 		switch n.Value.Kind {
 		case "input":

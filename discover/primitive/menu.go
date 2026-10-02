@@ -377,7 +377,7 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 		case "optional_followups":
 			fmt.Fprintln(out, "  Runs the first operation once. Supply none, one, or several independent follow-up lists.")
 			fmt.Fprintln(out, "  Optional inputs: "+strings.Join(f.APIInputs, ", "))
-			fmt.Fprintf(out, "  API evidence: weakest included path %d/100; each path's relationship and call-shape support is shown below.\n", f.APIConfidence)
+			fmt.Fprintf(out, "  API evidence: weakest included path %d/100; each path's relationship and tool-route support is shown below.\n", f.APIConfidence)
 			fmt.Fprintln(out, "  Evidence scores measure recorded support, not a predicted success rate.")
 			fmt.Fprintln(out, "  Calls run in listed order. A later failure reports completed results; earlier writes may remain.")
 		case "caller_choice":
@@ -477,7 +477,7 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 			case "":
 				assessment = "not assessed"
 			}
-			line := fmt.Sprintf("%s: %d runs · API evidence %d/100 (relationship %d/100; call shape %s) · ~%s potential tokens · %s", followUpText(fu), fu.Runs, fu.Confidence, fu.RelationshipScore, shape, tokensText(fu.PotentialTokens), assessment)
+			line := fmt.Sprintf("%s: %d runs · API evidence %d/100 (relationship %d/100; tool route %s) · ~%s potential tokens · %s", followUpText(fu), fu.Runs, fu.Confidence, fu.RelationshipScore, shape, tokensText(fu.PotentialTokens), assessment)
 			for _, part := range wrapText(line, max(20, min(s.cols(), screen)-6)) {
 				fmt.Fprintln(out, "  "+part)
 			}

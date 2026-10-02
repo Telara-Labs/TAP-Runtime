@@ -118,7 +118,7 @@ func TestUnrelatedContinuationDoesNotJoinCausalBundle(t *testing.T) {
 	}
 }
 
-func TestCausalBundleScoresAndExcludesDifferentCallShape(t *testing.T) {
+func TestCausalBundleAdmitsObservedOptionalItemField(t *testing.T) {
 	f, members, sessions := causalBundleFixture()
 	id := "comment_variant"
 	sessions = append(sessions, trace.Session{Client: "claude-code", ID: id, Calls: []trace.Call{
@@ -132,10 +132,87 @@ func TestCausalBundleScoresAndExcludesDifferentCallShape(t *testing.T) {
 	planPrimitiveFamilies(&res, sessions)
 	got := res.Families[0]
 	comment := got.FollowUps[0]
-	if comment.RelationshipScore != 100 || comment.ShapeScore != 66 || comment.Confidence != 66 ||
-		comment.APIMode != "exact_chain" || !strings.Contains(comment.APIReason, "another call shape") ||
-		got.APIMode != "optional_followups" || got.APIConfidence != 66 {
-		t.Fatalf("call-shape coverage was not scored and limited: %+v", got)
+	if comment.RelationshipScore != 100 || comment.ShapeScore != 100 || comment.Confidence != 100 ||
+		comment.APIMode != "exact_chain" || got.APIMode != "optional_followups" || got.APIConfidence != 100 {
+		t.Fatalf("optional field was not represented in the same route: %+v", got)
+	}
+	by := map[string]*trace.Session{}
+	for i := range sessions {
+		by[sessions[i].Client+"\x00"+sessions[i].ID] = &sessions[i]
+	}
+	g, why := bundleGraph(got, members, by)
+	if g == nil {
+		t.Fatal(why)
+	}
+	pkg, err := codegen.GenerateProgramPackage(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var optionalItem bool
+	for _, input := range g.Inputs {
+		for _, field := range input.Fields {
+			optionalItem = optionalItem || field.Optional
+		}
+	}
+	if !optionalItem || !strings.Contains(string(pkg.Files["README.md"]), "optional") {
+		t.Fatalf("optional item contract missing: %+v", g.Inputs)
+	}
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable")
+	}
+	for _, tc := range []struct{ input, want string }{
+		{`{"step_1_summary":"fresh","issue_comment_items":[{"body":"plain"},{"body":"detailed","extra":"yes"}]}`, `[["step_1", {"summary": "fresh"}], ["step_2", {"body": "plain", "issue_key": "NEW-9"}], ["step_2", {"body": "detailed", "extra": "yes", "issue_key": "NEW-9"}]]`},
+		{`{"step_1_summary":"fresh","issue_comment_items":[{"body":"plain","extra":7}]}`, `[]`},
+	} {
+		harness := strings.Join([]string{
+			"import json, sys",
+			"calls = []",
+			"class Tap:",
+			"    def call(self, alias, args):",
+			"        calls.append([alias, args])",
+			"        return {'key': 'NEW-9'} if alias == 'step_1' else {'ok': True}",
+			"sys.argv = ['main.py', " + strconv.Quote(tc.input) + "]",
+			"try:",
+			"    exec(compile(sys.stdin.read(), 'main.py', 'exec'), {'tap': Tap()})",
+			"except ValueError:",
+			"    pass",
+			"print('CALLS=' + json.dumps(calls))",
+		}, "\n")
+		cmd := exec.Command(python, "-c", harness)
+		cmd.Stdin = strings.NewReader(string(pkg.Files["main.py"]))
+		out, err := cmd.CombinedOutput()
+		if err != nil || !strings.Contains(string(out), "CALLS="+tc.want) {
+			t.Fatalf("optional item execution: %v\n%s", err, out)
+		}
+	}
+}
+
+func TestModalFollowUpShapeSeparatesDispatcherRoute(t *testing.T) {
+	p := primitive.Primitive{Steps: []string{"mcp:issue_create", "mcp:issue_get"}}
+	by := map[string]*trace.Session{}
+	for i, variant := range []struct {
+		server, head, tail string
+		fields             bool
+	}{
+		{"test", "issue_create", "issue_get", false},
+		{"test", "issue_create", "issue_get", true},
+		{"test", "execute_action", "execute_action", false},
+	} {
+		id := strconv.Itoa(i)
+		args := map[string]string{"issue_key": "OLD-9"}
+		if variant.fields {
+			args["fields"] = "summary,status"
+		}
+		by["claude-code\x00"+id] = &trace.Session{Client: "claude-code", ID: id, Calls: []trace.Call{
+			{Tool: "mcp:issue_create", MCPServer: variant.server, MCPTool: variant.head},
+			{Tool: "mcp:issue_get", MCPServer: variant.server, MCPTool: variant.tail, Args: args},
+		}}
+		p.Executions = append(p.Executions, primitive.Execution{Client: "claude-code", Session: id, Calls: []primitive.CallRef{{Step: 1, Index: 0}, {Step: 2, Index: 1}}})
+	}
+	_, kept, total := modalFollowUpShape(p, by, "test/issue_create")
+	if kept != 2 || total != 3 {
+		t.Fatalf("route coverage = %d/%d, want 2/3", kept, total)
 	}
 }
 
