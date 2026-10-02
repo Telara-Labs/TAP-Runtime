@@ -4,6 +4,10 @@ bin/
 cache/
 journal.jsonl
 
+# The npm CLI entrypoint is source code, not a build artifact.
+!npm/bin/
+!npm/bin/tap.cjs
+
 # Local environment and secret material
 .env
 .env.*
@@ -16,3 +20,8 @@ dist/
 *.key
 .tmp/
 .cache/
+
+# Binaries go build leaves next to a command's package
+/discover/discover-fixture
+/discover/discover
+/discover/discover-eval
