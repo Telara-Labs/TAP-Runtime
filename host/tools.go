@@ -71,6 +71,17 @@ func detectClient() string {
 	return ""
 }
 
+// lendsConnections reports whether the runner can borrow this client's
+// connections: through a call-back API (openBridge) or a relay hook. The
+// discover registry's Bridge flag must agree (TestRegistryBridgeMatchesRunner).
+func lendsConnections(client string) bool {
+	switch client {
+	case "claude", "codex":
+		return true
+	}
+	return relayClient(client)
+}
+
 func openBridge(client string) (bridge.Bridge, error) {
 	switch client {
 	case "claude":

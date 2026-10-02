@@ -1,6 +1,8 @@
 # tap discover: many clients in, many clients out
 
-Status: plan, decisions taken 2026-10-02 (§1.1). Epic **TENG-3107**: P1 TENG-3108, P2 TENG-3109, P3r TENG-3110, P4a TENG-3111, R1 TENG-3112 (§8).
+Status: decisions taken 2026-10-02 (§1.1). Epic **TENG-3107**: P1 TENG-3108, P2 TENG-3109, P3r TENG-3110, P4a TENG-3111, R1 TENG-3112 (§8).
+
+Implemented 2026-10-02 on main: P1 `30043b9`, P4a `07d45dc`, R1 `76b2d99`, P2 `fc52c6c` + `96077f9` + `04bd56b` (root pin bump and runner end-to-end test). P3r: `docs/bridge-research.md`.
 Written 2026-10-02 against tap-runtime `060f037`.
 
 ## 1. Goal
@@ -114,8 +116,10 @@ server connected, with no per-agent copy.
 **Pointers.** For each chosen agent, write `<agent skills dir>/<name>/SKILL.md`
 and nothing else:
 
-- The pointer names the primitive (`publisher/name@version` and its digest)
-  and says to run it with `tap_run`. It holds no package and no
+- The pointer names the primitive (`publisher/name@version` and its run
+  digest, the one `tap_search` lists and `tap_run` checks: sha256 of
+  `primitive.yaml` + entrypoint, not the archive digest in the marker) and
+  says to run it with `tap_run`. It holds no package and no
   `.tap-primitive.json`, so the catalog never lists it twice ("ordinary
   `SKILL.md` folders are not treated as TAP primitives",
   `docs/install.md`).
@@ -249,7 +253,7 @@ history is obtained at all.
 | codex | `~/.codex/sessions/**/*.jsonl` | AppendLog · OpenAIResponses (+ JS `exec`) · Namespaced | existing reader |
 | cursor IDE | `Cursor/User/{globalStorage,workspaceStorage/*}/state.vscdb` | Rows (KV) · CursorBubbles · Dispatcher | existing reader (reads globalStorage only; add workspaceStorage) |
 | **cursor CLI** | `~/.cursor/chats/<ws>/<id>/store.db` (`blobs`: JSON messages + protobuf tree nodes; `meta.json` has `cwd`, `createdAtMs`); also `~/.cursor/projects/<path>/agent-transcripts/**/*.jsonl` (`{role,message:{content:[tool_use…]}}`, no results) | Rows · AISDKMessages (`tool-call{toolCallId,toolName,args}` / `tool-result{toolCallId,result}`) · Dispatcher (`CallMcpTool{server,toolName,arguments}`, `CallDynamicTool{namespace,toolName,arguments,mcpDetails}`) | **on disk**: 30 store.db sessions with 1185 paired calls; 729 agent-transcript files. Use store.db (it has the results) |
-| **antigravity** | `~/.gemini/antigravity/brain/<id>/.system_generated/logs/transcript_full.jsonl` (also per-conversation SQLite `conversations/<id>.db` with protobuf `steps`, not needed) | AppendLog · CascadeSteps: `{step_index,source,type,status,created_at,content,tool_calls[{name,args}]}`; types USER_INPUT/PLANNER_RESPONSE/GENERIC/ERROR_MESSAGE; one call per step, result = the next GENERIC/ERROR step · Dispatcher (`call_mcp_tool{ServerName,ToolName,Arguments}`) | **on disk**: 4 conversations, 136 calls |
+| **antigravity** | `~/.gemini/antigravity/brain/<id>/.system_generated/logs/transcript_full.jsonl` (also per-conversation SQLite `conversations/<id>.db` with protobuf `steps`, not needed) | AppendLog · CascadeSteps: `{step_index,source,type,status,created_at,content,tool_calls[{name,args}]}`; types USER_INPUT/PLANNER_RESPONSE/GENERIC/ERROR_MESSAGE; one call per step; its result is step k+1 (GENERIC, or ERROR_MESSAGE = failed). Some result steps are never written, so pair by index, not order: 131 of 136 calls here had k+1, 5 had none · Dispatcher (`call_mcp_tool{ServerName,ToolName,Arguments}`) | **on disk**: 4 conversations, 136 calls |
 | **windsurf** (now Devin Desktop) | HookCapture (documented): with a `post_cascade_response_with_transcript` hook in `~/.codeium/windsurf/hooks.json`, Windsurf writes the full conversation to `~/.windsurf/transcripts/{trajectory_id}.jsonl` (0600, pruned to 100 newest files) and passes the path on stdin. Per-call hooks: `post_mcp_tool_use{mcp_server_name,mcp_tool_name,mcp_tool_arguments,mcp_result}`, `post_run_command{command_line,cwd}`. History from before the hook was installed lives only in `~/.codeium/windsurf/cascade/*.pb` (no public schema or export; users have asked for one) | AppendLog · CascadeSteps, lower-case variant: `{"type":"user_input","status":"done","user_input":{…}}`, one step per line, step data under a key named after its type · Namespaced (hook fields) | **vendor docs** (docs.devin.ai/desktop/cascade/hooks). Capture runs going forward only. Not installed here |
 | **gemini-cli** | `~/.gemini/tmp/<project>/chats/session-*.jsonl` | ReplayLog (`$set`/`$patch`/`$rewindTo`) · GeminiRecord (`toolCalls[]{id,name,args,result,status}`, `tokens{…}`) · to check | **source** + **on disk** (1 session; header and `$set` match the source) |
 | qwen-code | `~/.qwen/tmp/<project>/chats/` | as gemini-cli | deja-vu `qwen.go` + `docs/registry/qwen.md` |
