@@ -165,8 +165,12 @@ fetch:
 Paths are relative to the directory the runner is started in, and nothing
 outside them can be read or written. A fetch origin is a scheme and a host,
 with no path. One leading wildcard label is allowed, never over a public suffix
-such as `*.com`. A write, or any method but `GET` and `HEAD`, is asked of the
-person first.
+such as `*.com`. The person is asked before a primitive first reaches an
+origin, even for a `GET`, because an address and its headers can carry data off
+the machine; they are asked once per origin in a run, and every full address is
+in the record. A write, or any method but `GET` and `HEAD`, is asked of the
+person each time it is a new kind of change. From the command line, add
+`--approve` to let a primitive that fetches run.
 
 ### Checking a manifest
 

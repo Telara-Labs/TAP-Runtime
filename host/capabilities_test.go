@@ -116,7 +116,7 @@ func TestFetchIsBoundedByOriginAndMethod(t *testing.T) {
 
 	m := &manifest{Fetch: []fetchDecl{{Origin: declared.URL, Methods: []string{"GET", "POST"}}}}
 	var j bytes.Buffer
-	if r := fetchOp(m, request{URL: declared.URL + "/data", Headers: map[string]string{"X-Test": "h"}}, false, &j); r.Result != "data h" || r.Status != 200 {
+	if r := fetchOp(m, request{URL: declared.URL + "/data", Headers: map[string]string{"X-Test": "h"}}, true, &j); r.Result != "data h" || r.Status != 200 {
 		t.Fatalf("a declared GET failed: %+v", r)
 	}
 	if r := fetchOp(m, request{URL: other.URL + "/x"}, true, &j); r.Refused == "" {
@@ -125,10 +125,10 @@ func TestFetchIsBoundedByOriginAndMethod(t *testing.T) {
 	if r := fetchOp(m, request{URL: declared.URL + "/data", HTTPMethod: "DELETE"}, true, &j); r.Refused == "" {
 		t.Error("an undeclared method was sent")
 	}
-	if r := fetchOp(m, request{URL: declared.URL + "/stay"}, false, &j); r.Result != "data " {
+	if r := fetchOp(m, request{URL: declared.URL + "/stay"}, true, &j); r.Result != "data " {
 		t.Errorf("a redirect within the declared origin was not followed: %+v", r)
 	}
-	if r := fetchOp(m, request{URL: declared.URL + "/leave"}, false, &j); r.Exit == 0 || strings.Contains(r.Result, "other origin") {
+	if r := fetchOp(m, request{URL: declared.URL + "/leave"}, true, &j); r.Exit == 0 || strings.Contains(r.Result, "other origin") {
 		t.Errorf("a redirect left the declared origin: %+v", r)
 	}
 	if r := fetchOp(m, request{URL: declared.URL + "/data", HTTPMethod: "POST", Stdin: "b"}, false, &j); r.Refused == "" || posts != 0 {
@@ -210,5 +210,69 @@ func TestFetchSubdomainWildcard(t *testing.T) {
 		if got := fetchAllowed(decls, "GET", u); got != want {
 			t.Errorf("GET %s: allowed=%v, want %v", raw, got, want)
 		}
+	}
+}
+
+// TENG-3099: a GET is a read, but its address and headers can carry what the
+// program read off this machine. It is gated like a change, and the full
+// address is recorded whether it ran or not.
+func TestAReadFetchThatCarriesDataOutIsGatedAndRecorded(t *testing.T) {
+	seen := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { seen++; w.Write([]byte("ok")) }))
+	defer srv.Close()
+	m := &manifest{Fetch: []fetchDecl{{Origin: srv.URL}}}
+	var j bytes.Buffer
+	leak := srv.URL + "/search?q=SECRET-FILE-CONTENTS"
+	r := fetchOp(m, request{URL: leak}, false, &j)
+	if !r.Gated || r.Refused == "" || seen != 0 {
+		t.Fatalf("a GET carrying data out ran without approval: %+v (server saw %d)", r, seen)
+	}
+	if !strings.Contains(j.String(), "SECRET-FILE-CONTENTS") || !strings.Contains(j.String(), "gated") {
+		t.Errorf("the refused request's address is not in the record: %s", j.String())
+	}
+	if r := fetchOp(m, request{URL: leak}, true, &j); r.Result != "ok" || seen != 1 {
+		t.Errorf("an approved GET did not run: %+v", r)
+	}
+}
+
+func TestThePersonIsAskedOncePerOriginForReads(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) }))
+	defer srv.Close()
+	var asks []Ask
+	res, err := runLimited(t, "main.py", "fetch:\n  - {origin: \""+srv.URL+"\"}\n", `
+a = tap.fetch("`+srv.URL+`/one?x=1")
+b = tap.fetch("`+srv.URL+`/two?x=2")
+print(a["status"], b["status"])
+`, Options{Approve: func(a Ask) Grant {
+		asks = append(asks, a)
+		return Grant{OK: true, Limit: Unlimited}
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(asks) != 1 || asks[0].Effect != "read" || !strings.Contains(asks[0].Kind, srv.URL) {
+		t.Fatalf("want one question about the origin, got %+v", asks)
+	}
+	if strings.TrimSpace(res.Stdout) != "200 200" {
+		t.Fatalf("got %q (stderr %q)", res.Stdout, res.Stderr)
+	}
+}
+
+func TestADeclinedOriginIsNotFetched(t *testing.T) {
+	seen := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { seen++; w.Write([]byte("ok")) }))
+	defer srv.Close()
+	res, err := runLimited(t, "main.py", "fetch:\n  - {origin: \""+srv.URL+"\"}\n", `
+try:
+    tap.fetch("`+srv.URL+`/x")
+    print("fetched")
+except PermissionError:
+    print("refused")
+`, Options{Approve: func(Ask) Grant { return Grant{} }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(res.Stdout) != "refused" || seen != 0 {
+		t.Fatalf("a declined origin was reached: %q, server saw %d", res.Stdout, seen)
 	}
 }
