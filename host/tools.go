@@ -311,11 +311,22 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 
 func rankOf(e bind.Effect) int { return bind.Rank(e) }
 
-// effective is the effect the gate uses: what was declared, raised to write
-// when the tool's own server said nothing about it (ruling 20).
+// effective is the effect the gate uses. The declaration is an upper bound,
+// held at binding (a tool annotated as doing more never binds). Within it
+// the tool's own server decides: a tool its server annotates read-only runs
+// as a read, whatever was declared, since a primitive generated from history
+// declares write when the history could not show the effect. A tool its
+// server says nothing about is treated as a write (ruling 20), and so is one
+// the person's client is set to ask about (TENG-3101).
 func (b *binding) effective() string {
-	if (b.Gated || b.Asked) && b.Declared == string(bind.Read) {
-		return string(bind.Write)
+	if b.Gated || b.Asked {
+		if b.Declared == string(bind.Read) {
+			return string(bind.Write)
+		}
+		return b.Declared
+	}
+	if b.tool.Annotated == bind.Read {
+		return string(bind.Read)
 	}
 	return b.Declared
 }
