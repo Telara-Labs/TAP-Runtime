@@ -85,7 +85,10 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 			}
 			if v.Kind == "collection_index" || v.Kind == "collection_index_item" {
 				input, ok := inputSpecs[v.Input]
-				if v.Step < 1 || v.Step > i || !ok || input.Type != "integer" || input.Optional ||
+				// Optional only in a branch program, where it is required
+				// whenever this step's branch is the one selected.
+				branchRequired := input.RequiredWhenInput != "" && input.RequiredWhenInput == step.WhenInput && input.RequiredWhenValue == step.WhenValue
+				if v.Step < 1 || v.Step > i || !ok || input.Type != "integer" || (input.Optional && !branchRequired) ||
 					(v.Kind == "collection_index_item" && (!input.List || step.Loop != v.Input)) ||
 					(v.Kind == "collection_index" && (input.List || step.Loop != "" || step.LoopResultStep != 0)) ||
 					g.Steps[v.Step-1].Loop != "" || g.Steps[v.Step-1].LoopResultStep != 0 {
