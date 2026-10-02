@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -216,4 +217,37 @@ func mustRead(path string) []byte {
 		panic(err)
 	}
 	return b
+}
+
+// End to end for R2 (TENG-3117): VS Code Copilot, Gemini CLI and Qwen Code
+// sessions in their usual places under HOME are detected and read by
+// default.
+func TestDiscoverReadsR2Agents(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	user := filepath.Join(home, ".config", "Code", "User")
+	if runtime.GOOS == "darwin" {
+		user = filepath.Join(home, "Library", "Application Support", "Code", "User")
+	}
+	copyTree(t, "../history/testdata/vscode-copilot/User", user)
+	os.MkdirAll(filepath.Join(user, "globalStorage", "github.copilot-chat"), 0o755)
+	copyTree(t, "../history/testdata/gemini-cli/tmp", filepath.Join(home, ".gemini", "tmp"))
+	copyTree(t, "../history/testdata/qwen-code/projects", filepath.Join(home, ".qwen", "projects"))
+	got := strings.Join(reportClients(t), ",")
+	if got != "gemini-cli,qwen-code,vscode-copilot" {
+		t.Fatalf("read %s", got)
+	}
+	var out, errOut bytes.Buffer
+	if code := discover.Command([]string{"report", "--json"}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	var rep model.Report
+	json.Unmarshal(out.Bytes(), &rep)
+	calls := map[string]int{}
+	for _, c := range rep.Clients {
+		calls[c.Client] = c.Calls
+	}
+	if calls["gemini-cli"] != 3 || calls["qwen-code"] != 3 || calls["vscode-copilot"] != 4 {
+		t.Fatalf("calls %v", calls)
+	}
 }

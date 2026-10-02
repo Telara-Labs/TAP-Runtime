@@ -79,8 +79,8 @@ func TestResolve(t *testing.T) {
 	// Detected (the default) keeps only agents with the capability.
 	for _, list := range []string{"", "detected"} {
 		cs, err := Resolve(list, home, CapHistory, HasHistory)
-		if err != nil || ids(cs) != "codex" {
-			t.Errorf("Resolve(%q) = %s, %v; want codex", list, ids(cs), err)
+		if err != nil || ids(cs) != "codex,gemini-cli" {
+			t.Errorf("Resolve(%q) = %s, %v; want codex,gemini-cli", list, ids(cs), err)
 		}
 	}
 	cs, err := Resolve("all", home, CapHistory, HasHistory)

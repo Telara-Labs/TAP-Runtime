@@ -1,0 +1,12 @@
+{"sessionId":"5f2c0000-0000-4000-8000-000000000001","projectHash":"abc","startTime":"2026-10-01T10:00:00Z","lastUpdated":"2026-10-01T10:00:00Z","kind":"main"}
+{"id":"u1","timestamp":"2026-10-01T10:00:01Z","type":"user","content":[{"text":"<session_context>workspace setup</session_context>"}]}
+{"id":"u2","timestamp":"2026-10-01T10:00:02Z","type":"user","content":[{"text":"find the open issues"}]}
+{"id":"g1","timestamp":"2026-10-01T10:00:05Z","type":"gemini","content":"","toolCalls":[{"id":"call-1","name":"mcp_jira_search_issues","args":{"jql":"status = open"},"status":"executing","timestamp":"2026-10-01T10:00:05Z"}],"model":"gemini-3"}
+{"id":"g1","timestamp":"2026-10-01T10:00:05Z","type":"gemini","content":"","toolCalls":[{"id":"call-1","name":"mcp_jira_search_issues","args":{"jql":"status = open"},"status":"success","timestamp":"2026-10-01T10:00:05Z","result":[{"functionResponse":{"id":"call-1","name":"mcp_jira_search_issues","response":{"output":"{\"issues\":[{\"key\":\"ABC-12\"}]}"}}}]},{"id":"call-2","name":"run_shell_command","args":{"command":"git status --short"},"status":"success","timestamp":"2026-10-01T10:00:07Z","result":[{"functionResponse":{"id":"call-2","name":"run_shell_command","response":{"output":"M a.go"}}}]}],"tokens":{"input":1200,"output":80,"cached":1000,"thoughts":20,"tool":0,"total":1300},"model":"gemini-3"}
+{"id":"u3","timestamp":"2026-10-01T10:00:08Z","type":"user","content":"now open ABC-99"}
+{"id":"g2","timestamp":"2026-10-01T10:00:09Z","type":"gemini","content":"","toolCalls":[{"id":"call-3","name":"mcp_jira_get_issue","args":{"issue_key":"ABC-99"},"status":"error","timestamp":"2026-10-01T10:00:09Z","result":[{"functionResponse":{"id":"call-3","name":"mcp_jira_get_issue","response":{"error":"Issue does not exist"}}}]}],"model":"gemini-3"}
+{"id":"u4","timestamp":"2026-10-01T10:00:10Z","type":"user","content":"never mind, delete it"}
+{"id":"g3","timestamp":"2026-10-01T10:00:11Z","type":"gemini","content":"","toolCalls":[{"id":"call-4","name":"mcp_jira_delete_issue","args":{"issue_key":"ABC-12"},"status":"success"}],"model":"gemini-3"}
+{"$rewindTo":"u4"}
+{"$set":{"lastUpdated":"2026-10-01T10:00:12Z"}}
+{"id":"g4","type":"gem
