@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"gitlab.com/telara-labs/tap-runtime/bind"
 )
@@ -110,27 +111,41 @@ func (v *VSCode) Asks(t bind.Tool) (bool, error) {
 }
 
 // askKeyCovers reports whether a key of chat.tools.eligibleForAutoApproval
-// names the tool. VS Code keys the setting by a tool's reference name, which
-// for an MCP tool is "<server>/<tool>" (read from the shipped VS Code, 1.138),
-// and "<server>/*" for a whole server. The editor lists the tool as
-// mcp_<server>_<tool>, so a key matches by its tool part as a suffix of that
-// name, or by its server part for a whole server. This is a best match, not
-// the editor's own lookup.
+// names the tool. VS Code keys the setting by a tool's reference name: runTask
+// for a built-in tool the editor lists as run_task, and "<server>/<tool>" for
+// an MCP tool, or "<server>/*" for a whole server (read from the shipped VS
+// Code 1.138 source, and the built-in names seen in a live VS Code 1.140). The
+// editor lists an MCP tool as mcp_<server>_<tool>. Names are compared without
+// case or punctuation. This is a best match, not the editor's own lookup.
 func askKeyCovers(key string, t bind.Tool) bool {
-	if key == t.Name {
-		return true
-	}
 	server, tool := "", key
 	if i := strings.LastIndex(key, "/"); i >= 0 {
 		server, tool = key[:i], key[i+1:]
 	}
 	if tool == "*" {
-		return server != "" && server == t.Server
+		return server != "" && strings.EqualFold(server, t.Server)
 	}
-	if server != "" && server != t.Server && !strings.EqualFold(server, t.Server) {
+	if server != "" && !strings.EqualFold(server, t.Server) {
 		return false
 	}
-	return tool == t.Name || strings.HasSuffix(t.Name, "_"+tool)
+	name, want := plain(t.Name), plain(tool)
+	if server == "" {
+		// A bare name is a built-in tool's, or an MCP tool whose reference name
+		// carries no server. Asking too often is the safe way to be wrong.
+		return name == want || (strings.HasPrefix(name, "mcp") && strings.HasSuffix(name, want))
+	}
+	return name == want || strings.HasSuffix(name, want)
+}
+
+// plain lowers a name and drops everything but letters and digits.
+func plain(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 func (v *VSCode) Close() { v.conn.Close() }
 
