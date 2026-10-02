@@ -233,6 +233,35 @@ func (s *server) elicit(a Ask) Grant {
 	return Grant{OK: true, Limit: limit}
 }
 
+// choose asks the person which of several servers should fill a capability.
+// Anything but an explicit pick of one of them is a no.
+func (s *server) choose(p Pick) (string, bool) {
+	m, ok := s.ask("elicitation/create", map[string]any{
+		"message": fmt.Sprintf("The primitive %q needs a tool for %s, and %d connected servers offer one that fits equally well. The runner does not choose between them. Which should it use? The choice is kept on this machine for %s.\n\nNothing is done until you answer.",
+			p.Primitive, p.Capability, len(p.Servers), p.Client),
+		"requestedSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"server": map[string]any{"type": "string", "title": "Server", "enum": p.Servers},
+			},
+			"required": []string{"server"},
+		},
+	})
+	if !ok || m.Error != nil {
+		return "", false
+	}
+	var r struct {
+		Action  string `json:"action"`
+		Content struct {
+			Server string `json:"server"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(m.Result, &r) != nil || r.Action != "accept" || r.Content.Server == "" {
+		return "", false
+	}
+	return r.Content.Server, true
+}
+
 var runTool = map[string]any{
 	"name":        "tap_run",
 	"description": "Run a TAP primitive: a package with a primitive.yaml and one program. The program runs in a sandbox and can only do what its primitive.yaml declares. Any change it wants to make is shown to the user for approval first.",
@@ -305,11 +334,13 @@ func (s *server) handle(m rpcMessage) {
 			return
 		}
 		var approve Approver
+		var choose Chooser
 		if canElicit {
 			approve = s.elicit
+			choose = s.choose
 		}
 		o := Options{
-			Package: p.Arguments.Package, Args: p.Arguments.Args, Journal: s.journal, Approve: approve,
+			Package: p.Arguments.Package, Args: p.Arguments.Args, Journal: s.journal, Approve: approve, Choose: choose,
 			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, TelemetryPayloads: s.payloads, Client: clientFor(name),
 			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile,
 		}
