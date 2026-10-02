@@ -222,4 +222,13 @@ func TestConnectedReadsEachAgentsConfig(t *testing.T) {
 	if is("cursor") {
 		t.Error("a malformed file reads as connected")
 	}
+	// Goose: an extension in config.yaml, beside scalar settings.
+	at(".config/goose/config.yaml", "GOOSE_PROVIDER: openai\nextensions:\n  developer:\n    type: builtin\n")
+	if is("goose") {
+		t.Error("goose connected with no tap extension")
+	}
+	at(".config/goose/config.yaml", "GOOSE_PROVIDER: openai\nextensions:\n  tap:\n    type: stdio\n    cmd: tap\n")
+	if !is("goose") {
+		t.Error("goose's tap extension not read")
+	}
 }
