@@ -135,7 +135,21 @@ func TestDiscoverReadsCursorCLIAndAntigravity(t *testing.T) {
 			t.Fatalf("%v %s", err, out)
 		}
 	}
-	copyTree(t, "../history/testdata/antigravity", filepath.Join(home, ".gemini", "antigravity", "brain"))
+	copyTree(t, "../history/testdata/antigravity/brain", filepath.Join(home, ".gemini", "antigravity", "brain"))
+	// Antigravity's state database, which holds each generation's tokens.
+	states, _ := filepath.Glob("../history/testdata/antigravity/conversations/*.sql")
+	if len(states) == 0 {
+		t.Fatal("no Antigravity state fixture")
+	}
+	for _, f := range states {
+		db := filepath.Join(home, ".gemini", "antigravity", "conversations", strings.TrimSuffix(filepath.Base(f), ".sql")+".db")
+		os.MkdirAll(filepath.Dir(db), 0o755)
+		cmd := exec.Command(bin, db)
+		cmd.Stdin = bytes.NewReader(mustRead(f))
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+	}
 	if got := reportClients(t); strings.Join(got, ",") != "cursor-cli,antigravity" && strings.Join(got, ",") != "antigravity,cursor-cli" {
 		t.Fatalf("read %v", got)
 	}
@@ -155,6 +169,10 @@ func TestDiscoverReadsCursorCLIAndAntigravity(t *testing.T) {
 	if res.Summary["sessions"] != float64(3) || res.Summary["toolCalls"] != float64(45) {
 		t.Fatalf("summary %v", res.Summary)
 	}
+	// Antigravity's generations carry token use; the Cursor CLI's do not.
+	if tok, _ := res.Summary["tokens"].(map[string]any); tok == nil || tok["fresh"].(float64) <= 0 || tok["output"].(float64) <= 0 {
+		t.Fatalf("no token use read: %v", res.Summary["tokens"])
+	}
 }
 
 // End to end for TENG-3123: a corrupt record is skipped, the rest of the
@@ -163,7 +181,7 @@ func TestReportCountsSkippedRecords(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	copyTree(t, "../history/testdata/claude", filepath.Join(home, ".claude", "projects"))
-	copyTree(t, "../history/testdata/antigravity", filepath.Join(home, ".gemini", "antigravity", "brain"))
+	copyTree(t, "../history/testdata/antigravity/brain", filepath.Join(home, ".gemini", "antigravity", "brain"))
 	// The Claude fixture already holds one line that is not JSON; tear one
 	// Antigravity step too.
 	f := filepath.Join(home, ".gemini", "antigravity", "brain", "1408d4ed-d5d8-4cd2-b3a4-d8f70bd2eed4", ".system_generated", "logs", "transcript_full.jsonl")
@@ -190,4 +208,12 @@ func TestReportCountsSkippedRecords(t *testing.T) {
 	if !strings.Contains(out.String(), "SKIPPED RECORDS") || !strings.Contains(out.String(), "antigravity") {
 		t.Fatalf("--stats:\n%s", out.String())
 	}
+}
+
+func mustRead(path string) []byte {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }

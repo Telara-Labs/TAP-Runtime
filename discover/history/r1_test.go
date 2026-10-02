@@ -187,7 +187,7 @@ func TestCursorCLIOrderReadsFieldOneIDs(t *testing.T) {
 }
 
 func TestAntigravityReader(t *testing.T) {
-	ss, err := Antigravity{Dir: filepath.Join("testdata", "antigravity")}.Read(time.Time{})
+	ss, err := Antigravity{Dir: filepath.Join("testdata", "antigravity", "brain")}.Read(time.Time{})
 	if err != nil || len(ss) != 1 {
 		t.Fatalf("%d sessions, %v", len(ss), err)
 	}
@@ -350,7 +350,7 @@ func TestR1FixturesAreRedacted(t *testing.T) {
 			}
 		}
 	}
-	jsonls, _ := filepath.Glob("testdata/antigravity/*/.system_generated/logs/*.jsonl")
+	jsonls, _ := filepath.Glob("testdata/antigravity/brain/*/.system_generated/logs/*.jsonl")
 	for _, f := range jsonls {
 		b, _ := os.ReadFile(f)
 		for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
@@ -436,5 +436,102 @@ func TestReadersCountSkippedRecordsAndUnreadableStores(t *testing.T) {
 	ss, st, err := CursorCLI{Dir: dir}.ReadWithStats(time.Time{})
 	if err != nil || len(ss) != 2 || st.UnreadableFiles != 1 || ss[1].Skipped != 1 {
 		t.Fatalf("cursor-cli: %d sessions, %+v, %v", len(ss), st, err)
+	}
+}
+
+// installAntigravity lays the fixture out as Antigravity does under a temp
+// root (<root>/brain/<id>, <root>/conversations/<id>.db) and returns the
+// brain folder.
+func installAntigravity(t *testing.T) string {
+	t.Helper()
+	bin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 is not installed")
+	}
+	root := t.TempDir()
+	err = filepath.WalkDir(filepath.Join("testdata", "antigravity", "brain"), func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(filepath.Join("testdata", "antigravity"), p)
+		os.MkdirAll(filepath.Dir(filepath.Join(root, rel)), 0o755)
+		b, _ := os.ReadFile(p)
+		return os.WriteFile(filepath.Join(root, rel), b, 0o644)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqls, _ := filepath.Glob(filepath.Join("testdata", "antigravity", "conversations", "*.sql"))
+	for _, f := range sqls {
+		db := filepath.Join(root, "conversations", strings.TrimSuffix(filepath.Base(f), ".sql")+".db")
+		os.MkdirAll(filepath.Dir(db), 0o755)
+		sql, _ := os.ReadFile(f)
+		cmd := exec.Command(bin, db)
+		cmd.Stdin = strings.NewReader(string(sql))
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+	}
+	return filepath.Join(root, "brain")
+}
+
+// Antigravity token use comes from the conversation's state database, one
+// row per model generation, attributed to the step that generation wrote
+// (TENG-3112). Without the database the same calls are simply unmeasured.
+func TestAntigravityUsageFromStateDB(t *testing.T) {
+	ss, err := Antigravity{Dir: installAntigravity(t)}.Read(time.Time{})
+	if err != nil || len(ss) != 1 {
+		t.Fatalf("%d sessions, %v", len(ss), err)
+	}
+	measured := 0
+	for _, c := range ss[0].Calls {
+		if c.Measured {
+			measured++
+			if c.Tokens.Total() <= 0 {
+				t.Errorf("call %s measured with no tokens", c.ID)
+			}
+		}
+	}
+	if measured != len(ss[0].Calls) {
+		t.Fatalf("%d of %d calls measured", measured, len(ss[0].Calls))
+	}
+	bare, _ := Antigravity{Dir: filepath.Join("testdata", "antigravity", "brain")}.Read(time.Time{})
+	for _, c := range bare[0].Calls {
+		if c.Measured {
+			t.Fatal("measured without a state database")
+		}
+	}
+	// One generation decoded by hand: input 18324, output 512 (= 380
+	// thinking + 132 response), no cache, last step 0.
+	row := ProtoAppend(nil, 1, ProtoAppend(ProtoAppend(nil, 4, ProtoAppend(ProtoAppend(ProtoAppend(nil, 2, uint64(18324)), 3, uint64(512)), 5, uint64(7))),
+		20, ProtoAppend(ProtoAppend(nil, 1, "last_step_index"), 2, "0")))
+	last, u, ok := AntigravityGeneration(row)
+	if !ok || last != 0 || u.Fresh != 18324 || u.Output != 512 || u.Cached != 7 {
+		t.Fatalf("decoded %d %+v %v", last, u, ok)
+	}
+}
+
+// A Cursor CLI call carries the time of the user turn it answers, read
+// from the turn's <timestamp> envelope.
+func TestCursorCLICallsCarryTheirTurnTime(t *testing.T) {
+	msg := func(role, content string) CursorCLIMessage {
+		return CursorCLIMessage{Role: role, Content: json.RawMessage(content)}
+	}
+	start := time.Date(2026, 8, 28, 20, 30, 0, 0, time.UTC)
+	s := CursorCLISession("s", start, []CursorCLIMessage{
+		msg("user", `[{"type":"text","text":"<timestamp>Friday, Aug 28, 2026, 4:32 PM (UTC-4)</timestamp>\n<user_query>\nfirst\n</user_query>"}]`),
+		msg("assistant", `[{"type":"tool-call","toolCallId":"a","toolName":"Read","args":{"path":"x"}}]`),
+		msg("user", `[{"type":"text","text":"<timestamp>Friday, Aug 28, 2026, 5:10 PM (UTC-4)</timestamp>\n<user_query>\nsecond\n</user_query>"}]`),
+		msg("assistant", `[{"type":"tool-call","toolCallId":"b","toolName":"Read","args":{"path":"y"}}]`),
+	})
+	if len(s.Calls) != 2 || !s.Calls[0].Time.Equal(time.Date(2026, 8, 28, 20, 32, 0, 0, time.UTC)) || !s.Calls[1].Time.Equal(time.Date(2026, 8, 28, 21, 10, 0, 0, time.UTC)) {
+		t.Fatalf("times %v", []time.Time{s.Calls[0].Time, s.Calls[1].Time})
+	}
+	dir, _ := buildCursorCLIStores(t)
+	ss, _ := CursorCLI{Dir: dir}.Read(time.Time{})
+	for _, x := range ss {
+		if x.Calls[0].Time.Equal(x.Start) {
+			t.Errorf("%s: the first call still carries the session start", x.ID)
+		}
 	}
 }
