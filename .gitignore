@@ -16,3 +16,8 @@ dist/
 *.key
 .tmp/
 .cache/
+
+# Binaries go build leaves next to a command's package
+/discover/discover-fixture
+/discover/discover
+/discover/discover-eval
