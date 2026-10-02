@@ -271,3 +271,15 @@ func TestTheInstallScriptDoesNothingIfItIsCutShort(t *testing.T) {
 		}
 	}
 }
+
+func TestAReleaseIsSignedOrSaysItIsNot(t *testing.T) {
+	if signingChosen("", false) == nil {
+		t.Error("a build with neither a key nor --unsigned was allowed")
+	}
+	if signingChosen("release.key", true) == nil {
+		t.Error("--key with --unsigned was allowed")
+	}
+	if signingChosen("release.key", false) != nil || signingChosen("", true) != nil {
+		t.Error("a signed build, or one that says it is unsigned, was refused")
+	}
+}
