@@ -25,6 +25,7 @@ type Claude struct {
 	pending map[string]chan map[string]any
 	gone    bool
 	deny    []string
+	ask     []string
 	denied  bool // deny has been read
 }
 
@@ -166,33 +167,72 @@ func (c *Claude) Inventory() ([]bind.Tool, error) {
 	return out, nil
 }
 
-func (c *Claude) Denied(t bind.Tool) (bool, error) {
+// loadRules reads the user's permission rules once.
+func (c *Claude) loadRules() error {
 	c.mu.Lock()
 	read := c.denied
 	c.mu.Unlock()
-	if !read {
-		r, err := c.request("list_permission_rules", nil)
-		if err != nil {
-			return false, err
+	if read {
+		return nil
+	}
+	r, err := c.request("list_permission_rules", nil)
+	if err != nil {
+		return err
+	}
+	state, _ := r["state"].(map[string]any)
+	rules, _ := state["rules"].([]any)
+	deny, ask := splitRules(rules)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.deny, c.ask = append(c.deny, deny...), append(c.ask, ask...)
+	c.denied = true
+	return nil
+}
+
+// splitRules separates Claude Code's permission rules into the ones that
+// forbid a tool and the ones that make it ask first.
+func splitRules(rules []any) (deny, ask []string) {
+	for _, x := range rules {
+		rm, _ := x.(map[string]any)
+		s, ok := rm["rule"].(string)
+		if !ok {
+			continue
 		}
-		state, _ := r["state"].(map[string]any)
-		rules, _ := state["rules"].([]any)
-		for _, x := range rules {
-			rm, _ := x.(map[string]any)
-			if rm["behavior"] == "deny" {
-				if s, ok := rm["rule"].(string); ok {
-					c.mu.Lock()
-					c.deny = append(c.deny, s)
-					c.mu.Unlock()
-				}
-			}
+		switch rm["behavior"] {
+		case "deny":
+			deny = append(deny, s)
+		case "ask":
+			ask = append(ask, s)
 		}
-		c.mu.Lock()
-		c.denied = true
-		c.mu.Unlock()
+	}
+	return deny, ask
+}
+
+func (c *Claude) Denied(t bind.Tool) (bool, error) {
+	if err := c.loadRules(); err != nil {
+		return false, err
 	}
 	q := claudeName(t.Server, t.Name)
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for _, rule := range c.deny {
+		if ruleCovers(rule, q) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// Asks reports whether the user has an "ask" rule for the tool: Claude Code
+// would stop and ask them before using it.
+func (c *Claude) Asks(t bind.Tool) (bool, error) {
+	if err := c.loadRules(); err != nil {
+		return false, err
+	}
+	q := claudeName(t.Server, t.Name)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, rule := range c.ask {
 		if ruleCovers(rule, q) {
 			return true, nil
 		}

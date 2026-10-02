@@ -66,6 +66,12 @@ async function answer(req) {
       return { version: vscode.version };
     case "tools":
       return { tools: vscode.lm.tools.map(describe) };
+    case "rules": {
+      // chat.tools.eligibleForAutoApproval: a tool set to false is never
+      // approved automatically, so VS Code asks the person before every use.
+      const eligible = vscode.workspace.getConfiguration("chat.tools").get("eligibleForAutoApproval") || {};
+      return { ask: Object.keys(eligible).filter((k) => eligible[k] === false) };
+    }
     case "call": {
       const cts = new vscode.CancellationTokenSource();
       const timer = setTimeout(() => cts.cancel(), 10 * 60 * 1000);

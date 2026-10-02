@@ -47,6 +47,8 @@ func fakeExtension(t *testing.T, calls *[]map[string]any) string {
 							map[string]any{"name": "mcp_tap_tap_run", "tags": []any{}},
 							map[string]any{"name": "copilot_readFile", "tags": []any{"vscode_editing"}},
 						}
+					case "rules":
+						res["ask"] = []any{"mcp_github_search_issues"}
 					case "call":
 						*calls = append(*calls, req)
 						if req["name"] == "broken" {
@@ -103,3 +105,19 @@ func TestVSCodeUnreachable(t *testing.T) {
 }
 
 func bindTool(name string) bind.Tool { return bind.Tool{Server: "x", Name: name} }
+
+func TestVSCodeAsksComesFromTheAutoApprovalSetting(t *testing.T) {
+	var calls []map[string]any
+	v, err := NewVSCode(fakeExtension(t, &calls))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+	inv, _ := v.Inventory()
+	if ask, err := v.Asks(inv[0]); err != nil || !ask {
+		t.Errorf("a tool set to never auto-approve was not an ask rule: %v %v", ask, err)
+	}
+	if ask, _ := v.Asks(inv[1]); ask {
+		t.Error("a tool not listed was an ask rule")
+	}
+}
