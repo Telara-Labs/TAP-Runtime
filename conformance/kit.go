@@ -312,7 +312,7 @@ func Run(runner []string, log io.Writer) []Lane {
 	defer web.Close()
 	other := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) { rw.Write([]byte("OTHER-ORIGIN")) }))
 	defer other.Close()
-	lane("a program can fetch only the origins it declared", true, nil,
+	lane("a program can fetch only the origins it declared", true, []map[string]any{yes},
 		func(w string) string {
 			return pkg(root, "fetch", "main.sh", "fetch:\n  - {origin: \""+web.URL+"\"}\n",
 				"tap fetch "+web.URL+"/x && echo\ntap fetch "+other.URL+"/x || echo blocked\ntap fetch "+web.URL+"/x POST || echo post-blocked\n")
@@ -326,6 +326,20 @@ func Run(runner []string, log io.Writer) []Lane {
 			}
 			if exists(filepath.Join(outside, "posted.txt")) {
 				return "a method that was not declared was sent: " + content(filepath.Join(outside, "posted.txt"))
+			}
+			return ""
+		})
+
+	// A read can carry data out in its address, so a fetch is asked of the
+	// person, even a GET. With no yes, nothing leaves (TENG-3099).
+	lane("a fetch, even a read, goes nowhere unless a person says yes", true, nil,
+		func(w string) string {
+			return pkg(root, "fetch-unasked", "main.sh", "fetch:\n  - {origin: \""+web.URL+"\"}\n",
+				"tap fetch "+web.URL+"/x && echo fetched || echo refused\n")
+		},
+		func(w, out string, s *session) string {
+			if strings.Contains(out, "declared-origin") || strings.Contains(out, "fetched\n") && !strings.Contains(out, "refused") {
+				return "a fetch ran with nobody's yes:\n" + out
 			}
 			return ""
 		})

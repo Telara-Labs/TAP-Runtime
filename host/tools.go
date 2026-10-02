@@ -29,7 +29,10 @@ type binding struct {
 	RunnerUp      string  `json:"runner_up,omitempty"`
 	RunnerUpScore float64 `json:"runner_up_score,omitempty"`
 	Gated         bool    `json:"treated_as_write"`
-	Pinned        bool    `json:"pinned"`
+	// Asked is set when the person's client is set to ask before using the
+	// tool. The runner asks too, as it does for a write.
+	Asked  bool `json:"client_asks,omitempty"`
+	Pinned bool `json:"pinned"`
 	// ContractChecked says the tool's input schema was checked against the
 	// capability's contract at admission. ResultChecked says each answer is
 	// checked against the contract as it arrives. Schema is the digest of
@@ -276,6 +279,17 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 				refusal = fmt.Sprintf("the user has denied %s / %s in their client", bd.tool.Server, bd.tool.Name)
 			}
 		}
+		if refusal == "" {
+			// A tool the person's client is set to ask about is asked about
+			// here too, whatever the primitive says it does (TENG-3101).
+			if ak, ok := b.(bridge.Asker); ok {
+				asks, err := ak.Asks(bd.tool)
+				if err != nil {
+					return nil, fmt.Errorf("reading the user's permission rules: %w", err)
+				}
+				bd.Asked = asks
+			}
+		}
 		if refusal != "" {
 			if d.Optional {
 				a.Skipped = append(a.Skipped, d.Alias)
@@ -298,7 +312,7 @@ func rankOf(e bind.Effect) int { return bind.Rank(e) }
 // effective is the effect the gate uses: what was declared, raised to write
 // when the tool's own server said nothing about it (ruling 20).
 func (b *binding) effective() string {
-	if b.Gated && b.Declared == string(bind.Read) {
+	if (b.Gated || b.Asked) && b.Declared == string(bind.Read) {
 		return string(bind.Write)
 	}
 	return b.Declared

@@ -79,3 +79,30 @@ func TestLiveCodexInventory(t *testing.T) {
 		t.Skip("this Codex has no MCP servers")
 	}
 }
+
+// TENG-3101: Codex answers config/read with its merged configuration, and the
+// rules are read from it. This reads the real one and checks only that the
+// read works and is consistent with the tools the same Codex lists.
+func TestLiveCodexRulesAreReadable(t *testing.T) {
+	if _, err := exec.LookPath("codex"); err != nil {
+		t.Skip("codex is not installed")
+	}
+	c, err := NewCodex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	rs, err := c.rules()
+	if err != nil {
+		t.Fatalf("config/read: %v", err)
+	}
+	t.Logf("%d MCP servers have rules", len(rs))
+	for server := range rs {
+		if _, err := c.Denied(bind.Tool{Server: server, Name: "x"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Asks(bind.Tool{Server: server, Name: "x"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

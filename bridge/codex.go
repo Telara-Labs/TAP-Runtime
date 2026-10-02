@@ -26,6 +26,7 @@ type Codex struct {
 	n       int
 	pending map[int]chan map[string]any
 	gone    bool
+	ruleSet map[string]codexServerRules
 }
 
 func NewCodex() (*Codex, error) {
@@ -170,9 +171,51 @@ func (c *Codex) Inventory() ([]bind.Tool, error) {
 	}
 }
 
-// Denied always reports false. Where Codex keeps a user's tool permission
-// rules, and whether app-server exposes them, has not been established.
-func (c *Codex) Denied(bind.Tool) (bool, error) { return false, nil }
+// rules reads the user's MCP tool rules once, through app-server's
+// config/read, which answers with Codex's own merged configuration.
+func (c *Codex) rules() (map[string]codexServerRules, error) {
+	c.mu.Lock()
+	cached := c.ruleSet
+	c.mu.Unlock()
+	if cached != nil {
+		return cached, nil
+	}
+	params := map[string]any{"includeLayers": false}
+	if wd, err := os.Getwd(); err == nil {
+		params["cwd"] = wd
+	}
+	r, err := c.call("config/read", params)
+	if err != nil {
+		return nil, err
+	}
+	cfg, _ := r["config"].(map[string]any)
+	rs := codexRulesFrom(cfg)
+	c.mu.Lock()
+	c.ruleSet = rs
+	c.mu.Unlock()
+	return rs, nil
+}
+
+// Denied reports whether the user's Codex configuration switches the tool off:
+// its server is disabled, it is not in the server's enabled_tools, or it is in
+// disabled_tools.
+func (c *Codex) Denied(t bind.Tool) (bool, error) {
+	rs, err := c.rules()
+	if err != nil {
+		return false, err
+	}
+	r, ok := rs[t.Server]
+	return ok && r.denies(t.Name), nil
+}
+
+// Asks reports whether the user set the tool's approval_mode to "prompt".
+func (c *Codex) Asks(t bind.Tool) (bool, error) {
+	rs, err := c.rules()
+	if err != nil {
+		return false, err
+	}
+	return rs[t.Server].alwaysPrompts[t.Name], nil
+}
 
 func (c *Codex) Call(t bind.Tool, args map[string]any) (string, error) {
 	if args == nil {

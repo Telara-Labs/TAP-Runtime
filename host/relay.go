@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/bind"
+	"gitlab.com/telara-labs/tap-runtime/bridge"
 	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
 )
 
@@ -258,10 +259,20 @@ type relayBridge struct {
 	version string
 	tools   []bind.Tool
 	nameFor func(server, tool string) string
+	denies  func(bind.Tool) bool
 }
 
 func newRelayBridge(r *relayRun, client, version string, decls []mf.Tool) *relayBridge {
 	b := &relayBridge{run: r, client: client, version: version, nameFor: geminiToolName}
+	// The person's own rules, from Gemini CLI's settings: includeTools and
+	// excludeTools per server, in their user settings and in this project's.
+	if home, err := os.UserHomeDir(); err == nil {
+		files := []string{filepath.Join(home, ".gemini", "settings.json")}
+		if wd, err := os.Getwd(); err == nil {
+			files = append(files, filepath.Join(wd, ".gemini", "settings.json"))
+		}
+		b.denies = bridge.GeminiRules(files...)
+	}
 	for _, d := range decls {
 		if d.Pin != nil && d.Pin.Server != "" && d.Pin.Tool != "" {
 			b.tools = append(b.tools, bind.Tool{Server: d.Pin.Server, Name: d.Pin.Tool, Annotated: bind.Unknown})
@@ -270,10 +281,12 @@ func newRelayBridge(r *relayRun, client, version string, decls []mf.Tool) *relay
 	return b
 }
 
-func (b *relayBridge) Client() (string, string)       { return b.client, b.version }
-func (b *relayBridge) HasSchemas() bool               { return false }
-func (b *relayBridge) Denied(bind.Tool) (bool, error) { return false, nil }
-func (b *relayBridge) Close()                         {}
+func (b *relayBridge) Client() (string, string) { return b.client, b.version }
+func (b *relayBridge) HasSchemas() bool         { return false }
+func (b *relayBridge) Denied(t bind.Tool) (bool, error) {
+	return b.denies != nil && b.denies(t), nil
+}
+func (b *relayBridge) Close() {}
 
 func (b *relayBridge) Inventory() ([]bind.Tool, error) { return b.tools, nil }
 

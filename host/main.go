@@ -632,6 +632,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 					a, _ := json.Marshal(rq.Arguments)
 					kind = fmt.Sprintf("call the tool %s / %s", bd.Server, bd.Tool)
 					example = fmt.Sprintf("%s with %s", kind, a)
+					if bd.Asked {
+						example += " (your client is set to ask before using this tool)"
+					}
 				}
 			}
 			return gate(func(a bool) reply { return callTool(adm, br, rq, a, journal) }, kind, example, effectOf(rq), true)

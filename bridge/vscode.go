@@ -27,6 +27,7 @@ type VSCode struct {
 	mu      sync.Mutex
 	n       int
 	version string
+	askSet  map[string]bool
 }
 
 // NewVSCode connects to the extension's socket.
@@ -71,10 +72,38 @@ func (v *VSCode) request(req map[string]any) (map[string]any, error) {
 	return r, nil
 }
 
-func (v *VSCode) Client() (string, string)       { return "vscode", v.version }
-func (v *VSCode) HasSchemas() bool               { return true }
+func (v *VSCode) Client() (string, string) { return "vscode", v.version }
+func (v *VSCode) HasSchemas() bool         { return true }
+
+// Denied reports false: VS Code gives an extension no way to read which tools
+// the user has switched off in the chat tools picker.
 func (v *VSCode) Denied(bind.Tool) (bool, error) { return false, nil }
-func (v *VSCode) Close()                         { v.conn.Close() }
+
+// Asks reports whether the user's chat.tools.eligibleForAutoApproval setting
+// lists the tool as false, which makes VS Code ask them before every use.
+func (v *VSCode) Asks(t bind.Tool) (bool, error) {
+	v.mu.Lock()
+	cached := v.askSet
+	v.mu.Unlock()
+	if cached == nil {
+		r, err := v.request(map[string]any{"op": "rules"})
+		if err != nil {
+			return false, err
+		}
+		cached = map[string]bool{}
+		list, _ := r["ask"].([]any)
+		for _, x := range list {
+			if s, ok := x.(string); ok {
+				cached[s] = true
+			}
+		}
+		v.mu.Lock()
+		v.askSet = cached
+		v.mu.Unlock()
+	}
+	return cached[t.Name], nil
+}
+func (v *VSCode) Close() { v.conn.Close() }
 
 // ownTool matches the runner's own tools as the editor lists them, so a
 // primitive can never bind to tap_run and start itself.
