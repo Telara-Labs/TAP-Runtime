@@ -1,6 +1,8 @@
 package pack
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +17,7 @@ import (
 func savePrimitive(t *testing.T, coll, name, version string) string {
 	t.Helper()
 	files := map[string][]byte{
-		"primitive.yaml": []byte("apiVersion: tap/v3\nkind: Primitive\nmetadata:\n  name: " + name + "\n  publisher: local\n  version: " + version + "\n  description: Close stale tickets\n"),
+		"primitive.yaml": []byte("apiVersion: tap/v3\nkind: Primitive\nmetadata:\n  name: " + name + "\n  publisher: local\n  version: " + version + "\n  description: Close stale tickets\nexecution:\n  entrypoint: main.sh\n"),
 		"main.sh":        []byte("echo ok\n"),
 	}
 	pkg, digest, err := PackFiles(files, func(string) bool { return false })
@@ -42,7 +44,9 @@ func TestPointersNameThePrimitiveAndHoldNoPackage(t *testing.T) {
 	home, coll := t.TempDir(), t.TempDir()
 	pkg := savePrimitive(t, coll, "close-stale", "1.0.0")
 	id, err := ReadIdentity(pkg)
-	if err != nil || id.Ref != "local/close-stale@1.0.0" || !strings.HasPrefix(id.Digest, "sha256:") {
+	raw, _ := os.ReadFile(filepath.Join(pkg, "primitive.yaml"))
+	sum := sha256.Sum256(append(raw, []byte("echo ok\n")...))
+	if err != nil || id.Ref != "local/close-stale@1.0.0" || id.Digest != hex.EncodeToString(sum[:]) {
 		t.Fatalf("identity %+v %v", id, err)
 	}
 	rs, err := WritePointers(pkg, []Target{target(t, "claude-code", false), target(t, "codex", false), target(t, "gemini-cli", false)}, false, home, "")

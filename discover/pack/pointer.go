@@ -2,6 +2,8 @@ package pack
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -89,14 +91,13 @@ func Targets(list, home string) ([]Target, error) {
 	return dedup, nil
 }
 
-// Identity is what a pointer names: the primitive's exact reference and
-// digest, as tap_search returns them.
+// Identity is what a pointer names: the primitive's exact reference and its
+// run digest, as tap_search returns them and tap_run checks them.
 type Identity struct {
 	Ref, Digest, Name, Description string
 }
 
-// ReadIdentity reads a saved package's identity from its primitive.yaml and
-// SavedMarker.
+// ReadIdentity reads a saved package's identity from its primitive.yaml.
 func ReadIdentity(pkgDir string) (Identity, error) {
 	b, err := os.ReadFile(filepath.Join(pkgDir, "primitive.yaml"))
 	if err != nil {
@@ -110,15 +111,44 @@ func ReadIdentity(pkgDir string) (Identity, error) {
 	if err := yaml.Unmarshal(b, &m); err != nil {
 		return Identity{}, err
 	}
-	mk, err := ReadMarker(pkgDir)
-	if err != nil {
-		return Identity{}, err
-	}
 	md := m.Metadata
 	if md.Name == "" || md.Publisher == "" || md.Version == "" {
 		return Identity{}, fmt.Errorf("%s: primitive.yaml lacks publisher, name or version", pkgDir)
 	}
-	return Identity{Ref: md.Publisher + "/" + md.Name + "@" + md.Version, Digest: mk.Digest, Name: md.Name, Description: md.Description}, nil
+	digest, err := RunDigest(pkgDir)
+	if err != nil {
+		return Identity{}, err
+	}
+	return Identity{Ref: md.Publisher + "/" + md.Name + "@" + md.Version, Digest: digest, Name: md.Name, Description: md.Description}, nil
+}
+
+// RunDigest is the digest the runner lists a package under and checks
+// before running it: sha256 over primitive.yaml followed by the entrypoint
+// program, hex. It is not the SavedMarker digest (the archive's). The rule
+// is the runner's (host/trust.go packageDigest); the host test
+// TestSavedOncePointedEverywhereListedOnceAndRunnable fails if they part.
+func RunDigest(pkgDir string) (string, error) {
+	raw, err := os.ReadFile(filepath.Join(pkgDir, "primitive.yaml"))
+	if err != nil {
+		return "", err
+	}
+	var m struct {
+		Execution struct {
+			Entrypoint string `yaml:"entrypoint"`
+		} `yaml:"execution"`
+	}
+	if err := yaml.Unmarshal(raw, &m); err != nil {
+		return "", err
+	}
+	if m.Execution.Entrypoint == "" {
+		return "", fmt.Errorf("%s: primitive.yaml names no entrypoint", pkgDir)
+	}
+	script, err := os.ReadFile(filepath.Join(pkgDir, filepath.Clean(filepath.FromSlash(m.Execution.Entrypoint))))
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(append(append([]byte{}, raw...), script...))
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // PointerSkillMD is the pointer's whole content. runsIn lists the agents
