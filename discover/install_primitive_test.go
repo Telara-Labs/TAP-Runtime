@@ -2,6 +2,7 @@ package discover
 
 import (
 	"fmt"
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,7 @@ import (
 )
 
 func TestMultiContinuationFamilyDoesNotInstallOneChain(t *testing.T) {
-	install := primitiveInstaller(nil, "claude-code", t.TempDir(), t.TempDir())
+	install := primitiveInstaller(nil, pack.Destination{Collection: t.TempDir()})
 	result, err := install(primitive.Family{FollowUps: []primitive.FollowUp{
 		{Steps: []string{"mcp:issue_transition"}, Runs: 3},
 		{Steps: []string{"mcp:issue_link"}, Runs: 2},
@@ -55,7 +56,7 @@ func TestAcceptGeneratesAndInstalls(t *testing.T) {
 		members = append(members, byID[id])
 	}
 	home := t.TempDir()
-	r, err := primitiveInstaller(ss, "claude-code", home, t.TempDir())(res.Families[0], members)
+	r, err := primitiveInstaller(ss, pack.Destination{Collection: home})(res.Families[0], members)
 	if err != nil || !r.Installed || !strings.HasPrefix(r.Name, "discovered-issue-create-comment-") {
 		t.Fatalf("install: %+v %v", r, err)
 	}

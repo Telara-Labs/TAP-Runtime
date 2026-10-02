@@ -33,6 +33,13 @@ type GeneratedDecision struct {
 // decision. Accept installs privately; Deny remembers this candidate/digest;
 // Refine makes an inspectable local handoff for the user's chosen coding agent.
 func ReviewGenerated(in io.Reader, out io.Writer, graph *codegen.ProgramGraph, skillRoot, stateDir string, evidence ...model.SpanProposal) error {
+	return ReviewGeneratedTo(in, out, graph, pack.Destination{Collection: skillRoot}, stateDir, evidence...)
+}
+
+// ReviewGeneratedTo is ReviewGenerated saving an accepted package into
+// dest's collection and pointing dest's agents at it (TENG-3109).
+func ReviewGeneratedTo(in io.Reader, out io.Writer, graph *codegen.ProgramGraph, dest pack.Destination, stateDir string, evidence ...model.SpanProposal) error {
+	skillRoot := dest.Collection
 	if graph == nil {
 		return fmt.Errorf("no program graph")
 	}
@@ -208,6 +215,11 @@ func ReviewGenerated(in io.Reader, out io.Writer, graph *codegen.ProgramGraph, s
 			fmt.Fprintf(out, "Already accepted privately: %s\n", where)
 		} else {
 			fmt.Fprintf(out, "Accepted privately: %s\n", where)
+		}
+		ptrs, err := dest.Point(where)
+		fmt.Fprint(out, pack.FormatPointers(ptrs))
+		if err != nil {
+			return err
 		}
 	case "d", "deny":
 		if err := AppendGeneratedDecision(stateDir, GeneratedDecision{graph.CandidateID, digest, "deny"}); err != nil {

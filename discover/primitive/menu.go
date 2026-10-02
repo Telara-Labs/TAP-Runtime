@@ -39,10 +39,18 @@ type MenuConfig struct {
 type InstallResult struct {
 	Installed bool
 	Name      string
-	Where     string
+	Where     string // the package, in the TAP collection
+	// Pointers are the agents' skills folders that now point at it.
+	Pointers []Pointer
 	// Reason says why nothing was installed (the program could not be
 	// determined from the recorded uses).
 	Reason string
+}
+
+// Pointer is one agent's pointer to an installed primitive: written,
+// unchanged or skipped, and why.
+type Pointer struct {
+	Client, Path, Mode, Reason string
 }
 
 // LoadKnown returns the primitives accepted earlier on this machine, for
@@ -592,6 +600,12 @@ func submit(out io.Writer, s style, shown []Family, choice []string, byID map[st
 					return err
 				}
 				line := fmt.Sprintf("%s → installed as %q (%s)", title(f), r.Name, r.Where)
+				for _, p := range r.Pointers {
+					line += fmt.Sprintf("\n      %s: %s %s", p.Client, p.Mode, p.Path)
+					if p.Reason != "" {
+						line += " (" + p.Reason + ")"
+					}
+				}
 				installed = append(installed, line)
 				continue
 			}

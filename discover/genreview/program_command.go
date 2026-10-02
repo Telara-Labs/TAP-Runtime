@@ -31,8 +31,8 @@ func GenerateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	variantID := fs.String("variant", "", "invocation variant ID within the selected logic candidate")
 	top := fs.Int("top", 25, "candidates to list when --logic is omitted")
 	generatedOnly := fs.Bool("generated", false, "list one mechanically generated variant per logic family")
-	saveClient := fs.String("save-client", "claude-code", "private skill destination: "+strings.Join(client.IDs(client.HasSkills), ", "))
-	saveProject := fs.Bool("save-project", false, "install privately in this project's skill folder")
+	saveClient := fs.String("save-client", "detected", "agents that get a pointer to an accepted program: "+strings.Join(client.IDs(client.HasSkills), ", ")+", all, none, or detected")
+	saveProject := fs.Bool("save-project", false, "write pointers into this project's skills folders instead of your home's")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -168,7 +168,7 @@ func GenerateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 1
 	}
 	cwd, _ := os.Getwd()
-	skillRoot, err := pack.SkillsDir(*saveClient, *saveProject, home, cwd)
+	dest, err := pack.NewDestination(*saveClient, *saveProject, home, cwd)
 	if err != nil {
 		fmt.Fprintln(errOut, "discover generate:", err)
 		return 2
@@ -185,7 +185,7 @@ func GenerateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 			evidence = append(evidence, p)
 		}
 	}
-	if err := ReviewGenerated(in, out, graph, skillRoot, stateDir, evidence...); err != nil {
+	if err := ReviewGeneratedTo(in, out, graph, dest, stateDir, evidence...); err != nil {
 		fmt.Fprintln(errOut, "discover generate:", err)
 		return 1
 	}

@@ -38,6 +38,9 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return MenuCommand(args, in, out, errOut, nil)
 	}
+	if args[0] == "migrate-saved" || args[0] == "--migrate-saved" {
+		return MigrateCommand(out, errOut)
+	}
 	// The older narrowing report stays available as `discover report`.
 	if args[0] == "evidence" {
 		if len(args) != 3 {
@@ -84,8 +87,8 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	patterns := fs.Bool("patterns", false, "also run the pattern search (slower)")
 	nOps := fs.Int("opportunities", 0, "also list this many surfaced opportunities with their task references")
 	nSpans := fs.Int("span-proposals", 0, "also find and list this many model-free bounded-span proposal groups")
-	saveClient := fs.String("save-client", "claude-code", "where saved primitives go: "+skillsClients())
-	saveProject := fs.Bool("save-project", false, "save into this project's skills directory instead of your home")
+	saveClient := fs.String("save-client", "detected", "agents that get a pointer to a saved primitive: "+skillsClients()+", all, none, or detected (installed here and able to run it)")
+	saveProject := fs.Bool("save-project", false, "write pointers into this project's skills folders instead of your home's")
 	fs.IntVar(&d.Window, "window", d.Window, "most steps allowed between two steps of a pattern")
 	fs.IntVar(&d.MinSupport, "min-support", d.MinSupport, "fewest requests or sessions that count as recurring")
 	fs.IntVar(&d.MaxLen, "max-len", d.MaxLen, "longest pattern searched")
@@ -150,18 +153,22 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 0
 	}
 	cwd, _ := os.Getwd()
-	root, err := pack.SkillsDir(*saveClient, *saveProject, home, cwd)
+	dest, err := pack.NewDestination(*saveClient, *saveProject, home, cwd)
 	if err != nil {
 		fmt.Fprintln(errOut, "discover:", err)
 		return 2
 	}
 	err = routine.Review(in, out, rep, routine.ReviewConfig{Top: *top}, routine.ReviewActions{
 		Save: func(dr *model.Draft) (string, error) {
-			path, unchanged, err := pack.SaveDraft(dr, root)
-			if unchanged {
-				return path + " (already saved)", err
+			path, unchanged, err := pack.SaveDraft(dr, dest.Collection)
+			if err != nil {
+				return path, err
 			}
-			return path, err
+			ptrs, err := dest.Point(path)
+			if unchanged {
+				path += " (already saved)"
+			}
+			return path + "\n" + strings.TrimRight(pack.FormatPointers(ptrs), "\n"), err
 		},
 	})
 	if err != nil {
@@ -182,6 +189,8 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 	days := fs.Int("days", 0, "only sessions from the last N days (0 = all retained history)")
 	all := fs.Bool("all", false, "accept every proposed primitive without asking")
 	revisit := fs.Bool("revisit", false, "list your earlier decisions and undo one")
+	saveClient := fs.String("save-client", "detected", "agents that get a pointer to an installed primitive: "+skillsClients()+", all, none, or detected (installed here and able to run it)")
+	saveProject := fs.Bool("save-project", false, "write pointers into this project's skills folders instead of your home's")
 	asJSON := fs.Bool("json", false, "print the condensed result as JSON instead of the menu")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -250,14 +259,13 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 		return 0
 	}
 	cwd, _ := os.Getwd()
-	saveTo := "claude-code"
-	if len(readIDs) > 0 {
-		if c, ok := client.Lookup(readIDs[0]); ok && client.HasSkills(c) {
-			saveTo = c.ID
-		}
+	dest, err := pack.NewDestination(*saveClient, *saveProject, home, cwd)
+	if err != nil {
+		fmt.Fprintln(errOut, "discover:", err)
+		return 2
 	}
 	cfg := primitive.MenuConfig{StateDir: stateDir, All: *all, Clients: strings.Join(readIDs, ","), Home: home, Sessions: sessions, Color: color,
-		Install: primitiveInstaller(sessions, saveTo, home, cwd),
+		Install: primitiveInstaller(sessions, dest),
 		Skill:   primitive.Skill{Source: "tap-runtime/discover/genreview/skill/tap-primitive-refine/SKILL.md", Content: genreview.GeneratedRefineSkill}}
 	// A terminal on both ends gets the full-screen review; otherwise (a
 	// pipe, a test, --all) the line-by-line menu.
@@ -281,3 +289,36 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 // history discover reads and the agents that have a skills folder.
 func historyClients() string { return strings.Join(client.IDs(client.HasHistory), ", ") }
 func skillsClients() string  { return strings.Join(client.IDs(client.HasSkills), ", ") }
+
+// MigrateCommand is `tap discover migrate-saved`: primitives saved as full
+// packages in agents' skills folders (before the TAP collection) move into
+// the collection and leave a pointer behind (TENG-3109).
+func MigrateCommand(out, errOut io.Writer) int {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintln(errOut, "discover:", err)
+		return 1
+	}
+	coll, err := pack.CollectionDir()
+	if err != nil {
+		fmt.Fprintln(errOut, "discover:", err)
+		return 1
+	}
+	cwd, _ := os.Getwd()
+	rs, err := pack.MigrateSaved(home, cwd, coll)
+	for _, r := range rs {
+		if r.Reason != "" {
+			fmt.Fprintf(out, "%s %s: %s\n", r.Mode, r.From, r.Reason)
+		} else {
+			fmt.Fprintf(out, "%s %s -> %s\n", r.Mode, r.From, r.To)
+		}
+	}
+	if err != nil {
+		fmt.Fprintln(errOut, "discover:", err)
+		return 1
+	}
+	if len(rs) == 0 {
+		fmt.Fprintln(out, "nothing to migrate")
+	}
+	return 0
+}

@@ -1,6 +1,7 @@
 package discover
 
 import (
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 	"os"
 	"os/exec"
 	"strconv"
@@ -263,7 +264,7 @@ func TestCausalBundlePlannerMatchesInstaller(t *testing.T) {
 		t.Fatalf("planner did not offer the bundle: %+v", planned)
 	}
 	root := t.TempDir()
-	installed, err := primitiveInstaller(sessions, "claude-code", root, root)(planned, members)
+	installed, err := primitiveInstaller(sessions, pack.Destination{Collection: root})(planned, members)
 	if err != nil || !installed.Installed {
 		t.Fatalf("planner and installer disagree: result=%+v err=%v", installed, err)
 	}
