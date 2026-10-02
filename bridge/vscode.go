@@ -122,13 +122,19 @@ func askKeyCovers(key string, t bind.Tool) bool {
 	if i := strings.LastIndex(key, "/"); i >= 0 {
 		server, tool = key[:i], key[i+1:]
 	}
-	if tool == "*" {
-		return server != "" && strings.EqualFold(server, t.Server)
+	name, want := plain(t.Name), plain(tool)
+	// The editor lists an MCP tool as mcp_<server>_<tool> and tags it only
+	// "mcp" (seen in a live VS Code 1.140), so the server is read from the
+	// name as well as from a tag that names it.
+	inServer := func() bool {
+		return strings.EqualFold(server, t.Server) || strings.HasPrefix(name, "mcp"+plain(server))
 	}
-	if server != "" && !strings.EqualFold(server, t.Server) {
+	if tool == "*" {
+		return server != "" && inServer()
+	}
+	if server != "" && !inServer() {
 		return false
 	}
-	name, want := plain(t.Name), plain(tool)
 	if server == "" {
 		// A bare name is a built-in tool's, or an MCP tool whose reference name
 		// carries no server. Asking too often is the safe way to be wrong.

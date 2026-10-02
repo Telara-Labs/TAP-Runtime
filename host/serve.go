@@ -380,8 +380,9 @@ func (s *server) handle(m rpcMessage) {
 			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile,
 		}
 		if s.vscodeSocket != "" && s.mcpURL == "" {
+			// The approval stays with this runner: VS Code runs an unconfirmed
+			// tool call made this way without asking anyone.
 			o.VSCodeSocket = s.vscodeSocket
-			o.Approve = clientApprovesCalls(o.Approve)
 		}
 		if relayClient(o.Client) && s.relay != nil && s.mcpURL == "" {
 			s.startRelay(m.ID, o, name, version, canElicit)

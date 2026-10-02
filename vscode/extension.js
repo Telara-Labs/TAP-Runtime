@@ -74,10 +74,19 @@ async function answer(req) {
     }
     case "call": {
       const cts = new vscode.CancellationTokenSource();
-      const timer = setTimeout(() => cts.cancel(), 10 * 60 * 1000);
+      // VS Code asks the person to confirm a tool that is not marked read-only,
+      // in a chat. A call made from here has no chat to show it in, so it waits
+      // (seen in VS Code 1.140 with an MCP tool). Say so instead of waiting ten
+      // minutes.
+      const limit = 2 * 60 * 1000;
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; cts.cancel(); }, limit);
       try {
         const r = await vscode.lm.invokeTool(req.name, { input: req.input || {}, toolInvocationToken: undefined }, cts.token);
         return { text: resultText(r) };
+      } catch (e) {
+        if (timedOut) throw new Error(`VS Code did not run ${req.name} within 2 minutes. It is most likely waiting for a person to confirm it in a chat, and no chat is showing the question.`);
+        throw e;
       } finally {
         clearTimeout(timer);
       }

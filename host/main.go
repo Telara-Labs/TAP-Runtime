@@ -249,10 +249,9 @@ func main() {
 		grant.Limit = *limit
 	}
 	askFn := Approver(func(Ask) Grant { return grant })
-	if *vscodeSocket != "" {
-		// VS Code makes every tool call and confirms it itself.
-		askFn = clientApprovesCalls(askFn)
-	}
+	// A call made through VS Code is asked here like any other change. VS Code
+	// does not confirm it: called with no invocation token, it ran a tool
+	// that is not read-only with nobody asked (live, VS Code 1.140, TENG-3101).
 	res, err := Run(context.Background(), Options{
 		Package: flag.Arg(0), Args: flag.Args()[1:], Journal: journal,
 		Approve:   askFn,
