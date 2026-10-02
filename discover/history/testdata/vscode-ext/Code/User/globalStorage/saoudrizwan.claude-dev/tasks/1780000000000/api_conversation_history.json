@@ -1,0 +1,47 @@
+[
+ {
+  "role": "user",
+  "content": [
+   {
+    "type": "text",
+    "text": "<task>\nopen ABC-12\n</task>"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "content": [
+   {
+    "type": "text",
+    "text": "I'll fetch it.\n<use_mcp_tool>\n<server_name>tracker</server_name>\n<tool_name>get_issue</tool_name>\n<arguments>\n{\"issue_key\": \"ABC-12\"}\n</arguments>\n</use_mcp_tool>"
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "content": [
+   {
+    "type": "text",
+    "text": "[use_mcp_tool for 'tracker'] Result:\n{\"key\":\"ABC-12\",\"status\":\"Open\"}"
+   }
+  ]
+ },
+ {
+  "role": "assistant",
+  "content": [
+   {
+    "type": "text",
+    "text": "<execute_command>\n<command>ls missing-dir</command>\n<requires_approval>false</requires_approval>\n</execute_command>"
+   }
+  ]
+ },
+ {
+  "role": "user",
+  "content": [
+   {
+    "type": "text",
+    "text": "[execute_command for 'ls missing-dir'] Result:\nError: ls: missing-dir: No such file or directory"
+   }
+  ]
+ }
+]

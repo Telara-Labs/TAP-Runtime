@@ -1,0 +1,1 @@
+{"model": "fw/deepseek", "mcp": {"tracker": {"type": "local", "command": ["/home/user/bin/fixture-mcp", "mcp"], "enabled": true}}}
