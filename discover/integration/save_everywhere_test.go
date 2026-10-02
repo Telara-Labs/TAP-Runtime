@@ -28,6 +28,15 @@ func isolatedHome(t *testing.T) (home, collection string) {
 	return home, coll
 }
 
+// connectTAP registers the TAP MCP server with Claude Code the way
+// `claude mcp add --scope user` records it.
+func connectTAP(t *testing.T, home string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(`{"mcpServers":{"tap":{"type":"stdio","command":"tap","args":["serve"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // writeClaudeChain records n Claude Code sessions that each create an issue
 // and comment on the key it returned.
 func writeClaudeChain(t *testing.T, home string, n int) {
@@ -66,6 +75,20 @@ func writeClaudeChain(t *testing.T, home string, n int) {
 func TestDiscoverInstallsOnceAndPointsDetectedAgents(t *testing.T) {
 	home, coll := isolatedHome(t)
 	writeClaudeChain(t, home, 3)
+	// Without TAP connected to Claude Code, nothing points at a server it
+	// does not have; the save says how to connect it.
+	var out0, err0 bytes.Buffer
+	if code := discover.Command([]string{"--all"}, strings.NewReader(""), &out0, &err0); code != 0 {
+		t.Fatalf("exit %d: %s", code, err0.String())
+	}
+	if !strings.Contains(out0.String(), "run: tap install --client claude-code") {
+		t.Fatalf("no hint to connect TAP:\n%s", out0.String())
+	}
+	if ms, _ := filepath.Glob(filepath.Join(home, ".claude", "skills", "*")); len(ms) != 0 {
+		t.Fatalf("pointer written to an agent without TAP: %v", ms)
+	}
+	os.RemoveAll(filepath.Join(home, ".tap"))
+	connectTAP(t, home)
 	var out, errOut bytes.Buffer
 	if code := discover.Command([]string{"--all"}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("exit %d: %s\n%s", code, errOut.String(), out.String())
@@ -192,6 +215,8 @@ func TestPointersFollowCopilotChatDetection(t *testing.T) {
 		t.Fatalf("plain VS Code got a Copilot pointer:\n%s", out.String())
 	}
 	os.MkdirAll(filepath.Join(user, "globalStorage", "github.copilot-chat"), 0o755)
+	// TAP reaches VS Code through its extension.
+	os.MkdirAll(filepath.Join(home, ".vscode", "extensions", "telara-labs.tap-vscode-0.1.3"), 0o755)
 	os.RemoveAll(filepath.Join(home, ".tap"))
 	out.Reset()
 	if code := discover.Command([]string{"--all"}, strings.NewReader(""), &out, &errOut); code != 0 {

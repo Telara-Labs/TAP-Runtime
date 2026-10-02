@@ -58,26 +58,49 @@ type Target struct {
 	Explicit bool
 }
 
-// Targets resolves --save-client: "detected" (the default, or empty) points
-// every installed agent where the primitive can run (it has a skills folder
-// and a bridge); "all" and named agents are explicit picks; "none" points
-// nobody.
+// TAPName is the name the TAP MCP server is registered under (tap install
+// --name), which a pointer's agent must have to run the primitive.
+const TAPName = "tap"
+
+// Targets resolves --save-client (see ResolveTargets).
 func Targets(list, home string) ([]Target, error) {
+	ts, _, err := ResolveTargets(list, home)
+	return ts, err
+}
+
+// ResolveTargets resolves --save-client. "detected" (the default, or empty)
+// points every installed agent where the primitive can run: it has a skills
+// folder, a bridge, and the TAP MCP server connected. Installed agents left
+// out only because TAP is not connected are returned as skipped report
+// lines naming the command that connects it. "all" and named agents are
+// explicit picks; "none" points nobody.
+func ResolveTargets(list, home string) ([]Target, []PointerResult, error) {
 	list = strings.TrimSpace(list)
 	if list == "none" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var out []Target
+	var skipped []PointerResult
 	for _, name := range strings.Split(list, ",") {
 		name = strings.TrimSpace(name)
 		explicit := name != "" && name != "detected"
-		runnable := func(c client.Client) bool { return client.HasSkills(c) && (explicit || c.Bridge) }
+		runnable := func(c client.Client) bool {
+			return client.HasSkills(c) && (explicit || c.Bridge && c.Connected(home, TAPName))
+		}
 		cs, err := client.Resolve(name, home, client.CapSkills, runnable)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, c := range cs {
 			out = append(out, Target{Client: c, Explicit: explicit})
+		}
+		if !explicit {
+			for _, c := range client.Detected(home) {
+				if client.HasSkills(c) && c.Bridge && !c.Connected(home, TAPName) {
+					skipped = append(skipped, PointerResult{Client: c.ID, Mode: PointerSkipped,
+						Reason: "the TAP MCP server is not connected to " + c.Name + "; run: tap install --client " + c.ID})
+				}
+			}
 		}
 	}
 	seen := map[string]bool{}
@@ -88,7 +111,7 @@ func Targets(list, home string) ([]Target, error) {
 			dedup = append(dedup, t)
 		}
 	}
-	return dedup, nil
+	return dedup, skipped, nil
 }
 
 // Identity is what a pointer names: the primitive's exact reference and its
@@ -436,8 +459,10 @@ func copyTree(src, dest string) error {
 // pointer into each target agent's skills folder (the project's when
 // Project).
 type Destination struct {
-	Collection       string
-	Targets          []Target
+	Collection string
+	Targets    []Target
+	// Skipped are detected agents left out, reported with each save.
+	Skipped          []PointerResult
 	Project          bool
 	Home, ProjectDir string
 }
@@ -449,11 +474,11 @@ func NewDestination(saveClients string, project bool, home, projectDir string) (
 	if err != nil {
 		return Destination{}, err
 	}
-	ts, err := Targets(saveClients, home)
+	ts, skipped, err := ResolveTargets(saveClients, home)
 	if err != nil {
 		return Destination{}, err
 	}
-	return Destination{Collection: coll, Targets: ts, Project: project, Home: home, ProjectDir: projectDir}, nil
+	return Destination{Collection: coll, Targets: ts, Skipped: skipped, Project: project, Home: home, ProjectDir: projectDir}, nil
 }
 
 // Point writes the pointers to the package saved at pkgDir. It first moves
@@ -476,6 +501,7 @@ func (d Destination) Point(pkgDir string) ([]PointerResult, error) {
 			return out, err
 		}
 	}
+	out = append(out, d.Skipped...)
 	if len(d.Targets) == 0 {
 		return out, nil
 	}
