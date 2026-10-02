@@ -72,7 +72,7 @@ func primitiveInstaller(sessions []trace.Session, client, home, cwd string) func
 			return r, nil
 		}
 		var proposals []model.SpanProposal
-		cand := model.LogicCandidate{ID: "lc_" + strings.TrimPrefix(main.ID, "pr_"), Actions: main.Steps, Executions: main.ExecutionCount, Sessions: main.SessionCount}
+		cand := model.LogicCandidate{ID: "lc_" + packageSlug(main), Actions: main.Steps, Executions: main.ExecutionCount, Sessions: main.SessionCount}
 		for n, ex := range main.Executions {
 			if ex.Overlaps != "" {
 				continue
@@ -217,7 +217,7 @@ func directGraph(p primitive.Primitive, by map[string]*trace.Session) (*codegen.
 	for _, b := range p.Bindings {
 		bind[strconv.Itoa(b.Step)+"|"+b.Arg] = b
 	}
-	g := &codegen.ProgramGraph{CandidateID: "lc_" + strings.TrimPrefix(p.ID, "pr_"), Executions: len(kept), Sessions: p.SessionCount}
+	g := &codegen.ProgramGraph{CandidateID: "lc_" + packageSlug(p), Executions: len(kept), Sessions: p.SessionCount}
 	inputName := func(step int, path string) string {
 		return fmt.Sprintf("step_%d_%s", step, strings.NewReplacer("/", "_", "-", "_").Replace(path))
 	}
@@ -335,4 +335,36 @@ func stepKeys(steps []string) []string {
 		out[i] = s
 	}
 	return out
+}
+
+// packageSlug names a generated package after what it does (its steps'
+// tools), with the chain's ID tail so two chains never share a name:
+// discovered-jira-search-issues-add-comment-cae7a0.
+func packageSlug(p primitive.Primitive) string {
+	var words []string
+	seen := map[string]bool{}
+	for _, st := range p.Steps {
+		name := strings.TrimPrefix(strings.TrimPrefix(st, "mcp:"), "op:")
+		name = strings.TrimPrefix(strings.Split(name, "+")[0], "sh:")
+		for _, w := range strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
+			return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+		}) {
+			if !seen[w] {
+				seen[w] = true
+				words = append(words, w)
+			}
+		}
+	}
+	slug := strings.Join(words, "-")
+	if len(slug) > 40 {
+		slug = strings.TrimRight(slug[:40], "-")
+	}
+	id := strings.TrimPrefix(p.ID, "pr_")
+	if len(id) > 6 {
+		id = id[:6]
+	}
+	if slug == "" {
+		return id
+	}
+	return slug + "-" + id
 }
