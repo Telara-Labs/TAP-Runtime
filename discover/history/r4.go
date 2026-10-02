@@ -637,7 +637,7 @@ func (r Continue) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSta
 					c.Tool, c.Args, c.RawArgs = name, Flatten(tc.ParsedArgs), RawKeys(tc.ParsedArgs)
 				}
 				a.Add(ToolCall{Key: tc.ToolCallID, Turn: turn, Call: c})
-				a.Add(ToolResult{Key: tc.ToolCallID, Nth: -1, Text: ResultText(tc.Output), IsError: tc.Status == "errored"})
+				a.Add(ToolResult{Key: tc.ToolCallID, Nth: -1, Text: continueOutput(tc.Output), IsError: tc.Status == "errored"})
 			}
 		}
 		s := a.Finish()
@@ -649,6 +649,32 @@ func (r Continue) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSta
 	}
 	sortSessions(out)
 	return out, st, nil
+}
+
+// continueOutput is a tool's result: Continue stores it as context items
+// [{name, description, content}], where an MCP tool's content is the
+// server's own content array as a string.
+func continueOutput(raw json.RawMessage) string {
+	var items []struct {
+		Content *string `json:"content"`
+	}
+	if json.Unmarshal(raw, &items) != nil || len(items) == 0 {
+		return ResultText(raw)
+	}
+	var b []string
+	for _, it := range items {
+		if it.Content == nil {
+			return ResultText(raw)
+		}
+		c := *it.Content
+		if strings.HasPrefix(strings.TrimSpace(c), "[") {
+			if t := geminiText(json.RawMessage(c)); t != "" {
+				c = t
+			}
+		}
+		b = append(b, c)
+	}
+	return strings.Join(b, "\n")
 }
 
 // continueBuiltin reports a Continue built-in tool: they are named in

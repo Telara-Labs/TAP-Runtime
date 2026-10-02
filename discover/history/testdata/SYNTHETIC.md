@@ -25,6 +25,15 @@ on the scripted task of plan §6.4, then captured with cmd/discover-fixture
 (redacted, databases as SQL). The *.json / config.yaml files beside them
 are the agents' MCP configuration with the commands replaced.
 
+scripted/claude/ is the same task run in Claude Code 2.x (claude -p, the
+fixture MCP server as `tracker`), kept to its user and assistant lines with
+the working directory scrubbed. integration/equivalence_test.go reads it
+beside the real runs above that reach MCP (all but Aider): the seven
+agents give the same replayable steps, and discovery over the seven finds one search > lookup primitive
+whose executions come from each agent (TENG-3124). The Cursor CLI run
+needs `cursor-agent login`; Gemini CLI refused this account
+(UNSUPPORTED_CLIENT).
+
 # VS Code extension tasks (R3)
 
 vscode-ext/ holds synthetic Cline, Roo Code and Kilo Code extension tasks
