@@ -145,19 +145,6 @@ func ClaudeEvents(ln ClaudeLine, session string) []Event {
 	return out
 }
 
-// DoubleUnderscore decodes a tool named the Anthropic way: "Bash" is the
-// shell, "mcp__<server>__<tool>" an MCP tool, anything else a built-in.
-func DoubleUnderscore(name string, input map[string]json.RawMessage) (tool, command string, args map[string]string, raw map[string]bool, server, mcpTool string) {
-	switch {
-	case name == "Bash":
-		return "shell", RawString(input["command"]), nil, nil, "", ""
-	case strings.HasPrefix(name, "mcp__"):
-		server, mcpTool, _ = strings.Cut(strings.TrimPrefix(name, "mcp__"), "__")
-		return "mcp:" + LastSegment(name), "", Flatten(input), RawKeys(input), server, mcpTool
-	}
-	return name, "", Flatten(input), RawKeys(input), "", ""
-}
-
 // Claude inserts this line on context compaction. Its contents describe earlier
 // work but are not a new instruction from the user.
 func IsClaudeContinuationSummary(text string) bool {
