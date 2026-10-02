@@ -378,6 +378,42 @@ func TestAPackageIsAskedAboutOnceAndAgainWhenItChanges(t *testing.T) {
 	}
 }
 
+func TestToolOnlyPackageUsesPerCallGateWithoutPackagePrompt(t *testing.T) {
+	inDir(t)
+	pkg := writePackage(t, `apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata: {publisher: dev.test, name: tool-only, version: 0.1.0}
+execution: {entrypoint: main.sh}
+tools:
+  - {alias: create, capability: jira.issues.create, effect: write}
+`, "tap call create {}\n")
+	store := &trustStore{path: filepath.Join(t.TempDir(), "trusted.json")}
+	asked := false
+	refusal := admitPackage(store, func(string, string, string, string, string, string) bool {
+		asked = true
+		return false
+	}, pkg)
+	if refusal != "" || asked {
+		t.Fatalf("tool-only package got a separate package prompt: refusal=%q asked=%v", refusal, asked)
+	}
+	// Effectful tool calls still stop in callTool without an approval; see
+	// TestCallGate. This test only removes the redundant whole-package ask.
+}
+
+func TestPackageWithLocalReachStillRequiresPackageTrust(t *testing.T) {
+	inDir(t)
+	pkg := writePackage(t, writeManifest, writeScript)
+	store := &trustStore{path: filepath.Join(t.TempDir(), "trusted.json")}
+	asked := false
+	refusal := admitPackage(store, func(string, string, string, string, string, string) bool {
+		asked = true
+		return false
+	}, pkg)
+	if !asked || !strings.Contains(refusal, "did not agree to run") {
+		t.Fatalf("package with local file/command reach skipped trust: refusal=%q asked=%v", refusal, asked)
+	}
+}
+
 func TestADeclinedPackageIsNotRun(t *testing.T) {
 	dir := inDir(t)
 	c := startServer(t, true, accept)

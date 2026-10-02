@@ -41,6 +41,16 @@ func packageDigest(dir string) (digest string, m *mf.Manifest, err error) {
 	return hex.EncodeToString(sum[:]), m, nil
 }
 
+// needsPackageTrust is true when the program can act outside the mediated MCP
+// tool broker. A tool-only primitive has no local file, command, or fetch
+// authority; each dispatched call is checked against its declared and
+// server-annotated effect in callTool, where effectful calls need approval.
+// Asking for a second, package-wide approval before that per-call gate is
+// redundant and can fail on MCP clients that do not surface trust elicitations.
+func needsPackageTrust(m *mf.Manifest) bool {
+	return len(m.Tools) == 0 || len(m.Files) > 0 || len(m.Commands) > 0 || len(m.Fetch) > 0
+}
+
 // declares says in a few lines what a package may touch.
 func declares(m *mf.Manifest) string {
 	var lines []string
@@ -134,6 +144,9 @@ func admitPackage(store *trustStore, ask Truster, dir string) (refusal string) {
 	digest, m, err := packageDigest(dir)
 	if err != nil {
 		return "" // Run reports a package that cannot be read
+	}
+	if !needsPackageTrust(m) {
+		return ""
 	}
 	if store.has(digest) {
 		return ""
