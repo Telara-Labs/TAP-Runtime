@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -98,13 +99,19 @@ func RunTUI(in, out *os.File, res Result, cfg MenuConfig) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprint(out, "\x1b[?1049h\x1b[?25l") // alternate screen, hide cursor
+	fmt.Fprint(out, "\x1b[?1049h\x1b[?1000h\x1b[?1006h\x1b[?25l") // alternate screen, capture mouse, hide cursor
+	restored := false
 	restore := func() {
-		fmt.Fprint(out, "\x1b[?25h\x1b[?1049l")
+		if restored {
+			return
+		}
+		restored = true
+		fmt.Fprint(out, "\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[?1049l")
 		term.Restore(fd, old)
 	}
 	defer restore()
-	buf := make([]byte, 16)
+	buf := make([]byte, 128)
+	pending := ""
 	for t.view != doneView {
 		t.w, t.h, _ = term.GetSize(int(out.Fd()))
 		if t.w <= 0 {
@@ -116,7 +123,9 @@ func RunTUI(in, out *os.File, res Result, cfg MenuConfig) error {
 		if err != nil {
 			return err
 		}
-		for _, k := range splitKeys(string(buf[:n])) {
+		keys, rest := splitInput(pending + string(buf[:n]))
+		pending = rest
+		for _, k := range keys {
 			if t.key(k) {
 				restore()
 				return t.submit(out)
@@ -132,16 +141,37 @@ func RunTUI(in, out *os.File, res Result, cfg MenuConfig) error {
 // splitKeys separates the keys in one read: escape sequences (arrows, page
 // keys) and single characters, so fast typing or a paste is not one key.
 func splitKeys(in string) []string {
+	keys, rest := splitInput(in)
+	if rest != "" {
+		keys = append(keys, rest)
+	}
+	return keys
+}
+
+// splitInput separates complete key and mouse reports from bytes that may be
+// the start of a report split across terminal reads.
+func splitInput(in string) ([]string, string) {
 	var out []string
 	for len(in) > 0 {
+		if strings.HasPrefix(in, "\x1b[<") {
+			end := strings.IndexAny(in[3:], "Mm")
+			if end < 0 {
+				return out, in
+			}
+			end += 4
+			out = append(out, in[:end])
+			in = in[end:]
+			continue
+		}
 		if strings.HasPrefix(in, "\x1b[") {
 			end := 2
 			for end < len(in) && !(in[end] >= 'A' && in[end] <= 'Z' || in[end] == '~') {
 				end++
 			}
-			if end < len(in) {
-				end++
+			if end == len(in) {
+				return out, in
 			}
+			end++
 			out = append(out, in[:end])
 			in = in[end:]
 			continue
@@ -150,11 +180,43 @@ func splitKeys(in string) []string {
 		out = append(out, in[:size])
 		in = in[size:]
 	}
-	return out
+	return out, ""
+}
+
+// mouseWheelDelta returns -1 for wheel up and +1 for wheel down from an SGR
+// mouse report. Other mouse buttons are ignored.
+func mouseWheelDelta(k string) (int, bool) {
+	if !strings.HasPrefix(k, "\x1b[<") || len(k) < 7 || k[len(k)-1] != 'M' {
+		return 0, false
+	}
+	fields := strings.Split(k[3:len(k)-1], ";")
+	if len(fields) != 3 {
+		return 0, false
+	}
+	button, err := strconv.Atoi(fields[0])
+	if err != nil || button&64 == 0 {
+		return 0, false
+	}
+	if button&1 == 0 {
+		return -1, true
+	}
+	return 1, true
 }
 
 // key handles one key press; it returns true when the person submits.
 func (t *tui) key(k string) bool {
+	if delta, ok := mouseWheelDelta(k); ok {
+		if t.help {
+			return false
+		}
+		switch t.view {
+		case listView:
+			t.step(delta)
+		case cardView:
+			t.scroll = max(0, t.scroll+delta)
+		}
+		return false
+	}
 	t.notice = ""
 	if t.help {
 		t.help = false
