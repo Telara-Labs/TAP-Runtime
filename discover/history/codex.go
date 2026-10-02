@@ -92,11 +92,11 @@ type CodexLine struct {
 	} `json:"payload"`
 }
 
-func ReadCodexFile(path string) (s trace.Session, err error) {
+func ReadCodexFile(path string) (res trace.Session, err error) {
 	// One file the parser cannot follow is skipped, not the whole run.
 	defer func() {
 		if r := recover(); r != nil {
-			s, err = trace.Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
+			res, err = trace.Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
 		}
 	}()
 	fh, err := os.Open(path)
@@ -104,20 +104,14 @@ func ReadCodexFile(path string) (s trace.Session, err error) {
 		return trace.Session{}, err
 	}
 	defer fh.Close()
-	s = trace.Session{Client: "codex", ID: strings.TrimSuffix(filepath.Base(path), ".jsonl")}
-	turn, turnStart := 0, 0
+	a := NewAssembler("codex", strings.TrimSuffix(filepath.Base(path), ".jsonl"))
+	s := &a.S
 	metaSeen := false
 	automationSession := false
-	byCallID := map[string][]int{}    // call_id -> calls it produced
 	execInputs := map[string]string{} // functions.exec source, for result attribution
 	curID := ""
-	add := func(c trace.Call) {
-		c.Request = s.Request()
-		if curID != "" {
-			byCallID[curID] = append(byCallID[curID], len(s.Calls))
-		}
-		s.Calls = append(s.Calls, c)
-	}
+	// Calls under one call_id: one, or several from one exec script.
+	add := func(c trace.Call) { a.Add(ToolCall{Key: curID, Call: c}) }
 	sc := bufio.NewScanner(fh)
 	sc.Buffer(make([]byte, 1<<20), 128<<20)
 	for sc.Scan() {
@@ -138,9 +132,7 @@ func ReadCodexFile(path string) (s trace.Session, err error) {
 			}
 			if json.Unmarshal(b, &tc) == nil && tc.Payload.Info != nil {
 				l := tc.Payload.Info.Last
-				trace.Spread(s.Calls, turnStart, turn, trace.Usage{Fresh: l.Input - l.Cached, Cached: l.Cached, Output: l.Output})
-				turn++
-				turnStart = len(s.Calls)
+				a.Add(TurnUsage{Usage: trace.Usage{Fresh: l.Input - l.Cached, Cached: l.Cached, Output: l.Output}})
 			}
 			continue
 		}
@@ -162,11 +154,11 @@ func ReadCodexFile(path string) (s trace.Session, err error) {
 			_ = json.Unmarshal(p.Content, &blocks)
 			for _, bl := range blocks {
 				if bl.Type == "input_text" && trace.IsRequest(bl.Text) {
+					role := "user"
 					if automationSession && CodexInjectedAutomationContext(bl.Text) {
-						s.AddRequestWithRole(bl.Text, "synthetic_context")
-					} else {
-						s.AddRequest(bl.Text)
+						role = "synthetic_context"
 					}
+					a.Add(UserText{Text: bl.Text, Role: role})
 					break
 				}
 			}
@@ -200,21 +192,21 @@ func ReadCodexFile(path string) (s trace.Session, err error) {
 					}
 				}
 			}
-			indices := byCallID[p.CallID]
+			n := a.CallsUnder(p.CallID)
 			// Only a literal Promise.allSettled array with a direct indexed
 			// display proves which nested call produced each result. A combined
 			// or transformed display still leaves every nested result unknown.
-			if len(indices) > 1 {
+			if n > 1 {
 				if source, nested := execInputs[p.CallID]; nested {
-					if results, ok := CodexExecIndexedResults(source, p.Output, len(indices)); ok {
-						for i, ci := range indices {
-							CodexRecordResult(&s.Calls[ci], results[i].Text, results[i].Failed)
+					if results, ok := CodexExecIndexedResults(source, p.Output, n); ok {
+						for i := range n {
+							a.Add(ToolResult{Key: p.CallID, Nth: i, Text: results[i].Text, IsError: results[i].Failed})
 						}
 					}
 				}
 				continue
 			}
-			if len(indices) != 1 {
+			if n != 1 {
 				continue
 			}
 			text := CodexOutputText(p.Output)
@@ -229,17 +221,17 @@ func ReadCodexFile(path string) (s trace.Session, err error) {
 					continue
 				}
 			}
-			CodexRecordResult(&s.Calls[indices[0]], text, failed)
+			a.Add(ToolResult{Key: p.CallID, Nth: 0, Text: text, IsError: failed})
 		case p.Type == "function_call":
 			var args map[string]json.RawMessage
 			_ = json.Unmarshal([]byte(RawString(p.Arguments)), &args)
-			add(CodexCall(s, ln.Timestamp, p.Namespace, p.Name, args))
+			add(CodexCall(*s, ln.Timestamp, p.Namespace, p.Name, args))
 		case p.Type == "local_shell_call":
 			add(trace.Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: "shell", Command: strings.Join(p.Action.Command, " ")})
 		case p.Type == "custom_tool_call" && p.Name == "exec":
 			execInputs[p.CallID] = p.Input
 			for _, inner := range JsToolCalls(p.Input) {
-				add(CodexCall(s, ln.Timestamp, "", inner.Name, inner.Args))
+				add(CodexCall(*s, ln.Timestamp, "", inner.Name, inner.Args))
 			}
 		case p.Type == "custom_tool_call":
 			// apply_patch and other freeform tools: the input is the argument.
@@ -255,7 +247,7 @@ func ReadCodexFile(path string) (s trace.Session, err error) {
 	if len(s.Requests) == 0 && len(s.Calls) > 0 {
 		s.Requests = []string{""}
 	}
-	return s, sc.Err()
+	return a.Finish(), sc.Err()
 }
 
 func CodexAutomationPrompt(output string) string {
@@ -476,17 +468,6 @@ var CodexPassThroughPrefix = regexp.MustCompile(`(?s)^\s*(?:// @exec:[^\n]*\n\s*
 var CodexIndexedPrefix = regexp.MustCompile(`^(?:const|let)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*await\s+Promise\.allSettled\(\s*\[`)
 
 var CodexIndexedTail = regexp.MustCompile(`^([A-Za-z_$][A-Za-z0-9_$]*)\.forEach\(\(([A-Za-z_$][A-Za-z0-9_$]*),([A-Za-z_$][A-Za-z0-9_$]*)\)=>text\(JSON\.stringify\(\{([^{}]+)\}\)\)\)$`)
-
-func CodexRecordResult(call *trace.Call, text string, failed bool) {
-	call.Outcome = trace.ResultOutcome(text)
-	if failed {
-		call.Outcome = trace.OutcomeFailed
-	}
-	call.OutIDs, call.OutCtx, call.OutPaths = trace.OutputRefsPaths(text)
-	call.OutCollections = trace.ResultCollections(text)
-	call.Output = trace.TruncateUTF8(text, 600)
-	call.OutTokens = trace.OutputTokens(text)
-}
 
 type CodexIndexedResult struct {
 	Text   string

@@ -82,3 +82,32 @@ func TestDiscoverReadsEveryDetectedAgentByDefault(t *testing.T) {
 		t.Fatalf("windsurf: exit %d: %s", code, errOut.String())
 	}
 }
+
+// End to end through the shared assembler (TENG-3111): the whole report,
+// from every reader through discovery, is the same bytes on every run.
+func TestDiscoverReportIsByteIdenticalAcrossRuns(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	copyTree(t, "../history/testdata/claude", filepath.Join(home, ".claude", "projects"))
+	copyTree(t, "../history/testdata/codex", filepath.Join(home, ".codex", "sessions"))
+	run := func() string {
+		var out, errOut bytes.Buffer
+		if code := discover.Command([]string{"report", "--json", "--client", "all"}, strings.NewReader(""), &out, &errOut); code != 0 {
+			t.Fatalf("exit %d: %s", code, errOut.String())
+		}
+		// Everything but the time the report was made.
+		var rep map[string]json.RawMessage
+		if err := json.Unmarshal(out.Bytes(), &rep); err != nil {
+			t.Fatal(err)
+		}
+		delete(rep, "generated_at")
+		b, _ := json.Marshal(rep)
+		return string(b)
+	}
+	first := run()
+	for i := 0; i < 3; i++ {
+		if run() != first {
+			t.Fatalf("run %d differs", i+2)
+		}
+	}
+}

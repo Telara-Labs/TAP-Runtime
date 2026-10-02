@@ -171,8 +171,14 @@ func CollectResultScalars(value any, path string, leaves map[string]ResultScalar
 	}
 	switch node := value.(type) {
 	case map[string]any:
-		for key, child := range node {
-			CollectResultScalars(child, path+JqKeyPath(key), leaves, depth+1)
+		// Sorted, so which leaves fit under the bound is the same every run.
+		keys := make([]string, 0, len(node))
+		for key := range node {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			CollectResultScalars(node[key], path+JqKeyPath(key), leaves, depth+1)
 		}
 	case []any:
 		for i, child := range node {

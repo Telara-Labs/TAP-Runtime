@@ -76,17 +76,7 @@ func ReadClaudeFile(path string) (s trace.Session, err error) {
 		return trace.Session{}, err
 	}
 	defer fh.Close()
-	s = trace.Session{Client: "claude-code", ID: strings.TrimSuffix(filepath.Base(path), ".jsonl")}
-	// One model response is written as several lines (one per content
-	// block) that repeat its usage; it is counted once, split over the
-	// tool calls it made.
-	type turn struct {
-		usage trace.Usage
-		calls []int
-	}
-	turns := map[string]*turn{}
-	byUseID := map[string]int{} // tool_use id -> call index
-	var order []string
+	a := NewAssembler("claude-code", strings.TrimSuffix(filepath.Base(path), ".jsonl"))
 	sc := bufio.NewScanner(fh)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	for sc.Scan() {
@@ -94,92 +84,78 @@ func ReadClaudeFile(path string) (s trace.Session, err error) {
 		if json.Unmarshal(sc.Bytes(), &ln) != nil {
 			continue
 		}
-		if s.Start.IsZero() && !ln.Timestamp.IsZero() {
-			s.Start = ln.Timestamp
-		}
-		if ln.Type == "user" && !ln.IsMeta {
-			if text := ClaudeUserText(ln.Message.Content); trace.IsRequest(text) {
-				role := "user"
-				if IsClaudeContinuationSummary(text) {
-					role = "synthetic_context"
-				}
-				s.AddRequestWithRole(text, role)
-			}
-			// Results of earlier tool calls: whether they failed, and the
-			// identifiers they returned.
-			var results []struct {
-				Type      string          `json:"type"`
-				ToolUseID string          `json:"tool_use_id"`
-				IsError   bool            `json:"is_error"`
-				Content   json.RawMessage `json:"content"`
-			}
-			if json.Unmarshal(ln.Message.Content, &results) == nil {
-				for _, r := range results {
-					ci, ok := byUseID[r.ToolUseID]
-					if r.Type != "tool_result" || !ok {
-						continue
-					}
-					text := ClaudeUserText(r.Content)
-					s.Calls[ci].Outcome = trace.OutcomeOK
-					if r.IsError || trace.ResultOutcome(text) == trace.OutcomeFailed {
-						s.Calls[ci].Outcome = trace.OutcomeFailed
-					}
-					s.Calls[ci].OutIDs, s.Calls[ci].OutCtx, s.Calls[ci].OutPaths = trace.OutputRefsPaths(text)
-					s.Calls[ci].OutCollections = trace.ResultCollections(text)
-					s.Calls[ci].Output = trace.TruncateUTF8(text, 600)
-					s.Calls[ci].OutTokens = trace.OutputTokens(text)
-				}
-			}
-			continue
-		}
-		if ln.Type != "assistant" || len(ln.Message.Content) == 0 || ln.Message.Content[0] != '[' {
-			continue
-		}
-		var blocks []ClaudeBlock
-		if json.Unmarshal(ln.Message.Content, &blocks) != nil {
-			continue
-		}
-		tr := turns[ln.Message.ID]
-		if tr == nil {
-			tr = &turn{}
-			if u := ln.Message.Usage; u != nil {
-				tr.usage = trace.Usage{Fresh: u.Input + u.CacheCreate, Cached: u.CacheRead, Output: u.Output}
-			}
-			turns[ln.Message.ID] = tr
-			order = append(order, ln.Message.ID)
-		}
-		for _, b := range blocks {
-			if b.Type != "tool_use" {
-				continue
-			}
-			tr.calls = append(tr.calls, len(s.Calls))
-			if b.ID != "" {
-				byUseID[b.ID] = len(s.Calls)
-			}
-			c := trace.Call{Client: s.Client, Session: s.ID, ID: b.ID, Time: ln.Timestamp, Request: s.Request()}
-			switch {
-			case b.Name == "Bash":
-				c.Tool, c.Command = "shell", RawString(b.Input["command"])
-			case strings.HasPrefix(b.Name, "mcp__"):
-				c.Tool, c.Args, c.RawArgs = "mcp:"+LastSegment(b.Name), Flatten(b.Input), RawKeys(b.Input)
-				c.MCPServer, c.MCPTool, _ = strings.Cut(strings.TrimPrefix(b.Name, "mcp__"), "__")
-			default:
-				c.Tool, c.Args, c.RawArgs = b.Name, Flatten(b.Input), RawKeys(b.Input)
-			}
-			s.Calls = append(s.Calls, c)
+		FirstTime(&a.S, ln.Timestamp)
+		for _, e := range ClaudeEvents(ln, a.S.ID) {
+			a.Add(e)
 		}
 	}
-	for ti, id := range order {
-		tr := turns[id]
-		if tr.usage.Total() == 0 || len(tr.calls) == 0 {
+	return a.Finish(), sc.Err()
+}
+
+// ClaudeEvents decodes one transcript line. One model response is written as
+// several lines (one per content block) that each repeat its usage; the
+// assembler counts it once, split over the tool calls it made.
+func ClaudeEvents(ln ClaudeLine, session string) []Event {
+	var out []Event
+	if ln.Type == "user" && !ln.IsMeta {
+		if text := ClaudeUserText(ln.Message.Content); text != "" {
+			role := "user"
+			if IsClaudeContinuationSummary(text) {
+				role = "synthetic_context"
+			}
+			out = append(out, UserText{Text: text, Role: role})
+		}
+		// Results of earlier tool calls: whether they failed, and the
+		// identifiers they returned.
+		var results []struct {
+			Type      string          `json:"type"`
+			ToolUseID string          `json:"tool_use_id"`
+			IsError   bool            `json:"is_error"`
+			Content   json.RawMessage `json:"content"`
+		}
+		if json.Unmarshal(ln.Message.Content, &results) == nil {
+			for _, r := range results {
+				if r.Type == "tool_result" && r.ToolUseID != "" {
+					out = append(out, ToolResult{Key: r.ToolUseID, Nth: -1, Text: ClaudeUserText(r.Content), IsError: r.IsError})
+				}
+			}
+		}
+		return out
+	}
+	if ln.Type != "assistant" || len(ln.Message.Content) == 0 || ln.Message.Content[0] != '[' {
+		return nil
+	}
+	var blocks []ClaudeBlock
+	if json.Unmarshal(ln.Message.Content, &blocks) != nil {
+		return nil
+	}
+	var usage trace.Usage
+	if u := ln.Message.Usage; u != nil {
+		usage = trace.Usage{Fresh: u.Input + u.CacheCreate, Cached: u.CacheRead, Output: u.Output}
+	}
+	out = append(out, TurnUsage{Turn: "msg:" + ln.Message.ID, Usage: usage})
+	for _, b := range blocks {
+		if b.Type != "tool_use" {
 			continue
 		}
-		for _, ci := range tr.calls {
-			s.Calls[ci].Tokens = tr.usage.Scale(1 / float64(len(tr.calls)))
-			s.Calls[ci].Turn, s.Calls[ci].Measured = ti, true
-		}
+		c := trace.Call{Session: session, ID: b.ID, Time: ln.Timestamp}
+		c.Tool, c.Command, c.Args, c.RawArgs, c.MCPServer, c.MCPTool = DoubleUnderscore(b.Name, b.Input)
+		out = append(out, ToolCall{Key: b.ID, Turn: "msg:" + ln.Message.ID, Call: c})
 	}
-	return s, sc.Err()
+	return out
+}
+
+// DoubleUnderscore decodes a tool named the Anthropic way: "Bash" is the
+// shell, "mcp__<server>__<tool>" an MCP tool, anything else a built-in.
+func DoubleUnderscore(name string, input map[string]json.RawMessage) (tool, command string, args map[string]string, raw map[string]bool, server, mcpTool string) {
+	switch {
+	case name == "Bash":
+		return "shell", RawString(input["command"]), nil, nil, "", ""
+	case strings.HasPrefix(name, "mcp__"):
+		server, mcpTool, _ = strings.Cut(strings.TrimPrefix(name, "mcp__"), "__")
+		return "mcp:" + LastSegment(name), "", Flatten(input), RawKeys(input), server, mcpTool
+	}
+	return name, "", Flatten(input), RawKeys(input), "", ""
 }
 
 // Claude inserts this line on context compaction. Its contents describe earlier

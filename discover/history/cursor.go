@@ -149,9 +149,7 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 		if cv == nil {
 			return
 		}
-		call := CursorCall(row)
-		call.Session = row.Composer
-		cv.Calls = append(cv.Calls, CursorPlaced{pos, call})
+		cv.Calls = append(cv.Calls, CursorPlaced{Pos: pos, Row: row})
 		raw, _ := json.Marshal(row)
 		cv.Raw = append(cv.Raw, string(raw))
 	}
@@ -191,26 +189,26 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 		}
 		sort.SliceStable(cv.Calls, func(i, j int) bool { return cv.Calls[i].Pos < cv.Calls[j].Pos })
 		sort.SliceStable(cv.Users, func(i, j int) bool { return cv.Users[i].Pos < cv.Users[j].Pos })
-		s := trace.Session{Client: "cursor", ID: id, Start: cv.Start}
+		a := NewAssembler("cursor", id)
+		a.S.Start = cv.Start
 		sort.Strings(cv.Raw)
 		h := sha256.New()
 		for _, r := range cv.Raw {
 			h.Write([]byte(r))
 			h.Write([]byte{0})
 		}
-		s.SourceDigest = hex.EncodeToString(h.Sum(nil))
+		a.S.SourceDigest = hex.EncodeToString(h.Sum(nil))
 		u := 0
-		for _, c := range cv.Calls {
+		for i, c := range cv.Calls {
 			for u < len(cv.Users) && cv.Users[u].Pos < c.Pos {
-				if trace.IsRequest(cv.Users[u].Text) {
-					s.AddRequest(cv.Users[u].Text)
-				}
+				a.Add(UserText{Text: cv.Users[u].Text})
 				u++
 			}
-			c.Call.Request = s.Request()
-			s.Calls = append(s.Calls, c.Call)
+			for _, e := range CursorEvents(c.Row, strconv.Itoa(i)) {
+				a.Add(e)
+			}
 		}
-		out = append(out, s)
+		out = append(out, a.Finish())
 	}
 	// Conversations come out of a map; later passes take sessions in order.
 	sort.Slice(out, func(i, j int) bool {
@@ -223,8 +221,8 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 }
 
 type CursorPlaced struct {
-	Pos  int
-	Call trace.Call
+	Pos int
+	Row CursorRow
 }
 
 type CursorConv struct {
@@ -249,18 +247,19 @@ func (c *CursorConv) OrderOf(bubble string) (int, bool) {
 	return i, ok
 }
 
+// CursorCall decodes one tool bubble into a call with its result.
 func CursorCall(row CursorRow) trace.Call {
-	c := trace.Call{Client: "cursor", Time: CursorTime(row.Created)}
-	c.OutIDs, c.OutCtx, c.OutPaths = trace.OutputRefsPaths(row.Result)
-	c.OutCollections = trace.ResultCollections(row.Result)
-	c.Output = trace.TruncateUTF8(row.Result, 600)
-	c.OutTokens = trace.OutputTokens(row.Result)
-	switch row.Status {
-	case "completed":
-		c.Outcome = trace.OutcomeOK
-	case "error", "cancelled":
-		c.Outcome = trace.OutcomeFailed
+	a := NewAssembler("cursor", "")
+	for _, e := range CursorEvents(row, "c") {
+		a.Add(e)
 	}
+	return a.Finish().Calls[0]
+}
+
+// CursorEvents decodes one tool bubble: the call, then its result, whose
+// outcome is the bubble's own status (completed, error, cancelled).
+func CursorEvents(row CursorRow, key string) []Event {
+	c := trace.Call{Session: row.Composer, Time: CursorTime(row.Created)}
 	var args map[string]json.RawMessage
 	_ = json.Unmarshal([]byte(row.Args), &args)
 	switch {
@@ -273,7 +272,14 @@ func CursorCall(row CursorRow) trace.Call {
 	default:
 		c.Tool, c.Args, c.RawArgs = row.Name, Flatten(args), RawKeys(args)
 	}
-	return c
+	var outcome trace.Outcome
+	switch row.Status {
+	case "completed":
+		outcome = trace.OutcomeOK
+	case "error", "cancelled":
+		outcome = trace.OutcomeFailed
+	}
+	return []Event{ToolCall{Key: key, Call: c}, ToolResult{Key: key, Text: row.Result, HasOutcome: true, Outcome: outcome}}
 }
 
 // CursorMCPArgs returns the arguments the MCP tool received. Cursor records
