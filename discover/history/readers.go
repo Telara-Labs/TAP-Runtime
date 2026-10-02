@@ -27,6 +27,25 @@ var Readers = map[string]func(home string) trace.Reader{
 	"antigravity": func(home string) trace.Reader {
 		return Antigravity{Dir: filepath.Join(home, ".gemini", "antigravity", "brain")}
 	},
+	"gemini-cli": func(home string) trace.Reader {
+		return GeminiCLI{Dir: filepath.Join(home, ".gemini", "tmp")}
+	},
+	"qwen-code": func(home string) trace.Reader {
+		return QwenCode{Dir: filepath.Join(home, ".qwen", "projects")}
+	},
+	"vscode-copilot": func(home string) trace.Reader { return VSCodeCopilot{User: VSCodeUserDir(home)} },
+}
+
+// VSCodeUserDir is VS Code's User folder on this OS.
+func VSCodeUserDir(home string) string {
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join(home, "Library", "Application Support", "Code", "User")
+	case "windows":
+		return filepath.Join(client.AppData("APPDATA", home, "AppData/Roaming"), "Code", "User")
+	default:
+		return filepath.Join(home, ".config", "Code", "User")
+	}
 }
 
 // DefaultReaders returns readers for the named clients at their usual places
