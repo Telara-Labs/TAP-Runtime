@@ -99,14 +99,17 @@ func RunTUI(in, out *os.File, res Result, cfg MenuConfig) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprint(out, "\x1b[?1049h\x1b[?1000h\x1b[?1006h\x1b[?25l") // alternate screen, capture mouse, hide cursor
+	// Alternate screen with alternate scroll: the terminal turns the mouse
+	// wheel into up and down keys, and keeps clicks and drags, so text can
+	// still be selected and copied. Mouse reporting would take those away.
+	fmt.Fprint(out, "\x1b[?1049h\x1b[?1007h\x1b[?25l")
 	restored := false
 	restore := func() {
 		if restored {
 			return
 		}
 		restored = true
-		fmt.Fprint(out, "\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[?1049l")
+		fmt.Fprint(out, "\x1b[?1007l\x1b[?25h\x1b[?1049l")
 		term.Restore(fd, old)
 	}
 	defer restore()
@@ -161,6 +164,16 @@ func splitInput(in string) ([]string, string) {
 			end += 4
 			out = append(out, in[:end])
 			in = in[end:]
+			continue
+		}
+		if strings.HasPrefix(in, "\x1bO") {
+			// SS3 keys: arrows as some terminals send them, including the
+			// wheel in alternate-scroll mode.
+			if len(in) < 3 {
+				return out, in
+			}
+			out = append(out, in[:3])
+			in = in[3:]
 			continue
 		}
 		if strings.HasPrefix(in, "\x1b[") {
@@ -242,8 +255,8 @@ func (t *tui) key(k string) bool {
 		t.help = true
 		return false
 	}
-	up, down := k == "\x1b[A" || k == "k", k == "\x1b[B" || k == "j"
-	left, right := k == "\x1b[D" || k == "h", k == "\x1b[C" || k == "l"
+	up, down := k == "\x1b[A" || k == "\x1bOA" || k == "k", k == "\x1b[B" || k == "\x1bOB" || k == "j"
+	left, right := k == "\x1b[D" || k == "\x1bOD" || k == "h", k == "\x1b[C" || k == "\x1bOC" || k == "l"
 	pgup, pgdn := k == "\x1b[5~", k == "\x1b[6~" || k == " "
 	enter := k == "\r" || k == "\n"
 	esc := k == "\x1b"
