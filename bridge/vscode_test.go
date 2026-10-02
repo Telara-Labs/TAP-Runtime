@@ -150,3 +150,19 @@ func TestVSCodeAskKeyForABuiltInToolMatchesItsListedName(t *testing.T) {
 		t.Error("runTask matched another tool")
 	}
 }
+
+func TestVSCodeAskKeyMatchesAnMCPToolListedOnlyByItsPrefixedName(t *testing.T) {
+	// A live VS Code 1.140 lists mcp_probe_search_issues with the tag "mcp" and no
+	// server, so the bridge reports its server as "vscode".
+	tool := bind.Tool{Server: "vscode", Name: "mcp_probe_search_issues"}
+	for key, want := range map[string]bool{
+		"probe/search_issues": true,
+		"probe/*":             true,
+		"other/search_issues": false,
+		"probe/create_issue":  false,
+	} {
+		if got := askKeyCovers(key, tool); got != want {
+			t.Errorf("%q: %v, want %v", key, got, want)
+		}
+	}
+}
