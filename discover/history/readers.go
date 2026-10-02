@@ -59,9 +59,33 @@ var Readers = map[string]func(home string) trace.Reader{
 	"crush": func(home string) trace.Reader {
 		return Crush{Dir: filepath.Join(home, ".local", "share", "crush"), Configs: []string{filepath.Join(home, ".config", "crush", "crush.json")}}
 	},
+	"copilot-cli": func(home string) trace.Reader {
+		return CopilotCLI{Dir: filepath.Join(home, ".copilot", "session-state"), Configs: []string{filepath.Join(home, ".copilot", "mcp-config.json")}}
+	},
+	"zed": func(home string) trace.Reader { return Zed{Dir: ZedThreadsDir(home)} },
+	"windsurf": func(home string) trace.Reader {
+		return Windsurf{Dirs: []string{filepath.Join(home, ".windsurf", "transcripts"), filepath.Join(home, ".tap", "windsurf", "transcripts")}}
+	},
+	"amp": func(home string) trace.Reader {
+		return Amp{Dir: filepath.Join(home, ".local", "share", "amp", "threads")}
+	},
+	"aider": func(home string) trace.Reader { return Aider{Home: home} },
 	"continue": func(home string) trace.Reader {
 		return Continue{Dir: filepath.Join(home, ".continue", "sessions"), Configs: []string{filepath.Join(home, ".continue", "config.yaml")}}
 	},
+}
+
+// ZedThreadsDir is where Zed keeps its agent threads on this OS (its data
+// directory, not its config directory).
+func ZedThreadsDir(home string) string {
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join(home, "Library", "Application Support", "Zed", "threads")
+	case "windows":
+		return filepath.Join(client.AppData("LOCALAPPDATA", home, "AppData/Local"), "Zed", "threads")
+	default:
+		return filepath.Join(home, ".local", "share", "zed", "threads")
+	}
 }
 
 // VSCodeUserDir is VS Code's User folder on this OS.

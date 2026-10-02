@@ -77,11 +77,11 @@ func TestDiscoverReadsEveryDetectedAgentByDefault(t *testing.T) {
 	if got := reportClients(t, "--client", "claude"); strings.Join(got, ",") != "claude-code" {
 		t.Fatalf("--client claude: read %v", got)
 	}
-	// A known agent without a reader is refused by name, not as unknown.
+	// A name that is no agent is refused, with the registry's list.
 	var out, errOut bytes.Buffer
-	if code := discover.Command([]string{"report", "--client", "windsurf"}, strings.NewReader(""), &out, &errOut); code != 2 ||
-		!strings.Contains(errOut.String(), "does not support reading session history") {
-		t.Fatalf("windsurf: exit %d: %s", code, errOut.String())
+	if code := discover.Command([]string{"report", "--client", "nope"}, strings.NewReader(""), &out, &errOut); code != 2 ||
+		!strings.Contains(errOut.String(), "unknown client") || !strings.Contains(errOut.String(), "windsurf") {
+		t.Fatalf("nope: exit %d: %s", code, errOut.String())
 	}
 }
 

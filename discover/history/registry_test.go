@@ -41,7 +41,11 @@ func TestDefaultReadersFollowTheRegistry(t *testing.T) {
 	if err != nil || len(rs) != 1 || rs[0].Client() != "claude-code" {
 		t.Fatalf("alias: %v, %v", rs, err)
 	}
-	if _, err := DefaultReaders([]string{"windsurf"}, home); err == nil || strings.Contains(err.Error(), "unknown") {
-		t.Fatalf("windsurf is known but has no reader yet: %v", err)
+	// Every registered agent has a reader now (TENG-3117 to TENG-3121).
+	if rs, err := DefaultReaders([]string{"all"}, home); err != nil || len(rs) != len(client.All()) {
+		t.Fatalf("all: %d readers for %d agents, %v", len(rs), len(client.All()), err)
+	}
+	if _, err := DefaultReaders([]string{"nope"}, home); err == nil || !strings.Contains(err.Error(), "unknown client") {
+		t.Fatalf("an unknown name: %v", err)
 	}
 }
