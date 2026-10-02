@@ -59,10 +59,14 @@ func main() {
 			extra = append(extra, s)
 			return nil
 		})
+		unsigned := fs.Bool("unsigned", false, "say that this release is meant to ship without a signature")
 		fs.Parse(os.Args[2:])
 		platforms := Platforms
 		if *only != "" {
 			platforms = []string{*only}
+		}
+		if err = signingChosen(*key, *unsigned); err != nil {
+			break
 		}
 		err = Build(".", *out, *version, platforms, *key, *base, extra...)
 	case "verify":
@@ -409,4 +413,17 @@ func licenceIn(dir string) ([]byte, string) {
 		}
 	}
 	return nil, ""
+}
+
+// signingChosen makes shipping without a signature something a person says,
+// not what happens when they forget a flag (TENG-3104, threat G12): v0.1.0 and
+// v0.1.1 went out unsigned because nothing asked.
+func signingChosen(key string, unsigned bool) error {
+	switch {
+	case key != "" && unsigned:
+		return fmt.Errorf("--key and --unsigned contradict each other")
+	case key == "" && !unsigned:
+		return fmt.Errorf("a release is signed: give --key, or --unsigned to ship it without a signature")
+	}
+	return nil
 }
