@@ -3,7 +3,9 @@
 The TAP runner.
 
 Runs a TAP primitive. A primitive is a folder with a `primitive.yaml` and one
-entrypoint: a source file (`main.sh`, `main.py`, `main.js`) or a compiled `.wasm`.
+entrypoint: a source file: `main.sh`, `main.py`, `main.js` or `main.ts`. A compiled `.wasm`
+entrypoint is not supported yet: the request protocol it would speak is not
+published.
 
 Design: `telara-documentation/architecture/tap/34-the-baseline-primitive-is-a-program.md`
 section 13. Ticket: TENG-3031.

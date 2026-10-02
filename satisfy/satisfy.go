@@ -176,3 +176,49 @@ func Result(contract map[string]any, answer string) string {
 	}
 	return ""
 }
+
+// CallArguments applies the contract at the moment of a call (TENG-3103). The
+// admission rule checks the connector against the contract before anything
+// runs; this checks what the program actually sends. Every argument must be
+// one the contract declares, with the type it declares, and every argument the
+// contract requires must be present. A contract that declares no properties
+// says nothing a call can be held against. It returns "" when the call
+// conforms.
+func CallArguments(contract, args map[string]any) string {
+	if len(properties(contract)) == 0 && len(required(contract)) == 0 {
+		return ""
+	}
+	closed := map[string]any{}
+	for k, v := range contract {
+		closed[k] = v
+	}
+	if _, said := closed["additionalProperties"]; !said {
+		closed["additionalProperties"] = false
+	}
+	raw, _ := json.Marshal(closed)
+	sc, err := jsonschema.CompileString("contract-args.json", string(raw))
+	if err != nil {
+		return "the contract's argument schema does not compile: " + err.Error()
+	}
+	if args == nil {
+		args = map[string]any{}
+	}
+	// Round trip, so a value the guest sent is what the schema sees: JSON.
+	b, _ := json.Marshal(args)
+	var v any
+	json.Unmarshal(b, &v)
+	if err := sc.Validate(v); err != nil {
+		if ve, ok := err.(*jsonschema.ValidationError); ok {
+			for len(ve.Causes) > 0 {
+				ve = ve.Causes[0]
+			}
+			at := strings.TrimPrefix(ve.InstanceLocation, "/")
+			if at == "" {
+				at = "the arguments"
+			}
+			return at + ": " + ve.Message
+		}
+		return err.Error()
+	}
+	return ""
+}

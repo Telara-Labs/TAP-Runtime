@@ -280,6 +280,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if problems := loaded.RunProblems(); len(problems) > 0 {
 		return nil, fmt.Errorf("primitive.yaml cannot be run:\n  - %s", strings.Join(problems, "\n  - "))
 	}
+	if problems := declarationProblems(loaded); len(problems) > 0 {
+		return nil, fmt.Errorf("primitive.yaml declares what this runner will not allow:\n  - %s", strings.Join(problems, "\n  - "))
+	}
 	m := *loaded
 	// Ruling 7 and 34 section 5.1: a subprocess is not contained. This
 	// runner runs the contained tier only.

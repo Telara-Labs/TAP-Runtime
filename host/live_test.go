@@ -44,7 +44,7 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 			work, _ := filepath.EvalSymlinks(t.TempDir())
 			cfg := filepath.Join(work, "mcp.json")
 			j, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"tap": map[string]any{
-				"command": bin, "args": []string{"serve", "--interpreters", store, "--runs", filepath.Join(work, "runs"), "--journal", filepath.Join(work, "journal.jsonl")}}}})
+				"command": bin, "args": []string{"serve", "--interpreters", store, "--runs", filepath.Join(work, "runs"), "--journal", filepath.Join(work, "journal.jsonl"), "--config-dir", filepath.Join(work, "config")}}}})
 			os.WriteFile(cfg, j, 0o600)
 
 			cmd := exec.Command("claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
@@ -82,9 +82,15 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 						r, _ := m["request"].(map[string]any)
 						if r["subtype"] == "elicitation" {
 							msg, _ := r["message"].(string)
-							prompts = append(prompts, fmt.Sprintf("from %v: %s", r["mcp_server_name"], msg))
+							answer := c.answer
+							if strings.Contains(msg, "for the first time on this machine") {
+								// Whether to run the package is not the question under test.
+								answer = map[string]any{"action": "accept", "content": map[string]any{"approve": true}}
+							} else {
+								prompts = append(prompts, fmt.Sprintf("from %v: %s", r["mcp_server_name"], msg))
+							}
 							send(map[string]any{"type": "control_response", "response": map[string]any{
-								"subtype": "success", "request_id": m["request_id"], "response": c.answer}})
+								"subtype": "success", "request_id": m["request_id"], "response": answer}})
 						}
 						continue
 					}
@@ -181,7 +187,7 @@ func TestLiveElicitationThroughCodex(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			work, _ := filepath.EvalSymlinks(t.TempDir())
-			args, _ := json.Marshal([]string{"serve", "--interpreters", store, "--runs", filepath.Join(work, "runs")})
+			args, _ := json.Marshal([]string{"serve", "--interpreters", store, "--runs", filepath.Join(work, "runs"), "--config-dir", filepath.Join(work, "config")})
 			// The runner is registered for this one process. No
 			// configuration file is changed.
 			cmd := exec.Command("codex", "-c", fmt.Sprintf("mcp_servers.tap.command=%q", bin),
@@ -212,8 +218,13 @@ func TestLiveElicitationThroughCodex(t *testing.T) {
 					if m["method"] == "mcpServer/elicitation/request" {
 						p, _ := m["params"].(map[string]any)
 						msg, _ := p["message"].(string)
-						prompts = append(prompts, fmt.Sprintf("from %v: %s", p["serverName"], msg))
-						send(map[string]any{"jsonrpc": "2.0", "id": m["id"], "result": c.answer})
+						answer := c.answer
+						if strings.Contains(msg, "for the first time on this machine") {
+							answer = map[string]any{"action": "accept", "content": map[string]any{"approve": true}}
+						} else {
+							prompts = append(prompts, fmt.Sprintf("from %v: %s", p["serverName"], msg))
+						}
+						send(map[string]any{"jsonrpc": "2.0", "id": m["id"], "result": answer})
 						continue
 					}
 					if m["id"] == float64(id) && m["method"] == nil {

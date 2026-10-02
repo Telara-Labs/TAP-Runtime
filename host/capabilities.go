@@ -288,7 +288,8 @@ func fetchOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 		req.Header.Set(k, v)
 	}
 	client := &http.Client{
-		Timeout: 60 * time.Second,
+		Timeout:   60 * time.Second,
+		Transport: guardedTransport(),
 		// A redirect is a new request. It must be one the primitive declared.
 		CheckRedirect: func(next *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {

@@ -32,8 +32,12 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 	retention := fs.Int("retention-days", 30, "remove the records of runs older than this many days; 0 keeps them for ever")
 	serverName := fs.String("name", "tap", "the name the client knows this server by, as given at install")
 	vscodeSocket := fs.String("vscode-socket", "", "the TAP extension's socket, given by the extension that starts this server in VS Code")
+	configDir := fs.String("config-dir", "", "directory for the choices a person made (tool bindings) and the packages they trust; default is the user config directory")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *configDir != "" {
+		userConfigDir = func() (string, error) { return *configDir, nil }
 	}
 	var journal io.Writer = io.Discard
 	if *journalPath != "" {
@@ -233,6 +237,29 @@ func (s *server) elicit(a Ask) Grant {
 	return Grant{OK: true, Limit: limit}
 }
 
+// trustPackage asks the person whether this package may run on this machine.
+func (s *server) trustPackage(name, publisher, version, path, digest, declared string) bool {
+	m, ok := s.ask("elicitation/create", map[string]any{
+		"message": fmt.Sprintf("A client asked to run the primitive %q %s from %s (digest %s) for the first time on this machine. It declares:\n\n%s\n\nA primitive can only do what it declares, and each change is asked of you separately. Run it?",
+			name, strings.TrimSpace("by "+publisher+" v"+version), path, digest, declared),
+		"requestedSchema": map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"approve": map[string]any{"type": "boolean", "title": "Run this primitive", "default": false}},
+			"required":   []string{"approve"},
+		},
+	})
+	if !ok || m.Error != nil {
+		return false
+	}
+	var r struct {
+		Action  string `json:"action"`
+		Content struct {
+			Approve bool `json:"approve"`
+		} `json:"content"`
+	}
+	return json.Unmarshal(m.Result, &r) == nil && r.Action == "accept" && r.Content.Approve
+}
+
 // choose asks the person which of several servers should fill a capability.
 // Anything but an explicit pick of one of them is a no.
 func (s *server) choose(p Pick) (string, bool) {
@@ -335,9 +362,15 @@ func (s *server) handle(m rpcMessage) {
 		}
 		var approve Approver
 		var choose Chooser
+		var truster Truster
 		if canElicit {
 			approve = s.elicit
 			choose = s.choose
+			truster = s.trustPackage
+		}
+		if why := admitPackage(newTrustStore(), truster, p.Arguments.Package); why != "" {
+			s.reply(m.ID, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": why}}})
+			return
 		}
 		o := Options{
 			Package: p.Arguments.Package, Args: p.Arguments.Args, Journal: s.journal, Approve: approve, Choose: choose,

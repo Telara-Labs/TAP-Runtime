@@ -58,17 +58,24 @@ func writePackage(t *testing.T, manifest, script string) string {
 
 // client is a minimal MCP client: the other end of the wire.
 type client struct {
-	t      *testing.T
-	in     io.WriteCloser
-	sc     *bufio.Scanner
-	answer func(params map[string]any) map[string]any // how it answers an elicitation
-	asked  []string
-	done   chan error
+	t       *testing.T
+	in      io.WriteCloser
+	sc      *bufio.Scanner
+	answer  func(params map[string]any) map[string]any // how it answers an elicitation
+	asked   []string
+	trust   []string // the first-run question about a package, kept apart from the rest
+	noTrust bool
+	done    chan error
 }
 
 func startServer(t *testing.T, elicitation bool, answer func(map[string]any) map[string]any) *client {
 	t.Helper()
 	store := interpreterStore(t)
+	// Each server starts with no package trusted, so one test's yes is not
+	// another's.
+	cfg, oldCfg := t.TempDir(), userConfigDir
+	userConfigDir = func() (string, error) { return cfg, nil }
+	t.Cleanup(func() { userConfigDir = oldCfg })
 	cr, sw := io.Pipe()
 	sr, cw := io.Pipe()
 	c := &client{t: t, in: cw, sc: bufio.NewScanner(cr), answer: answer, done: make(chan error, 1)}
@@ -110,6 +117,12 @@ func (c *client) call(method string, params any) map[string]any {
 		if m["method"] == "elicitation/create" {
 			p, _ := m["params"].(map[string]any)
 			msg, _ := p["message"].(string)
+			if strings.Contains(msg, "for the first time on this machine") {
+				c.trust = append(c.trust, msg)
+				ans := map[string]any{"action": "accept", "content": map[string]any{"approve": !c.noTrust}}
+				c.send(map[string]any{"jsonrpc": "2.0", "id": m["id"], "result": ans})
+				continue
+			}
 			c.asked = append(c.asked, msg)
 			c.send(map[string]any{"jsonrpc": "2.0", "id": m["id"], "result": c.answer(p)})
 			continue
@@ -304,5 +317,54 @@ tools:
 `, "tap call search\n")
 	if out := c.run(pkg); !strings.Contains(out, "cannot lend its connections") {
 		t.Fatalf("got:\n%s", out)
+	}
+}
+
+// TENG-3103 (G6): tap_run takes a package path from the model. The first time
+// a package is run on this machine through a client that can ask, the person
+// is asked, and the answer is kept by the package's digest.
+func TestAPackageIsAskedAboutOnceAndAgainWhenItChanges(t *testing.T) {
+	inDir(t)
+	c := startServer(t, true, accept)
+	pkg := writePackage(t, writeManifest, writeScript)
+	c.run(pkg)
+	c.run(pkg)
+	if len(c.trust) != 1 {
+		t.Fatalf("the same package was asked about %d times, want 1", len(c.trust))
+	}
+	for _, want := range []string{"writer", "digest", "files: out (write)", "program: touch"} {
+		if !strings.Contains(c.trust[0], want) {
+			t.Errorf("the first-run question does not say %q: %s", want, c.trust[0])
+		}
+	}
+	os.WriteFile(filepath.Join(pkg, "main.sh"), []byte(writeScript+"\n# edited\n"), 0o644)
+	c.run(pkg)
+	if len(c.trust) != 2 {
+		t.Fatalf("an edited package was asked about %d times in all, want 2", len(c.trust))
+	}
+}
+
+func TestADeclinedPackageIsNotRun(t *testing.T) {
+	dir := inDir(t)
+	c := startServer(t, true, accept)
+	c.noTrust = true
+	r := c.call("tools/call", map[string]any{"name": "tap_run", "arguments": map[string]any{"package": writePackage(t, writeManifest, writeScript)}})
+	if r["isError"] != true {
+		t.Fatalf("a package the person declined was run: %v", r)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "out", "a.txt")); err == nil {
+		t.Fatal("a declined package wrote a file")
+	}
+	if len(c.asked) != 0 {
+		t.Fatalf("a declined package went on to ask for changes: %v", c.asked)
+	}
+}
+
+func TestAClientThatCannotAskRunsAPackageAsBefore(t *testing.T) {
+	inDir(t)
+	c := startServer(t, false, nil)
+	out := c.run(writePackage(t, writeManifest, writeScript))
+	if len(c.trust) != 0 || out == "" {
+		t.Fatalf("a client with no elicitation was sent a question: %v", c.trust)
 	}
 }

@@ -124,6 +124,13 @@ func (s *session) call(method string, params any) (map[string]any, error) {
 			if l.m["method"] == "elicitation/create" {
 				p, _ := l.m["params"].(map[string]any)
 				msg, _ := p["message"].(string)
+				// The first time a runner is asked to run a package it may ask
+				// whether to (TENG-3103). That is not a question about a change,
+				// so it is answered yes and not counted among them.
+				if strings.Contains(msg, "for the first time on this machine") {
+					s.send(map[string]any{"jsonrpc": "2.0", "id": l.m["id"], "result": yes})
+					continue
+				}
 				s.asked = append(s.asked, msg)
 				ans := no
 				if n := len(s.answers); n > 0 {

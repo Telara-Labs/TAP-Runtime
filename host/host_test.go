@@ -132,3 +132,12 @@ func TestADownloadRefusedByCodexSaysSo(t *testing.T) {
 		t.Fatalf("inside Codex's shell the error should say what to do: %v", err)
 	}
 }
+
+// TENG-3103 (G10): the docs once offered a compiled .wasm entrypoint that no
+// interpreter list could run. It says so now, in words a person can act on.
+func TestACompiledWasmEntrypointSaysItIsNotSupportedYet(t *testing.T) {
+	_, _, _, err := obtain(t.TempDir(), "main.wasm")
+	if err == nil || !strings.Contains(err.Error(), "not supported yet") || !strings.Contains(err.Error(), "main.py") {
+		t.Fatalf("got %v", err)
+	}
+}
