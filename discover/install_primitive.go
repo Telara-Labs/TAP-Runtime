@@ -175,12 +175,39 @@ func directGraphVia(p primitive.Primitive, by map[string]*trace.Session, headRou
 	for _, l := range p.Loops {
 		loop[l] = true
 	}
+	// A value most runs took from an earlier step's result is that result;
+	// the runs that took it elsewhere did something else and are left out.
+	bind := map[string]primitive.Binding{}
+	exclude := map[string]bool{}
+	runs := 0
+	for _, ex := range p.Executions {
+		if ex.Overlaps == "" {
+			runs++
+		}
+	}
+	for _, b := range p.Bindings {
+		if b.Source == "step" && b.Label == primitive.Explicit && b.From > 0 && len(b.Contradicting) > 0 {
+			against := 0
+			for _, ex := range p.Executions {
+				if ex.Overlaps == "" && contains(b.Contradicting, ex.ID) {
+					against++
+				}
+			}
+			if 2*(runs-against) > runs {
+				for _, id := range b.Contradicting {
+					exclude[id] = true
+				}
+				b.Contradicting = nil
+			}
+		}
+		bind[strconv.Itoa(b.Step)+"|"+b.Arg] = b
+	}
 	// Each use's calls by step; the most common tool route per step.
 	type use map[int][]trace.Call
 	var uses []use
 	routes := map[int]map[string]int{}
 	for _, ex := range p.Executions {
-		if ex.Overlaps != "" {
+		if ex.Overlaps != "" || exclude[ex.ID] {
 			continue
 		}
 		s := by[ex.Client+"\x00"+ex.Session]
@@ -232,10 +259,6 @@ func directGraphVia(p primitive.Primitive, by map[string]*trace.Session, headRou
 	if len(kept) == 0 {
 		return nil, "fallback: no complete uses"
 	}
-	bind := map[string]primitive.Binding{}
-	for _, b := range p.Bindings {
-		bind[strconv.Itoa(b.Step)+"|"+b.Arg] = b
-	}
 	g := &codegen.ProgramGraph{CandidateID: "lc_" + packageSlug(p), Executions: len(kept), Sessions: p.SessionCount}
 	inputName := func(step int, path string) string {
 		return fmt.Sprintf("step_%d_%s", step, strings.NewReplacer("/", "_", "-", "_").Replace(path))
@@ -272,6 +295,16 @@ func directGraphVia(p primitive.Primitive, by map[string]*trace.Session, headRou
 			paths = append(paths, path)
 		}
 		sort.Strings(paths)
+		// Arguments that choose a dispatched call's operation stay fixed:
+		// they are what the step is, not a value it carries.
+		chooses := map[string]bool{}
+		for _, u := range kept {
+			for _, c := range u[n] {
+				for k := range primitive.DispatchSelectors(c) {
+					chooses[k] = true
+				}
+			}
+		}
 		var optional []string
 		loopFrom, loopList := 0, ""
 		for _, path := range paths {
@@ -308,8 +341,15 @@ func directGraphVia(p primitive.Primitive, by map[string]*trace.Session, headRou
 				arg.Value = codegen.ProgramValue{Kind: "result", Step: b.From, ResultPath: b.Selector}
 			case bound && b.Source == "step" && b.Label != primitive.Ambiguous && len(b.Contradicting) == 0:
 				return nil, fmt.Sprintf("step %d %s comes from step %d's output by %s; generating a parser for that is not supported yet", n, path, b.From, b.Selector)
-			case same && !arg.Optional:
+			case same && !arg.Optional && (chooses[path] || values[path][0] == "" || codegen.ProgramJSONType(f.TypeName) != "string"):
 				arg.Value = codegen.ProgramValue{Kind: "selector", Selector: values[path][0]}
+			case same && !arg.Optional:
+				// Every recorded use passed the same value, but nothing says
+				// where it came from: the caller may change it, and the
+				// recorded value is sent when they do not.
+				name := inputName(n, path)
+				arg.Value = codegen.ProgramValue{Kind: "input", Input: name}
+				g.Inputs = append(g.Inputs, codegen.ProgramInput{Name: name, Type: f.TypeName, Default: values[path][0], Source: "supplied at invocation; every recorded use passed the default"})
 			default:
 				name := inputName(n, path)
 				arg.Value = codegen.ProgramValue{Kind: "input", Input: name}

@@ -49,6 +49,9 @@ type ProgramInput struct {
 	Fields            []ProgramInputField `json:"fields,omitempty"`
 	// ItemProfiles are observed combinations of optional fields within each list item.
 	ItemProfiles [][]string `json:"item_profiles,omitempty"`
+	// Default is sent when the caller leaves the input out: the value every
+	// recorded use passed. An input with a default is never required.
+	Default string `json:"default,omitempty"`
 }
 
 type ProgramInputField struct {
@@ -56,6 +59,8 @@ type ProgramInputField struct {
 	Path     []string `json:"path"`
 	Type     string   `json:"type"`
 	Optional bool     `json:"optional,omitempty"`
+	// Default is sent when an item leaves the field out (see ProgramInput).
+	Default string `json:"default,omitempty"`
 }
 
 type ProgramStep struct {
