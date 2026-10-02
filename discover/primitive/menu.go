@@ -8,8 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/client"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
@@ -666,14 +668,14 @@ func submit(out io.Writer, s style, shown []Family, choice []string, byID map[st
 	return nil
 }
 
-// agentCommand is how to start the person's coding agent on a handoff.
+// agentCommand is how to start the person's coding agent on a handoff: the
+// first of clients that has a command line, else a sentence for any agent.
 func agentCommand(clients, handoff string) string {
 	prompt := fmt.Sprintf("Read %s and follow it.", handoff)
-	switch strings.Split(clients, ",")[0] {
-	case "codex":
-		return fmt.Sprintf("codex %q", prompt)
-	case "claude-code":
-		return fmt.Sprintf("claude %q", prompt)
+	for _, name := range strings.Split(clients, ",") {
+		if c, ok := client.Lookup(name); ok && client.HasLaunch(c) {
+			return strings.Join(c.Launch, " ") + " " + strconv.Quote(prompt)
+		}
 	}
 	return "Ask your coding agent: " + prompt
 }

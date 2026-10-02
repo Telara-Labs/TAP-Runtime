@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/client"
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 )
 
@@ -25,23 +26,14 @@ const (
 	MaxSavedUnpacked = 64 << 20
 )
 
-// SkillsDir is where a client looks for skills: "claude-code" or "codex",
-// globally (under home) or for the project in cwd.
-func SkillsDir(client string, project bool, home, cwd string) (string, error) {
-	base := home
-	if project {
-		base = cwd
+// SkillsDir is where a client (an ID or alias from discover/client) looks for
+// skills: globally (under home) or for the project in cwd.
+func SkillsDir(name string, project bool, home, cwd string) (string, error) {
+	c, ok := client.Lookup(name)
+	if !ok {
+		return "", client.Unknown(name, client.CapSkills, client.HasSkills)
 	}
-	switch client {
-	case "claude-code":
-		return filepath.Join(base, ".claude", "skills"), nil
-	case "codex":
-		if project {
-			return filepath.Join(base, ".codex", "skills"), nil
-		}
-		return filepath.Join(home, ".codex", "skills"), nil
-	}
-	return "", fmt.Errorf("unknown client %q (want claude-code or codex)", client)
+	return c.SkillsDir(project, home, cwd)
 }
 
 // ErrNotSaved reports a folder of the draft's name that is not a saved

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/client"
 	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
@@ -24,13 +25,13 @@ import (
 func GenerateCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	fs := flag.NewFlagSet("discover generate", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	clients := fs.String("client", "claude-code,codex,cursor", "local clients to read")
+	clients := fs.String("client", "detected", "agents whose history to read, comma-separated, all, or detected")
 	days := fs.Int("days", 0, "only sessions from the last N days")
 	logicID := fs.String("logic", "", "logic candidate ID to generate and review")
 	variantID := fs.String("variant", "", "invocation variant ID within the selected logic candidate")
 	top := fs.Int("top", 25, "candidates to list when --logic is omitted")
 	generatedOnly := fs.Bool("generated", false, "list one mechanically generated variant per logic family")
-	saveClient := fs.String("save-client", "claude-code", "private skill destination: claude-code or codex")
+	saveClient := fs.String("save-client", "claude-code", "private skill destination: "+strings.Join(client.IDs(client.HasSkills), ", "))
 	saveProject := fs.Bool("save-project", false, "install privately in this project's skill folder")
 	if err := fs.Parse(args); err != nil {
 		return 2

@@ -273,21 +273,39 @@ func CandidateFrom(reportPath, id string) (*BriefCandidate, error) {
 	return nil, fmt.Errorf("routine %s is not in %s", id, reportPath)
 }
 
-// FindSession reads one session of a client's history under home.
+// FindSession reads one session of a client's history under home, through
+// the client's own history reader.
 func FindSession(client, id, home string) (trace.Session, error) {
-	var files []string
-	switch client {
-	case "claude-code":
-		files, _ = filepath.Glob(filepath.Join(home, ".claude", "projects", "*", id+".jsonl"))
-	case "codex":
-		_ = filepath.WalkDir(filepath.Join(home, ".codex", "sessions"), func(p string, d os.DirEntry, err error) error {
+	r, err := history.ReaderFor(client, home)
+	if err != nil {
+		return trace.Session{}, err
+	}
+	// A path-based reader can go straight to the file.
+	switch r := r.(type) {
+	case history.ClaudeCode:
+		files, _ := filepath.Glob(filepath.Join(r.Dir, "*", id+".jsonl"))
+		sort.Strings(files)
+		for _, f := range files {
+			if s, err := history.ReadClaudeFile(f); err == nil {
+				return s, nil
+			}
+		}
+	case history.Codex:
+		var files []string
+		_ = filepath.WalkDir(r.Dir, func(p string, d os.DirEntry, err error) error {
 			if err == nil && !d.IsDir() && strings.HasSuffix(p, ".jsonl") && strings.Contains(filepath.Base(p), id) {
 				files = append(files, p)
 			}
 			return nil
 		})
-	case "cursor":
-		ss, err := history.Cursor{DB: history.CursorStateDB(home)}.Read(time.Time{})
+		sort.Strings(files)
+		for _, f := range files {
+			if s, err := history.ReadCodexFile(f); err == nil && (s.ID == id || strings.Contains(filepath.Base(f), id)) {
+				return s, nil
+			}
+		}
+	default:
+		ss, err := r.Read(time.Time{})
 		if err != nil {
 			return trace.Session{}, err
 		}
@@ -296,23 +314,8 @@ func FindSession(client, id, home string) (trace.Session, error) {
 				return s, nil
 			}
 		}
-	default:
-		return trace.Session{}, fmt.Errorf("unknown client %q (want claude-code, codex or cursor)", client)
 	}
-	sort.Strings(files)
-	for _, f := range files {
-		var s trace.Session
-		var err error
-		if client == "claude-code" {
-			s, err = history.ReadClaudeFile(f)
-		} else {
-			s, err = history.ReadCodexFile(f)
-		}
-		if err == nil && (s.ID == id || strings.Contains(filepath.Base(f), id)) {
-			return s, nil
-		}
-	}
-	return trace.Session{}, fmt.Errorf("no %s session %s under %s", client, id, home)
+	return trace.Session{}, fmt.Errorf("no %s session %s under %s", r.Client(), id, home)
 }
 
 // ParseTaskRef reads client/session/request.

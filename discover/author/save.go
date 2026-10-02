@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	clientpkg "gitlab.com/telara-labs/tap-runtime/discover/client"
 	"gitlab.com/telara-labs/tap-runtime/discover/model"
 	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 )
@@ -196,7 +197,7 @@ func SaveCommand(args []string, home string, out, errOut io.Writer) int {
 	fs := flag.NewFlagSet("discover save", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	receipts := fs.String("receipts", "", "receipts from `tap discover validate` for this package")
-	client := fs.String("client", "claude-code", "where it goes: claude-code or codex")
+	client := fs.String("client", "claude-code", "where it goes: "+strings.Join(clientpkg.IDs(clientpkg.HasSkills), ", "))
 	project := fs.Bool("project", false, "save into this project's skills directory instead of your home")
 	pos, flags := SplitPositional(args)
 	if err := fs.Parse(flags); err != nil {

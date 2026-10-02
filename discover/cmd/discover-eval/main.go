@@ -76,7 +76,7 @@ func readers() ([]trace.Reader, error) {
 	if err != nil {
 		return nil, err
 	}
-	return history.DefaultReaders([]string{"claude-code", "codex", "cursor"}, home)
+	return history.DefaultReaders([]string{"all"}, home)
 }
 
 func readAll(rs []trace.Reader) ([]trace.Session, error) {

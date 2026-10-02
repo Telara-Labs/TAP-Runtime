@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/client"
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
@@ -82,18 +83,14 @@ type transcript struct {
 	lines   []string
 	calls   map[string]int // tool_use id -> line index
 	results map[string]int // tool_use_id -> line index
+	// byQuotedID: the log has no content blocks; ids are indexed on demand.
+	byQuotedID bool
 }
 
-// findTranscript locates a Claude Code session file by its session ID.
-func findTranscript(home, client, session string) string {
-	if client != "claude-code" {
-		return ""
-	}
-	m, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", session+".jsonl"))
-	if len(m) == 0 {
-		return ""
-	}
-	return m[0]
+// findTranscript locates a session's log file by its session ID, for any
+// agent that keeps one file per session (discover/client Transcript).
+func findTranscript(home, name, session string) string {
+	return client.TranscriptPath(name, session, home)
 }
 
 func loadTranscript(path string) (*transcript, error) {
@@ -134,7 +131,40 @@ func loadTranscript(path string) (*transcript, error) {
 			}
 		}
 	}
-	return t, sc.Err()
+	if err := sc.Err(); err != nil {
+		return t, err
+	}
+	// Other agents' logs do not use content blocks: the first line naming a
+	// call's id is the call, the next line naming it is its result. Only
+	// quoted whole ids count, so one id never matches inside another.
+	if len(t.calls) == 0 {
+		t.byQuotedID = true
+	}
+	return t, nil
+}
+
+// indexID fills calls and results for id by the quoted-id rule.
+func (t *transcript) indexID(id string) {
+	if !t.byQuotedID || id == "" {
+		return
+	}
+	if _, done := t.calls[id]; done {
+		return
+	}
+	q, _ := json.Marshal(id)
+	call := -1
+	for i, line := range t.lines {
+		if !strings.Contains(line, string(q)) {
+			continue
+		}
+		if call < 0 {
+			call = i
+			t.calls[id] = i
+			continue
+		}
+		t.results[id] = i
+		return
+	}
 }
 
 func lineHash(s string) string {
@@ -238,6 +268,7 @@ func WriteHandoff(dir, home string, p Primitive, sessions []trace.Session, skill
 		for _, c := range ex.Calls {
 			ic := IndexedCall{Step: c.Step, Op: c.Op, CallID: c.ID, Time: c.Time}
 			if t != nil && c.ID != "" {
+				t.indexID(c.ID)
 				ic.Call, ic.Result = t.locate(t.calls, c.ID), t.locate(t.results, c.ID)
 			}
 			ie.Calls = append(ie.Calls, ic)

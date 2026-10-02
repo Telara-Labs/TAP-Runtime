@@ -15,22 +15,23 @@ const modPath = "gitlab.com/telara-labs/tap-runtime/discover/"
 // A package may only import packages in layers below it; the compiler already
 // forbids cycles, this keeps the direction (TENG-3084).
 var allowed = map[string][]string{
+	"client":     {},
 	"util":       {},
 	"shellparse": {},
 	"pyparse":    {},
-	"trace":      {"util", "shellparse", "pyparse"},
-	"redact":     {"util", "trace"},
-	"history":    {"util", "trace"},
-	"primitive":  {"util", "shellparse", "pyparse", "trace", "redact"},
-	"model":      {"util", "trace", "redact"},
-	"pack":       {"util", "trace", "model", "redact"},
-	"retrieval":  {"util", "shellparse", "pyparse", "trace", "history", "model", "redact"},
-	"routine":    {"util", "shellparse", "pyparse", "trace", "redact", "model", "pack", "retrieval"},
-	"codegen":    {"util", "shellparse", "pyparse", "trace", "redact", "model", "pack", "retrieval", "routine"},
-	"author":     {"util", "shellparse", "pyparse", "trace", "redact", "history", "model", "pack", "retrieval", "routine", "codegen"},
-	"genreview":  {"util", "shellparse", "pyparse", "trace", "redact", "history", "model", "pack", "retrieval", "routine", "codegen", "author"},
-	"pipeline":   {"util", "shellparse", "pyparse", "trace", "redact", "history", "model", "pack", "retrieval", "routine", "codegen", "author", "genreview", "eval"},
-	"eval":       {"util", "shellparse", "pyparse", "trace", "redact", "history", "model", "pack", "retrieval", "routine", "codegen", "author", "genreview"},
+	"trace":      {"client", "util", "shellparse", "pyparse"},
+	"redact":     {"client", "util", "trace"},
+	"history":    {"client", "util", "trace"},
+	"primitive":  {"client", "util", "shellparse", "pyparse", "trace", "redact"},
+	"model":      {"client", "util", "trace", "redact"},
+	"pack":       {"client", "util", "trace", "model", "redact"},
+	"retrieval":  {"client", "util", "shellparse", "pyparse", "trace", "history", "model", "redact"},
+	"routine":    {"client", "util", "shellparse", "pyparse", "trace", "redact", "model", "pack", "retrieval"},
+	"codegen":    {"client", "util", "shellparse", "pyparse", "trace", "redact", "model", "pack", "retrieval", "routine"},
+	"author":     {"client", "util", "shellparse", "pyparse", "trace", "redact", "history", "model", "pack", "retrieval", "routine", "codegen"},
+	"genreview":  {"client", "util", "shellparse", "pyparse", "trace", "redact", "history", "model", "pack", "retrieval", "routine", "codegen", "author"},
+	"pipeline":   {"client", "util", "shellparse", "pyparse", "trace", "redact", "history", "model", "pack", "retrieval", "routine", "codegen", "author", "genreview", "eval"},
+	"eval":       {"client", "util", "shellparse", "pyparse", "trace", "redact", "history", "model", "pack", "retrieval", "routine", "codegen", "author", "genreview"},
 }
 
 func TestSubpackagesImportOnlyLowerLayers(t *testing.T) {
