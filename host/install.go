@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	agents "gitlab.com/telara-labs/tap-runtime/discover/client"
 	"io"
 	"os"
 	"os/exec"
@@ -13,13 +14,15 @@ import (
 
 var version = "dev"
 
-// installCommand is `tap install`: it registers this runner with a client
-// as an MCP server, using the client's own command to do it, so the format
-// of the client's configuration is the client's business.
+// installCommand is `tap install`: it connects this runner to agents as an
+// MCP server (TENG-3114). Agents come from discover's registry: an agent
+// with its own `mcp add` (Claude Code, Codex, Copilot CLI) is asked to add
+// it, so the format of its configuration stays its business; an agent that
+// keeps servers in a JSON file (Cursor, Windsurf) gets one entry merged in;
+// Gemini CLI also gets the hook its bridge needs; VS Code is connected by the
+// TAP extension.
 //
-//	tap install --client claude [--scope user] [--print]
-//	tap install --client codex [--print]
-//	tap install --client gemini [--print]
+//	tap install --client claude-code|codex|...|all|detected [--scope user] [--print] [--remove]
 //	... [--env OTEL_EXPORTER_OTLP_ENDPOINT=URL --env OTEL_EXPORTER_OTLP_HEADERS=...]
 //
 // --env hands the runner the standard OpenTelemetry variables through the
@@ -28,18 +31,38 @@ var version = "dev"
 // runner reads for telemetry, and nothing else is to be configured this way.
 //
 // It is the one setup step a person takes. With --print it changes nothing
-// and shows what it would run.
+// and shows what it would do. With all or detected, an agent whose program
+// is not on this machine is reported and skipped.
 func installCommand(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	client := fs.String("client", "", "claude, codex or gemini")
-	scope := fs.String("scope", "user", "for claude: local, user or project")
-	print := fs.Bool("print", false, "show the command and change nothing")
+	client := fs.String("client", "", "agents to connect: "+strings.Join(agents.IDs(agents.HasMCP), ", ")+", all, or detected (installed here)")
+	scope := fs.String("scope", "user", "for Claude Code: local, user or project")
+	print := fs.Bool("print", false, "show what would change and change nothing")
+	remove := fs.Bool("remove", false, "remove the runner from these agents instead")
 	name := fs.String("name", "tap", "name the client will know the runner by")
 	var env envFlags
 	fs.Var(&env, "env", "OTEL_* variable for the runner, as NAME=VALUE; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if strings.TrimSpace(*client) == "" {
+		fmt.Fprintf(stderr, "say which agents: --client %s, all or detected\n", strings.Join(agents.IDs(agents.HasMCP), ", "))
+		return 2
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	targets, err := agents.Resolve(*client, home, agents.CapMCP, agents.HasMCP)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if len(targets) == 0 {
+		fmt.Fprintln(stdout, "No agent TAP can connect to is installed here.")
+		return 0
 	}
 	self, err := os.Executable()
 	if err == nil {
@@ -49,58 +72,144 @@ func installCommand(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cannot tell where this program is:", err)
 		return 1
 	}
-	argv, err := installArgv(*client, *scope, *name, self, env)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	var settings string
-	if *client == "gemini" {
-		// Gemini lends its connections through a hook (relay.go), which
-		// lives in its settings file beside its MCP servers.
-		home, err := os.UserHomeDir()
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
+	// Named agents must succeed; with all or detected, a missing program is
+	// reported and skipped.
+	explicit := true
+	for _, n := range strings.Split(*client, ",") {
+		if n = strings.TrimSpace(n); n == "all" || n == "detected" {
+			explicit = false
 		}
-		settings = filepath.Join(home, ".gemini", "settings.json")
 	}
-	if settings != "" {
-		// Gemini keeps its MCP servers and its hooks in one settings file.
-		// Both are written there directly, as its own `mcp add` would.
-		if *print {
-			fmt.Fprintf(stdout, "add to %s: mcpServers.%s runs %s serve --name %s%s; hooks.AfterTool runs %s\n", settings, *name, self, *name, env.masked(), geminiHookCommand(self))
+	code := 0
+	for _, c := range targets {
+		if rc := installOne(c, home, self, *name, *scope, env, *print, *remove, explicit, stdout, stderr); rc > code {
+			code = rc
+		}
+	}
+	return code
+}
+
+// commandName is the program and argv shape of an agent with its own
+// `mcp add`, under the runner's older client names.
+func commandName(c agents.Client) string {
+	switch c.ID {
+	case "claude-code":
+		return "claude"
+	case "copilot-cli":
+		return "copilot"
+	}
+	return c.ID
+}
+
+func installOne(c agents.Client, home, self, name, scope string, env envFlags, print, remove, explicit bool, stdout, stderr io.Writer) int {
+	switch c.MCP.Kind {
+	case agents.MCPExtension:
+		fmt.Fprintf(stdout, "%s: connected by the TAP extension (tap-vscode-<version>.vsix from the release); nothing to change here.\n", c.Name)
+		return 0
+	case agents.MCPJSONFile:
+		path := filepath.Join(home, filepath.FromSlash(c.MCP.Path))
+		if c.ID == "gemini-cli" {
+			// Gemini lends its connections through a hook (relay.go), which
+			// lives in its settings file beside its MCP servers.
+			if print {
+				fmt.Fprintf(stdout, "add to %s: mcpServers.%s runs %s serve --name %s%s; hooks.AfterTool runs %s\n", path, name, self, name, env.masked(), geminiHookCommand(self))
+				return 0
+			}
+			if remove {
+				if _, err := setMCPEntry(path, c.MCP.Key, name, nil); err != nil {
+					fmt.Fprintln(stderr, "not removed:", err)
+					return 1
+				}
+				fmt.Fprintf(stdout, "%s: removed %s from %s (its hook stays until Gemini's settings are edited).\n", c.Name, name, path)
+				return 0
+			}
+			if err := addGemini(path, name, self, env); err != nil {
+				fmt.Fprintln(stderr, "not installed:", err)
+				return 1
+			}
+			fmt.Fprintf(stdout, "Added %s and its hook to %s. Start a new Gemini CLI session to use it.\n", name, path)
 			return 0
 		}
-		if err := addGemini(settings, *name, self, env); err != nil {
-			fmt.Fprintln(stderr, "not installed:", err)
+		entry := mcpEntry(self, name, env)
+		if print {
+			verb := "add to"
+			if remove {
+				verb = "remove from"
+			}
+			fmt.Fprintf(stdout, "%s %s: %s.%s runs %s serve --name %s%s\n", verb, path, c.MCP.Key, name, self, name, env.masked())
+			return 0
+		}
+		var e any = entry
+		if remove {
+			e = nil
+		}
+		changed, err := setMCPEntry(path, c.MCP.Key, name, e)
+		if err != nil {
+			fmt.Fprintln(stderr, "not changed:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "Added %s and its hook to %s. Start a new Gemini CLI session to use it.\n", *name, settings)
+		switch {
+		case !changed:
+			fmt.Fprintf(stdout, "%s: %s already as wanted.\n", c.Name, path)
+		case remove:
+			fmt.Fprintf(stdout, "%s: removed %s from %s.\n", c.Name, name, path)
+		default:
+			fmt.Fprintf(stdout, "%s: added %s to %s. Start a new %s session to use it.\n", c.Name, name, path, c.Name)
+		}
 		return 0
 	}
-	if *print {
+	// MCPCommand: the agent's own command.
+	host := commandName(c)
+	argv, err := installArgv(host, scope, name, self, env)
+	if remove {
+		argv, err = removeArgv(host, scope, name), nil
+	}
+	if err != nil || argv == nil {
+		fmt.Fprintln(stderr, c.Name+":", err)
+		return 2
+	}
+	if print {
 		fmt.Fprintln(stdout, strings.Join(maskEnvArgs(argv), " "))
 		return 0
 	}
 	if _, err := exec.LookPath(argv[0]); err != nil {
+		if !explicit {
+			fmt.Fprintf(stdout, "%s: skipped, %s is not on this machine.\n", c.Name, argv[0])
+			return 0
+		}
 		fmt.Fprintf(stderr, "%s is not on this machine\n", argv[0])
 		return 1
 	}
-	// A client refuses to add a name it already has, and an entry left from
-	// an earlier install may point at an old path (the runner was called
-	// tap-runtime before). Remove it first; a failure only means there was
-	// none.
-	if rm := removeArgv(*client, *scope, *name); rm != nil {
-		_ = exec.Command(rm[0], rm[1:]...).Run()
+	if !remove {
+		// A client refuses to add a name it already has, and an entry left
+		// from an earlier install may point at an old path (the runner was
+		// called tap-runtime before). Remove it first; a failure only means
+		// there was none.
+		if rm := removeArgv(host, scope, name); rm != nil {
+			_ = exec.Command(rm[0], rm[1:]...).Run()
+		}
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintln(stderr, err)
+		fmt.Fprintln(stderr, c.Name+":", err)
 		return 1
 	}
 	return 0
+}
+
+// mcpEntry is the runner's server entry for a JSON configuration.
+func mcpEntry(self, name string, env envFlags) map[string]any {
+	entry := map[string]any{"command": self, "args": []any{"serve", "--name", name}}
+	if len(env) > 0 {
+		vars := map[string]any{}
+		for _, kv := range env {
+			k, v, _ := strings.Cut(kv, "=")
+			vars[k] = v
+		}
+		entry["env"] = vars
+	}
+	return entry
 }
 
 // removeArgv is the client's command to drop a registration, so installing
@@ -111,6 +220,8 @@ func removeArgv(client, scope, name string) []string {
 		return []string{"claude", "mcp", "remove", "--scope", scope, name}
 	case "codex":
 		return []string{"codex", "mcp", "remove", name}
+	case "copilot":
+		return []string{"copilot", "mcp", "remove", name}
 	}
 	return nil
 }
@@ -216,13 +327,19 @@ func installArgv(client, scope, name, self string, env envFlags) ([]string, erro
 			argv = append(argv, "--env", kv)
 		}
 		return append(argv, name, "--", self, "serve"), nil
+	case "copilot":
+		argv := []string{"copilot", "mcp", "add"}
+		for _, kv := range env {
+			argv = append(argv, "--env", kv)
+		}
+		return append(argv, name, "--", self, "serve"), nil
 	case "gemini":
 		// Written to Gemini's settings by addGemini; shown for --print.
 		return []string{"gemini-settings", name, self, "serve", "--name", name}, nil
 	case "":
 		return nil, fmt.Errorf("say which client: --client claude, --client codex or --client gemini")
 	}
-	return nil, fmt.Errorf("client %q cannot lend its connections, so there is nothing to install into", client)
+	return nil, fmt.Errorf("client %q has no mcp add command; tap install writes its configuration instead", client)
 }
 
 // envFlags is the repeatable --env NAME=VALUE flag. Only OTEL_* names are

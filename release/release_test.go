@@ -283,3 +283,32 @@ func TestAReleaseIsSignedOrSaysItIsNot(t *testing.T) {
 		t.Error("a signed build, or one that says it is unsigned, was refused")
 	}
 }
+
+// With no --client, the install script connects the runner to every agent
+// installed here, through the runner's own agent list (TENG-3114): with
+// only Cursor's CLI and Windsurf in a fresh home, both their MCP files get
+// the entry and nothing else is touched.
+func TestInstallScriptConnectsDetectedAgents(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("install.sh is for macOS and Linux; Windows has install.ps1")
+	}
+	dir, _ := serve(t)
+	home, into := t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(home, ".cursor", "chats"), 0o755)
+	os.MkdirAll(filepath.Join(home, ".codeium", "windsurf"), 0o755)
+	cmd := exec.Command("sh", filepath.Join(dir, "install.sh"), "--dir", into)
+	cmd.Env = append(os.Environ(), "HOME="+home, "PATH=/usr/bin:/bin")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("install.sh: %v\n%s", err, out)
+	}
+	for _, p := range []string{".cursor/mcp.json", ".codeium/windsurf/mcp_config.json"} {
+		b, err := os.ReadFile(filepath.Join(home, p))
+		if err != nil || !strings.Contains(string(b), filepath.Join(into, "tap")) {
+			t.Errorf("%s: %v\n%s\n%s", p, err, b, out)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude.json")); err == nil {
+		t.Error("touched Claude Code, which is not installed in this home")
+	}
+}

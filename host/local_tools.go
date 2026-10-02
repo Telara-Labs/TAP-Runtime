@@ -31,6 +31,11 @@ var evidenceTool = localTool("tap_evidence", "Read bounded metadata-only evidenc
 }, []string{"run_id"}, true)
 
 func localTool(name, description string, properties map[string]any, required []string, readOnly bool) map[string]any {
+	// JSON Schema's required is an array; null makes Claude Code reject the
+	// whole tool list ("tools.0.inputSchema.required: expected array").
+	if required == nil {
+		required = []string{}
+	}
 	return map[string]any{
 		"name": name, "description": description,
 		"inputSchema": map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false},

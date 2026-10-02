@@ -24,40 +24,17 @@ function resolveRunner(packageDir, platform = process.platform, arch = process.a
   return runner;
 }
 
-function findCommand(name, envPath = process.env.PATH || '') {
-  const suffixes = process.platform === 'win32'
-    ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';')
-    : [''];
-  for (const dir of envPath.split(path.delimiter)) {
-    if (!dir) continue;
-    for (const suffix of suffixes) {
-      const candidate = path.join(dir, `${name}${suffix}`);
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        return candidate;
-      } catch {}
-    }
-  }
-  return null;
-}
-
-function setup(packageDir, { envPath = process.env.PATH || '', output = console.log, errorOutput = console.error } = {}) {
+// setup connects the runner to every agent installed here. The list of
+// agents, and how each is connected, lives in the runner (discover's agent
+// registry, TENG-3114), not here: `tap install --client detected` skips the
+// ones that are not installed and says what it did for each.
+function setup(packageDir, { output = console.log, spawn = spawnSync } = {}) {
   const runner = resolveRunner(packageDir);
-  let registered = 0;
-  for (const client of ['claude', 'codex']) {
-    if (!findCommand(client, envPath)) continue;
-    const result = spawnSync(runner, ['install', '--client', client], { stdio: 'inherit' });
-    if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error(`TAP could not register with ${client} (exit ${result.status})`);
-    registered += 1;
-  }
-  if (registered === 0) {
-    output('No supported TAP client was found. Install Claude Code or Codex, then run `tap setup`.');
-  } else {
-    output(`TAP is registered with ${registered} local agent client${registered === 1 ? '' : 's'}.`);
-  }
-  errorOutput('Gemini support is experimental; VS Code uses the separate TAP extension.');
-  return registered;
+  const result = spawn(runner, ['install', '--client', 'detected'], { stdio: 'inherit' });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`TAP could not connect to every agent installed here (exit ${result.status})`);
+  output('To connect another agent later: tap install --client <agent>');
+  return result.status;
 }
 
 function run(argv, packageDir = path.resolve(__dirname, '..')) {
@@ -86,4 +63,4 @@ function run(argv, packageDir = path.resolve(__dirname, '..')) {
   return result.status === null ? 1 : result.status;
 }
 
-module.exports = { findCommand, platformKey, resolveRunner, run, setup };
+module.exports = { platformKey, resolveRunner, run, setup };

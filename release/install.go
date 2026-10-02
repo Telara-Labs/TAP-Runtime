@@ -47,14 +47,15 @@ func installers(dir, version, base string, runners map[string]string) (map[strin
 }
 
 const installSh = `#!/bin/sh
-# Installs tap @VERSION@ (the TAP runner) and registers it with Claude Code and Codex
-# as an MCP server.
+# Installs tap @VERSION@ (the TAP runner) and connects it, as an MCP server, to
+# every coding agent installed here (tap install --client detected).
 #
 #   curl -fsSL @BASE@/install.sh | sh
 #   curl -fsSL @BASE@/install.sh | sh -s -- --client codex --dir /usr/local/bin
 #
-#   --client claude|codex|none   register with one client, or with none.
-#                                Default: every one of the two that is installed.
+#   --client AGENTS|none         agents to connect (tap install --client takes the
+#                                names), or none. Default: detected, every agent
+#                                installed here.
 #   --dir DIR                    where the program is put. Default: ~/.local/bin
 #
 # The program is checked against the digest written below before it is put
@@ -77,7 +78,6 @@ while [ $# -gt 0 ]; do
     *) echo "install: $1 is not an option; see the top of this script" >&2; exit 2 ;;
   esac
 done
-case "$client" in ""|claude|codex|none) ;; *) echo "install: --client is claude, codex or none" >&2; exit 2 ;; esac
 
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
 arch=$(uname -m)
@@ -116,20 +116,10 @@ mv -f "$tmp" "$dir/tap"
 trap - EXIT
 echo "installed $("$dir/tap" version) at $dir/tap"
 
-registered=0
-for c in claude codex; do
-  if [ "$client" = none ]; then break; fi
-  if [ -n "$client" ] && [ "$client" != "$c" ]; then continue; fi
-  if ! command -v "$c" >/dev/null 2>&1; then
-    if [ -n "$client" ]; then echo "install: $c is not on this machine" >&2; exit 1; fi
-    continue
-  fi
-  "$dir/tap" install --client "$c"
-  registered=$((registered + 1))
-done
-if [ "$client" != none ] && [ "$registered" -eq 0 ]; then
-  echo "Neither Claude Code nor Codex is on this machine. Install one, then run:"
-  echo "  $dir/tap install --client claude"
+# The runner knows the agents and how each is connected (TENG-3114).
+if [ "$client" != none ]; then
+  "$dir/tap" install --client "${client:-detected}"
+  echo "To connect another agent later: $dir/tap install --client <agent>"
 fi
 # The runner was called tap-runtime before. Registering above pointed the
 # clients at the new program, so the old one can go.
@@ -150,15 +140,16 @@ const installPs1 = `# Installs tap @VERSION@ (the TAP runner) and registers it w
 # To choose, save the script and run it:
 #   ./install.ps1 -Client codex -Dir C:\tools
 #
-#   -Client claude|codex|none   register with one client, or with none.
-#                               Default: every one of the two that is installed.
+#   -Client AGENTS|none         agents to connect (tap install --client takes the
+#                               names), or none. Default: detected, every agent
+#                               installed here.
 #   -Dir DIR                    where the program is put.
 #                               Default: %LOCALAPPDATA%\Programs\tap
 #
 # The program is checked against the digest written below before it is put
 # anywhere. One that does not match is deleted and nothing is installed.
 param(
-  [ValidateSet('', 'claude', 'codex', 'none')][string]$Client = '',
+  [string]$Client = '',
   [string]$Dir = (Join-Path $env:LOCALAPPDATA 'Programs\tap')
 )
 $ErrorActionPreference = 'Stop'
@@ -187,21 +178,12 @@ $exe = Join-Path $Dir 'tap.exe'
 Move-Item -Force $tmp $exe
 Write-Host "installed $(& $exe version) at $exe"
 
-$registered = 0
-foreach ($c in 'claude', 'codex') {
-  if ($Client -eq 'none') { break }
-  if ($Client -and $Client -ne $c) { continue }
-  if (-not (Get-Command $c -ErrorAction SilentlyContinue)) {
-    if ($Client) { throw "$c is not on this machine" }
-    continue
-  }
-  & $exe install --client $c
-  if ($LASTEXITCODE -ne 0) { throw "registering with $c failed" }
-  $registered++
-}
-if ($Client -ne 'none' -and $registered -eq 0) {
-  Write-Host 'Neither Claude Code nor Codex is on this machine. Install one, then run:'
-  Write-Host "  $exe install --client claude"
+# The runner knows the agents and how each is connected (TENG-3114).
+if ($Client -ne 'none') {
+  $agents = if ($Client) { $Client } else { 'detected' }
+  & $exe install --client $agents
+  if ($LASTEXITCODE -ne 0) { throw "connecting the runner to $agents failed" }
+  Write-Host "To connect another agent later: $exe install --client <agent>"
 }
 # The runner was called tap-runtime before. Registering above pointed the
 # clients at the new program, so the old one can go.
