@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Client is one coding agent.
@@ -67,11 +69,12 @@ const (
 	MCPCommand   MCPKind = "command"   // the agent's own `mcp add` command
 	MCPJSONFile  MCPKind = "json-file" // one entry merged into a JSON file under home
 	MCPExtension MCPKind = "extension" // our editor extension registers it
+	MCPYAMLFile  MCPKind = "yaml-file" // one entry merged into a YAML file under home
 )
 
 // MCPConfig is how the TAP MCP server is connected. Path is the file under
 // home where the agent keeps its servers and Key the object (or TOML table)
-// that holds them; for MCPJSONFile the runner writes there, for MCPCommand
+// that holds them; for MCPJSONFile and MCPYAMLFile the runner writes there, for MCPCommand
 // the agent's own command does and Path is only read to see whether TAP is
 // connected. For MCPExtension, Path is a glob of the installed extension.
 type MCPConfig struct {
@@ -161,7 +164,11 @@ var registry = []Client{
 	{ID: "goose", Name: "Goose",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history sessions.db: goose source session_manager.rs (not installed here)",
 		Markers: []string{".config/goose", ".local/share/goose", "$APPDATA/Block/goose"}, History: true,
-		Skills: SkillsPaths{Global: ".config/goose/skills", Project: ".goose/skills"}},
+		Skills: SkillsPaths{Global: ".config/goose/skills", Project: ".goose/skills"},
+		// Goose has no command to add an extension; the runner writes its
+		// config.yaml. Its bridge is ACP _goose/unstable/tools/call (TENG-3116).
+		MCP:    MCPConfig{Kind: MCPYAMLFile, Path: ".config/goose/config.yaml", Key: "extensions"},
+		Bridge: true, Launch: []string{"goose", "run", "-t"}},
 	{ID: "crush", Name: "Crush",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history crush.db: crush source initial migration (not installed here)",
 		Markers: []string{".config/crush", ".local/share/crush"}, History: true,
@@ -377,6 +384,15 @@ func (c Client) Connected(home, name string) bool {
 			}
 		}
 		return false
+	}
+	if c.MCP.Kind == MCPYAMLFile {
+		var doc map[string]any
+		if yaml.Unmarshal(b, &doc) != nil {
+			return false
+		}
+		servers, _ := doc[c.MCP.Key].(map[string]any)
+		_, ok := servers[name]
+		return ok
 	}
 	var doc map[string]json.RawMessage
 	if json.Unmarshal(b, &doc) != nil {
