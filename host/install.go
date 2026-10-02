@@ -148,6 +148,17 @@ func installOne(c agents.Client, home, self, name, scope string, env envFlags, p
 			fmt.Fprintln(stderr, "not changed:", err)
 			return 1
 		}
+		if c.ID == "windsurf" {
+			// Windsurf keeps transcripts only while this hook is set
+			// (discover reads them, TENG-3121).
+			hooks := filepath.Join(home, ".codeium", "windsurf", "hooks.json")
+			hc, err := addWindsurfHook(hooks, self, remove)
+			if err != nil {
+				fmt.Fprintln(stderr, "not changed:", err)
+				return 1
+			}
+			changed = changed || hc
+		}
 		switch {
 		case !changed:
 			fmt.Fprintf(stdout, "%s: %s already as wanted.\n", c.Name, path)
