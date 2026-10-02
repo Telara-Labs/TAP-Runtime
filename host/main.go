@@ -562,7 +562,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			var g Grant
 			if o.Approve != nil {
 				bud.pause()
-				g = o.Approve(Ask{Primitive: m.Metadata.Name, Effect: effect, Kind: kind, Example: example, Done: a.done})
+				g = o.Approve(Ask{Primitive: m.Metadata.Name, Effect: effect, Kind: forPrompt(kind), Example: forPrompt(example), Done: a.done})
 				bud.resume()
 			}
 			switch {

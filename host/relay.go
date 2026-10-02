@@ -68,12 +68,14 @@ type relayRun struct {
 
 // relayHub holds the runs of one server and the socket their hooks reach.
 type relayHub struct {
-	mu     sync.Mutex
-	dir    string
-	sock   string
-	ln     net.Listener
-	runs   map[string]*relayRun
-	expiry time.Duration
+	mu   sync.Mutex
+	dir  string
+	sock string
+	// sockDir is the private directory a long socket path falls back to.
+	sockDir string
+	ln      net.Listener
+	runs    map[string]*relayRun
+	expiry  time.Duration
 	// name is what the client calls this server, so the hook can end a
 	// chain with this server's tap_result.
 	name string
@@ -110,7 +112,16 @@ func (h *relayHub) listen() error {
 	// cache directory falls back to a short name in the system's temporary
 	// directory; the pending files, which name the socket, stay in h.dir.
 	if len(h.sock) > 100 {
-		h.sock = filepath.Join(os.TempDir(), fmt.Sprintf("tap-relay-%d.sock", os.Getpid()))
+		// A directory of its own, made private with a name nobody can guess:
+		// a fixed name in the shared temporary directory could be taken by
+		// another user before it is made, or be removed from under another
+		// process (TENG-3104).
+		d, err := os.MkdirTemp("", "tap-relay-")
+		if err != nil {
+			return err
+		}
+		h.sockDir = d
+		h.sock = filepath.Join(d, "r.sock")
 	}
 	os.Remove(h.sock)
 	ln, err := net.Listen("unix", h.sock)
@@ -128,6 +139,9 @@ func (h *relayHub) close() {
 	if h.ln != nil {
 		h.ln.Close()
 		os.Remove(h.sock)
+	}
+	if h.sockDir != "" {
+		os.RemoveAll(h.sockDir)
 	}
 	for id := range h.runs {
 		os.Remove(filepath.Join(h.dir, id+".json"))

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -79,5 +80,62 @@ func TestWebBuildRefuses(t *testing.T) {
 		if _, _, err := buildWebPage(store, []string{pkg}); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("want a refusal saying %q, got: %v", want, err)
 		}
+	}
+}
+
+// TENG-3104 (G18): the page has no approval step, so a connector tool that
+// says it changes state is refused even when the primitive declared it a read.
+func TestTheWebPageRefusesAToolThatSaysItChangesState(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed, and this runs the page's own guard")
+	}
+	page, err := os.ReadFile(filepath.Join(repoRoot, "host", "webassets", "worker.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(page)
+	i, j := strings.Index(src, "// TAP-GUARD-BEGIN"), strings.Index(src, "// TAP-GUARD-END")
+	if i < 0 || j < i {
+		t.Fatal("the page's guard is not marked")
+	}
+	script := src[i:j] + `
+const calls = [];
+const mk = (annotations) => ({
+  describeTool: async () => ({ annotations }),
+  callTool: async (s, t) => { calls.push(t); return { payload: "ok" }; },
+});
+(async () => {
+  const out = [];
+  for (const [name, ann] of [["readonly", {readOnlyHint: true}], ["destructive", {destructiveHint: true}], ["not read only", {readOnlyHint: false}], ["says nothing", undefined]]) {
+    try { await guardedCall(mk(ann), "Gmail", name, {}); out.push(name + ":called"); }
+    catch (e) { out.push(name + ":" + e.code); }
+  }
+  const broken = { describeTool: async () => { throw new Error("no schema"); }, callTool: async () => ({payload: 1}) };
+  try { await guardedCall(broken, "Gmail", "no-describe", {}); out.push("no describe:called"); } catch (e) { out.push("no describe:" + e.code); }
+  console.log(JSON.stringify({out, calls, unannotated: [...unannotated]}));
+})();
+`
+	b, err := exec.Command(node, "-e", script).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, b)
+	}
+	var got struct {
+		Out         []string `json:"out"`
+		Calls       []string `json:"calls"`
+		Unannotated []string `json:"unannotated"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("%v: %s", err, b)
+	}
+	want := "readonly:called destructive:refused not read only:refused says nothing:called no describe:called"
+	if strings.Join(got.Out, " ") != want {
+		t.Fatalf("got %v", got.Out)
+	}
+	if strings.Join(got.Calls, ",") != "readonly,says nothing" {
+		t.Errorf("a refused tool was called: %v", got.Calls)
+	}
+	if len(got.Unannotated) != 2 {
+		t.Errorf("tools that said nothing were not counted: %v", got.Unannotated)
 	}
 }

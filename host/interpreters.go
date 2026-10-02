@@ -106,10 +106,10 @@ func obtain(store, entrypoint string) ([]byte, interpreter, string, error) {
 		if got := digest(b); got != in.SHA256 {
 			return nil, in, "", fmt.Errorf("interpreter %s: downloaded file has sha256 %s, pinned %s; refused", in.File, got, in.SHA256)
 		}
-		if err := os.MkdirAll(store, 0o755); err != nil {
+		if err := os.MkdirAll(store, 0o700); err != nil {
 			return nil, in, "", err
 		}
-		if err := os.WriteFile(path, b, 0o644); err != nil {
+		if err := os.WriteFile(path, b, 0o600); err != nil {
 			return nil, in, "", err
 		}
 	} else if err != nil {

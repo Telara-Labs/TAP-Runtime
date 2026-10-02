@@ -59,8 +59,13 @@ const installSh = `#!/bin/sh
 #
 # The program is checked against the digest written below before it is put
 # anywhere. One that does not match is deleted and nothing is installed.
+#
+# Everything below is one function, called on the last line. A download cut
+# short in the middle of this script defines it and never calls it, so a
+# partial script does nothing (TENG-3104).
 set -eu
 
+main() {
 version=@VERSION@
 base=@BASE@
 client=""
@@ -132,6 +137,9 @@ if [ "$client" != none ] && [ -e "$dir/tap-runtime" ]; then
   rm -f "$dir/tap-runtime"
   echo "removed the old tap-runtime program from $dir; the runner is now called tap"
 fi
+}
+
+main "$@"
 `
 
 const installPs1 = `# Installs tap @VERSION@ (the TAP runner) and registers it with Claude Code and Codex
