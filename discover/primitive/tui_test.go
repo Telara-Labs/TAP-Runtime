@@ -92,8 +92,12 @@ func TestTUIShowsOnlyAvailableActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	footer := string(frame[strings.LastIndex(string(frame), "\r\n")+2:])
-	if strings.Contains(footer, "[a]") || !strings.Contains(footer, "[e] prepare handoff") || !strings.Contains(footer, "[d] dismiss") || !strings.Contains(footer, "[s] review choices") {
+	if !strings.Contains(footer, "[a] accept for design") || !strings.Contains(footer, "[e] export evidence") || !strings.Contains(footer, "[d] dismiss") || !strings.Contains(footer, "[s] review choices") {
 		t.Fatalf("unresolved card actions = %q", footer)
+	}
+	ui.key("a")
+	if ui.choice[0] != decisionAcceptDesign {
+		t.Fatalf("unresolved accept choice = %q", ui.choice[0])
 	}
 	ui.shown[0].APIMode = "exact_flow"
 	ui.draw()

@@ -197,6 +197,14 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 				fq := strconv.Quote(field.Name)
 				code.WriteString("if " + guard + "not all(" + fq + " in item and _typed(item[" + fq + "], " + strconv.Quote(ProgramJSONType(field.Type)) + ") for item in inputs[" + q + "]):\n    raise ValueError('input ' + " + q + " + ' has a missing or mistyped field ' + " + fq + ")\n")
 			}
+			if len(in.Fields) > 0 {
+				var names []string
+				for _, field := range in.Fields {
+					names = append(names, field.Name)
+				}
+				allowed, _ := json.Marshal(names)
+				code.WriteString("if " + guard + "any(set(item) - set(" + string(allowed) + ") for item in inputs[" + q + "]):\n    raise ValueError('input ' + " + q + " + ' has an unknown item field')\n")
+			}
 		} else {
 			code.WriteString("if " + guard + "not _typed(inputs[" + q + "], " + strconv.Quote(ProgramJSONType(in.Type)) + "):\n    raise ValueError('input ' + " + q + " + ' has the wrong type')\n")
 			if len(in.Allowed) > 0 {
@@ -387,8 +395,20 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 			code.WriteString("    " + resultName + ".append(" + call + ")\n")
 		} else if st.Loop != "" {
 			code.WriteString(resultName + " = []\n")
-			code.WriteString("for item in inputs[" + strconv.Quote(st.Loop) + "]:\n")
-			code.WriteString("    " + resultName + ".append(" + call + ")\n")
+			loopInput := "inputs[" + strconv.Quote(st.Loop) + "]"
+			if inputSpecs[st.Loop].Optional {
+				loopInput = "inputs.get(" + strconv.Quote(st.Loop) + ", [])"
+				// Keep each completed effect visible if a later item or
+				// another follow-up fails after the head has succeeded.
+				code.WriteString("outputs[" + strconv.Quote(alias) + "] = " + resultName + "\n")
+			}
+			code.WriteString("for item in " + loopInput + ":\n")
+			if inputSpecs[st.Loop].Optional {
+				code.WriteString("    try:\n        " + resultName + ".append(" + call + ")\n")
+				code.WriteString("    except Exception as exc:\n        print(json.dumps({'partial': outputs, 'failed_step': " + strconv.Quote(alias) + ", 'error': str(exc)}, sort_keys=True), file=sys.stderr)\n        raise\n")
+			} else {
+				code.WriteString("    " + resultName + ".append(" + call + ")\n")
+			}
 		} else {
 			code.WriteString(resultName + " = " + call + "\n")
 		}

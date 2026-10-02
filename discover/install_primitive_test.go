@@ -18,7 +18,7 @@ func TestMultiContinuationFamilyDoesNotInstallOneChain(t *testing.T) {
 		{Steps: []string{"mcp:issue_transition"}, Runs: 3},
 		{Steps: []string{"mcp:issue_link"}, Runs: 2},
 	}}, []primitive.Primitive{{Steps: []string{"mcp:issue_create", "mcp:issue_transition"}}})
-	if err != nil || result.Installed || !strings.Contains(result.Reason, "selection rule") {
+	if err != nil || result.Installed || !strings.Contains(result.Reason, "causal bundle") {
 		t.Fatalf("multi-continuation family installed one chain: %+v, %v", result, err)
 	}
 }

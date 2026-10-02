@@ -18,7 +18,7 @@ import (
 
 // primitiveInstaller generates an accepted family's program from its
 // recorded runs and installs it privately for the person's agent. A family
-// with several continuations needs an executable selection rule; silently
+// with several continuations needs an executable causal contract; silently
 // installing its most-used chain would change the reviewed contract.
 func primitiveInstaller(sessions []trace.Session, client, home, cwd string) func(primitive.Family, []primitive.Primitive) (primitive.InstallResult, error) {
 	// Discover dropped calls copied between session files before indexing
@@ -40,20 +40,20 @@ func primitiveInstaller(sessions []trace.Session, client, home, cwd string) func
 			// shown before the person accepts.
 			keep, kept, _ := executableFamily(f, members, by)
 			if len(keep.FollowUps) == 0 {
-				r.Reason = "the recorded uses do not establish an executable selection rule: none of its continuations compiles as recorded; prepare a handoff to refine it"
+				r.Reason = "the recorded uses do not establish an executable causal bundle: none of its continuations compiles as recorded; prepare a handoff to refine it"
 				return r, nil
 			}
 			f, members = keep, kept
 		}
-		if len(f.FollowUps) > 1 {
-			g, why := branchGraph(f, members, by)
+		if len(f.FollowUps) > 1 || (f.APIMode == "optional_followups" && len(f.FollowUps) > 0) {
+			g, why := bundleGraph(f, members, by)
 			if g == nil {
-				r.Reason = "the recorded uses show multiple continuations, but do not establish an executable selection rule: " + why
+				r.Reason = "the recorded uses show multiple continuations, but do not establish an executable causal bundle: " + why
 				return r, nil
 			}
 			pkg, err := codegen.GenerateProgramPackage(g)
 			if err != nil {
-				r.Reason = "the branch program could not be generated: " + err.Error()
+				r.Reason = "the optional-follow-up program could not be generated: " + err.Error()
 				return r, nil
 			}
 			return install(r, pkg, client, home, cwd)

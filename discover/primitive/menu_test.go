@@ -92,7 +92,7 @@ func TestFailedInstallDoesNotAcceptCandidate(t *testing.T) {
 	}
 }
 
-func TestUnresolvedPatternIsShownButCannotBeAccepted(t *testing.T) {
+func TestUnresolvedPatternAcceptedForDesignWithoutInstallation(t *testing.T) {
 	res := twoFamilies()
 	res.Families[0].APIMode = "needs_refinement"
 	res.Families[0].APIReason = "no branch predicate"
@@ -102,15 +102,16 @@ func TestUnresolvedPatternIsShownButCannotBeAccepted(t *testing.T) {
 	res.Families[0].FollowUps[0].APIReason = "one recorded path needs a decision"
 	var out bytes.Buffer
 	dir := t.TempDir()
-	err := Menu(strings.NewReader("i\na\nq\n"), &out, res, MenuConfig{StateDir: dir, Home: t.TempDir(), Clients: "claude-code"})
+	err := Menu(strings.NewReader("i\na\ns\ns\n"), &out, res, MenuConfig{StateDir: dir, Home: t.TempDir(), Clients: "claude-code"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "No runnable API exists") || !strings.Contains(got, "no branch predicate") || !strings.Contains(got, "Install is unavailable") ||
-		!strings.Contains(got, "[e] prepare handoff") || !strings.Contains(got, "does not run an agent") ||
-		!strings.Contains(got, "~1.2k potential tokens") || !strings.Contains(got, "one recorded path needs a decision") {
-		t.Fatalf("unresolved contract was hidden or accept was allowed: %s", got)
+	if !strings.Contains(got, "No runnable API exists") || !strings.Contains(got, "no branch predicate") || !strings.Contains(got, "[a] accept for API design") ||
+		!strings.Contains(got, "[e] export evidence") || !strings.Contains(got, "or runs an agent") ||
+		!strings.Contains(got, "Accepted for API design (1)") || !strings.Contains(got, "No runnable TAP is installed") ||
+		!strings.Contains(got, "~1.2k") || !strings.Contains(got, "potential tokens") || !strings.Contains(got, "one recorded path needs a decision") {
+		t.Fatalf("unresolved acceptance did not explain its effect: %s", got)
 	}
 	var listing bytes.Buffer
 	listTable(&listing, style{width: 140}, res.Families, make([]string, len(res.Families)), -1)
@@ -119,6 +120,14 @@ func TestUnresolvedPatternIsShownButCannotBeAccepted(t *testing.T) {
 	}
 	files, _ := filepath.Glob(filepath.Join(dir, "accepted", "families", "*.json"))
 	if len(files) != 0 {
-		t.Fatalf("accepted %d unresolved patterns", len(files))
+		t.Fatalf("installed %d unresolved patterns", len(files))
+	}
+	if _, err := os.Stat(filepath.Join(dir, "design", res.Families[0].Fingerprintdir(), "HANDOFF.md")); err != nil {
+		t.Fatalf("accepted design handoff missing: %v", err)
+	}
+	ledger := LoadLedger(dir)
+	entry := ledger[res.Families[0].Fingerprint][followUpKey(res.Families[0].FollowUps[0])]
+	if entry.Decision != decisionAcceptDesign {
+		t.Fatalf("acceptance was not recorded distinctly: %+v", entry)
 	}
 }
