@@ -96,10 +96,14 @@ local MCP.
 
 `tap install --client claude` or `tap install --client codex` registers the
 server with a local client. The runner borrows that client's connections and
-asks the person there before a change. A client that cannot show an approval
-prompt is never asked, and every change under it is refused. A remote browser
-chat cannot reach this stdio server without a supported desktop companion;
-the separate [web preview](docs/web.md) is not the local MCP.
+checks each MCP call against its declared effect before dispatch; every
+effectful call still needs approval. Tool-only primitives do not get a second,
+whole-package prompt. Packages with local file, command, or web reach still
+need first-run package trust as well as approval for changes. A client that
+cannot show an approval prompt is never asked, and every change under it is
+refused. A remote browser chat cannot reach this stdio server without a
+supported desktop companion; the separate [web preview](docs/web.md) is not
+the local MCP.
 
 The five-tool surface has passed direct MCP and live Codex tests. Its Claude
 Code live tool-call test remains unverified because that client's control
