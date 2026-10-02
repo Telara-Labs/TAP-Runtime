@@ -57,7 +57,7 @@ func bundleGraph(f primitive.Family, members []primitive.Primitive, by map[strin
 			return nil, fmt.Sprintf("continuation %q has more than one execution shape", name)
 		}
 		step := g.Steps[1]
-		if step.Loop != "" || step.LoopResultStep != 0 || len(step.OptionalProfiles) > 0 {
+		if step.Loop != "" || step.LoopResultStep != 0 {
 			return nil, fmt.Sprintf("continuation %q has a dependent loop or optional argument combination", name)
 		}
 		seen[name] = true
@@ -93,6 +93,7 @@ func bundleGraph(f primitive.Family, members []primitive.Primitive, by map[strin
 		}
 		item := codegen.ProgramInput{Name: listName, Type: "object", List: true, Optional: true,
 			Source: "caller supplies zero or more independent follow-ups"}
+		optionalFields := map[string]string{}
 		inputByName := map[string]codegen.ProgramInput{}
 		for _, in := range b.graph.Inputs {
 			inputByName[in.Name] = in
@@ -101,9 +102,6 @@ func bundleGraph(f primitive.Family, members []primitive.Primitive, by map[strin
 		for i := range step.Args {
 			arg := &step.Args[i]
 			v := &arg.Value
-			if arg.Optional {
-				return nil, fmt.Sprintf("continuation %q has an optional tool argument with no per-item rule", b.name)
-			}
 			if v.Kind == "result" && v.Step != 1 {
 				return nil, "a continuation reads an unsupported prior result"
 			}
@@ -111,7 +109,7 @@ func bundleGraph(f primitive.Family, members []primitive.Primitive, by map[strin
 			case "result", "selector":
 			case "input":
 				in, ok := inputByName[v.Input]
-				if !ok || in.Optional || in.List || len(in.Allowed) > 0 {
+				if !ok || in.List || len(in.Allowed) > 0 || in.Optional != arg.Optional {
 					return nil, fmt.Sprintf("continuation %q has an input without a required scalar type", b.name)
 				}
 				field := strings.TrimPrefix(v.Input, "step_2_")
@@ -119,11 +117,32 @@ func bundleGraph(f primitive.Family, members []primitive.Primitive, by map[strin
 					return nil, fmt.Sprintf("continuation %q has duplicate or unnamed item fields", b.name)
 				}
 				usedFields[field] = true
-				item.Fields = append(item.Fields, codegen.ProgramInputField{Name: field, Path: arg.Path, Type: in.Type})
+				item.Fields = append(item.Fields, codegen.ProgramInputField{Name: field, Path: arg.Path, Type: in.Type, Optional: arg.Optional})
+				if arg.Optional {
+					optionalFields[in.Name] = field
+				}
 				*v = codegen.ProgramValue{Kind: "item", ResultPath: "." + field}
 			default:
 				return nil, fmt.Sprintf("continuation %q has a non-independent result selection", b.name)
 			}
+		}
+		if len(optionalFields) > 0 {
+			if len(step.OptionalProfiles) == 0 {
+				return nil, fmt.Sprintf("continuation %q has no observed optional field profiles", b.name)
+			}
+			for _, profile := range step.OptionalProfiles {
+				fields := make([]string, 0, len(profile))
+				for _, name := range profile {
+					field, ok := optionalFields[name]
+					if !ok {
+						return nil, fmt.Sprintf("continuation %q has an unknown optional field profile", b.name)
+					}
+					fields = append(fields, field)
+				}
+				sort.Strings(fields)
+				item.ItemProfiles = append(item.ItemProfiles, fields)
+			}
+			step.OptionalProfiles = nil
 		}
 		sort.Slice(item.Fields, func(i, j int) bool { return item.Fields[i].Name < item.Fields[j].Name })
 		step.Loop = listName
@@ -153,10 +172,9 @@ type branch struct {
 	graph *codegen.ProgramGraph
 }
 
-// modalFollowUpShape keeps the most supported exact call shape for one
-// continuation. Different argument names or tool routes are separate
-// contracts; merging their leaves would invent optional tool arguments.
-// Counts remain available to the planner so excluded variants are visible.
+// modalFollowUpShape keeps the most supported tool route for one continuation.
+// Argument presence differences on that route are represented by observed
+// optional profiles in directGraphVia, never by invented defaults.
 func modalFollowUpShape(p primitive.Primitive, by map[string]*trace.Session, headRoute string) (primitive.Primitive, int, int) {
 	groups := map[string][]primitive.Execution{}
 	total := 0
@@ -186,12 +204,7 @@ func modalFollowUpShape(p primitive.Primitive, by map[string]*trace.Session, hea
 				valid = false
 				break
 			}
-			var paths []string
-			for path, field := range trace.ObservedArgs(call) {
-				paths = append(paths, path+":"+field.TypeName)
-			}
-			sort.Strings(paths)
-			current := route + "|" + strings.Join(paths, ",")
+			current := route
 			if shape != "" && shape != current {
 				valid = false
 				break

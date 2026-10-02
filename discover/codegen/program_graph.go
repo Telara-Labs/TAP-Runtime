@@ -47,12 +47,15 @@ type ProgramInput struct {
 	RequiredWhenValue string              `json:"required_when_value,omitempty"`
 	Source            string              `json:"source"`
 	Fields            []ProgramInputField `json:"fields,omitempty"`
+	// ItemProfiles are observed combinations of optional fields within each list item.
+	ItemProfiles [][]string `json:"item_profiles,omitempty"`
 }
 
 type ProgramInputField struct {
-	Name string   `json:"name"`
-	Path []string `json:"path"`
-	Type string   `json:"type"`
+	Name     string   `json:"name"`
+	Path     []string `json:"path"`
+	Type     string   `json:"type"`
+	Optional bool     `json:"optional,omitempty"`
 }
 
 type ProgramStep struct {

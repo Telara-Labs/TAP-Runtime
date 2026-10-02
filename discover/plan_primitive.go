@@ -67,10 +67,10 @@ func planPrimitiveFamilies(res *primitive.Result, sessions []trace.Session) {
 					_, kept, total := modalFollowUpShape(one[0], bySession, headRoute(one, bySession))
 					if total > 0 {
 						fu.ShapeScore = 100 * kept / total
-						fu.ShapeSupport = fmt.Sprintf("%d/%d uses share the selected call shape", kept, total)
+						fu.ShapeSupport = fmt.Sprintf("%d/%d uses share the selected tool route; optional arguments are checked separately", kept, total)
 					}
 					if kept < total {
-						fu.APIReason = fmt.Sprintf("%d of %d uses have another call shape or route and are excluded from this API", total-kept, total)
+						fu.APIReason = fmt.Sprintf("%d of %d uses have another tool route and are excluded from this API", total-kept, total)
 					}
 				}
 				oneFamily := *f

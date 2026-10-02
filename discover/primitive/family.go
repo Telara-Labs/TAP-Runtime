@@ -53,7 +53,7 @@ type Family struct {
 	// that it belongs to this head. Excluded paths retain their own scores.
 	RelationshipConfidence int `json:"relationshipConfidence"`
 	// APIConfidence is the weakest admitted path's existing confidence,
-	// relationship, and call-shape support. It is evidence, not success probability.
+	// relationship, and tool-route support. It is evidence, not success probability.
 	APIConfidence int `json:"apiConfidence"`
 	// Values are the distinct arguments across the family's chains; Traced
 	// are those whose source is known in every run (an earlier step's
