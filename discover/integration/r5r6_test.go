@@ -3,7 +3,6 @@ package integration
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
