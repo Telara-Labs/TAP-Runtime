@@ -20,7 +20,7 @@ import (
 // recorded runs and installs it privately for the person's agent. A family
 // with several continuations needs an executable causal contract; silently
 // installing its most-used chain would change the reviewed contract.
-func primitiveInstaller(sessions []trace.Session, client, home, cwd string) func(primitive.Family, []primitive.Primitive) (primitive.InstallResult, error) {
+func primitiveInstaller(sessions []trace.Session, dest pack.Destination) func(primitive.Family, []primitive.Primitive) (primitive.InstallResult, error) {
 	// Discover dropped calls copied between session files before indexing
 	// them; the generator must see the same call positions.
 	cp := make([]trace.Session, len(sessions))
@@ -56,7 +56,7 @@ func primitiveInstaller(sessions []trace.Session, client, home, cwd string) func
 				r.Reason = "the optional-follow-up program could not be generated: " + err.Error()
 				return r, nil
 			}
-			return install(r, pkg, client, home, cwd)
+			return install(r, pkg, dest)
 		}
 		if len(members) == 0 {
 			r.Reason = "no recorded chain"
@@ -76,7 +76,7 @@ func primitiveInstaller(sessions []trace.Session, client, home, cwd string) func
 				r.Reason = "the package could not be generated: " + err.Error()
 				return r, nil
 			}
-			return install(r, pkg, client, home, cwd)
+			return install(r, pkg, dest)
 		} else if why != "" && !strings.HasPrefix(why, "fallback:") {
 			r.Reason = why
 			return r, nil
@@ -133,20 +133,23 @@ func primitiveInstaller(sessions []trace.Session, client, home, cwd string) func
 			r.Reason = "the package could not be generated: " + err.Error()
 			return r, nil
 		}
-		return install(r, pkg, client, home, cwd)
+		return install(r, pkg, dest)
 	}
 }
 
-func install(r primitive.InstallResult, pkg *codegen.GeneratedPackage, client, home, cwd string) (primitive.InstallResult, error) {
-	root, err := pack.SkillsDir(client, false, home, cwd)
+func install(r primitive.InstallResult, pkg *codegen.GeneratedPackage, dest pack.Destination) (primitive.InstallResult, error) {
+	where, _, err := genreview.SaveGeneratedPackage(pkg, dest.Collection)
 	if err != nil {
 		return r, err
 	}
-	where, _, err := genreview.SaveGeneratedPackage(pkg, root)
+	ptrs, err := dest.Point(where)
 	if err != nil {
 		return r, err
 	}
 	r.Installed, r.Name, r.Where = true, pkg.Manifest.Metadata.Name, where
+	for _, p := range ptrs {
+		r.Pointers = append(r.Pointers, primitive.Pointer(p))
+	}
 	return r, nil
 }
 

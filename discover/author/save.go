@@ -197,8 +197,8 @@ func SaveCommand(args []string, home string, out, errOut io.Writer) int {
 	fs := flag.NewFlagSet("discover save", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	receipts := fs.String("receipts", "", "receipts from `tap discover validate` for this package")
-	client := fs.String("client", "claude-code", "where it goes: "+strings.Join(clientpkg.IDs(clientpkg.HasSkills), ", "))
-	project := fs.Bool("project", false, "save into this project's skills directory instead of your home")
+	client := fs.String("client", "detected", "agents that get a pointer to it: "+strings.Join(clientpkg.IDs(clientpkg.HasSkills), ", ")+", all, none, or detected (installed here and able to run it)")
+	project := fs.Bool("project", false, "write pointers into this project's skills folders instead of your home's")
 	pos, flags := SplitPositional(args)
 	if err := fs.Parse(flags); err != nil {
 		return 2
@@ -218,12 +218,12 @@ func SaveCommand(args []string, home string, out, errOut io.Writer) int {
 		}
 	}
 	cwd, _ := os.Getwd()
-	root, err := pack.SkillsDir(*client, *project, home, cwd)
+	dest, err := pack.NewDestination(*client, *project, home, cwd)
 	if err != nil {
 		fmt.Fprintln(errOut, "discover save:", err)
 		return 2
 	}
-	path, validation, unchanged, err := SavePackage(pos[0], root, rec, recSum)
+	path, validation, unchanged, err := SavePackage(pos[0], dest.Collection, rec, recSum)
 	if err != nil {
 		fmt.Fprintln(errOut, "discover save:", err)
 		return 1
@@ -233,5 +233,11 @@ func SaveCommand(args []string, home string, out, errOut io.Writer) int {
 		note = " (already saved)"
 	}
 	fmt.Fprintf(out, "saved %s%s\nvalidation: %s\n", path, note, validation)
+	ptrs, err := dest.Point(path)
+	fmt.Fprint(out, pack.FormatPointers(ptrs))
+	if err != nil {
+		fmt.Fprintln(errOut, "discover save:", err)
+		return 1
+	}
 	return 0
 }

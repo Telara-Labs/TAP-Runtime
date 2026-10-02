@@ -2,6 +2,7 @@ package discover
 
 import (
 	"fmt"
+	"gitlab.com/telara-labs/tap-runtime/discover/pack"
 	"os"
 	"sort"
 	"strings"
@@ -342,7 +343,7 @@ func dryInstall(f primitive.Family, members []primitive.Primitive, sessions []tr
 		return ""
 	}
 	defer os.RemoveAll(dir)
-	r, err := primitiveInstaller(sessions, "claude-code", dir, dir)(f, members)
+	r, err := primitiveInstaller(sessions, pack.Destination{Collection: dir})(f, members)
 	if err != nil {
 		return err.Error()
 	}
