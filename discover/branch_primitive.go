@@ -12,21 +12,30 @@ import (
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-// branchGraph builds the narrow branch shape that the recorded calls prove:
-// one common operation followed by one of several result-linked operations.
-// The caller chooses one action at invocation. Co-occurrence alone cannot
-// establish a rule for running several actions or choosing from a result.
-func branchGraph(f primitive.Family, members []primitive.Primitive, by map[string]*trace.Session) (*codegen.ProgramGraph, string) {
-	if len(f.FollowUps) < 2 {
-		return nil, "no branch family"
+// bundleGraph runs one head and zero or more independently requested
+// continuations. Every included continuation has already passed the
+// relationship check; no tool names or Jira-specific reactions are built in.
+func bundleGraph(f primitive.Family, members []primitive.Primitive, by map[string]*trace.Session) (*codegen.ProgramGraph, string) {
+	if len(f.FollowUps) < 1 {
+		return nil, "no supported continuation"
 	}
 	if len(f.Sources) > 0 {
 		return nil, "alternative first operations need an explicit source-selection rule"
 	}
 	var branches []branch
 	seen := map[string]bool{}
+	usedHeads := map[string]bool{}
+	usedSessions := map[string]bool{}
 	route := headRoute(members, by)
 	for _, p := range members {
+		if score, _, reason := primitive.RelationshipEvidence(p, by); score != 100 {
+			return nil, reason
+		}
+		var supported int
+		p, supported, _ = modalFollowUpShape(p, by, route)
+		if supported == 0 {
+			return nil, "no consistent call shape was recorded through the common head route"
+		}
 		if why := continuationIssue(p); why != "" {
 			return nil, why
 		}
@@ -47,71 +56,78 @@ func branchGraph(f primitive.Family, members []primitive.Primitive, by map[strin
 		if seen[name] {
 			return nil, fmt.Sprintf("continuation %q has more than one execution shape", name)
 		}
+		step := g.Steps[1]
+		if step.Loop != "" || step.LoopResultStep != 0 || len(step.OptionalProfiles) > 0 {
+			return nil, fmt.Sprintf("continuation %q has a dependent loop or optional argument combination", name)
+		}
 		seen[name] = true
 		branches = append(branches, branch{name: name, graph: g})
+		for _, ex := range p.Executions {
+			if len(ex.Calls) == 0 {
+				continue
+			}
+			key := ex.Client + "\x00" + ex.Session
+			usedHeads[fmt.Sprintf("%s\x00%d", key, ex.Calls[0].Index)] = true
+			usedSessions[key] = true
+		}
 	}
 	head, headInputs, why := mergeHeads(branches)
 	if why != "" {
 		return nil, why
 	}
-	if len(branches) < 2 {
-		return nil, "fewer than two continuations were recorded through one route"
-	}
-	if _, exists := headInputs["action"]; exists {
-		return nil, "the common operation already uses the action input name"
+	if len(branches) < 1 {
+		return nil, "no continuation was recorded through one route"
 	}
 	sort.Slice(branches, func(i, j int) bool { return branches[i].name < branches[j].name })
-	result := &codegen.ProgramGraph{CandidateID: "lc_" + strings.TrimPrefix(f.ID, "pf_"), Executions: f.ExecutionCount, Sessions: f.SessionCount,
-		Steps: []codegen.ProgramStep{head}}
+	result := &codegen.ProgramGraph{CandidateID: "lc_" + strings.TrimPrefix(f.ID, "pf_"), Executions: len(usedHeads), Sessions: len(usedSessions),
+		Steps: []codegen.ProgramStep{head}, Cautions: []string{"The head runs once. Requested follow-ups run in listed order; later failures can leave earlier writes completed, and the error reports partial results."}}
 	for _, in := range headInputs {
 		result.Inputs = append(result.Inputs, in)
 	}
 	sort.Slice(result.Inputs, func(i, j int) bool { return result.Inputs[i].Name < result.Inputs[j].Name })
-	choices := make([]string, 0, len(branches))
-	for _, b := range branches {
-		choices = append(choices, b.name)
-	}
-	result.Inputs = append(result.Inputs, codegen.ProgramInput{Name: "action", Type: "string", Allowed: choices,
-		Source: "caller selects one recorded continuation at invocation"})
 	for _, b := range branches {
 		step := b.graph.Steps[1]
-		step.WhenInput, step.WhenValue = "action", b.name
-		renames := map[string]string{}
+		listName := b.name + "_items"
+		if _, exists := headInputs[listName]; exists {
+			return nil, fmt.Sprintf("the common operation already uses %q", listName)
+		}
+		item := codegen.ProgramInput{Name: listName, Type: "object", List: true, Optional: true,
+			Source: "caller supplies zero or more independent follow-ups"}
+		inputByName := map[string]codegen.ProgramInput{}
 		for _, in := range b.graph.Inputs {
-			if _, common := headInputs[in.Name]; common {
-				continue
-			}
-			old := in.Name
-			in.Name = b.name + "_" + old
-			in.Optional = true
-			in.RequiredWhenInput, in.RequiredWhenValue = "action", b.name
-			renames[old] = in.Name
-			result.Inputs = append(result.Inputs, in)
+			inputByName[in.Name] = in
 		}
-		var profiles [][]string
-		for _, profile := range step.OptionalProfiles {
-			renamed := make([]string, 0, len(profile))
-			for _, name := range profile {
-				if r, ok := renames[name]; ok {
-					name = r
-				}
-				renamed = append(renamed, name)
-			}
-			profiles = append(profiles, renamed)
-		}
-		step.OptionalProfiles = profiles
-		if renamed, ok := renames[step.Loop]; ok {
-			step.Loop = renamed
-		}
+		usedFields := map[string]bool{}
 		for i := range step.Args {
-			v := &step.Args[i].Value
-			if renamed, ok := renames[v.Input]; ok {
-				v.Input = renamed
+			arg := &step.Args[i]
+			v := &arg.Value
+			if arg.Optional {
+				return nil, fmt.Sprintf("continuation %q has an optional tool argument with no per-item rule", b.name)
 			}
 			if v.Kind == "result" && v.Step != 1 {
 				return nil, "a continuation reads an unsupported prior result"
 			}
+			switch v.Kind {
+			case "result", "selector":
+			case "input":
+				in, ok := inputByName[v.Input]
+				if !ok || in.Optional || in.List || len(in.Allowed) > 0 {
+					return nil, fmt.Sprintf("continuation %q has an input without a required scalar type", b.name)
+				}
+				field := strings.TrimPrefix(v.Input, "step_2_")
+				if field == "" || usedFields[field] {
+					return nil, fmt.Sprintf("continuation %q has duplicate or unnamed item fields", b.name)
+				}
+				usedFields[field] = true
+				item.Fields = append(item.Fields, codegen.ProgramInputField{Name: field, Path: arg.Path, Type: in.Type})
+				*v = codegen.ProgramValue{Kind: "item", ResultPath: "." + field}
+			default:
+				return nil, fmt.Sprintf("continuation %q has a non-independent result selection", b.name)
+			}
 		}
+		sort.Slice(item.Fields, func(i, j int) bool { return item.Fields[i].Name < item.Fields[j].Name })
+		step.Loop = listName
+		result.Inputs = append(result.Inputs, item)
 		result.Steps = append(result.Steps, step)
 		result.Sources = append(result.Sources, b.graph.Sources...)
 	}
@@ -135,6 +151,66 @@ func branchName(op string) string {
 type branch struct {
 	name  string
 	graph *codegen.ProgramGraph
+}
+
+// modalFollowUpShape keeps the most supported exact call shape for one
+// continuation. Different argument names or tool routes are separate
+// contracts; merging their leaves would invent optional tool arguments.
+// Counts remain available to the planner so excluded variants are visible.
+func modalFollowUpShape(p primitive.Primitive, by map[string]*trace.Session, headRoute string) (primitive.Primitive, int, int) {
+	groups := map[string][]primitive.Execution{}
+	total := 0
+	for _, ex := range p.Executions {
+		if ex.Overlaps != "" {
+			continue
+		}
+		total++
+		s := by[ex.Client+"\x00"+ex.Session]
+		if s == nil {
+			continue
+		}
+		shape := ""
+		valid := true
+		for _, ref := range ex.Calls {
+			if ref.Index < 0 || ref.Index >= len(s.Calls) || s.Calls[ref.Index].Request != ex.Request {
+				valid = false
+				break
+			}
+			call := s.Calls[ref.Index]
+			route := call.MCPServer + "/" + call.MCPTool
+			if ref.Step == 1 {
+				valid = valid && route == headRoute
+				continue
+			}
+			if ref.Step != 2 {
+				valid = false
+				break
+			}
+			var paths []string
+			for path, field := range trace.ObservedArgs(call) {
+				paths = append(paths, path+":"+field.TypeName)
+			}
+			sort.Strings(paths)
+			current := route + "|" + strings.Join(paths, ",")
+			if shape != "" && shape != current {
+				valid = false
+				break
+			}
+			shape = current
+		}
+		if valid && shape != "" {
+			groups[shape] = append(groups[shape], ex)
+		}
+	}
+	best, n := "", 0
+	for shape, executions := range groups {
+		if len(executions) > n || len(executions) == n && shape < best {
+			best, n = shape, len(executions)
+		}
+	}
+	p.Executions = groups[best]
+	p.ExecutionCount = n
+	return p, n, total
 }
 
 // mergeHeads builds the shared first step from every continuation's view of

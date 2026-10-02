@@ -49,6 +49,12 @@ type Family struct {
 	// claims.
 	Confidence int `json:"confidence"`
 	Weakest    int `json:"weakest"`
+	// RelationshipConfidence is the weakest admitted follow-up's evidence
+	// that it belongs to this head. Excluded paths retain their own scores.
+	RelationshipConfidence int `json:"relationshipConfidence"`
+	// APIConfidence is the weakest admitted path's existing confidence,
+	// relationship, and call-shape support. It is evidence, not success probability.
+	APIConfidence int `json:"apiConfidence"`
 	// Values are the distinct arguments across the family's chains; Traced
 	// are those whose source is known in every run (an earlier step's
 	// result, or the caller). OpenQuestions are the points to resolve.
@@ -70,6 +76,7 @@ type Family struct {
 	// evidence of a pattern, not by itself an executable primitive API.
 	APIMode    string   `json:"apiMode,omitempty"`
 	APIChoices []string `json:"apiChoices,omitempty"`
+	APIInputs  []string `json:"apiInputs,omitempty"`
 	APIReason  string   `json:"apiReason,omitempty"`
 }
 
@@ -81,8 +88,15 @@ type FollowUp struct {
 	Members         []string `json:"members,omitempty"`
 	PotentialTurns  int      `json:"potentialTurns,omitempty"`
 	PotentialTokens float64  `json:"potentialTokens,omitempty"`
-	APIMode         string   `json:"apiMode,omitempty"`
-	APIReason       string   `json:"apiReason,omitempty"`
+	// RelationshipScore counts executions with an explicit same-request
+	// binding to the head's structured result, out of all usable executions.
+	RelationshipScore   int    `json:"relationshipScore"`
+	RelationshipSupport string `json:"relationshipSupport,omitempty"`
+	ShapeScore          int    `json:"shapeScore"`
+	ShapeSupport        string `json:"shapeSupport,omitempty"`
+	Confidence          int    `json:"confidence"`
+	APIMode             string `json:"apiMode,omitempty"`
+	APIReason           string `json:"apiReason,omitempty"`
 }
 
 func execKey(ex Execution) string {

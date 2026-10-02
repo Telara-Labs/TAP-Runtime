@@ -63,6 +63,8 @@ func (s style) choice(c string) string {
 	switch c {
 	case "accept":
 		return s.good(c)
+	case decisionAcceptDesign:
+		return s.good("design")
 	case "deny":
 		return s.bad(c)
 	case "eval":

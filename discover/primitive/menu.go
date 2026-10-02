@@ -16,7 +16,7 @@ import (
 // MenuConfig says where decisions and accepted primitives live.
 type MenuConfig struct {
 	StateDir string
-	// All accepts every proposed primitive without asking.
+	// All accepts every runnable proposed primitive without asking.
 	All bool
 	// Clients names what was read, for the summary.
 	Clients string
@@ -185,9 +185,9 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	shown, hidden := Triage(res, LoadLedger(cfg.StateDir))
 	header(out, s, res, cfg.Clients)
 	writeSummary(out, s, res, cfg.Clients)
-	if n := hidden["accept"] + hidden["deny"] + hidden["eval"]; n > 0 {
-		fmt.Fprintln(out, "  "+s.dim(fmt.Sprintf("Already decided and not shown again: %d installed, %d dismissed, %d handoffs exported. Change one with: tap discover --revisit",
-			hidden["accept"], hidden["deny"], hidden["eval"])))
+	if n := hidden["accept"] + hidden[decisionAcceptDesign] + hidden["deny"] + hidden["eval"]; n > 0 {
+		fmt.Fprintln(out, "  "+s.dim(fmt.Sprintf("Already decided and not shown again: %d installed, %d accepted for API design, %d dismissed, %d evidence handoffs exported. Change one with: tap discover --revisit",
+			hidden["accept"], hidden[decisionAcceptDesign], hidden["deny"], hidden["eval"])))
 	}
 	if len(shown) == 0 {
 		fmt.Fprintln(out, "\nNothing new to review.")
@@ -219,21 +219,23 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	inspect := func() bool {
 		for pos < len(shown) {
 			card(out, s, pos+1, len(shown), shown[pos], byID, choice[pos], res.Summary)
-			actions := []string{"d", "dismiss", "e", "prepare handoff", "n", "next", "p", "previous", "s", "review choices", "q", "quit"}
-			if shown[pos].APIMode != "needs_refinement" {
-				actions = append([]string{"a", "accept and install"}, actions...)
+			actions := []string{"d", "dismiss", "e", "export evidence", "n", "next", "p", "previous", "s", "review choices", "q", "quit"}
+			acceptLabel := "accept and install"
+			if shown[pos].APIMode == "needs_refinement" {
+				acceptLabel = "accept for API design"
 			}
+			actions = append([]string{"a", acceptLabel}, actions...)
 			k, ok := read(keys(s, actions...))
 			if !ok || k == "q" {
 				return false
 			}
 			switch k {
 			case "a", "d", "e":
+				decision := map[string]string{"a": "accept", "d": "deny", "e": "eval"}[k]
 				if k == "a" && shown[pos].APIMode == "needs_refinement" {
-					fmt.Fprintln(out, "  Install is unavailable: "+shown[pos].APIReason+". Press e to select a refinement handoff, or n for the next pattern.")
-					continue
+					decision = decisionAcceptDesign
 				}
-				choice[pos] = map[string]string{"a": "accept", "d": "deny", "e": "eval"}[k]
+				choice[pos] = decision
 				pos++
 			case "n":
 				pos++
@@ -276,7 +278,8 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 		}
 		for {
 			section(out, s, "Review")
-			fmt.Fprintln(out, "  Choices are pending. Submitting installs accepted flows, writes selected handoffs, and hides dismissed patterns.")
+			fmt.Fprintln(out, "  Choices are pending. Submitting installs runnable accepts, writes API-design and evidence handoffs, and hides dismissed patterns.")
+			fmt.Fprintln(out, "  Design means accepted for API design; no TAP is installed for that choice.")
 			t := table{head: []string{"#", "Choice", "Primitive"}, widths: []int{3, 7, 70}, right: map[int]bool{0: true}}
 			n := 0
 			for i, f := range shown {
@@ -313,10 +316,16 @@ func title(f Family) string {
 	t := display(f.Head)
 	n := len(f.FollowUps)
 	switch {
+	case f.APIMode == "optional_followups":
+		t += fmt.Sprintf(" → up to %d related follow-ups", len(f.APIInputs))
 	case f.APIMode == "caller_choice":
 		t += fmt.Sprintf(" → choose 1 of %d actions", len(f.APIChoices))
 	case f.APIMode == "needs_refinement":
-		t += fmt.Sprintf(" · %d observed continuations · API undefined", n)
+		t += fmt.Sprintf(" · %d observed continuation", n)
+		if n != 1 {
+			t += "s"
+		}
+		t += " · API undefined"
 	case n == 1:
 		t += " → " + followUpText(f.FollowUps[0])
 	case n > 1:
@@ -365,12 +374,19 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 	if f.APIMode != "" {
 		section(out, s, "API status")
 		switch f.APIMode {
+		case "optional_followups":
+			fmt.Fprintln(out, "  Runs the first operation once. Supply none, one, or several independent follow-up lists.")
+			fmt.Fprintln(out, "  Optional inputs: "+strings.Join(f.APIInputs, ", "))
+			fmt.Fprintf(out, "  API evidence: weakest included path %d/100; each path's relationship and call-shape support is shown below.\n", f.APIConfidence)
+			fmt.Fprintln(out, "  Evidence scores measure recorded support, not a predicted success rate.")
+			fmt.Fprintln(out, "  Calls run in listed order. A later failure reports completed results; earlier writes may remain.")
 		case "caller_choice":
 			fmt.Fprintln(out, "  Input: action (required). Runs the first operation once, then exactly one selected continuation.")
 			fmt.Fprintln(out, "  Choices: "+strings.Join(f.APIChoices, ", "))
 		case "needs_refinement":
-			fmt.Fprintln(out, "  No runnable API exists for this pattern yet. Press e to select a refinement handoff, then submit from Review to write it.")
-			fmt.Fprintln(out, "  The handoff gives a coding agent the recorded calls and open questions; it does not run an agent or install anything.")
+			fmt.Fprintln(out, "  No runnable API exists for this pattern yet.")
+			fmt.Fprintln(out, "  [a] Accept for API design. Submit records acceptance and writes a design handoff.")
+			fmt.Fprintln(out, "  [e] Export evidence without accepting. Neither action installs a TAP or runs an agent.")
 			if f.APIReason != "" {
 				fmt.Fprintln(out, "  Reason: "+f.APIReason)
 			}
@@ -405,13 +421,15 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 		st.rows = append(st.rows, []string{label, followUpText(fu), count(fu.Runs)})
 	}
 	st.render(out, s)
-	if len(f.FollowUps) > 1 && f.APIMode != "caller_choice" {
+	if len(f.FollowUps) > 1 && f.APIMode != "caller_choice" && f.APIMode != "optional_followups" {
 		fmt.Fprintln(out, s.dim("  These are observed continuations, not an inferred combination rule. An installable program must expose an exact choice and result bindings."))
 	}
 
 	savingsTitle := "Potential savings"
 	if f.APIMode == "needs_refinement" {
 		savingsTitle = "Historical cost of this pattern (not savings yet)"
+	} else if f.APIMode == "optional_followups" {
+		savingsTitle = "Historical opportunity in included paths"
 	}
 	section(out, s, savingsTitle)
 	per := 0.0
@@ -423,6 +441,18 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 	if f.APIMode == "needs_refinement" {
 		turnLabel = fmt.Sprintf("%s observed follow-up turns; no executable program yet", count(f.TurnsSaved))
 		tokenLabel = fmt.Sprintf("about %s spent in those turns (estimate)", tokensText(inputEquivalent(f.Saved)))
+	} else if f.APIMode == "optional_followups" {
+		var eligibleTokens float64
+		eligibleTurns := 0
+		for _, fu := range f.FollowUps {
+			if fu.APIMode != "exact_chain" {
+				continue
+			}
+			eligibleTokens += fu.PotentialTokens * float64(fu.ShapeScore) / 100
+			eligibleTurns += fu.PotentialTurns * fu.ShapeScore / 100
+		}
+		turnLabel = fmt.Sprintf("up to %s recorded follow-up turns on included call shapes", count(eligibleTurns))
+		tokenLabel = fmt.Sprintf("about %s spent in those turns (estimate, conditional on reuse)", tokensText(eligibleTokens))
 	}
 	table{widths: []int{16, 72}, flex: 2, rows: [][]string{
 		{"Turns", turnLabel},
@@ -431,10 +461,14 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 	if f.ReadToDecide > 0 {
 		fmt.Fprintln(out, s.dim(fmt.Sprintf("  In %d of %d uses the agent built its next step from this output, so it needed to see it; those uses save less.", f.ReadToDecide, f.ExecutionCount)))
 	}
-	if f.APIMode == "needs_refinement" {
+	if f.APIMode == "needs_refinement" || f.APIMode == "optional_followups" {
 		section(out, s, "Opportunity by continuation")
 		for _, fu := range f.FollowUps {
 			assessment := "exact chain"
+			shape := fu.ShapeSupport
+			if shape == "" {
+				shape = "not assessed"
+			}
 			switch fu.APIMode {
 			case "needs_refinement":
 				assessment = "needs refinement"
@@ -443,7 +477,7 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 			case "":
 				assessment = "not assessed"
 			}
-			line := fmt.Sprintf("%s: %d runs · ~%s potential tokens · %s", followUpText(fu), fu.Runs, tokensText(fu.PotentialTokens), assessment)
+			line := fmt.Sprintf("%s: %d runs · API evidence %d/100 (relationship %d/100; call shape %s) · ~%s potential tokens · %s", followUpText(fu), fu.Runs, fu.Confidence, fu.RelationshipScore, shape, tokensText(fu.PotentialTokens), assessment)
 			for _, part := range wrapText(line, max(20, min(s.cols(), screen)-6)) {
 				fmt.Fprintln(out, "  "+part)
 			}
@@ -523,7 +557,7 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 // writes the agent handoff instead), decline hides, agent eval writes the
 // handoff.
 func submit(out io.Writer, s style, shown []Family, choice []string, byID map[string]Primitive, cfg MenuConfig) error {
-	var installed, handed, declined []string
+	var installed, designed, handed, declined []string
 	for i, f := range shown {
 		switch choice[i] {
 		case "accept":
@@ -572,6 +606,18 @@ func submit(out io.Writer, s style, shown []Family, choice []string, byID map[st
 				return err
 			}
 			declined = append(declined, title(f))
+		case decisionAcceptDesign:
+			if f.APIMode != "needs_refinement" {
+				return fmt.Errorf("%s has a runnable API; accept it for installation instead", title(f))
+			}
+			where := filepath.Join(cfg.StateDir, "design", f.Fingerprintdir())
+			if err := WriteFamilyHandoff(where, cfg.Home, f, byID, cfg.Sessions, cfg.Skill); err != nil {
+				return err
+			}
+			if err := appendLedger(cfg.StateDir, entryFor(f, decisionAcceptDesign)); err != nil {
+				return err
+			}
+			designed = append(designed, fmt.Sprintf("%s → %s", title(f), where))
 		case "eval":
 			where := filepath.Join(cfg.StateDir, "eval", f.Fingerprintdir())
 			if err := WriteFamilyHandoff(where, cfg.Home, f, byID, cfg.Sessions, cfg.Skill); err != nil {
@@ -583,7 +629,7 @@ func submit(out io.Writer, s style, shown []Family, choice []string, byID map[st
 			handed = append(handed, fmt.Sprintf("%s → %s", title(f), where))
 		}
 	}
-	if len(installed)+len(handed)+len(declined) == 0 {
+	if len(installed)+len(designed)+len(handed)+len(declined) == 0 {
 		fmt.Fprintln(out, "Nothing chosen; nothing saved.")
 		return nil
 	}
@@ -593,6 +639,14 @@ func submit(out io.Writer, s style, shown []Family, choice []string, byID map[st
 			fmt.Fprintln(out, "  "+s.good("✓")+" "+l)
 		}
 		fmt.Fprintln(out, s.dim("  Your agent can run these now. Anything that may change data asks you first."))
+	}
+	if len(designed) > 0 {
+		section(out, s, fmt.Sprintf("Accepted for API design (%d)", len(designed)))
+		for _, l := range designed {
+			fmt.Fprintln(out, "  "+s.good("✓")+" "+l)
+		}
+		fmt.Fprintln(out, s.dim("  Acceptance is recorded and a design handoff is written. No runnable TAP is installed."))
+		fmt.Fprintln(out, "  Start your coding agent on one with: "+agentCommand(cfg.Clients, "<folder above>/HANDOFF.md"))
 	}
 	if len(handed) > 0 {
 		section(out, s, fmt.Sprintf("Refinement handoffs exported (%d)", len(handed)))
@@ -729,6 +783,8 @@ func listTable(out io.Writer, s style, shown []Family, choice []string, cursor i
 			}
 			api := "exact"
 			switch f.APIMode {
+			case "optional_followups":
+				api = "bundle"
 			case "caller_choice":
 				api = "choice"
 			case "needs_refinement":
@@ -767,6 +823,8 @@ func pastTense(d string) string {
 	switch d {
 	case "accept":
 		return "accepted it"
+	case decisionAcceptDesign:
+		return "accepted it for API design"
 	case "deny":
 		return "declined it"
 	case "eval":

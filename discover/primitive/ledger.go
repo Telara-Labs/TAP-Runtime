@@ -19,6 +19,8 @@ import (
 // earlier decisions are then shown again, marked as re-evaluated.
 const RulesVersion = "discover-rules-2026-10-01"
 
+const decisionAcceptDesign = "accept_design"
+
 // LedgerEntry is one decision, appended to decisions.jsonl and never
 // rewritten. It is keyed by a fingerprint that survives new runs: the head
 // command and whether it reads or may write. A decision covers the
@@ -27,7 +29,7 @@ const RulesVersion = "discover-rules-2026-10-01"
 type LedgerEntry struct {
 	Fingerprint string   `json:"fingerprint"`
 	FollowUps   []string `json:"followUps"`
-	// Decision is accept, deny, eval, or undo (forget the follow-ups again).
+	// Decision is accept, accept_design, deny, eval, or undo (forget the follow-ups again).
 	Decision string `json:"decision"`
 	At       string `json:"at"`
 	Rules    string `json:"rules"`
