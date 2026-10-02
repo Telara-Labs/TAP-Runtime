@@ -111,7 +111,8 @@ It reads local files only and sends nothing anywhere (`discover/`).
     ./bin/tap pkg/deploy-check-py
     ./bin/tap install --client claude --print
 
-    go run ./release build --version 0.1.0 --out dist --key release.key \
+    go run ./release build --version 0.1.0 --out dist --key ~/.tap-release/release.key \
+        # --unsigned says a build is meant to ship without a signature; the public key is release/release.pub
         --download-base https://github.com/OWNER/REPO/releases/download/v0.1.0
     go run ./release verify --dir dist --pub release.pub
 
