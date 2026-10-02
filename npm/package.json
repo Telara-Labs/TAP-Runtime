@@ -4,6 +4,10 @@
   "private": true,
   "description": "Local TAP primitive discovery, execution, and MCP server",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Telara-Labs/TAP-Runtime.git"
+  },
   "bin": {
     "tap": "bin/tap.cjs"
   },

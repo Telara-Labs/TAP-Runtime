@@ -60,6 +60,7 @@ test('stages all five verified binaries and embeds their hashes and release vers
   assert.equal(pkg.name, '@telaralabs/tap');
   assert.equal(pkg.version, '0.1.1');
   assert.equal(pkg.private, undefined);
+  assert.equal(pkg.repository.url, 'git+https://github.com/Telara-Labs/TAP-Runtime.git');
   assert.equal(Object.keys(manifest.assets).length, 5);
   assert.equal(fs.statSync(path.join(outputDir, 'assets', 'tap-0.1.1-linux-amd64')).mode & 0o111, 0o111);
   assert.ok(fs.existsSync(path.join(outputDir, 'LICENSE')));

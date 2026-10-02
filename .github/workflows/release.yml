@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.1"
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Link the checked-out Go modules
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/tap.go.work" <<EOF
+          go 1.26.1
+          use (
+            $GITHUB_WORKSPACE
+            $GITHUB_WORKSPACE/contract
+            $GITHUB_WORKSPACE/discover
+          )
+          EOF
+          echo "GOWORK=$RUNNER_TEMP/tap.go.work" >> "$GITHUB_ENV"
+
+      - name: Verify modules and npm packaging
+        run: |
+          set -euo pipefail
+          go test ./bind ./bridge ./conformance ./host ./journal ./release ./satisfy -count=1
+          (cd contract && GOWORK=off go test ./... -count=1)
+          (cd discover && GOWORK=off go test ./... -count=1)
+          GOOS=wasip1 GOARCH=wasm go build -o /dev/null ./guest-sh
+          node --test npm/test/*.test.cjs
+
+      - name: Build signed release
+        if: github.event_name == 'push'
+        env:
+          TAP_RELEASE_KEY: ${{ secrets.TAP_RELEASE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAP_RELEASE_KEY" ]; then
+            echo "TAP_RELEASE_KEY repository secret is required for signed tag releases" >&2
+            exit 1
+          fi
+          tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Expected a semantic version tag such as v1.2.3; got $tag" >&2
+            exit 1
+          fi
+          version="${tag#v}"
+          key_file="$RUNNER_TEMP/tap-release.key"
+          printf '%s' "$TAP_RELEASE_KEY" > "$key_file"
+          chmod 600 "$key_file"
+          go run ./release build \
+            --version "$version" \
+            --out dist \
+            --key "$key_file" \
+            --download-base "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
+          go run ./release verify --dir dist --pub release/release.pub
+
+      - name: Create or update GitHub release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              --verify-tag
+          fi
+
+      - name: Download existing signed release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Expected a semantic version tag such as v1.2.3; got $RELEASE_TAG" >&2
+            exit 1
+          fi
+          mkdir -p dist
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir dist
+          go run ./release verify --dir dist --pub release/release.pub
+
+      - name: Stage npm package
+        run: node npm/pack.cjs dist "$RUNNER_TEMP/tap-npm-package"
+
+      - name: Match package version to release tag
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          expected="${RELEASE_TAG#v}"
+          actual="$(node -p "require('$RUNNER_TEMP/tap-npm-package/package.json').version")"
+          if [ "$actual" != "$expected" ]; then
+            echo "Release tag $RELEASE_TAG contains runner version $actual" >&2
+            exit 1
+          fi
+
+      - name: Set up npm Trusted Publishing
+        run: npm install --global npm@11.5.1
+
+      - name: Publish package
+        run: npm publish "$RUNNER_TEMP/tap-npm-package" --access public
