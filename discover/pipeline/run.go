@@ -39,12 +39,21 @@ func Run(o model.Options) (*model.Report, error) {
 	var raw []trace.Session
 	for _, r := range o.Readers {
 		st := model.ClientStats{Client: r.Client()}
-		ss, err := r.Read(o.Since)
+		var ss []trace.Session
+		var err error
+		if sr, ok := r.(trace.StatReader); ok {
+			var rs trace.ReadStats
+			ss, rs, err = sr.ReadWithStats(o.Since)
+			st.UnreadableFiles = rs.UnreadableFiles
+		} else {
+			ss, err = r.Read(o.Since)
+		}
 		if err != nil {
 			st.Error = err.Error()
 		}
 		for _, s := range ss {
 			st.Calls += len(s.Calls)
+			st.SkippedRecords += s.Skipped
 		}
 		raw = append(raw, ss...)
 		rep.Clients = append(rep.Clients, st)

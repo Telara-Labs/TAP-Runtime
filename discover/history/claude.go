@@ -21,9 +21,15 @@ type ClaudeCode struct{ Dir string }
 func (ClaudeCode) Client() string { return "claude-code" }
 
 func (r ClaudeCode) Read(since time.Time) ([]trace.Session, error) {
+	ss, _, err := r.ReadWithStats(since)
+	return ss, err
+}
+
+func (r ClaudeCode) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, error) {
+	var st trace.ReadStats
 	files, err := filepath.Glob(filepath.Join(r.Dir, "*", "*.jsonl"))
 	if err != nil {
-		return nil, err
+		return nil, st, err
 	}
 	var out []trace.Session
 	for _, f := range files {
@@ -31,13 +37,17 @@ func (r ClaudeCode) Read(since time.Time) ([]trace.Session, error) {
 			continue
 		}
 		s, err := ReadClaudeFile(f)
-		if err != nil || len(s.Calls) == 0 || s.Start.Before(since) {
+		if err != nil {
+			st.UnreadableFiles++
+			continue
+		}
+		if len(s.Calls) == 0 || s.Start.Before(since) {
 			continue
 		}
 		s.SourceDigest = FileDigest(f)
 		out = append(out, s)
 	}
-	return out, nil
+	return out, st, nil
 }
 
 type ClaudeLine struct {
@@ -82,6 +92,7 @@ func ReadClaudeFile(path string) (s trace.Session, err error) {
 	for sc.Scan() {
 		var ln ClaudeLine
 		if json.Unmarshal(sc.Bytes(), &ln) != nil {
+			a.Skip()
 			continue
 		}
 		FirstTime(&a.S, ln.Timestamp)

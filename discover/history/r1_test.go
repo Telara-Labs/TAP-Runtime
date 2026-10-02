@@ -413,3 +413,28 @@ func ids(ss []trace.Session) []string {
 	}
 	return out
 }
+
+// Each reader counts what it could not parse (TENG-3123).
+func TestReadersCountSkippedRecordsAndUnreadableStores(t *testing.T) {
+	ss, err := ClaudeCode{Dir: filepath.Join("testdata", "claude")}.Read(time.Time{})
+	if err != nil || len(ss) != 1 || ss[0].Skipped != 1 {
+		t.Fatalf("claude: %d sessions, skipped %v, %v", len(ss), func() int {
+			if len(ss) > 0 {
+				return ss[0].Skipped
+			}
+			return -1
+		}(), err)
+	}
+	dir, bin := buildCursorCLIStores(t)
+	db := filepath.Join(dir, "ws2", "3887962d-107f-4b4c-a3ee-17703931a585", "store.db")
+	if out, err := exec.Command(bin, db, `UPDATE blobs SET data = '{"role":' WHERE rowid = (SELECT min(rowid) FROM blobs WHERE data LIKE '%"tool-result"%')`).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	broken := filepath.Join(dir, "ws3", "s", "store.db")
+	os.MkdirAll(filepath.Dir(broken), 0o755)
+	os.WriteFile(broken, []byte("not sqlite"), 0o600)
+	ss, st, err := CursorCLI{Dir: dir}.ReadWithStats(time.Time{})
+	if err != nil || len(ss) != 2 || st.UnreadableFiles != 1 || ss[1].Skipped != 1 {
+		t.Fatalf("cursor-cli: %d sessions, %+v, %v", len(ss), st, err)
+	}
+}

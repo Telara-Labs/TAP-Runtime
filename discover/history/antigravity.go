@@ -35,9 +35,15 @@ type Antigravity struct{ Dir string }
 func (Antigravity) Client() string { return "antigravity" }
 
 func (r Antigravity) Read(since time.Time) ([]trace.Session, error) {
+	ss, _, err := r.ReadWithStats(since)
+	return ss, err
+}
+
+func (r Antigravity) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, error) {
+	var st trace.ReadStats
 	files, err := filepath.Glob(filepath.Join(r.Dir, "*", ".system_generated", "logs", "transcript_full.jsonl"))
 	if err != nil {
-		return nil, err
+		return nil, st, err
 	}
 	var out []trace.Session
 	for _, f := range files {
@@ -45,7 +51,11 @@ func (r Antigravity) Read(since time.Time) ([]trace.Session, error) {
 			continue
 		}
 		s, err := ReadAntigravityFile(f)
-		if err != nil || len(s.Calls) == 0 || s.Start.Before(since) {
+		if err != nil {
+			st.UnreadableFiles++
+			continue
+		}
+		if len(s.Calls) == 0 || s.Start.Before(since) {
 			continue
 		}
 		s.SourceDigest = FileDigest(f)
@@ -57,7 +67,7 @@ func (r Antigravity) Read(since time.Time) ([]trace.Session, error) {
 		}
 		return out[i].ID < out[j].ID
 	})
-	return out, nil
+	return out, st, nil
 }
 
 // AntigravityStep is one transcript line.
@@ -99,7 +109,8 @@ func ReadAntigravityFile(path string) (s trace.Session, err error) {
 	for sc.Scan() {
 		var st AntigravityStep
 		if json.Unmarshal(sc.Bytes(), &st) != nil {
-			continue // a torn last line while the conversation is written
+			a.Skip() // a torn line, e.g. the last one while it is being written
+			continue
 		}
 		FirstTime(&a.S, st.CreatedAt)
 		for _, e := range d.Events(st, a.S.ID) {

@@ -45,6 +45,10 @@ type ClientStats struct {
 	Calls             int       `json:"calls"`
 	Steps             int       `json:"steps"`
 	DuplicateSessions int       `json:"duplicate_sessions"`
+	// SkippedRecords and UnreadableFiles are what the reader could not
+	// parse: a spike means the agent changed its format (TENG-3123).
+	SkippedRecords  int `json:"skipped_records,omitempty"`
+	UnreadableFiles int `json:"unreadable_files,omitempty"`
 	Earliest          time.Time `json:"earliest,omitempty"`
 	Latest            time.Time `json:"latest,omitempty"`
 	Error             string    `json:"error,omitempty"`

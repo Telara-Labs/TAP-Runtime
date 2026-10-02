@@ -65,10 +65,11 @@ func (TurnUsage) event()  {}
 type Assembler struct {
 	S trace.Session
 
-	byKey  map[string][]int
-	turns  map[string]*namedTurn
-	order  []string
-	spread struct{ from, turn int }
+	skipped int
+	byKey   map[string][]int
+	turns   map[string]*namedTurn
+	order   []string
+	spread  struct{ from, turn int }
 }
 
 type namedTurn struct {
@@ -150,6 +151,9 @@ func (a *Assembler) turn(id string) *namedTurn {
 	return t
 }
 
+// Skip counts one record the decoder could not parse.
+func (a *Assembler) Skip() { a.skipped++ }
+
 // CallsUnder is how many calls share key.
 func (a *Assembler) CallsUnder(key string) int { return len(a.byKey[key]) }
 
@@ -166,6 +170,7 @@ func (a *Assembler) Finish() trace.Session {
 			a.S.Calls[ci].Turn, a.S.Calls[ci].Measured = ti, true
 		}
 	}
+	a.S.Skipped = a.skipped
 	return a.S
 }
 
