@@ -43,25 +43,30 @@ func bundleGraph(f primitive.Family, members []primitive.Primitive, by map[strin
 		if g == nil && why == "fallback: no complete uses" {
 			continue // no recorded use went through the family's route
 		}
-		if g == nil || len(g.Steps) != 2 || len(g.Problems) > 0 {
+		if g == nil || len(g.Steps) != len(p.Steps) || len(g.Steps) < 2 || len(g.Problems) > 0 {
 			if why == "" {
 				why = "a continuation has no exact executable tool binding"
 			}
 			return nil, why
 		}
-		name := branchName(p.Steps[1])
-		if name == "" {
+		var words []string
+		for _, op := range p.Steps[1:] {
+			words = append(words, branchName(op))
+		}
+		name := strings.Join(words, "_then_")
+		if name == "" || contains(words, "") {
 			return nil, "a continuation has no stable action name"
 		}
 		if seen[name] {
 			return nil, fmt.Sprintf("continuation %q has more than one execution shape", name)
 		}
-		step := g.Steps[1]
-		if step.Loop != "" || step.LoopResultStep != 0 {
-			return nil, fmt.Sprintf("continuation %q has a dependent loop or optional argument combination", name)
+		for _, step := range g.Steps[1:] {
+			if step.Loop != "" || step.LoopResultStep != 0 {
+				return nil, fmt.Sprintf("continuation %q has a dependent loop or optional argument combination", name)
+			}
 		}
 		seen[name] = true
-		branches = append(branches, branch{name: name, graph: g})
+		branches = append(branches, branch{name: name, graph: g, ops: p.Steps})
 		for _, ex := range p.Executions {
 			if len(ex.Calls) == 0 {
 				continue
@@ -86,68 +91,95 @@ func bundleGraph(f primitive.Family, members []primitive.Primitive, by map[strin
 	}
 	sort.Slice(result.Inputs, func(i, j int) bool { return result.Inputs[i].Name < result.Inputs[j].Name })
 	for _, b := range branches {
-		step := b.graph.Steps[1]
 		listName := b.name + "_items"
 		if _, exists := headInputs[listName]; exists {
 			return nil, fmt.Sprintf("the common operation already uses %q", listName)
 		}
 		item := codegen.ProgramInput{Name: listName, Type: "object", List: true, Optional: true,
 			Source: "caller supplies zero or more independent follow-ups"}
-		optionalFields := map[string]string{}
 		inputByName := map[string]codegen.ProgramInput{}
 		for _, in := range b.graph.Inputs {
 			inputByName[in.Name] = in
 		}
+		// The follow-up's steps run in one pass per item: branch step k
+		// becomes bundle step base+k, and a result of an earlier follow-up
+		// step is that same item's result.
+		base := len(result.Steps) - 1
 		usedFields := map[string]bool{}
-		for i := range step.Args {
-			arg := &step.Args[i]
-			v := &arg.Value
-			if v.Kind == "result" && v.Step != 1 {
-				return nil, "a continuation reads an unsupported prior result"
-			}
-			switch v.Kind {
-			case "result", "selector":
-			case "input":
-				in, ok := inputByName[v.Input]
-				if !ok || in.List || len(in.Allowed) > 0 || in.Optional != arg.Optional {
-					return nil, fmt.Sprintf("continuation %q has an input without a required scalar type", b.name)
-				}
-				field := strings.TrimPrefix(v.Input, "step_2_")
-				if field == "" || usedFields[field] {
-					return nil, fmt.Sprintf("continuation %q has duplicate or unnamed item fields", b.name)
-				}
-				usedFields[field] = true
-				item.Fields = append(item.Fields, codegen.ProgramInputField{Name: field, Path: arg.Path, Type: in.Type, Optional: arg.Optional})
-				if arg.Optional {
-					optionalFields[in.Name] = field
-				}
-				*v = codegen.ProgramValue{Kind: "item", ResultPath: "." + field}
-			default:
-				return nil, fmt.Sprintf("continuation %q has a non-independent result selection", b.name)
-			}
-		}
-		if len(optionalFields) > 0 {
-			if len(step.OptionalProfiles) == 0 {
-				return nil, fmt.Sprintf("continuation %q has no observed optional field profiles", b.name)
-			}
-			for _, profile := range step.OptionalProfiles {
-				fields := make([]string, 0, len(profile))
-				for _, name := range profile {
-					field, ok := optionalFields[name]
-					if !ok {
-						return nil, fmt.Sprintf("continuation %q has an unknown optional field profile", b.name)
+		profiles := [][]string{{}}
+		for k := 1; k < len(b.graph.Steps); k++ {
+			step := b.graph.Steps[k]
+			step.Args = append([]codegen.ProgramArg(nil), step.Args...)
+			optionalFields := map[string]string{}
+			for i := range step.Args {
+				arg := &step.Args[i]
+				v := &arg.Value
+				switch v.Kind {
+				case "result":
+					if v.Step < 1 || v.Step > k {
+						return nil, "a continuation reads an unsupported prior result"
 					}
-					fields = append(fields, field)
+					if v.Step > 1 {
+						*v = codegen.ProgramValue{Kind: "iteration_result", Step: base + v.Step, ResultPath: v.ResultPath}
+					}
+				case "selector":
+				case "input":
+					in, ok := inputByName[v.Input]
+					if !ok || in.List || len(in.Allowed) > 0 || in.Optional != arg.Optional {
+						return nil, fmt.Sprintf("continuation %q has an input without a required scalar type", b.name)
+					}
+					field := strings.TrimPrefix(v.Input, fmt.Sprintf("step_%d_", k+1))
+					if usedFields[field] {
+						field = branchName(b.ops[k]) + "_" + field
+					}
+					if field == "" || usedFields[field] {
+						return nil, fmt.Sprintf("continuation %q has duplicate or unnamed item fields", b.name)
+					}
+					usedFields[field] = true
+					item.Fields = append(item.Fields, codegen.ProgramInputField{Name: field, Path: arg.Path, Type: in.Type, Optional: arg.Optional})
+					if arg.Optional {
+						optionalFields[in.Name] = field
+					}
+					*v = codegen.ProgramValue{Kind: "item", ResultPath: "." + field}
+				default:
+					return nil, fmt.Sprintf("continuation %q has a non-independent result selection", b.name)
 				}
-				sort.Strings(fields)
-				item.ItemProfiles = append(item.ItemProfiles, fields)
+			}
+			if len(optionalFields) > 0 {
+				if len(step.OptionalProfiles) == 0 {
+					return nil, fmt.Sprintf("continuation %q has no observed optional field profiles", b.name)
+				}
+				// Each step's observed combinations hold for its own call;
+				// steps of one item combine freely.
+				var next [][]string
+				for _, prior := range profiles {
+					for _, profile := range step.OptionalProfiles {
+						fields := append([]string{}, prior...)
+						for _, name := range profile {
+							field, ok := optionalFields[name]
+							if !ok {
+								return nil, fmt.Sprintf("continuation %q has an unknown optional field profile", b.name)
+							}
+							fields = append(fields, field)
+						}
+						sort.Strings(fields)
+						next = append(next, fields)
+					}
+				}
+				profiles = next
 			}
 			step.OptionalProfiles = nil
+			step.Loop = listName
+			if k > 1 {
+				step.SameItemAs = base + 2
+			}
+			result.Steps = append(result.Steps, step)
+		}
+		if len(profiles) > 1 || len(profiles[0]) > 0 {
+			item.ItemProfiles = profiles
 		}
 		sort.Slice(item.Fields, func(i, j int) bool { return item.Fields[i].Name < item.Fields[j].Name })
-		step.Loop = listName
 		result.Inputs = append(result.Inputs, item)
-		result.Steps = append(result.Steps, step)
 		result.Sources = append(result.Sources, b.graph.Sources...)
 	}
 	return result, ""
@@ -170,6 +202,7 @@ func branchName(op string) string {
 type branch struct {
 	name  string
 	graph *codegen.ProgramGraph
+	ops   []string // the recorded steps, head first
 }
 
 // modalFollowUpShape keeps the most supported tool route for one continuation.
@@ -187,7 +220,8 @@ func modalFollowUpShape(p primitive.Primitive, by map[string]*trace.Session, hea
 		if s == nil {
 			continue
 		}
-		shape := ""
+		// A use's shape is the tool route of each follow-up step.
+		routes := map[int]string{}
 		valid := true
 		for _, ref := range ex.Calls {
 			if ref.Index < 0 || ref.Index >= len(s.Calls) || s.Calls[ref.Index].Request != ex.Request {
@@ -200,17 +234,18 @@ func modalFollowUpShape(p primitive.Primitive, by map[string]*trace.Session, hea
 				valid = valid && route == headRoute
 				continue
 			}
-			if ref.Step != 2 {
+			if ref.Step < 2 || ref.Step > len(p.Steps) || routes[ref.Step] != "" && routes[ref.Step] != route {
 				valid = false
 				break
 			}
-			current := route
-			if shape != "" && shape != current {
-				valid = false
-				break
-			}
-			shape = current
+			routes[ref.Step] = route
 		}
+		var parts []string
+		for st := 2; st <= len(p.Steps); st++ {
+			parts = append(parts, routes[st])
+			valid = valid && routes[st] != ""
+		}
+		shape := strings.Join(parts, " > ")
 		if valid && shape != "" {
 			groups[shape] = append(groups[shape], ex)
 		}

@@ -67,9 +67,13 @@ type ProgramStep struct {
 	Effect   string              `json:"effect"`
 	// WhenInput and WhenValue select this step through a required caller
 	// choice. The same choice guards any later step that reads its result.
-	WhenInput      string       `json:"when_input,omitempty"`
-	WhenValue      string       `json:"when_value,omitempty"`
-	Loop           string       `json:"loop,omitempty"`             // input name, when for_each
+	WhenInput string `json:"when_input,omitempty"`
+	WhenValue string `json:"when_value,omitempty"`
+	Loop      string `json:"loop,omitempty"` // input name, when for_each
+	// SameItemAs joins this step to an earlier looped step (one-based): it
+	// runs in that loop's iteration, after it, for the same caller item, and
+	// may read that iteration's results through iteration_result values.
+	SameItemAs     int          `json:"same_item_as,omitempty"`
 	LoopResultStep int          `json:"loop_result_step,omitempty"` // one-based earlier step
 	LoopResultPath string       `json:"loop_result_path,omitempty"` // collection in that result
 	Args           []ProgramArg `json:"args"`
@@ -107,7 +111,7 @@ type ProgramArg struct {
 }
 
 type ProgramValue struct {
-	Kind           string `json:"kind"` // input, result, indexed_result, collection_index, collection_index_item, item, item_result, selected_result, or selector
+	Kind           string `json:"kind"` // input, result, indexed_result, collection_index, collection_index_item, item, item_result, iteration_result, selected_result, or selector
 	Input          string `json:"input,omitempty"`
 	Step           int    `json:"step,omitempty"` // one-based producer step
 	ResultPath     string `json:"result_path,omitempty"`
