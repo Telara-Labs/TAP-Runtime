@@ -6,6 +6,7 @@
 //
 //	discover-fixture cursor-cli  <store.db> <out.sql> [max-calls] [must-keep-call-id...]
 //	discover-fixture antigravity <transcript_full.jsonl> <out.jsonl> <step-index>...
+//	discover-fixture mcp   (a stdio MCP server for the scripted fixture task)
 package main
 
 import (
@@ -27,6 +28,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "mcp" {
+		fixtureMCPMain()
+		return
+	}
 	if len(os.Args) < 4 {
 		fmt.Fprintln(os.Stderr, "usage: discover-fixture cursor-cli <store.db> <out.sql> [max-calls] [call-id...] | antigravity <transcript.jsonl> <out.jsonl> <step>...")
 		os.Exit(2)
@@ -37,6 +42,12 @@ func main() {
 		err = cursorCLI(os.Args[2], os.Args[3], os.Args[4:])
 	case "antigravity":
 		err = antigravity(os.Args[2], os.Args[3], os.Args[4:])
+	case "sqlite":
+		err = sqliteCapture(os.Args[2], os.Args[3], os.Args[4:])
+	case "json":
+		err = jsonCapture(os.Args[2], os.Args[3])
+	case "text":
+		err = textCapture(os.Args[2], os.Args[3])
 	default:
 		err = fmt.Errorf("unknown client %q", os.Args[1])
 	}

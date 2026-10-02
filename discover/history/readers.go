@@ -34,6 +34,34 @@ var Readers = map[string]func(home string) trace.Reader{
 		return QwenCode{Dir: filepath.Join(home, ".qwen", "projects")}
 	},
 	"vscode-copilot": func(home string) trace.Reader { return VSCodeCopilot{User: VSCodeUserDir(home)} },
+	"cline": func(home string) trace.Reader {
+		return ReaderSet{ID: "cline", List: []trace.Reader{
+			ClineCLI{Dir: filepath.Join(home, ".cline", "data", "sessions"), Configs: []string{filepath.Join(home, ".cline", "data", "settings", "cline_mcp_settings.json")}},
+			ExtensionTasks{ID: "cline", Dirs: vscodeFamilyStorage(home, "saoudrizwan.claude-dev")},
+		}}
+	},
+	"roo": func(home string) trace.Reader {
+		return ExtensionTasks{ID: "roo", Dirs: vscodeFamilyStorage(home, "rooveterinaryinc.roo-cline")}
+	},
+	"kilo": func(home string) trace.Reader {
+		cfg := filepath.Join(home, ".config", "kilo")
+		return ReaderSet{ID: "kilo", List: []trace.Reader{
+			OpenCodeDB{ID: "kilo", DB: filepath.Join(home, ".local", "share", "kilo", "kilo.db"), Configs: []string{filepath.Join(cfg, "kilo.json"), filepath.Join(cfg, "opencode.json")}},
+			ExtensionTasks{ID: "kilo", Dirs: vscodeFamilyStorage(home, "kilocode.kilo-code")},
+		}}
+	},
+	"opencode": func(home string) trace.Reader {
+		return OpenCodeDB{ID: "opencode", DB: filepath.Join(home, ".local", "share", "opencode", "opencode.db"), Configs: []string{filepath.Join(home, ".config", "opencode", "opencode.json")}}
+	},
+	"goose": func(home string) trace.Reader {
+		return Goose{Dir: filepath.Join(home, ".local", "share", "goose", "sessions")}
+	},
+	"crush": func(home string) trace.Reader {
+		return Crush{Dir: filepath.Join(home, ".local", "share", "crush"), Configs: []string{filepath.Join(home, ".config", "crush", "crush.json")}}
+	},
+	"continue": func(home string) trace.Reader {
+		return Continue{Dir: filepath.Join(home, ".continue", "sessions"), Configs: []string{filepath.Join(home, ".continue", "config.yaml")}}
+	},
 }
 
 // VSCodeUserDir is VS Code's User folder on this OS.

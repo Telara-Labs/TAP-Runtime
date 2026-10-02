@@ -15,3 +15,20 @@ code, and exercises the edge cases of the format:
   whole-document .json session.
 
 Real-run fixtures replace these when a real session is available.
+
+# Real-run fixtures (R3-R6)
+
+opencode/, kilo/, goose/, crush/, continue/, cline-cli/ and aider/ are real
+sessions, run on 2026-10-02 with the agent's own CLI against Fireworks
+(deepseek-v4p1-flash) and the fixture MCP server (`discover-fixture mcp`),
+on the scripted task of plan §6.4, then captured with cmd/discover-fixture
+(redacted, databases as SQL). The *.json / config.yaml files beside them
+are the agents' MCP configuration with the commands replaced.
+
+# VS Code extension tasks (R3)
+
+vscode-ext/ holds synthetic Cline, Roo Code and Kilo Code extension tasks
+(api_conversation_history.json): native tool_use with use_mcp_tool and
+execute_command, and one older Cline task with the XML tool form. No
+extension is signed in on this machine; the Cline CLI fixture (cline-cli/)
+is a real run.
