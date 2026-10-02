@@ -645,7 +645,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			mth := strings.ToUpper(rq.HTTPMethod)
 			return gate(func(a bool) reply { return fetchOp(&m, rq, a, journal) },
-				"send "+mth+" requests to "+origin, "send "+mth+" to "+rq.URL, "write", true)
+				"send "+mth+" requests to "+origin, "send "+mth+" to "+rq.URL, effectOf(rq), true)
 		}
 		return reply{Refused: "unknown request"}
 	}

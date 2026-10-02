@@ -267,9 +267,16 @@ func fetchOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 		effect = "read"
 	}
 	rec.entry["effect"] = effect
-	if effect != "read" && !approve {
-		logf("  GATED    fetch %s %s  (write, no approval)", method, rq.URL)
+	// Every fetch is gated, a read included: the address, the headers and the
+	// body can carry what the program has read out of this machine (TENG-3099).
+	// The person is asked once per origin and kind of request, and the full
+	// address is in the record either way.
+	if !approve {
+		logf("  GATED    fetch %s %s  (%s, no approval)", method, rq.URL, effect)
 		rec.done("gated", nil)
+		if effect == "read" {
+			return reply{Refused: "a request that leaves this machine needs approval, even a read: its address can carry data out", Gated: true}
+		}
 		return reply{Refused: "write needs approval", Gated: true}
 	}
 	req, err := http.NewRequest(method, rq.URL, bytes.NewReader([]byte(rq.Stdin)))

@@ -186,17 +186,27 @@ func (s *server) elicit(a Ask) Grant {
 	if a.Done > 0 {
 		so = fmt.Sprintf("\n\nIt has made %d of these in this run and has reached the number you allowed.", a.Done)
 	}
+	what := fmt.Sprintf("This is a %s change.", a.Effect)
+	props := map[string]any{
+		"approve": map[string]any{"type": "boolean", "title": "Allow this", "description": a.Kind, "default": false},
+		"limit": map[string]any{"type": "integer", "title": "How many times", "minimum": 1, "default": 1,
+			"description": "After this many you are asked again."},
+	}
+	// A read that leaves this machine changes nothing there, but its address
+	// and headers can carry data out. It is asked once for the origin, with no
+	// count, and what it sends is in the record.
+	reads := a.Effect == "read"
+	if reads {
+		what = "This changes nothing, but the address and headers of a request can carry data off this machine. You are asked once for this origin in this run."
+		delete(props, "limit")
+	}
 	m, ok := s.ask("elicitation/create", map[string]any{
-		"message": fmt.Sprintf("The primitive %q wants to: %s.\n\nThis is a %s change. Waiting now:\n\n%s%s\n\nNothing further is done until you answer.",
-			a.Primitive, a.Kind, a.Effect, a.Example, so),
+		"message": fmt.Sprintf("The primitive %q wants to: %s.\n\n%s Waiting now:\n\n%s%s\n\nNothing further is done until you answer.",
+			a.Primitive, a.Kind, what, a.Example, so),
 		"requestedSchema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"approve": map[string]any{"type": "boolean", "title": "Allow this", "description": a.Kind, "default": false},
-				"limit": map[string]any{"type": "integer", "title": "How many times", "minimum": 1, "default": 1,
-					"description": "After this many you are asked again."},
-			},
-			"required": []string{"approve"},
+			"type":       "object",
+			"properties": props,
+			"required":   []string{"approve"},
 		},
 	})
 	if !ok || m.Error != nil {
@@ -211,6 +221,9 @@ func (s *server) elicit(a Ask) Grant {
 	}
 	if json.Unmarshal(m.Result, &r) != nil || r.Action != "accept" || !r.Content.Approve {
 		return Grant{}
+	}
+	if reads {
+		return Grant{OK: true, Limit: Unlimited}
 	}
 	// A person who ticks the box and names no number has agreed to one.
 	limit := r.Content.Limit
