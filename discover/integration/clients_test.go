@@ -1,0 +1,84 @@
+package integration
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+
+	"gitlab.com/telara-labs/tap-runtime/discover"
+	"gitlab.com/telara-labs/tap-runtime/discover/model"
+)
+
+// copyTree copies the reader fixtures src into dst.
+func copyTree(t *testing.T, src, dst string) {
+	t.Helper()
+	err := filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, b, 0o644)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func reportClients(t *testing.T, args ...string) []string {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	if code := discover.Command(append([]string{"report", "--json"}, args...), strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("discover %v exited %d: %s", args, code, errOut.String())
+	}
+	var rep model.Report
+	if err := json.Unmarshal(out.Bytes(), &rep); err != nil {
+		t.Fatalf("report: %v\n%s", err, out.String())
+	}
+	var got []string
+	for _, c := range rep.Clients {
+		if c.Sessions == 0 {
+			t.Errorf("%s was read but gave no sessions", c.Client)
+		}
+		got = append(got, c.Client)
+	}
+	sort.Strings(got)
+	return got
+}
+
+// End to end through `tap discover report`: with no --client, discover reads
+// every agent installed under HOME (D1, TENG-3108), and an agent that is not
+// installed is not read.
+func TestDiscoverReadsEveryDetectedAgentByDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	copyTree(t, "../history/testdata/claude", filepath.Join(home, ".claude", "projects"))
+	if got := reportClients(t); strings.Join(got, ",") != "claude-code" {
+		t.Fatalf("only Claude Code installed: read %v", got)
+	}
+	copyTree(t, "../history/testdata/codex", filepath.Join(home, ".codex", "sessions"))
+	if got := reportClients(t); strings.Join(got, ",") != "claude-code,codex" {
+		t.Fatalf("Claude Code and Codex installed: read %v", got)
+	}
+	// An explicit list, by alias, still narrows the read.
+	if got := reportClients(t, "--client", "claude"); strings.Join(got, ",") != "claude-code" {
+		t.Fatalf("--client claude: read %v", got)
+	}
+	// A known agent without a reader is refused by name, not as unknown.
+	var out, errOut bytes.Buffer
+	if code := discover.Command([]string{"report", "--client", "windsurf"}, strings.NewReader(""), &out, &errOut); code != 2 ||
+		!strings.Contains(errOut.String(), "does not support reading session history") {
+		t.Fatalf("windsurf: exit %d: %s", code, errOut.String())
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/telara-labs/tap-runtime/discover/client"
 	"gitlab.com/telara-labs/tap-runtime/discover/primitive"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 
@@ -73,7 +74,7 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	d := pipeline.DefaultOptions()
 	fs := flag.NewFlagSet("discover", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	clients := fs.String("client", "claude-code,codex,cursor", "clients to read, comma-separated")
+	clients := fs.String("client", "detected", "agents whose history to read, comma-separated: "+historyClients()+", all, or detected (installed here)")
 	days := fs.Int("days", 0, "only sessions from the last N days (0 = all retained history)")
 	top := fs.Int("top", 25, "primitives to list (0 = all)")
 	asJSON := fs.Bool("json", false, "print the full report as JSON")
@@ -83,7 +84,7 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	patterns := fs.Bool("patterns", false, "also run the pattern search (slower)")
 	nOps := fs.Int("opportunities", 0, "also list this many surfaced opportunities with their task references")
 	nSpans := fs.Int("span-proposals", 0, "also find and list this many model-free bounded-span proposal groups")
-	saveClient := fs.String("save-client", "claude-code", "where saved primitives go: claude-code or codex")
+	saveClient := fs.String("save-client", "claude-code", "where saved primitives go: "+skillsClients())
 	saveProject := fs.Bool("save-project", false, "save into this project's skills directory instead of your home")
 	fs.IntVar(&d.Window, "window", d.Window, "most steps allowed between two steps of a pattern")
 	fs.IntVar(&d.MinSupport, "min-support", d.MinSupport, "fewest requests or sessions that count as recurring")
@@ -177,7 +178,7 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []primitive.Known) int {
 	fs := flag.NewFlagSet("discover", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	clients := fs.String("client", "claude-code", "clients to read, comma-separated")
+	clients := fs.String("client", "detected", "agents whose history to read, comma-separated: "+historyClients()+", all, or detected (installed here)")
 	days := fs.Int("days", 0, "only sessions from the last N days (0 = all retained history)")
 	all := fs.Bool("all", false, "accept every proposed primitive without asking")
 	revisit := fs.Bool("revisit", false, "list your earlier decisions and undo one")
@@ -207,6 +208,10 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 	if err != nil {
 		fmt.Fprintln(errOut, "discover:", err)
 		return 2
+	}
+	var readIDs []string
+	for _, r := range readers {
+		readIDs = append(readIDs, r.Client())
 	}
 	var since time.Time
 	if *days > 0 {
@@ -245,9 +250,14 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 		return 0
 	}
 	cwd, _ := os.Getwd()
-	client := strings.Split(*clients, ",")[0]
-	cfg := primitive.MenuConfig{StateDir: stateDir, All: *all, Clients: *clients, Home: home, Sessions: sessions, Color: color,
-		Install: primitiveInstaller(sessions, client, home, cwd),
+	saveTo := "claude-code"
+	if len(readIDs) > 0 {
+		if c, ok := client.Lookup(readIDs[0]); ok && client.HasSkills(c) {
+			saveTo = c.ID
+		}
+	}
+	cfg := primitive.MenuConfig{StateDir: stateDir, All: *all, Clients: strings.Join(readIDs, ","), Home: home, Sessions: sessions, Color: color,
+		Install: primitiveInstaller(sessions, saveTo, home, cwd),
 		Skill:   primitive.Skill{Source: "tap-runtime/discover/genreview/skill/tap-primitive-refine/SKILL.md", Content: genreview.GeneratedRefineSkill}}
 	// A terminal on both ends gets the full-screen review; otherwise (a
 	// pipe, a test, --all) the line-by-line menu.
@@ -266,3 +276,8 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 	}
 	return 0
 }
+
+// historyClients and skillsClients list, from the registry, the agents whose
+// history discover reads and the agents that have a skills folder.
+func historyClients() string { return strings.Join(client.IDs(client.HasHistory), ", ") }
+func skillsClients() string  { return strings.Join(client.IDs(client.HasSkills), ", ") }
