@@ -248,11 +248,11 @@ func (t *tui) key(k string) bool {
 	enter := k == "\r" || k == "\n"
 	esc := k == "\x1b"
 	set := func(c string) {
-		if len(t.shown) == 0 {
+		if len(t.visible()) == 0 {
 			return
 		}
 		if c == "accept" && t.shown[t.cursor].APIMode == "needs_refinement" {
-			t.notice = "No executable API for this pattern. Press e to send it for refinement."
+			t.notice = "Install unavailable: this pattern has no runnable API. Press e to prepare a handoff."
 			return
 		}
 		if t.choice[t.cursor] == c {
@@ -286,7 +286,7 @@ func (t *tui) key(k string) bool {
 					t.choice[i] = "accept"
 				}
 			}
-			t.notice = "Executable flows marked accept. Patterns needing refinement were skipped."
+			t.notice = "Runnable flows marked for installation. Patterns without APIs were skipped."
 		case k == "s":
 			t.view = reviewView
 		case k == "q" || esc || k == "\x03":
@@ -347,16 +347,24 @@ func (t *tui) draw() {
 		footer = t.s.dim(" Press any key to close help.")
 	case t.view == listView:
 		t.drawList(&body)
-		footer = keys(t.s, "↑↓", "move", "enter", "open", "a", "accept", "d", "decline", "e", "agent eval", "/", "search", "s", "review", "?", "help", "q", "quit")
+		actions := []string{"d", "dismiss", "e", "prepare handoff", "s", "review choices", "enter", "open", "↑↓", "move", "/", "search", "?", "help", "q", "quit"}
+		if len(t.visible()) > 0 && t.shown[t.cursor].APIMode != "needs_refinement" {
+			actions = append([]string{"a", "accept and install"}, actions...)
+		}
+		footer = keys(t.s, actions...)
 		if t.typing {
 			footer = " Search: " + t.filter + t.s.accent("▌") + t.s.dim("   enter to keep · esc to clear")
 		}
 	case t.view == cardView:
 		card(&body, t.s, t.cursor+1, len(t.shown), t.shown[t.cursor], t.byID, t.choice[t.cursor], t.res.Summary)
-		footer = keys(t.s, "↑↓", "scroll", "←→", "previous / next", "a/d/e", "choose and go on", "esc", "list", "s", "review")
+		actions := []string{"d", "dismiss", "e", "prepare handoff", "s", "review choices", "↑↓", "scroll", "←→", "previous / next", "esc", "list"}
+		if t.shown[t.cursor].APIMode != "needs_refinement" {
+			actions = append([]string{"a", "accept and install"}, actions...)
+		}
+		footer = keys(t.s, actions...)
 	case t.view == reviewView:
 		t.drawReview(&body)
-		footer = keys(t.s, "s", "submit", "esc", "back", "q", "quit without saving")
+		footer = keys(t.s, "s", "submit choices", "esc", "back", "q", "quit without saving")
 	}
 	lines := strings.Split(strings.TrimRight(body.String(), "\n"), "\n")
 	room := t.h - 2
@@ -457,7 +465,7 @@ func (t *tui) drawList(out *bytes.Buffer) {
 	fmt.Fprintf(out, " %s exact-flow candidates · %s patterns need refinement · potential %s turns, about %s tokens (estimate)\n",
 		s.bold(fmt.Sprint(len(t.shown)-patterns)), count(patterns), count(turns), tokensText(saved))
 	if n := t.hidden["accept"] + t.hidden["deny"] + t.hidden["eval"]; n > 0 {
-		fmt.Fprintln(out, " "+s.dim(fmt.Sprintf("%d decided earlier and not shown: %d accepted, %d declined, %d in agent eval · tap discover --revisit to change",
+		fmt.Fprintln(out, " "+s.dim(fmt.Sprintf("%d decided earlier and not shown: %d installed, %d dismissed, %d handoffs exported · tap discover --revisit to change",
 			n, t.hidden["accept"], t.hidden["deny"], t.hidden["eval"])))
 	}
 	if len(t.shown) == 0 {
@@ -490,13 +498,13 @@ func (t *tui) drawHelp(out *bytes.Buffer) {
 		{"↑ ↓  or  k j", "move through the list, or scroll a primitive"},
 		{"enter  or  →", "open the selected primitive"},
 		{"← →", "previous / next primitive, when one is open"},
-		{"a", "accept: generate the primitive and install it for your agent"},
-		{"d", "decline: hide it until something new appears under it"},
-		{"e", "agent eval: write a handoff for your coding agent to refine it"},
+		{"a", "accept and install a runnable flow; unavailable when the API is undefined"},
+		{"d", "dismiss: hide it until something new appears under it"},
+		{"e", "select a handoff; submit from Review to write it; no agent runs"},
 		{"(again)", "pressing the same choice again clears it"},
-		{"A", "mark every primitive accept"},
+		{"A", "mark every runnable flow for installation"},
 		{"/", "search by name; esc clears"},
-		{"s", "review your choices, then submit"},
+		{"s", "open Review; on Review, submit pending choices"},
 		{"esc", "back"},
 		{"q", "quit; nothing is saved before you submit"},
 	}}.render(out, s)
@@ -505,13 +513,14 @@ func (t *tui) drawHelp(out *bytes.Buffer) {
 		{"Uses", "how many times the agent ran this flow in your history"},
 		{"Turns saved", "model round-trips the agent would no longer make"},
 		{"Tokens saved", "an estimate, priced as fresh input; cached re-reads count at about a tenth"},
-		{"Open", "questions to resolve before the flow is fully understood"},
+		{"Open", "uncertain value links or decisions in the recorded calls"},
 	}}.render(out, s)
 }
 
 func (t *tui) drawReview(out *bytes.Buffer) {
 	s := t.s
 	section(out, s, "Review before saving")
+	fmt.Fprintln(out, "  Nothing has been saved. Submit to install accepted flows, write handoffs, and hide dismissed patterns.")
 	tab := table{head: []string{"#", "Choice", "Primitive"}, widths: []int{3, 7, 70}, right: map[int]bool{0: true}}
 	n := 0
 	for i, f := range t.shown {

@@ -66,7 +66,7 @@ func (s style) choice(c string) string {
 	case "deny":
 		return s.bad(c)
 	case "eval":
-		return s.info(c)
+		return s.info("handoff")
 	}
 	return c
 }
@@ -238,7 +238,7 @@ func keys(s style, items ...string) string {
 	for i := 0; i+1 < len(items); i += 2 {
 		out = append(out, s.accent("["+items[i]+"]")+" "+items[i+1])
 	}
-	return " " + strings.Join(out, "   ")
+	return " Press " + strings.Join(out, "   ")
 }
 
 // effectText says what an effect means for the person running it.

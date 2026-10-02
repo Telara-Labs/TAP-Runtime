@@ -44,7 +44,7 @@ func TestMenuStartsWithSummaryAndQuitSavesNothing(t *testing.T) {
 		t.Fatalf("fixture has %d families", len(res.Families))
 	}
 	out, dir := runMenu(t, res, "i\na\nq\n")
-	if !strings.Contains(out, "Summary") || strings.Index(out, "Summary") > strings.Index(out, "Proposed primitives") || !strings.Contains(out, "Used 2 times") || !strings.Contains(out, "What it does") || !strings.Contains(out, "Potential savings") || !strings.Contains(out, "Needs attention") {
+	if !strings.Contains(out, "Summary") || strings.Index(out, "Summary") > strings.Index(out, "Discovered flows and patterns") || !strings.Contains(out, "Used 2 times") || !strings.Contains(out, "What it does") || !strings.Contains(out, "Potential savings") || !strings.Contains(out, "Questions in the recorded evidence") {
 		t.Fatalf("card or summary missing:\n%s", out)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "decisions.jsonl")); err == nil {
@@ -107,7 +107,8 @@ func TestUnresolvedPatternIsShownButCannotBeAccepted(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "No executable API established") || !strings.Contains(got, "no branch predicate") || !strings.Contains(got, "Choose agent eval or continue") ||
+	if !strings.Contains(got, "No runnable API exists") || !strings.Contains(got, "no branch predicate") || !strings.Contains(got, "Install is unavailable") ||
+		!strings.Contains(got, "[e] prepare handoff") || !strings.Contains(got, "does not run an agent") ||
 		!strings.Contains(got, "~1.2k potential tokens") || !strings.Contains(got, "one recorded path needs a decision") {
 		t.Fatalf("unresolved contract was hidden or accept was allowed: %s", got)
 	}
