@@ -173,14 +173,27 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 			}
 			schema["enum"] = in.Allowed
 		}
+		if in.Default != "" {
+			if typ != "string" || in.List || in.Optional {
+				return nil, fmt.Errorf("input %q has an unsupported default", in.Name)
+			}
+			schema["default"] = in.Default
+		}
 		if in.List {
 			schema = map[string]any{"type": "array", "items": map[string]any{"type": typ}}
 			if len(in.Fields) > 0 {
 				itemProps := map[string]any{}
 				itemRequired := make([]string, 0, len(in.Fields))
 				for _, field := range in.Fields {
-					itemProps[field.Name] = map[string]any{"type": ProgramJSONType(field.Type)}
-					if !field.Optional {
+					fieldSchema := map[string]any{"type": ProgramJSONType(field.Type)}
+					if field.Default != "" {
+						if ProgramJSONType(field.Type) != "string" || field.Optional {
+							return nil, fmt.Errorf("input %q field %q has an unsupported default", in.Name, field.Name)
+						}
+						fieldSchema["default"] = field.Default
+					}
+					itemProps[field.Name] = fieldSchema
+					if !field.Optional && field.Default == "" {
 						itemRequired = append(itemRequired, field.Name)
 					}
 				}
@@ -189,7 +202,7 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 			}
 		}
 		props[in.Name] = schema
-		if !in.Optional {
+		if !in.Optional && in.Default == "" {
 			required = append(required, in.Name)
 		}
 	}
@@ -206,14 +219,14 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 	code.WriteString("inputs = json.loads(sys.argv[1])\nif not isinstance(inputs, dict):\n    raise ValueError('inputs must be an object')\n")
 	for _, in := range g.Inputs {
 		q := strconv.Quote(in.Name)
-		if !in.Optional {
+		if !in.Optional && in.Default == "" {
 			code.WriteString("if " + q + " not in inputs:\n    raise ValueError('missing input ' + " + q + ")\n")
 		}
 		if in.RequiredWhenInput != "" {
 			code.WriteString("if inputs[" + strconv.Quote(in.RequiredWhenInput) + "] == " + strconv.Quote(in.RequiredWhenValue) + " and " + q + " not in inputs:\n    raise ValueError('missing input ' + " + q + ")\n")
 		}
 		guard := ""
-		if in.Optional {
+		if in.Optional || in.Default != "" {
 			guard = q + " in inputs and "
 		}
 		if in.List {
@@ -222,7 +235,7 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 			for _, field := range in.Fields {
 				fq := strconv.Quote(field.Name)
 				check := fq + " in item and _typed(item[" + fq + "], " + strconv.Quote(ProgramJSONType(field.Type)) + ")"
-				if field.Optional {
+				if field.Optional || field.Default != "" {
 					check = fq + " not in item or _typed(item[" + fq + "], " + strconv.Quote(ProgramJSONType(field.Type)) + ")"
 				}
 				code.WriteString("if " + guard + "not all(" + check + " for item in inputs[" + q + "]):\n    raise ValueError('input ' + " + q + " + ' has a missing or mistyped field ' + " + fq + ")\n")
@@ -272,6 +285,19 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 		for _, pair := range st.DistinctResultInputs {
 			left, right := strconv.Quote(pair[0]), strconv.Quote(pair[1])
 			code.WriteString("if inputs[" + left + "] == inputs[" + right + "]:\n    raise ValueError('step " + strconv.Itoa(i+1) + " result selections must be distinct')\n")
+		}
+	}
+	// Defaults are filled in after validation, so a check never mistakes a
+	// default for something the caller sent.
+	for _, in := range g.Inputs {
+		q := strconv.Quote(in.Name)
+		if in.Default != "" {
+			code.WriteString("inputs.setdefault(" + q + ", " + strconv.Quote(in.Default) + ")\n")
+		}
+		for _, field := range in.Fields {
+			if field.Default != "" {
+				code.WriteString("for item in inputs.get(" + q + ", []):\n    item.setdefault(" + strconv.Quote(field.Name) + ", " + strconv.Quote(field.Default) + ")\n")
+			}
 		}
 	}
 	code.WriteString("outputs = {}\n")
@@ -527,11 +553,16 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 		if in.RequiredWhenInput != "" {
 			kind += fmt.Sprintf("; required when `%s` is `%s`", in.RequiredWhenInput, in.RequiredWhenValue)
 		}
+		if in.Default != "" {
+			kind += fmt.Sprintf(" (default `%s`)", in.Default)
+		}
 		fmt.Fprintf(&readme, "- `%s`: %s, from %s\n", in.Name, kind, in.Source)
 		for _, field := range in.Fields {
 			optional := ""
 			if field.Optional {
 				optional = " (optional)"
+			} else if field.Default != "" {
+				optional = fmt.Sprintf(" (default `%s`)", field.Default)
 			}
 			fmt.Fprintf(&readme, "  - `%s`: %s%s -> tool argument `%s`\n", field.Name, field.Type, optional, strings.Join(field.Path, "."))
 		}

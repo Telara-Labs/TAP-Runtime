@@ -125,7 +125,7 @@ func bundleGraph(f primitive.Family, members []primitive.Primitive, by map[strin
 				case "selector":
 				case "input":
 					in, ok := inputByName[v.Input]
-					if !ok || in.List || len(in.Allowed) > 0 || in.Optional != arg.Optional {
+					if !ok || in.List || len(in.Allowed) > 0 || in.Optional != arg.Optional || in.Default != "" && in.Optional {
 						return nil, fmt.Sprintf("continuation %q has an input without a required scalar type", b.name)
 					}
 					field := strings.TrimPrefix(v.Input, fmt.Sprintf("step_%d_", k+1))
@@ -136,7 +136,7 @@ func bundleGraph(f primitive.Family, members []primitive.Primitive, by map[strin
 						return nil, fmt.Sprintf("continuation %q has duplicate or unnamed item fields", b.name)
 					}
 					usedFields[field] = true
-					item.Fields = append(item.Fields, codegen.ProgramInputField{Name: field, Path: arg.Path, Type: in.Type, Optional: arg.Optional})
+					item.Fields = append(item.Fields, codegen.ProgramInputField{Name: field, Path: arg.Path, Type: in.Type, Optional: arg.Optional, Default: in.Default})
 					if arg.Optional {
 						optionalFields[in.Name] = field
 					}
@@ -316,6 +316,9 @@ func mergeHeads(branches []branch) (codegen.ProgramStep, map[string]codegen.Prog
 		case sa.same && a.Value.Kind == "input":
 			in := inputs[a.Value.Input]
 			in.Optional = in.Optional || optional
+			if in.Optional {
+				in.Default = "" // sent only in the observed combinations
+			}
 			headInputs[in.Name] = in
 			merged[k] = in.Name
 		case sa.same && !optional:

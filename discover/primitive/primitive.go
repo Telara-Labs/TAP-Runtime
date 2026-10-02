@@ -361,6 +361,14 @@ func directTools(ss []trace.Session) map[string]map[string]bool {
 // is a JSON object (the operation's own arguments) beside plain-word
 // arguments (what selects the operation). It returns the object's key and
 // the selecting arguments, or "" when the call is not a dispatch.
+// DispatchSelectors are the top-level arguments that choose a dispatched
+// call's operation (the plain-word values beside its one parameter object);
+// nil for a call that is not a dispatch.
+func DispatchSelectors(c trace.Call) map[string]string {
+	_, sel := dispatchParts(c)
+	return sel
+}
+
 func dispatchParts(c trace.Call) (string, map[string]string) {
 	obj := ""
 	sel := map[string]string{}

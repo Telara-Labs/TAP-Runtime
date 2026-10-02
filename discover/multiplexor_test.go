@@ -160,3 +160,53 @@ func TestMultiplexorRunsSeveralStepFollowUpsAndMergesArgumentNames(t *testing.T)
 		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+// Most runs linked the issue just created; one linked an issue it typed in.
+// That run is left out instead of making the key a caller input. A value
+// every run passed becomes an input defaulting to it, except the arguments
+// that choose a dispatched operation.
+func TestMajorityResultBindingAndRecordedDefaults(t *testing.T) {
+	by := map[string]*trace.Session{}
+	p := primitive.Primitive{ID: "pr_link", Steps: []string{"mcp:create", "mcp:link"}, StepEffects: []string{"write", "write"},
+		Bindings: []primitive.Binding{{Step: 2, Arg: "inward", Source: "step", From: 1, Selector: ".key", Label: primitive.Explicit, Contradicting: []string{"ex2"}}}}
+	for i, inward := range []string{"K-0", "K-1", "OTHER-9"} {
+		sid := fmt.Sprintf("s%d", i)
+		key := fmt.Sprintf("K-%d", i)
+		params, _ := json.Marshal(map[string]string{"inward": inward, "outward": fmt.Sprintf("O-%d", i), "type": "Blocks"})
+		by["claude-code\x00"+sid] = &trace.Session{Client: "claude-code", ID: sid, Calls: []trace.Call{
+			{Tool: "mcp:create", MCPServer: "gw", MCPTool: "create", Args: map[string]string{"summary": fmt.Sprintf("s%d", i)}, Output: `{"key":"` + key + `"}`, Outcome: trace.OutcomeOK},
+			{Tool: "mcp:link", MCPServer: "gw", MCPTool: "dispatch", Args: map[string]string{"integration": "jira", "action": "link", "params": string(params)}, Output: `{}`, Outcome: trace.OutcomeOK},
+		}}
+		p.Executions = append(p.Executions, primitive.Execution{ID: fmt.Sprintf("ex%d", i), Client: "claude-code", Session: sid,
+			Calls: []primitive.CallRef{{Step: 1, Index: 0}, {Step: 2, Index: 1}}})
+	}
+	g, why := directGraph(p, by)
+	if g == nil {
+		t.Fatal(why)
+	}
+	if g.Executions != 2 {
+		t.Fatalf("the dissenting run was not left out: %d executions", g.Executions)
+	}
+	args := map[string]codegen.ProgramValue{}
+	for _, a := range g.Steps[1].Args {
+		args[strings.Join(a.Path, "/")] = a.Value
+	}
+	if v := args["params/inward"]; v.Kind != "result" || v.Step != 1 {
+		t.Fatalf("inward is not the created issue: %+v", v)
+	}
+	for _, path := range []string{"integration", "action"} {
+		if v := args[path]; v.Kind != "selector" {
+			t.Fatalf("%s chooses the operation and must stay fixed: %+v", path, v)
+		}
+	}
+	defaults := map[string]string{}
+	for _, in := range g.Inputs {
+		defaults[in.Name] = in.Default
+	}
+	if v := args["params/type"]; v.Kind != "input" || defaults[v.Input] != "Blocks" {
+		t.Fatalf("a recorded constant is not a defaulted input: %+v %v", v, defaults)
+	}
+	if _, err := codegen.GenerateProgramPackage(g); err != nil {
+		t.Fatal(err)
+	}
+}
