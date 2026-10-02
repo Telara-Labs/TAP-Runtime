@@ -2,8 +2,10 @@ package primitive
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -29,6 +31,12 @@ const (
 // tui is the full-screen review: a list of proposed primitives, a scrolling
 // card for each, and a review before anything is written.
 type tui struct {
+	// rows is the last frame as plain text, one entry per screen row, so a
+	// selection can be read back; sel is the current drag selection.
+	rows []string
+	sel  selection
+	// copy puts selected text on the clipboard; nil means copyText.
+	copy   func(string)
 	res    Result
 	cfg    MenuConfig
 	s      style
@@ -99,17 +107,17 @@ func RunTUI(in, out *os.File, res Result, cfg MenuConfig) error {
 	if err != nil {
 		return err
 	}
-	// Alternate screen with alternate scroll: the terminal turns the mouse
-	// wheel into up and down keys, and keeps clicks and drags, so text can
-	// still be selected and copied. Mouse reporting would take those away.
-	fmt.Fprint(out, "\x1b[?1049h\x1b[?1007h\x1b[?25l")
+	// Alternate screen with mouse reporting (presses, drags and the wheel,
+	// SGR encoded): the wheel scrolls inside the view on every terminal, and
+	// the view does its own selection: drag to highlight, release to copy.
+	fmt.Fprint(out, "\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?25l")
 	restored := false
 	restore := func() {
 		if restored {
 			return
 		}
 		restored = true
-		fmt.Fprint(out, "\x1b[?1007l\x1b[?25h\x1b[?1049l")
+		fmt.Fprint(out, "\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?25h\x1b[?1049l")
 		term.Restore(fd, old)
 	}
 	defer restore()
@@ -218,6 +226,10 @@ func mouseWheelDelta(k string) (int, bool) {
 
 // key handles one key press; it returns true when the person submits.
 func (t *tui) key(k string) bool {
+	if t.mouse(k) {
+		return false
+	}
+	t.sel = selection{}
 	if delta, ok := mouseWheelDelta(k); ok {
 		if t.help {
 			return false
@@ -415,6 +427,12 @@ func (t *tui) draw() {
 	}
 	frame.WriteString(fit(t.s.dim(" "+status), t.w) + "\r\n")
 	frame.WriteString(fit(footer, t.w))
+	// Keep the frame as plain text and draw the selection over it.
+	t.rows = t.rows[:0]
+	for _, l := range strings.Split(frame.String()[len("\x1b[H\x1b[2J"):], "\r\n") {
+		t.rows = append(t.rows, plain(l))
+	}
+	frame.WriteString(t.highlight())
 	fmt.Fprint(t.out, frame.String())
 }
 
@@ -555,4 +573,147 @@ func (t *tui) drawReview(out *bytes.Buffer) {
 func (t *tui) submit(out *os.File) error {
 	byID := t.byID
 	return submit(out, style{on: true}, t.shown, t.choice, byID, t.cfg)
+}
+
+// selection is a drag from one screen cell to another (zero-based).
+type selection struct {
+	active, done   bool
+	r0, c0, r1, c1 int
+}
+
+// ordered returns the selection from its earlier to its later end.
+func (s selection) ordered() (int, int, int, int) {
+	if s.r1 < s.r0 || s.r1 == s.r0 && s.c1 < s.c0 {
+		return s.r1, s.c1, s.r0, s.c0
+	}
+	return s.r0, s.c0, s.r1, s.c1
+}
+
+// mouseEvent reads an SGR mouse report: button code, column and row
+// (one-based), and whether it is a release.
+func mouseEvent(k string) (button, x, y int, release, ok bool) {
+	if !strings.HasPrefix(k, "\x1b[<") || len(k) < 7 || (k[len(k)-1] != 'M' && k[len(k)-1] != 'm') {
+		return 0, 0, 0, false, false
+	}
+	f := strings.Split(k[3:len(k)-1], ";")
+	if len(f) != 3 {
+		return 0, 0, 0, false, false
+	}
+	var err1, err2, err3 error
+	button, err1 = strconv.Atoi(f[0])
+	x, err2 = strconv.Atoi(f[1])
+	y, err3 = strconv.Atoi(f[2])
+	return button, x, y, k[len(k)-1] == 'm', err1 == nil && err2 == nil && err3 == nil
+}
+
+// mouse handles a left-button press, drag or release: it reports whether k
+// was one. Wheel events are left to the scroll handling.
+func (t *tui) mouse(k string) bool {
+	b, x, y, release, ok := mouseEvent(k)
+	if !ok || b&64 != 0 || b&3 != 0 {
+		return false
+	}
+	switch {
+	case release:
+		if t.sel.active {
+			t.sel.active, t.sel.done = false, true
+			t.sel.r1, t.sel.c1 = y-1, x-1
+			if text := t.selected(); text != "" {
+				if t.copy != nil {
+					t.copy(text)
+				} else {
+					copyText(t.out, text)
+				}
+				t.notice = fmt.Sprintf("Copied %d characters.", utf8.RuneCountInString(text))
+			} else {
+				t.sel = selection{}
+			}
+		}
+	case b&32 != 0: // drag with the left button down
+		if t.sel.active {
+			t.sel.r1, t.sel.c1 = y-1, x-1
+		}
+	default: // press
+		t.sel = selection{active: true, r0: y - 1, c0: x - 1, r1: y - 1, c1: x - 1}
+	}
+	return true
+}
+
+// selected is the text under the selection, line by line, without trailing
+// spaces.
+func (t *tui) selected() string {
+	r0, c0, r1, c1 := t.sel.ordered()
+	var lines []string
+	for r := r0; r <= r1 && r < len(t.rows); r++ {
+		row := []rune(t.rows[r])
+		from, to := 0, len(row)
+		if r == r0 {
+			from = min(c0, len(row))
+		}
+		if r == r1 {
+			to = min(c1+1, len(row))
+		}
+		if from > to {
+			from = to
+		}
+		lines = append(lines, strings.TrimRight(string(row[from:to]), " "))
+	}
+	return strings.Trim(strings.Join(lines, "\n"), "\n")
+}
+
+// highlight redraws the selected cells in reverse video over the frame.
+func (t *tui) highlight() string {
+	if !t.sel.active && !t.sel.done {
+		return ""
+	}
+	r0, c0, r1, c1 := t.sel.ordered()
+	var b strings.Builder
+	for r := r0; r <= r1 && r < len(t.rows); r++ {
+		row := []rune(t.rows[r])
+		from, to := 0, len(row)
+		if r == r0 {
+			from = min(c0, len(row))
+		}
+		if r == r1 {
+			to = min(c1+1, len(row))
+		}
+		if from >= to {
+			continue
+		}
+		fmt.Fprintf(&b, "\x1b[%d;%dH\x1b[7m%s\x1b[0m", r+1, from+1, string(row[from:to]))
+	}
+	return b.String()
+}
+
+// plain removes color codes from a drawn line.
+func plain(l string) string {
+	var b strings.Builder
+	esc := false
+	for _, r := range l {
+		switch {
+		case r == '\x1b':
+			esc = true
+		case esc:
+			if r == 'm' || r == 'H' || r == 'J' || r == 'K' {
+				esc = false
+			}
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// copyText puts text on the clipboard: through the terminal (OSC 52, which
+// works over SSH where the terminal allows it) and, on macOS, through
+// pbcopy, since Terminal.app does not implement OSC 52.
+func copyText(out *os.File, text string) {
+	if out != nil {
+		fmt.Fprintf(out, "\x1b]52;c;%s\x07", base64.StdEncoding.EncodeToString([]byte(text)))
+	}
+	if path, err := exec.LookPath("pbcopy"); err == nil {
+		cmd := exec.Command(path)
+		cmd.Stdin = strings.NewReader(text)
+		_ = cmd.Run()
+	}
 }
