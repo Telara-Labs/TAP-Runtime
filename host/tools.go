@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	agents "gitlab.com/telara-labs/tap-runtime/discover/client"
 	"io"
 	"net/http"
 	"os"
@@ -69,6 +70,23 @@ func detectClient() string {
 		return "codex"
 	}
 	return ""
+}
+
+// bridgeName turns an agent's registry name or alias (claude-code, claude,
+// gemini-cli) into the name the runner's bridges use (claude, codex,
+// gemini). Unknown names pass through, and openBridge refuses them.
+func bridgeName(name string) string {
+	c, ok := agents.Lookup(name)
+	if !ok {
+		return name
+	}
+	switch c.ID {
+	case "claude-code":
+		return "claude"
+	case "gemini-cli":
+		return "gemini"
+	}
+	return c.ID
 }
 
 // lendsConnections reports whether the runner can borrow this client's

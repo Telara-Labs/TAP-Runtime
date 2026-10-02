@@ -2,9 +2,13 @@
 
 ## What the machine needs
 
-- **Claude Code or Codex.** They are the two clients that let a program call
-  the tools they have connected. The runner also runs from a terminal with no
-  client, for primitives that use no tools.
+- **An agent that can lend its connections**, for a primitive that calls
+  tools: Claude Code, Codex, VS Code (with the extension below) or Gemini CLI
+  (experimental). `tap install` also connects the TAP MCP server to Cursor,
+  Windsurf and Copilot CLI, so `tap_search` works there, but those agents
+  cannot yet run a primitive's tool calls (docs/bridge-research.md). The
+  runner also runs from a terminal with no agent, for primitives that use no
+  tools.
 - **The connections a primitive uses**, already connected in that client (for
   example Gmail), and any host program it declares (`git`, `kubectl`).
 - **Network on first use**, to download interpreters. `tap fetch`
@@ -36,12 +40,12 @@ npm install -g @telaralabs/tap
 
 The global package supplies the `tap` command, including `tap discover`,
 `tap serve`, and the other CLI commands. When npm permits install scripts,
-its install step registers the MCP server with installed Claude Code and Codex.
+its install step runs `tap install --client detected`, which connects the MCP
+server to every agent installed here.
 If scripts are disabled, run `tap setup` after installation; recent npm
 versions can use `npm install -g --allow-scripts=@telaralabs/tap @telaralabs/tap` for
 one-command setup. An ordinary project dependency install keeps registration
-explicit: run `npm exec -- tap setup` in that project. Gemini CLI remains
-experimental and requires `tap install --client gemini`; VS Code uses the
+explicit: run `npm exec -- tap setup` in that project. VS Code uses the
 separate extension below. Browser-only chats do not inherit a local MCP
 registration.
 
@@ -68,25 +72,37 @@ irm <release>/install.ps1 | iex
 
 The script downloads the runner for this machine and checks it against a
 sha256 written into the script when the release was built. If it doesn't
-match, the download is deleted and nothing is installed. It then registers
-the runner as an MCP server named `tap` with each of Claude Code and Codex
-that is installed:
+match, the download is deleted and nothing is installed. It then runs
+`tap install --client detected`, which connects the runner as an MCP server
+named `tap` to every agent installed here:
 
-```
-claude mcp add --scope user tap -- <path>/tap serve
-codex mcp add tap -- <path>/tap serve
-```
+| Agent | How |
+|---|---|
+| Claude Code | `claude mcp add --scope user tap -- <path>/tap serve` |
+| Codex | `codex mcp add tap -- <path>/tap serve` |
+| Copilot CLI | `copilot mcp add tap -- <path>/tap serve` |
+| Cursor (app and CLI) | one entry merged into `~/.cursor/mcp.json` |
+| Windsurf | one entry merged into `~/.codeium/windsurf/mcp_config.json` |
+| Gemini CLI | `~/.gemini/settings.json`, with the hook its bridge needs |
+| VS Code | the TAP extension below |
 
-Options: `--client claude|codex|none` and `--dir DIR` (default
-`~/.local/bin`). Windows takes `-Client` and `-Dir`, and installs to
+A JSON file is changed only by adding (or, with `--remove`, removing) the
+`tap` entry: other servers and settings keep their values and order, the
+original is kept once as `<file>.tap-backup`, a file that is not plain JSON
+is left alone, and running it again changes nothing.
+
+Options: `--client AGENTS|none` and `--dir DIR` (default `~/.local/bin`).
+Windows takes `-Client` and `-Dir`, and installs to
 `%LOCALAPPDATA%\Programs\tap`.
 
-To register an already-downloaded runner by hand:
+To connect an already-downloaded runner by hand:
 
 ```
-tap install --client claude          # --scope local|user|project
-tap install --client codex
-tap install --client claude --print  # show the command, change nothing
+tap install --client detected            # every agent installed here
+tap install --client claude-code         # --scope local|user|project
+tap install --client cursor,windsurf
+tap install --client all --print         # show what would change, change nothing
+tap install --client cursor --remove
 ```
 
 ## When two servers offer the same tool

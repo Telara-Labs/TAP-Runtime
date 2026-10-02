@@ -94,8 +94,8 @@ local journal without resuming a run. The tool list does not grow with the
 number of primitives. There is no publication tool or Telara account in this
 local MCP.
 
-`tap install --client claude` or `tap install --client codex` registers the
-server with a local client. The runner borrows that client's connections and
+`tap install --client detected` connects the server to every agent installed
+here (`--client claude-code`, `codex`, `cursor`, … for one). The runner borrows that client's connections and
 checks each MCP call against its declared effect before dispatch; every
 effectful call still needs approval. Tool-only primitives do not get a second,
 whole-package prompt. Packages with local file, command, or web reach still

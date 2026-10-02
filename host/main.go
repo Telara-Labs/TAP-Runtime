@@ -23,6 +23,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	agents "gitlab.com/telara-labs/tap-runtime/discover/client"
 	"io"
 	"net/url"
 	"os"
@@ -224,7 +225,7 @@ func main() {
 	journalPath := flag.String("journal", "", "append one JSON line per action")
 	interpDir := flag.String("interpreters", "", "interpreter store; default is the user cache directory")
 	cacheDir := flag.String("cache", "", "directory for the compiled-interpreter cache")
-	client := flag.String("client", "", "client whose connections to borrow: claude or codex; detected when empty")
+	client := flag.String("client", "", "agent whose connections to borrow ("+strings.Join(agents.IDs(func(c agents.Client) bool { return c.Bridge }), ", ")+"); detected when empty")
 	mcpURL := flag.String("mcp-url", "", "call this MCP server (streamable HTTP) directly instead of borrowing a client's connections")
 	mcpHeaderFile := flag.String("mcp-header-file", "", "with --mcp-url: file of header lines to send, such as \"Authorization: Bearer ...\"")
 	vscodeSocket := flag.String("vscode-socket", "", "call VS Code's tools through the TAP extension listening on this socket")
@@ -237,7 +238,7 @@ func main() {
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: tap [--approve] [--resume RUN] <package-dir> [args...]\n       tap serve\n       tap bind --client NAME CAPABILITY SERVER\n       tap install --client claude|codex|gemini\n       tap discover [--review] [--rejected]\n       tap hook gemini\n       tap web build --out FILE <package-dir>...\n       tap fetch\n       tap manifest check|complete <package-dir>\n       tap version")
+		fmt.Fprintln(os.Stderr, "usage: tap [--approve] [--resume RUN] <package-dir> [args...]\n       tap serve\n       tap bind --client NAME CAPABILITY SERVER\n       tap install --client <agent>|all|detected [--remove]\n       tap discover [--review] [--rejected]\n       tap hook gemini\n       tap web build --out FILE <package-dir>...\n       tap fetch\n       tap manifest check|complete <package-dir>\n       tap version")
 		os.Exit(2)
 	}
 	var journal io.Writer = io.Discard
@@ -258,7 +259,7 @@ func main() {
 	res, err := Run(context.Background(), Options{
 		Package: flag.Arg(0), Args: flag.Args()[1:], Journal: journal,
 		Approve:   askFn,
-		InterpDir: *interpDir, CacheDir: *cacheDir, PyLib: *pyLib, Client: *client, ReceiptPath: *receiptPath,
+		InterpDir: *interpDir, CacheDir: *cacheDir, PyLib: *pyLib, Client: bridgeName(*client), ReceiptPath: *receiptPath,
 		MCPURL: *mcpURL, MCPHeaderFile: *mcpHeaderFile, VSCodeSocket: *vscodeSocket,
 		RunsDir: *runsDir, Resume: *resume, NoJournal: *noJournal, RetentionDays: *retention, TelemetryPayloads: *otelPayloads,
 	})
