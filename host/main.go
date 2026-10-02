@@ -115,9 +115,13 @@ const Unlimited = -1
 
 // Options is everything a run is given.
 type Options struct {
-	Package   string
-	Args      []string
-	Approve   Approver
+	Package string
+	Args    []string
+	Approve Approver
+	// Choose settles two servers that fit one capability equally well. Nil
+	// means nobody can be asked, and the run is refused until a choice is kept
+	// (`tap bind`).
+	Choose    Chooser
 	Journal   io.Writer
 	InterpDir string
 	CacheDir  string
@@ -187,6 +191,9 @@ func main() {
 		// primitives. Local only; needs no Telara.
 		os.Exit(discover.Command(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "bind" {
+		os.Exit(bindCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "install" {
 		os.Exit(installCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
@@ -227,7 +234,7 @@ func main() {
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: tap [--approve] [--resume RUN] <package-dir> [args...]\n       tap serve\n       tap install --client claude|codex|gemini\n       tap discover [--review] [--rejected]\n       tap hook gemini\n       tap web build --out FILE <package-dir>...\n       tap fetch\n       tap manifest check|complete <package-dir>\n       tap version")
+		fmt.Fprintln(os.Stderr, "usage: tap [--approve] [--resume RUN] <package-dir> [args...]\n       tap serve\n       tap bind --client NAME CAPABILITY SERVER\n       tap install --client claude|codex|gemini\n       tap discover [--review] [--rejected]\n       tap hook gemini\n       tap web build --out FILE <package-dir>...\n       tap fetch\n       tap manifest check|complete <package-dir>\n       tap version")
 		os.Exit(2)
 	}
 	var journal io.Writer = io.Discard
@@ -393,7 +400,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			defer br.Close()
 		}
-		adm, err = admit(m.Tools, br, m.Capabilities...)
+		adm, err = admitWith(newFileBindings(defaultBindingsPath()), o.Choose, m.Tools, br, m.Capabilities...)
 		if err != nil {
 			return nil, err
 		}

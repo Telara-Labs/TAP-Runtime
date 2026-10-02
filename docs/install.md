@@ -52,6 +52,25 @@ tap install --client codex
 tap install --client claude --print  # show the command, change nothing
 ```
 
+## When two servers offer the same tool
+
+If two connected servers offer a tool that fits what a primitive needs equally
+well, the runner does not choose between them: a server you do not trust could
+offer a tool named like the one you mean. Through `tap_run`, in a client that
+can ask, you are asked which server to use. Otherwise the run is refused and
+the message gives the command:
+
+```
+tap bind --client claude-code gmail.threads.search "claude.ai Gmail"
+tap bind --list
+tap bind --client claude-code --forget gmail.threads.search
+```
+
+The choice is kept on this machine, per client, in `tap/bindings.json` in your
+user config directory. The primitive's manifest never names a server, so the
+same primitive runs where Gmail is a plugin on one client and an MCP server on
+another.
+
 ## Gemini CLI
 
 **Experimental.** Built and tested against a stand-in for Gemini CLI, never

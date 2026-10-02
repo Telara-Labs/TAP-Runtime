@@ -132,6 +132,12 @@ func validEffect(e string) bool {
 // tool that does not bind refuses the whole run; an optional one is left out
 // and the guest is told.
 func admit(decls []toolDecl, b bridge.Bridge, contracts ...mf.Capability) (*admission, error) {
+	return admitWith(nil, nil, decls, b, contracts...)
+}
+
+// admitWith is admit with a way to settle two servers that fit equally well:
+// the choice kept on this machine, then a person to ask (TENG-3100).
+func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Bridge, contracts ...mf.Capability) (*admission, error) {
 	byLabel := map[string]*mf.Capability{}
 	for i := range contracts {
 		byLabel[contracts[i].Label] = &contracts[i]
@@ -200,16 +206,35 @@ func admit(decls []toolDecl, b bridge.Bridge, contracts ...mf.Capability) (*admi
 			}
 			var passed []string
 			found := false
+			var fitting []bind.Candidate
 			for _, cand := range ranked {
 				why := satisfy.Arguments(contract.Args, cand.Tool.Schema)
 				if len(why) > 0 {
 					passed = append(passed, fmt.Sprintf("%s / %s (%s)", cand.Tool.Server, cand.Tool.Name, why[0]))
 					continue
 				}
-				bd.tool, bd.Score, bd.Gated = cand.Tool, cand.Score, cand.Tool.Annotated == bind.Unknown
-				bd.ContractChecked, bd.Schema = true, satisfy.Digest(cand.Tool.Schema)
-				found = true
-				break
+				fitting = append(fitting, cand)
+			}
+			if len(fitting) > 0 {
+				cand := fitting[0]
+				if servers := tiedServers(fitting); len(servers) > 1 {
+					server, why := settle(Pick{Alias: d.Alias, Capability: mf.CapabilityName(d.Capability), Client: name, Servers: servers}, store, choose)
+					if why != "" {
+						refusal = why
+					} else {
+						for _, c := range fitting {
+							if c.Tool.Server == server {
+								cand = c
+								break
+							}
+						}
+					}
+				}
+				if refusal == "" {
+					bd.tool, bd.Score, bd.Gated = cand.Tool, cand.Score, cand.Tool.Annotated == bind.Unknown
+					bd.ContractChecked, bd.Schema = true, satisfy.Digest(cand.Tool.Schema)
+					found = true
+				}
 			}
 			bd.Candidates = passed
 			if !found && refusal == "" {
@@ -219,7 +244,7 @@ func admit(decls []toolDecl, b bridge.Bridge, contracts ...mf.Capability) (*admi
 				bd.RunnerUp, bd.RunnerUpScore = c.RunnerUp.Server+" / "+c.RunnerUp.Name, c.RunnerUpScore
 			}
 		} else {
-			c := bind.Resolve(mf.CapabilityName(d.Capability), bind.Effect(d.Effect), inv)
+			c, ranked := bind.Candidates(mf.CapabilityName(d.Capability), bind.Effect(d.Effect), inv)
 			if c.RunnerUp != nil {
 				bd.RunnerUp, bd.RunnerUpScore = c.RunnerUp.Server+" / "+c.RunnerUp.Name, c.RunnerUpScore
 			}
@@ -227,6 +252,19 @@ func admit(decls []toolDecl, b bridge.Bridge, contracts ...mf.Capability) (*admi
 				refusal = c.Refused
 			} else {
 				bd.tool, bd.Score, bd.Gated = *c.Bound, c.Score, c.Gated
+				if servers := tiedServers(ranked); len(servers) > 1 {
+					server, why := settle(Pick{Alias: d.Alias, Capability: mf.CapabilityName(d.Capability), Client: name, Servers: servers}, store, choose)
+					if why != "" {
+						refusal = why
+					} else {
+						for _, cand := range ranked {
+							if cand.Tool.Server == server && cand.Score == ranked[0].Score {
+								bd.tool, bd.Score, bd.Gated = cand.Tool, cand.Score, cand.Tool.Annotated == bind.Unknown
+								break
+							}
+						}
+					}
+				}
 			}
 		}
 		if refusal == "" {
