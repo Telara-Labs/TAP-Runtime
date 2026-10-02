@@ -128,3 +128,33 @@ func TestTheVSCodePathSettingIsMachineScoped(t *testing.T) {
 		t.Fatalf("tapRuntime.path has scope %q; a workspace could choose the program the extension runs", got)
 	}
 }
+
+func TestACommandIsLoggedWithoutItsTrailingArguments(t *testing.T) {
+	got := logCommand("kubectl", []string{"get", "secrets", "-o", "jsonpath=TOKEN-VALUE", "--token=SECRET"})
+	if strings.Contains(got, "TOKEN-VALUE") || strings.Contains(got, "SECRET") || !strings.Contains(got, "kubectl get secrets") || !strings.Contains(got, "+3 more arguments") {
+		t.Fatalf("logged %q", got)
+	}
+	if logCommand("git", []string{"status"}) != "git status" {
+		t.Error("a short command was changed")
+	}
+}
+
+func TestASourceBuiltInterpreterThatChangesAfterFirstUseIsRefused(t *testing.T) {
+	store := t.TempDir()
+	path := filepath.Join(store, "sh.wasm")
+	os.WriteFile(path, []byte("the interpreter as built"), 0o644)
+	if _, _, sum, err := obtain(store, "main.sh"); err != nil || sum != digest([]byte("the interpreter as built")) {
+		t.Fatalf("first read: %v", err)
+	}
+	if _, _, _, err := obtain(store, "main.sh"); err != nil {
+		t.Fatalf("an unchanged interpreter was refused: %v", err)
+	}
+	os.WriteFile(path, []byte("something else"), 0o644)
+	if _, _, _, err := obtain(store, "main.sh"); err == nil || !strings.Contains(err.Error(), "first one this runner read") {
+		t.Fatalf("a changed interpreter was accepted: %v", err)
+	}
+	os.Remove(path + ".sha256")
+	if _, _, _, err := obtain(store, "main.sh"); err != nil {
+		t.Fatalf("removing the remembered digest did not accept a rebuild: %v", err)
+	}
+}

@@ -155,3 +155,19 @@ func forPrompt(s string) string {
 	}
 	return b.String()
 }
+
+// logCommand is a command as it is written to the log: the program and its
+// first two arguments (a subcommand), and how many more there were. The rest
+// is where a token or something the program read tends to ride; the record of
+// the run keeps the whole command line.
+func logCommand(name string, args []string) string {
+	shown := args
+	if len(shown) > 2 {
+		shown = shown[:2]
+	}
+	line := strings.TrimSpace(name + " " + strings.Join(shown, " "))
+	if len(args) > 2 {
+		line += fmt.Sprintf(" (+%d more arguments)", len(args)-2)
+	}
+	return forPrompt(line)
+}

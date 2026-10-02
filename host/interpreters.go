@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -118,6 +119,19 @@ func obtain(store, entrypoint string) ([]byte, interpreter, string, error) {
 	got := digest(b)
 	if in.SHA256 != "" && got != in.SHA256 {
 		return nil, in, "", fmt.Errorf("interpreter %s in %s has sha256 %s, pinned %s; refused", in.File, store, got, in.SHA256)
+	}
+	if in.SHA256 == "" {
+		// A runner built from source has no digest to check this file against.
+		// It remembers the first one it reads, and refuses the file if it
+		// changes afterwards (TENG-3104, threat G17). Rebuild the interpreter
+		// on purpose and remove the .sha256 file beside it to accept it.
+		side := path + ".sha256"
+		switch want, err := os.ReadFile(side); {
+		case err == nil && strings.TrimSpace(string(want)) != got:
+			return nil, in, "", fmt.Errorf("interpreter %s in %s has sha256 %s, and the first one this runner read was %s; refused. If you rebuilt it, remove %s", in.File, store, got, strings.TrimSpace(string(want)), side)
+		case err != nil && os.IsNotExist(err):
+			os.WriteFile(side, []byte(got+"\n"), 0o600)
+		}
 	}
 	return b, in, got, nil
 }

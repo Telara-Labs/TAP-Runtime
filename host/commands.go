@@ -264,7 +264,7 @@ func environFor(c *command, environ []string) (env []string, names []string) {
 }
 
 func runCommand(m *manifest, rq request, approve bool, journal io.Writer) reply {
-	line := strings.TrimSpace(rq.Command + " " + strings.Join(rq.Args, " "))
+	line := logCommand(rq.Command, rq.Args)
 	decl, effect := resolve(m, rq.Command, rq.Args)
 	entry := map[string]any{"ts": time.Now().UTC().Format(time.RFC3339Nano), "command": rq.Command, "args": rq.Args}
 	record := func(outcome string, extra map[string]any) {
