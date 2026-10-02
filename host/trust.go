@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -28,17 +26,7 @@ var userConfigDir = os.UserConfigDir
 // packageDigest is the digest of a package as a run records it: its manifest
 // and its entrypoint.
 func packageDigest(dir string) (digest string, m *mf.Manifest, err error) {
-	m, err = mf.Load(dir)
-	if err != nil {
-		return "", nil, err
-	}
-	script, err := os.ReadFile(filepath.Join(dir, m.Execution.Entrypoint))
-	if err != nil {
-		return "", nil, err
-	}
-	raw, _ := os.ReadFile(filepath.Join(dir, "primitive.yaml"))
-	sum := sha256.Sum256(append(append([]byte{}, raw...), script...))
-	return hex.EncodeToString(sum[:]), m, nil
+	return mf.RunDigest(dir)
 }
 
 // needsPackageTrust is true when the program can act outside the mediated MCP
