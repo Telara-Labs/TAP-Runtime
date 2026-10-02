@@ -34,6 +34,8 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 	vscodeSocket := fs.String("vscode-socket", "", "the TAP extension's socket, given by the extension that starts this server in VS Code")
 	noRecord := fs.Bool("no-record", false, "keep no record of a run: tool results and requests are not written to disk, and a run cannot be resumed")
 	configDir := fs.String("config-dir", "", "directory for the choices a person made (tool bindings) and the packages they trust; default is the user config directory")
+	catalogRoot := fs.String("catalog-root", "", "additional local primitive collection root")
+	allowPackagePath := fs.Bool("allow-package-path", false, "allow legacy model-supplied package paths; use only during migration")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -49,7 +51,7 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 		defer f.Close()
 		journal = &lockedWriter{w: f}
 	}
-	s := &server{out: out, pending: map[int]chan rpcMessage{}, journal: journal, interpDir: *interpDir, cacheDir: *cacheDir, runsDir: *runsDir, retention: *retention, payloads: *otelPayloads, mcpURL: *mcpURL, mcpHeaderFile: *mcpHeaderFile, vscodeSocket: *vscodeSocket, noRecord: *noRecord}
+	s := &server{out: out, pending: map[int]chan rpcMessage{}, journal: journal, interpDir: *interpDir, cacheDir: *cacheDir, runsDir: *runsDir, retention: *retention, payloads: *otelPayloads, mcpURL: *mcpURL, mcpHeaderFile: *mcpHeaderFile, vscodeSocket: *vscodeSocket, noRecord: *noRecord, catalogRoot: *catalogRoot, allowPackagePath: *allowPackagePath}
 	if dir, err := relayDir(); err == nil {
 		s.relay = newRelayHub(dir, *serverName)
 		defer s.relay.close()
@@ -101,20 +103,22 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 }
 
 type server struct {
-	noRecord      bool // keep no record of a run
-	mu            sync.Mutex
-	out           io.Writer
-	next          int
-	pending       map[int]chan rpcMessage
-	closed        bool
-	journal       io.Writer
-	interpDir     string
-	cacheDir      string
-	mcpURL        string
-	mcpHeaderFile string
-	runsDir       string
-	retention     int
-	payloads      bool
+	noRecord         bool // keep no record of a run
+	mu               sync.Mutex
+	out              io.Writer
+	next             int
+	pending          map[int]chan rpcMessage
+	closed           bool
+	journal          io.Writer
+	interpDir        string
+	cacheDir         string
+	mcpURL           string
+	mcpHeaderFile    string
+	runsDir          string
+	catalogRoot      string
+	allowPackagePath bool
+	retention        int
+	payloads         bool
 
 	clientName    string
 	clientVersion string
@@ -293,14 +297,16 @@ func (s *server) choose(p Pick) (string, bool) {
 
 var runTool = map[string]any{
 	"name":        "tap_run",
-	"description": "Run a TAP primitive: a package with a primitive.yaml and one program. The program runs in a sandbox and can only do what its primitive.yaml declares. Any change it wants to make is shown to the user for approval first.",
+	"description": "Run one exact installed TAP primitive by reference and digest. Changes still require the person's approval.",
 	"inputSchema": map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"package": map[string]any{"type": "string", "description": "Path to the primitive's directory."},
-			"args":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Arguments passed to the program."},
+			"ref":    map[string]any{"type": "string", "description": "Exact publisher/name@version returned by tap_search."},
+			"digest": map[string]any{"type": "string", "description": "Exact package digest returned by tap_search."},
+			"args":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Arguments passed to the program."},
 		},
-		"required": []string{"package"},
+		"required":             []string{"ref", "digest"},
+		"additionalProperties": false,
 	},
 	"annotations": map[string]any{"readOnlyHint": false, "destructiveHint": true, "openWorldHint": true},
 }
@@ -330,7 +336,7 @@ func (s *server) handle(m rpcMessage) {
 	case "ping":
 		s.reply(m.ID, map[string]any{})
 	case "tools/list":
-		tools := []any{runTool}
+		tools := []any{searchTool, loadTool, runTool, statusTool, evidenceTool}
 		s.mu.Lock()
 		name := s.clientName
 		s.mu.Unlock()
@@ -340,12 +346,8 @@ func (s *server) handle(m rpcMessage) {
 		s.reply(m.ID, map[string]any{"tools": tools})
 	case "tools/call":
 		var p struct {
-			Name      string `json:"name"`
-			Arguments struct {
-				Package string   `json:"package"`
-				Args    []string `json:"args"`
-				Run     string   `json:"run"`
-			} `json:"arguments"`
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
 		}
 		if json.Unmarshal(m.Params, &p) != nil {
 			s.fail(m.ID, -32602, "the call could not be read")
@@ -355,11 +357,43 @@ func (s *server) handle(m rpcMessage) {
 		name, version, canElicit := s.clientName, s.clientVersion, s.canElicit
 		s.mu.Unlock()
 		if p.Name == "tap_result" {
-			s.replyResult(m.ID, p.Arguments.Run, canElicit)
+			var args struct {
+				Run string `json:"run"`
+			}
+			if json.Unmarshal(p.Arguments, &args) != nil {
+				s.fail(m.ID, -32602, "tap_result needs a run")
+				return
+			}
+			s.replyResult(m.ID, args.Run, canElicit)
 			return
 		}
-		if p.Name != "tap_run" || p.Arguments.Package == "" {
-			s.fail(m.ID, -32602, "tap_run needs a package")
+		if p.Name != "tap_run" {
+			s.handleReadTool(m.ID, p.Name, p.Arguments)
+			return
+		}
+		var args struct {
+			Ref     string   `json:"ref"`
+			Digest  string   `json:"digest"`
+			Args    []string `json:"args"`
+			Package string   `json:"package"`
+		}
+		if readToolArgs(p.Arguments, &args) != nil {
+			s.fail(m.ID, -32602, "tap_run arguments could not be read")
+			return
+		}
+		if len(args.Ref) > 512 || (args.Package == "" && len(args.Digest) != 64) || len(args.Args) > 128 {
+			s.toolError(m.ID, "tap_run identity or arguments exceed their limits")
+			return
+		}
+		for _, value := range args.Args {
+			if len(value) > 16<<10 {
+				s.toolError(m.ID, "tap_run argument exceeds 16 KiB")
+				return
+			}
+		}
+		packagePath, err := s.resolveRunPackage(args.Ref, args.Digest, args.Package)
+		if err != nil {
+			s.toolError(m.ID, err.Error())
 			return
 		}
 		var approve Approver
@@ -370,12 +404,12 @@ func (s *server) handle(m rpcMessage) {
 			choose = s.choose
 			truster = s.trustPackage
 		}
-		if why := admitPackage(newTrustStore(), truster, p.Arguments.Package); why != "" {
+		if why := admitPackage(newTrustStore(), truster, packagePath); why != "" {
 			s.reply(m.ID, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": why}}})
 			return
 		}
 		o := Options{
-			Package: p.Arguments.Package, Args: p.Arguments.Args, Journal: s.journal, Approve: approve, Choose: choose,
+			Package: packagePath, ExpectedDigest: args.Digest, Args: args.Args, Journal: s.journal, Approve: approve, Choose: choose,
 			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, NoJournal: s.noRecord, TelemetryPayloads: s.payloads, Client: clientFor(name),
 			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile,
 		}

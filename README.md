@@ -82,14 +82,36 @@ It sends events: what ran, what was approved, how each ended. What a call was
 given and what it touched stay on the machine unless `--otel-payloads` is
 passed. A collector that cannot be reached does not stop a run.
 
-## As an MCP server
+## TAP Local: your primitive collection as an MCP server
 
-    host serve
+    tap serve
 
-exposes one tool, `tap_run`. Add it to a client's MCP configuration and the
-client can start a primitive, and the runner can ask the person there to
-approve a change. A client that cannot show an approval prompt is never asked,
-and every change under it is refused.
+exposes five fixed tools: `tap_search`, `tap_load`, `tap_run`, `tap_status`,
+and `tap_evidence`. It finds installed v3 primitives in a bounded local
+collection, loads their declared inputs and effects, and runs an exact
+`publisher/name@version` and package digest. Run status and evidence read the
+local journal without resuming a run. The tool list does not grow with the
+number of primitives. There is no publication tool or Telara account in this
+local MCP.
+
+`tap install --client claude` or `tap install --client codex` registers the
+server with a local client. The runner borrows that client's connections and
+asks the person there before a change. A client that cannot show an approval
+prompt is never asked, and every change under it is refused. A remote browser
+chat cannot reach this stdio server without a supported desktop companion;
+the separate [web preview](docs/web.md) is not the local MCP.
+
+The five-tool surface has passed direct MCP and live Codex tests. Its Claude
+Code live tool-call test remains unverified because that client's control
+call did not return, including for a read-only search.
+
+The npm distribution source is `npm/`. After a signed release is built and
+the package is published, `npm install -g @telaralabs/tap` installs the `tap` CLI.
+When npm permits its install script, it also registers the local MCP with
+installed Claude Code and Codex; `tap setup` performs registration explicitly
+when scripts are disabled. The CLI includes `tap discover`; the MCP keeps the
+five fixed tools above. The npm package has not been published yet. See
+[installation](docs/install.md).
 
 ## Find primitives in your own history
 

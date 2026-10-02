@@ -1,0 +1,30 @@
+{
+  "name": "@telaralabs/tap",
+  "version": "0.1.2",
+  "private": true,
+  "description": "Local TAP primitive discovery, execution, and MCP server",
+  "license": "MIT",
+  "bin": {
+    "tap": "bin/tap.cjs"
+  },
+  "scripts": {
+    "postinstall": "node postinstall.cjs",
+    "test": "node --test test/*.test.cjs"
+  },
+  "files": [
+    "assets/",
+    "bin/tap.cjs",
+    "LICENSE",
+    "lib/",
+    "postinstall.cjs",
+    "README.md",
+    "runner-assets.json",
+    "THIRD_PARTY_NOTICES.txt"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

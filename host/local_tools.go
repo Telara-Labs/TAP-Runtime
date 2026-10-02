@@ -1,0 +1,219 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"gitlab.com/telara-labs/tap-runtime/journal"
+)
+
+var searchTool = localTool("tap_search", "Search installed local TAP primitives without running them.", map[string]any{
+	"query": map[string]any{"type": "string", "description": "Words in the primitive reference or description."},
+	"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
+}, nil, true)
+
+var loadTool = localTool("tap_load", "Load the declared inputs and effects of an exact local TAP primitive.", map[string]any{
+	"ref": map[string]any{"type": "string"}, "digest": map[string]any{"type": "string"},
+}, []string{"ref", "digest"}, true)
+
+var statusTool = localTool("tap_status", "Read the current state of a local TAP run without resuming it.", map[string]any{
+	"run_id": map[string]any{"type": "string"},
+}, []string{"run_id"}, true)
+
+var evidenceTool = localTool("tap_evidence", "Read bounded metadata-only evidence for a local TAP run.", map[string]any{
+	"run_id": map[string]any{"type": "string"},
+	"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": 100},
+}, []string{"run_id"}, true)
+
+func localTool(name, description string, properties map[string]any, required []string, readOnly bool) map[string]any {
+	return map[string]any{
+		"name": name, "description": description,
+		"inputSchema": map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false},
+		"annotations": map[string]any{"readOnlyHint": readOnly, "destructiveHint": false, "openWorldHint": false},
+	}
+}
+
+func (s *server) catalog() ([]catalogEntry, error) {
+	if s.catalogRoot != "" {
+		return localCatalog(s.catalogRoot)
+	}
+	return localCatalog()
+}
+
+func (s *server) resolveRunPackage(ref, digest, legacyPath string) (string, error) {
+	if legacyPath != "" {
+		if s.allowPackagePath && ref == "" && digest == "" {
+			return legacyPath, nil
+		}
+		return "", fmt.Errorf("tap_run accepts an installed ref and digest, not a package path")
+	}
+	if ref == "" || digest == "" {
+		return "", fmt.Errorf("tap_run needs an exact ref and digest from tap_search")
+	}
+	entries, err := s.catalog()
+	if err != nil {
+		return "", err
+	}
+	entry, err := resolveCatalog(entries, ref, digest)
+	if err != nil {
+		return "", err
+	}
+	return entry.Path, nil
+}
+
+func (s *server) toolError(id *json.RawMessage, message string) {
+	s.reply(id, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": message}}})
+}
+
+func (s *server) toolJSON(id *json.RawMessage, value any) {
+	b, err := json.Marshal(value)
+	if err != nil {
+		s.toolError(id, "local TAP result could not be encoded")
+		return
+	}
+	if len(b) > 64<<10 {
+		s.toolError(id, "local TAP result is too large")
+		return
+	}
+	s.reply(id, map[string]any{"content": []any{map[string]any{"type": "text", "text": string(b)}}})
+}
+
+func readToolArgs(raw json.RawMessage, value any) error {
+	if len(raw) == 0 {
+		raw = []byte("{}")
+	}
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.DisallowUnknownFields()
+	if err := d.Decode(value); err != nil {
+		return fmt.Errorf("invalid arguments: %w", err)
+	}
+	var extra any
+	if err := d.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("invalid arguments: trailing JSON")
+	}
+	return nil
+}
+
+func (s *server) runRoot() (string, error) {
+	if s.runsDir != "" {
+		return s.runsDir, nil
+	}
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "tap-runtime", "runs"), nil
+}
+
+func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMessage) {
+	switch name {
+	case "tap_search":
+		var a struct {
+			Query string `json:"query"`
+			Limit int    `json:"limit"`
+		}
+		if err := readToolArgs(raw, &a); err != nil {
+			s.toolError(id, err.Error())
+			return
+		}
+		if len(a.Query) > 256 || a.Limit < 0 || a.Limit > 20 {
+			s.toolError(id, "query must be at most 256 bytes and limit 1 through 20")
+			return
+		}
+		if a.Limit == 0 {
+			a.Limit = 20
+		}
+		entries, err := s.catalog()
+		if err != nil {
+			s.toolError(id, err.Error())
+			return
+		}
+		type hit struct {
+			Ref         string `json:"ref"`
+			Digest      string `json:"digest"`
+			Description string `json:"description,omitempty"`
+			Source      string `json:"source"`
+		}
+		hits := make([]hit, 0)
+		for _, e := range searchCatalog(entries, a.Query, a.Limit) {
+			desc := e.Description
+			if len(desc) > 1024 {
+				desc = desc[:1024]
+			}
+			hits = append(hits, hit{e.Ref, e.Digest, desc, e.Source})
+		}
+		s.toolJSON(id, map[string]any{"matches": hits})
+	case "tap_load":
+		var a struct {
+			Ref    string `json:"ref"`
+			Digest string `json:"digest"`
+		}
+		if err := readToolArgs(raw, &a); err != nil || a.Ref == "" || a.Digest == "" {
+			s.toolError(id, "tap_load needs ref and digest")
+			return
+		}
+		entries, err := s.catalog()
+		if err != nil {
+			s.toolError(id, err.Error())
+			return
+		}
+		e, err := resolveCatalog(entries, a.Ref, a.Digest)
+		if err != nil {
+			s.toolError(id, err.Error())
+			return
+		}
+		m := e.Manifest
+		s.toolJSON(id, map[string]any{"ref": e.Ref, "digest": e.Digest, "description": e.Description,
+			"interface": m.Interface, "capabilities": m.Capabilities, "tools": m.Tools,
+			"commands": m.Commands, "files": m.Files, "fetch": m.Fetch})
+	case "tap_status", "tap_evidence":
+		var a struct {
+			RunID string `json:"run_id"`
+			Limit int    `json:"limit"`
+		}
+		if err := readToolArgs(raw, &a); err != nil || a.RunID == "" {
+			s.toolError(id, name+" needs run_id")
+			return
+		}
+		if name == "tap_status" && a.Limit != 0 {
+			s.toolError(id, "tap_status does not accept limit")
+			return
+		}
+		if name == "tap_evidence" && (a.Limit < 0 || a.Limit > 100) {
+			s.toolError(id, "limit must be 1 through 100")
+			return
+		}
+		root, err := s.runRoot()
+		if err != nil {
+			s.toolError(id, err.Error())
+			return
+		}
+		limit := a.Limit
+		if name == "tap_status" {
+			limit = 1
+		}
+		snap, err := journal.Inspect(root, a.RunID, limit)
+		if err != nil {
+			s.toolError(id, err.Error())
+			return
+		}
+		if name == "tap_status" {
+			s.toolJSON(id, map[string]any{"run_id": snap.Header.RunID, "package_digest": snap.Header.PackageDigest,
+				"started": snap.Header.Started, "state": snap.State, "outcome": snap.Outcome})
+		} else {
+			s.toolJSON(id, map[string]any{"run_id": snap.Header.RunID, "state": snap.State,
+				"events": snap.Events, "truncated": snap.Truncated})
+		}
+	default:
+		if strings.HasPrefix(name, "tap_") {
+			s.fail(id, -32601, "unknown TAP tool")
+		} else {
+			s.fail(id, -32601, "tool not found")
+		}
+	}
+}

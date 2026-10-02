@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"os"
@@ -58,15 +60,16 @@ func writePackage(t *testing.T, manifest, script string) string {
 
 // client is a minimal MCP client: the other end of the wire.
 type client struct {
-	t       *testing.T
-	in      io.WriteCloser
-	sc      *bufio.Scanner
-	answer  func(params map[string]any) map[string]any // how it answers an elicitation
-	asked   []string
-	runs    string
-	trust   []string // the first-run question about a package, kept apart from the rest
-	noTrust bool
-	done    chan error
+	t           *testing.T
+	in          io.WriteCloser
+	sc          *bufio.Scanner
+	answer      func(params map[string]any) map[string]any // how it answers an elicitation
+	asked       []string
+	runs        string
+	catalogRoot string
+	trust       []string // the first-run question about a package, kept apart from the rest
+	noTrust     bool
+	done        chan error
 }
 
 func startServer(t *testing.T, elicitation bool, answer func(map[string]any) map[string]any) *client {
@@ -86,10 +89,10 @@ func startServerArgs(t *testing.T, elicitation bool, answer func(map[string]any)
 	runs := t.TempDir()
 	cr, sw := io.Pipe()
 	sr, cw := io.Pipe()
-	c := &client{t: t, runs: runs, in: cw, sc: bufio.NewScanner(cr), answer: answer, done: make(chan error, 1)}
+	c := &client{t: t, runs: runs, catalogRoot: t.TempDir(), in: cw, sc: bufio.NewScanner(cr), answer: answer, done: make(chan error, 1)}
 	c.sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	go func() {
-		c.done <- serve(sr, sw, append([]string{"--interpreters", store, "--runs", runs, "--journal", filepath.Join(t.TempDir(), "journal.jsonl")}, extra...))
+		c.done <- serve(sr, sw, append([]string{"--interpreters", store, "--runs", runs, "--catalog-root", c.catalogRoot, "--journal", filepath.Join(t.TempDir(), "journal.jsonl")}, extra...))
 		sw.Close()
 	}()
 	caps := map[string]any{}
@@ -148,11 +151,34 @@ func (c *client) call(method string, params any) map[string]any {
 }
 
 func (c *client) run(pkg string) string {
-	r := c.call("tools/call", map[string]any{"name": "tap_run", "arguments": map[string]any{"package": pkg}})
+	r := c.call("tools/call", map[string]any{"name": "tap_run", "arguments": c.stagePackage(pkg)})
 	content, _ := r["content"].([]any)
 	first, _ := content[0].(map[string]any)
 	text, _ := first["text"].(string)
 	return text
+}
+
+func (c *client) stagePackage(pkg string) map[string]any {
+	c.t.Helper()
+	sum := sha256.Sum256([]byte(pkg))
+	dest := filepath.Join(c.catalogRoot, hex.EncodeToString(sum[:8]))
+	if err := os.MkdirAll(dest, 0o700); err != nil {
+		c.t.Fatal(err)
+	}
+	for _, name := range []string{"primitive.yaml", "main.sh"} {
+		b, err := os.ReadFile(filepath.Join(pkg, name))
+		if err != nil {
+			c.t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dest, name), b, 0o600); err != nil {
+			c.t.Fatal(err)
+		}
+	}
+	digest, m, err := packageDigest(dest)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	return map[string]any{"ref": m.Metadata.Publisher + "/" + m.Metadata.Name + "@" + m.Metadata.Version, "digest": digest}
 }
 
 const writeManifest = `apiVersion: primitives.telara.dev/v3
@@ -188,11 +214,11 @@ var (
 	empty = func(map[string]any) map[string]any { return map[string]any{"action": "accept"} }
 )
 
-func TestServeListsOneTool(t *testing.T) {
+func TestServeListsFiveLocalTools(t *testing.T) {
 	c := startServer(t, true, accept)
 	r := c.call("tools/list", map[string]any{})
 	tools, _ := r["tools"].([]any)
-	if len(tools) != 1 || tools[0].(map[string]any)["name"] != "tap_run" {
+	if len(tools) != 5 || tools[0].(map[string]any)["name"] != "tap_search" || tools[4].(map[string]any)["name"] != "tap_evidence" {
 		t.Fatalf("tools = %v", r)
 	}
 }
@@ -356,7 +382,7 @@ func TestADeclinedPackageIsNotRun(t *testing.T) {
 	dir := inDir(t)
 	c := startServer(t, true, accept)
 	c.noTrust = true
-	r := c.call("tools/call", map[string]any{"name": "tap_run", "arguments": map[string]any{"package": writePackage(t, writeManifest, writeScript)}})
+	r := c.call("tools/call", map[string]any{"name": "tap_run", "arguments": c.stagePackage(writePackage(t, writeManifest, writeScript))})
 	if r["isError"] != true {
 		t.Fatalf("a package the person declined was run: %v", r)
 	}
