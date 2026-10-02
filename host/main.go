@@ -360,6 +360,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	logf("package    %s  entrypoint %s (source, not compiled)", m.Metadata.Name, m.Execution.Entrypoint)
 	logf("interpreter %s (%d bytes) sha256:%s", in.File, len(wasmBytes), sum[:12])
+	if in.SHA256 == "" {
+		logf("WARNING    this interpreter has no pinned digest (a runner built from source); it is trusted from the first read. Releases pin it.")
+	}
 	for _, c := range m.Commands {
 		logf("declared   %-8s %-18s %s", c.Command, strings.Join(c.Args, " "), c.Effect)
 	}
