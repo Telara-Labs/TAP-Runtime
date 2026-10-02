@@ -106,10 +106,10 @@ func TestRelayChainThroughTheHook(t *testing.T) {
 	store := interpreterStore(t)
 	cr, sw := io.Pipe()
 	sr, cw := io.Pipe()
-	c := &client{t: t, in: cw, sc: bufio.NewScanner(cr), done: make(chan error, 1)}
+	c := &client{t: t, in: cw, sc: bufio.NewScanner(cr), done: make(chan error, 1), catalogRoot: t.TempDir()}
 	c.sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	go func() {
-		c.done <- serve(sr, sw, []string{"--interpreters", store, "--runs", t.TempDir(), "--name", "tap"})
+		c.done <- serve(sr, sw, []string{"--interpreters", store, "--runs", t.TempDir(), "--name", "tap", "--catalog-root", c.catalogRoot})
 		sw.Close()
 	}()
 	t.Cleanup(func() { cw.Close(); <-c.done })
@@ -135,7 +135,8 @@ tools:
 b=$(tap call search '{"q":"two"}' | jq -r '.n')
 echo "total $a $b"
 `)
-	first := c.run(pkg)
+	identity := c.stagePackage(pkg)
+	first := toolText(t, c.call("tools/call", map[string]any{"name": "tap_run", "arguments": identity}))
 	if !strings.HasPrefix(first, relayPrefix) {
 		t.Fatalf("tap_run did not stop at the first call:\n%s", first)
 	}
@@ -162,7 +163,7 @@ echo "total $a $b"
 	}
 
 	// Gemini runs the hook on tap_run's answer: the first call.
-	name, args := tail(hook("mcp_tap_tap_run", map[string]any{"package": pkg}, first))
+	name, args := tail(hook("mcp_tap_tap_run", identity, first))
 	if name != "mcp_mail_search" || args["q"] != "one" {
 		t.Fatalf("first tail call: %s %v", name, args)
 	}
@@ -229,14 +230,14 @@ func TestRelayStillGatesWhatTheClientDoesNotSee(t *testing.T) {
 	store := interpreterStore(t)
 	cr, sw := io.Pipe()
 	sr, cw := io.Pipe()
-	c := &client{t: t, in: cw, sc: bufio.NewScanner(cr), done: make(chan error, 1)}
+	c := &client{t: t, in: cw, sc: bufio.NewScanner(cr), done: make(chan error, 1), catalogRoot: t.TempDir()}
 	c.sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	work := t.TempDir()
 	wd, _ := os.Getwd()
 	os.Chdir(work)
 	defer os.Chdir(wd)
 	go func() {
-		c.done <- serve(sr, sw, []string{"--interpreters", store, "--runs", t.TempDir()})
+		c.done <- serve(sr, sw, []string{"--interpreters", store, "--runs", t.TempDir(), "--catalog-root", c.catalogRoot})
 		sw.Close()
 	}()
 	t.Cleanup(func() { cw.Close(); <-c.done })

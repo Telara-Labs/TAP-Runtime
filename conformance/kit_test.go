@@ -28,7 +28,7 @@ func TestThisRunnerPassesEveryLane(t *testing.T) {
 	buildInto(t, store, "sh.wasm", "./guest-sh", "GOOS=wasip1", "GOARCH=wasm")
 
 	var log bytes.Buffer
-	lanes := Run([]string{runner, "serve", "--interpreters", store, "--runs", filepath.Join(dir, "runs"), "--config-dir", filepath.Join(dir, "config")}, &log)
+	lanes := Run([]string{runner, "serve", "--interpreters", store, "--runs", filepath.Join(dir, "runs"), "--config-dir", filepath.Join(dir, "config"), "--allow-package-path"}, &log)
 	t.Logf("\n%s", log.String())
 	if len(lanes) < 15 {
 		t.Fatalf("only %d lanes ran", len(lanes))

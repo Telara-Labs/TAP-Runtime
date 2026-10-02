@@ -116,8 +116,11 @@ const Unlimited = -1
 // Options is everything a run is given.
 type Options struct {
 	Package string
-	Args    []string
-	Approve Approver
+	// ExpectedDigest pins an MCP-discovered package to the bytes the caller
+	// selected. The CLI leaves it empty when it runs a local path directly.
+	ExpectedDigest string
+	Args           []string
+	Approve        Approver
 	// Choose settles two servers that fit one capability equally well. Nil
 	// means nobody can be asked, and the run is refused until a choice is kept
 	// (`tap bind`).
@@ -295,6 +298,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	rawManifest, _ := os.ReadFile(filepath.Join(o.Package, "primitive.yaml"))
 	sumPkg := sha256.Sum256(append(append([]byte{}, rawManifest...), script...))
 	pkgDigest := hex.EncodeToString(sumPkg[:])
+	if o.ExpectedDigest != "" && pkgDigest != o.ExpectedDigest {
+		return nil, fmt.Errorf("the selected primitive changed since discovery; search again")
+	}
 
 	var run *runlog.Journal
 	args := o.Args

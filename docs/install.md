@@ -12,7 +12,44 @@
 
 No Telara account, registry or gateway is needed.
 
+## TAP Local collection
+
+The MCP server is named `tap`. Its fixed tools are `tap_search`, `tap_load`,
+`tap_run`, `tap_status`, and `tap_evidence`. Search finds installed v3
+primitives in the user's TAP collection and saved primitive folders for
+Claude Code and Codex. Ordinary `SKILL.md` folders are not treated as TAP
+primitives. Load returns the manifest's declared inputs and effects. Run uses
+the exact `publisher/name@version` and digest returned by search; if the
+package changes, search again. Status and evidence read the local run record.
+
+For an additional collection root, start the server with
+`tap serve --catalog-root DIR`. This is an explicit local directory, not a
+remote registry. The runner does not publish packages through MCP.
+
 ## One instruction
+
+### npm (after publication)
+
+```
+npm install -g @telaralabs/tap
+```
+
+The global package supplies the `tap` command, including `tap discover`,
+`tap serve`, and the other CLI commands. When npm permits install scripts,
+its install step registers the MCP server with installed Claude Code and Codex.
+If scripts are disabled, run `tap setup` after installation; recent npm
+versions can use `npm install -g --allow-scripts=@telaralabs/tap @telaralabs/tap` for
+one-command setup. An ordinary project dependency install keeps registration
+explicit: run `npm exec -- tap setup` in that project. Gemini CLI remains
+experimental and requires `tap install --client gemini`; VS Code uses the
+separate extension below. Browser-only chats do not inherit a local MCP
+registration.
+
+The package is currently source and local test material, not a published npm
+release. A Git push alone does not make this command available: the signed
+five-platform release must be staged into the npm package and published.
+
+### Release installer
 
 macOS and Linux:
 
@@ -113,6 +150,9 @@ The extension finds `tap` in `~/.local/bin`, on PATH, or at the
 ## claude.ai, in the browser
 
 **Preview.** See [web.md](web.md).
+The local stdio MCP is available to a web conversation only when that client
+has a supported desktop companion that starts and connects the local server.
+The Artifact preview described in web.md is a separate path.
 
 ## Checking a release yourself
 

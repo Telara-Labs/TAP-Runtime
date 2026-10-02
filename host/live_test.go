@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -42,9 +44,11 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			work, _ := filepath.EvalSymlinks(t.TempDir())
+			catalogRoot := filepath.Join(work, "catalog")
+			identity := stageLivePackage(t, catalogRoot, pkg)
 			cfg := filepath.Join(work, "mcp.json")
 			j, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"tap": map[string]any{
-				"command": bin, "args": []string{"serve", "--interpreters", store, "--runs", filepath.Join(work, "runs"), "--journal", filepath.Join(work, "journal.jsonl"), "--config-dir", filepath.Join(work, "config")}}}})
+				"command": bin, "args": []string{"serve", "--interpreters", store, "--runs", filepath.Join(work, "runs"), "--journal", filepath.Join(work, "journal.jsonl"), "--config-dir", filepath.Join(work, "config"), "--catalog-root", catalogRoot}}}})
 			os.WriteFile(cfg, j, 0o600)
 
 			cmd := exec.Command("claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
@@ -58,6 +62,16 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 			defer func() { in.Close(); cmd.Process.Kill(); cmd.Wait() }()
 			sc := bufio.NewScanner(out)
 			sc.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
+			messages := make(chan map[string]any, 64)
+			go func() {
+				defer close(messages)
+				for sc.Scan() {
+					var m map[string]any
+					if json.Unmarshal(sc.Bytes(), &m) == nil {
+						messages <- m
+					}
+				}
+			}()
 			send := func(v any) { b, _ := json.Marshal(v); in.Write(append(b, '\n')) }
 
 			n := 0
@@ -72,11 +86,18 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 					req[k] = v
 				}
 				send(map[string]any{"type": "control_request", "request_id": rid, "request": req})
-				deadline := time.Now().Add(90 * time.Second)
-				for time.Now().Before(deadline) && sc.Scan() {
+				deadline := time.NewTimer(30 * time.Second)
+				defer deadline.Stop()
+				for {
 					var m map[string]any
-					if json.Unmarshal(sc.Bytes(), &m) != nil {
-						continue
+					select {
+					case next, ok := <-messages:
+						if !ok {
+							return nil, fmt.Errorf("%s: client closed its output", subtype)
+						}
+						m = next
+					case <-deadline.C:
+						return nil, fmt.Errorf("%s: no answer within 30 seconds", subtype)
 					}
 					if m["type"] == "control_request" {
 						r, _ := m["request"].(map[string]any)
@@ -107,7 +128,6 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 					res, _ := r["response"].(map[string]any)
 					return res, nil
 				}
-				return nil, fmt.Errorf("%s: no answer", subtype)
 			}
 
 			if _, err := request("initialize", map[string]any{"hooks": map[string]any{}}); err != nil {
@@ -132,7 +152,12 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 			if !connected {
 				t.Fatal("Claude Code did not connect to the runner")
 			}
-			r, err := request("mcp_call", map[string]any{"tool": "mcp__tap__tap_run", "arguments": map[string]any{"package": pkg}})
+			probe, err := request("mcp_call", map[string]any{"tool": "mcp__tap__tap_search", "arguments": map[string]any{"query": "writer"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("Claude Code TAP search: %v", probe)
+			r, err := request("mcp_call", map[string]any{"tool": "mcp__tap__tap_run", "arguments": identity})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -187,7 +212,9 @@ func TestLiveElicitationThroughCodex(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			work, _ := filepath.EvalSymlinks(t.TempDir())
-			args, _ := json.Marshal([]string{"serve", "--interpreters", store, "--runs", filepath.Join(work, "runs"), "--config-dir", filepath.Join(work, "config")})
+			catalogRoot := filepath.Join(work, "catalog")
+			identity := stageLivePackage(t, catalogRoot, pkg)
+			args, _ := json.Marshal([]string{"serve", "--interpreters", store, "--runs", filepath.Join(work, "runs"), "--config-dir", filepath.Join(work, "config"), "--catalog-root", catalogRoot})
 			// The runner is registered for this one process. No
 			// configuration file is changed.
 			cmd := exec.Command("codex", "-c", fmt.Sprintf("mcp_servers.tap.command=%q", bin),
@@ -248,7 +275,7 @@ func TestLiveElicitationThroughCodex(t *testing.T) {
 			th, _ := r["thread"].(map[string]any)
 			thread, _ := th["id"].(string)
 			r, err = call("mcpServer/tool/call", map[string]any{"server": "tap", "tool": "tap_run",
-				"arguments": map[string]any{"package": pkg}, "threadId": thread})
+				"arguments": identity, "threadId": thread})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -274,4 +301,27 @@ func TestLiveElicitationThroughCodex(t *testing.T) {
 			}
 		})
 	}
+}
+
+func stageLivePackage(t *testing.T, catalogRoot, pkg string) map[string]any {
+	t.Helper()
+	sum := sha256.Sum256([]byte(pkg))
+	dest := filepath.Join(catalogRoot, hex.EncodeToString(sum[:8]))
+	if err := os.MkdirAll(dest, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"primitive.yaml", "main.sh"} {
+		body, err := os.ReadFile(filepath.Join(pkg, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dest, name), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	digest, manifest, err := packageDigest(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]any{"ref": manifest.Metadata.Publisher + "/" + manifest.Metadata.Name + "@" + manifest.Metadata.Version, "digest": digest}
 }
