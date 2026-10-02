@@ -31,6 +31,49 @@ func TestSplitKeys(t *testing.T) {
 	}
 }
 
+func TestSplitInputBuffersFragmentedMouseReport(t *testing.T) {
+	keys, rest := splitInput("j\x1b[<64;12;")
+	if got := strings.Join(keys, "|"); got != "j" {
+		t.Fatalf("first read keys = %q", got)
+	}
+	if rest != "\x1b[<64;12;" {
+		t.Fatalf("pending report = %q", rest)
+	}
+	keys, rest = splitInput(rest + "8M\x1b[<65;12;8M")
+	if got := strings.Join(keys, "|"); got != "\x1b[<64;12;8M|\x1b[<65;12;8M" {
+		t.Fatalf("completed reports = %q", got)
+	}
+	if rest != "" {
+		t.Fatalf("unexpected pending bytes = %q", rest)
+	}
+}
+
+func TestMouseWheelRoutesToDiscoverViews(t *testing.T) {
+	ui := newTUI(twoFamilies())
+	if delta, ok := mouseWheelDelta("\x1b[<64;12;8M"); !ok || delta != -1 {
+		t.Fatalf("wheel up = %d, %v", delta, ok)
+	}
+	if delta, ok := mouseWheelDelta("\x1b[<65;12;8M"); !ok || delta != 1 {
+		t.Fatalf("wheel down = %d, %v", delta, ok)
+	}
+	if _, ok := mouseWheelDelta("\x1b[<0;12;8M"); ok {
+		t.Fatal("ordinary mouse click was treated as a wheel event")
+	}
+	ui.key("\x1b[<65;12;8M")
+	if ui.cursor != 1 {
+		t.Fatalf("list wheel did not move selection: cursor=%d", ui.cursor)
+	}
+	ui.view, ui.cursor, ui.scroll = cardView, 0, 0
+	ui.key("\x1b[<65;12;8M")
+	if ui.scroll != 1 || ui.cursor != 0 {
+		t.Fatalf("card wheel changed scroll=%d cursor=%d", ui.scroll, ui.cursor)
+	}
+	ui.key("\x1b[<64;12;8M")
+	if ui.scroll != 0 {
+		t.Fatalf("wheel up did not scroll card back: %d", ui.scroll)
+	}
+}
+
 func TestTUIListCardReviewSubmit(t *testing.T) {
 	ui := newTUI(twoFamilies())
 	if len(ui.shown) != 2 {
