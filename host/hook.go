@@ -18,8 +18,16 @@ import (
 // it carries the result to the run and asks Gemini to make the next call, or,
 // at the end, to call tap_result, whose short answer replaces the chain.
 func hookCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "windsurf" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintln(stderr, "tap hook windsurf:", err)
+			return 0
+		}
+		return windsurfHook(stdin, stderr, home)
+	}
 	if len(args) != 1 || args[0] != "gemini" {
-		fmt.Fprintln(stderr, "usage: host hook gemini")
+		fmt.Fprintln(stderr, "usage: tap hook gemini|windsurf")
 		return 2
 	}
 	dir, err := relayDir()
