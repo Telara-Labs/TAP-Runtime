@@ -186,7 +186,7 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	header(out, s, res, cfg.Clients)
 	writeSummary(out, s, res, cfg.Clients)
 	if n := hidden["accept"] + hidden["deny"] + hidden["eval"]; n > 0 {
-		fmt.Fprintln(out, "  "+s.dim(fmt.Sprintf("Already decided and not shown again: %d accepted, %d declined, %d in refinement. Change one with: tap discover --revisit",
+		fmt.Fprintln(out, "  "+s.dim(fmt.Sprintf("Already decided and not shown again: %d installed, %d dismissed, %d handoffs exported. Change one with: tap discover --revisit",
 			hidden["accept"], hidden["deny"], hidden["eval"])))
 	}
 	if len(shown) == 0 {
@@ -195,7 +195,7 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	}
 	choice := make([]string, len(shown))
 	list := func() {
-		section(out, s, "Proposed primitives (largest estimated saving first)")
+		section(out, s, "Discovered flows and patterns (largest estimated saving first)")
 		listTable(out, s, shown, choice, -1)
 	}
 	list()
@@ -219,14 +219,18 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	inspect := func() bool {
 		for pos < len(shown) {
 			card(out, s, pos+1, len(shown), shown[pos], byID, choice[pos], res.Summary)
-			k, ok := read(keys(s, "a", "accept", "d", "deny", "e", "agent eval", "n", "next", "p", "previous", "s", "review", "q", "quit"))
+			actions := []string{"d", "dismiss", "e", "prepare handoff", "n", "next", "p", "previous", "s", "review choices", "q", "quit"}
+			if shown[pos].APIMode != "needs_refinement" {
+				actions = append([]string{"a", "accept and install"}, actions...)
+			}
+			k, ok := read(keys(s, actions...))
 			if !ok || k == "q" {
 				return false
 			}
 			switch k {
 			case "a", "d", "e":
 				if k == "a" && shown[pos].APIMode == "needs_refinement" {
-					fmt.Fprintln(out, "  No executable API: "+shown[pos].APIReason+". Choose agent eval or continue.")
+					fmt.Fprintln(out, "  Install is unavailable: "+shown[pos].APIReason+". Press e to select a refinement handoff, or n for the next pattern.")
 					continue
 				}
 				choice[pos] = map[string]string{"a": "accept", "d": "deny", "e": "eval"}[k]
@@ -240,14 +244,14 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 			case "s":
 				return true
 			default:
-				fmt.Fprintln(out, s.dim("  Choose a, d, e, n, p, s or q."))
+				fmt.Fprintln(out, s.dim("  Choose one of the actions shown above."))
 			}
 		}
 		pos = len(shown) - 1 // back from the review returns to the last card
 		return true
 	}
 	for {
-		k, ok := read(keys(s, "i", "inspect each", "a", "approve all", "q", "quit"))
+		k, ok := read(keys(s, "i", "inspect each", "a", "install all runnable", "q", "quit"))
 		if !ok || k == "q" {
 			fmt.Fprintln(out, "Nothing saved.")
 			return nil
@@ -272,6 +276,7 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 		}
 		for {
 			section(out, s, "Review")
+			fmt.Fprintln(out, "  Choices are pending. Submitting installs accepted flows, writes selected handoffs, and hides dismissed patterns.")
 			t := table{head: []string{"#", "Choice", "Primitive"}, widths: []int{3, 7, 70}, right: map[int]bool{0: true}}
 			n := 0
 			for i, f := range shown {
@@ -286,7 +291,7 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 				fmt.Fprintln(out, "  No choices made.")
 			}
 			fmt.Fprintf(out, "  %d of %d undecided (left as they are). Nothing is written until you submit.\n", len(shown)-n, len(shown))
-			k, ok := read(keys(s, "s", "submit", "b", "back", "q", "quit without saving"))
+			k, ok := read(keys(s, "s", "submit choices", "b", "back", "q", "quit without saving"))
 			if !ok || k == "q" {
 				fmt.Fprintln(out, "Nothing saved.")
 				return nil
@@ -311,7 +316,7 @@ func title(f Family) string {
 	case f.APIMode == "caller_choice":
 		t += fmt.Sprintf(" → choose 1 of %d actions", len(f.APIChoices))
 	case f.APIMode == "needs_refinement":
-		t += fmt.Sprintf(" · refine %d continuations", n)
+		t += fmt.Sprintf(" · %d observed continuations · API undefined", n)
 	case n == 1:
 		t += " → " + followUpText(f.FollowUps[0])
 	case n > 1:
@@ -358,13 +363,14 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 		fmt.Fprintln(out, " Your choice: "+s.choice(pending))
 	}
 	if f.APIMode != "" {
-		section(out, s, "Proposed API")
+		section(out, s, "API status")
 		switch f.APIMode {
 		case "caller_choice":
 			fmt.Fprintln(out, "  Input: action (required). Runs the first operation once, then exactly one selected continuation.")
 			fmt.Fprintln(out, "  Choices: "+strings.Join(f.APIChoices, ", "))
 		case "needs_refinement":
-			fmt.Fprintln(out, "  No executable API established. Accept is unavailable; send this pattern to agent eval to define its contract.")
+			fmt.Fprintln(out, "  No runnable API exists for this pattern yet. Press e to select a refinement handoff, then submit from Review to write it.")
+			fmt.Fprintln(out, "  The handoff gives a coding agent the recorded calls and open questions; it does not run an agent or install anything.")
 			if f.APIReason != "" {
 				fmt.Fprintln(out, "  Reason: "+f.APIReason)
 			}
@@ -460,13 +466,14 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 		it.render(out, s)
 	}
 
-	section(out, s, "Needs attention")
+	section(out, s, "Questions in the recorded evidence")
+	fmt.Fprintln(out, s.dim("  These are uncertain value links or decisions found in past calls; they are not executable steps."))
 	if len(f.Questions) == 0 {
-		fmt.Fprintln(out, "  Nothing open.")
+		fmt.Fprintln(out, "  No open evidence questions.")
 	} else {
 		for i, q := range f.Questions {
 			if i == 5 {
-				fmt.Fprintf(out, "  …and %d more (agent eval writes them all out with the evidence)\n", len(f.Questions)-5)
+				fmt.Fprintf(out, "  …and %d more (included in the exported handoff)\n", len(f.Questions)-5)
 				break
 			}
 			for j, l := range wrapText(q, max(20, min(s.cols(), screen)-6)) {
@@ -521,7 +528,7 @@ func submit(out io.Writer, s style, shown []Family, choice []string, byID map[st
 		switch choice[i] {
 		case "accept":
 			if f.APIMode == "needs_refinement" {
-				return fmt.Errorf("%s has no executable API: %s; choose agent eval", title(f), f.APIReason)
+				return fmt.Errorf("%s has no runnable API: %s; export a refinement handoff instead", title(f), f.APIReason)
 			}
 			if cfg.Install == nil {
 				if err := acceptFamily(cfg.StateDir, f, byID); err != nil {
@@ -588,7 +595,7 @@ func submit(out io.Writer, s style, shown []Family, choice []string, byID map[st
 		fmt.Fprintln(out, s.dim("  Your agent can run these now. Anything that may change data asks you first."))
 	}
 	if len(handed) > 0 {
-		section(out, s, fmt.Sprintf("For your coding agent to refine (%d)", len(handed)))
+		section(out, s, fmt.Sprintf("Refinement handoffs exported (%d)", len(handed)))
 		for _, l := range handed {
 			fmt.Fprintln(out, "  "+s.info("→")+" "+l)
 		}
@@ -763,7 +770,7 @@ func pastTense(d string) string {
 	case "deny":
 		return "declined it"
 	case "eval":
-		return "sent it to agent eval"
+		return "exported its handoff"
 	}
 	return "decided"
 }

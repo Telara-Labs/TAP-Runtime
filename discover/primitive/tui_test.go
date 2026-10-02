@@ -2,6 +2,7 @@ package primitive
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
@@ -71,6 +72,38 @@ func TestMouseWheelRoutesToDiscoverViews(t *testing.T) {
 	ui.key("\x1b[<64;12;8M")
 	if ui.scroll != 0 {
 		t.Fatalf("wheel up did not scroll card back: %d", ui.scroll)
+	}
+}
+
+func TestTUIShowsOnlyAvailableActions(t *testing.T) {
+	ui := newTUI(twoFamilies())
+	out, err := os.CreateTemp(t.TempDir(), "discover-frame-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	ui.out = out
+	ui.view = cardView
+	ui.w = 100
+	ui.shown[0].APIMode = "needs_refinement"
+	ui.draw()
+	frame, err := os.ReadFile(out.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	footer := string(frame[strings.LastIndex(string(frame), "\r\n")+2:])
+	if strings.Contains(footer, "[a]") || !strings.Contains(footer, "[e] prepare handoff") || !strings.Contains(footer, "[d] dismiss") || !strings.Contains(footer, "[s] review choices") {
+		t.Fatalf("unresolved card actions = %q", footer)
+	}
+	ui.shown[0].APIMode = "exact_flow"
+	ui.draw()
+	frame, err = os.ReadFile(out.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	footer = string(frame[strings.LastIndex(string(frame), "\r\n")+2:])
+	if !strings.Contains(footer, "[a] accept and install") || !strings.Contains(footer, "[s] review choices") {
+		t.Fatalf("runnable card actions = %q", footer)
 	}
 }
 
