@@ -172,3 +172,28 @@ func TestTUIDrawFitsTheScreen(t *testing.T) {
 		t.Fatalf("views missing content:\n%s", out.String())
 	}
 }
+
+// The view keeps the terminal's own selection: it asks for alternate scroll
+// (the wheel arrives as arrow keys), never mouse reporting, and reads the
+// arrow keys in both encodings terminals send.
+func TestWheelArrivesAsArrowsAndSelectionStaysWithTheTerminal(t *testing.T) {
+	keys, rest := splitInput("\x1bOB\x1bOA\x1b[B")
+	if strings.Join(keys, "|") != "\x1bOB|\x1bOA|\x1b[B" || rest != "" {
+		t.Fatalf("keys %q rest %q", keys, rest)
+	}
+	if keys, rest := splitInput("\x1bO"); len(keys) != 0 || rest != "\x1bO" {
+		t.Fatalf("a split SS3 key was not held for the next read: %q %q", keys, rest)
+	}
+	ui := newTUI(twoFamilies())
+	ui.key("\x1bOB")
+	if ui.cursor != 1 {
+		t.Fatalf("SS3 down did not move: cursor %d", ui.cursor)
+	}
+	src, err := os.ReadFile("tui.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(src), "?1000h") || !strings.Contains(string(src), "?1007h") {
+		t.Fatal("the view must use alternate scroll, not mouse reporting")
+	}
+}
