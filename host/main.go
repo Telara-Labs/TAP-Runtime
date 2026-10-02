@@ -456,7 +456,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	// checks for. Closing the engine under a running program is a race.
 	guestCtx, stopGuest := context.WithCancel(ctx)
 	defer stopGuest()
-	rc := wazero.NewRuntimeConfig().WithCloseOnContextDone(true)
+	rc := wazero.NewRuntimeConfig().WithCloseOnContextDone(true).WithMemoryLimitPages(guestMemoryPages)
+	for _, k := range unenforcedLimits {
+		if _, ok := m.Execution.Limits[k]; ok {
+			logf("limit      %s is declared and this runner does not enforce it", k)
+		}
+	}
 	if o.CacheDir != "" {
 		cache, err := wazero.NewCompilationCacheWithDir(o.CacheDir)
 		if err != nil {
@@ -493,6 +498,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		cfg = observed(cfg, run.Observed)
 	}
 
+	// The clock starts when the program does, not while the interpreter is
+	// being compiled.
+	bud := newBudget(timeoutFor(m.Execution.TimeoutSeconds), stopGuest)
+	defer bud.stop()
 	done := make(chan error, 1)
 	go func() {
 		_, err := rt.InstantiateModule(guestCtx, compiled, cfg)
@@ -542,7 +551,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		if !a.declined && a.left == 0 {
 			var g Grant
 			if o.Approve != nil {
+				bud.pause()
 				g = o.Approve(Ask{Primitive: m.Metadata.Name, Effect: effect, Kind: kind, Example: example, Done: a.done})
+				bud.resume()
 			}
 			switch {
 			case !g.OK:
@@ -639,6 +650,25 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return reply{Refused: "unknown request"}
 	}
 
+	// A primitive may make only so many requests (limits.max_dispatches).
+	// Asking what tools are bound, or whether a write is allowed, is free.
+	maxDispatches, dispatches := dispatchesFor(m.Execution.Limits), 0
+	var dispatchMu sync.Mutex
+	inner := act
+	act = func(rq request) reply {
+		if rq.Method != "tools" && rq.Method != "canwrite" {
+			dispatchMu.Lock()
+			dispatches++
+			over := dispatches > maxDispatches
+			dispatchMu.Unlock()
+			if over {
+				logf("  REFUSED  %s  (over limits.max_dispatches = %d)", rq.Method, maxDispatches)
+				return reply{Refused: fmt.Sprintf("the primitive has made its %d requests (limits.max_dispatches)", maxDispatches)}
+			}
+		}
+		return inner(rq)
+	}
+
 	res := &Result{Admission: adm}
 	telRes = res
 	if run != nil {
@@ -716,7 +746,16 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	inFlight := make(chan struct{}, 8)
 	answered := 0
 	for final == nil && !stopped.Load() {
-		line, rerr := rd.ReadBytes('\n')
+		line, rerr := readLine(rd, maxGuestLine)
+		if errors.Is(rerr, errLineTooLong) {
+			resMu.Lock()
+			if firstErr == nil {
+				firstErr = rerr
+			}
+			resMu.Unlock()
+			stopped.Store(true)
+			break
+		}
 		if len(line) > 0 {
 			var rq request
 			if jerr := json.Unmarshal(line, &rq); jerr != nil {
@@ -780,6 +819,20 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 	}
 	wg.Wait()
+	if bud.expired() {
+		outcome = "timed_out"
+		toGuestW.Close()
+		go io.Copy(io.Discard, fromGuestR)
+		stopGuest()
+		<-done
+		msg := fmt.Sprintf("the primitive ran past its time limit of %s and was stopped", timeoutFor(m.Execution.TimeoutSeconds))
+		audit("timed_out", "run", "", map[string]any{"limit_seconds": int(timeoutFor(m.Execution.TimeoutSeconds) / time.Second)})
+		logf("%s", msg)
+		if run != nil {
+			run.Finish(outcome, time.Now().UTC())
+		}
+		return nil, errors.New(msg)
+	}
 	if firstErr != nil {
 		outcome = "interrupted"
 		toGuestW.Close()

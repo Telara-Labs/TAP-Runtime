@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"gitlab.com/telara-labs/tap-runtime/contract/glob"
@@ -254,7 +254,9 @@ func runCommand(m *manifest, rq request, approve bool, journal io.Writer) reply 
 		return reply{Refused: "program not installed on this machine"}
 	}
 	t0 := time.Now()
-	cmd := exec.Command(path, rq.Args...)
+	cctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, path, rq.Args...)
 	var names []string
 	cmd.Env, names = environFor(decl, os.Environ())
 	cwd, _ := os.Getwd()
@@ -262,8 +264,8 @@ func runCommand(m *manifest, rq request, approve bool, journal io.Writer) reply 
 	if rq.Stdin != "" {
 		cmd.Stdin = strings.NewReader(rq.Stdin)
 	}
-	var so, se bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &so, &se
+	so, se := &cappedBuffer{max: maxCommandOutput}, &cappedBuffer{max: maxCommandOutput}
+	cmd.Stdout, cmd.Stderr = so, se
 	exit := 0
 	if err := cmd.Run(); err != nil {
 		var ee *exec.ExitError
@@ -273,6 +275,12 @@ func runCommand(m *manifest, rq request, approve bool, journal io.Writer) reply 
 			exit = 127
 			se.WriteString(err.Error())
 		}
+	}
+	if cctx.Err() != nil {
+		se.WriteString("\nthe runner stopped this program after " + commandTimeout.String())
+	}
+	if so.truncated || se.truncated {
+		se.WriteString("\noutput past the runner's limit was dropped")
 	}
 	logf("  run      %s  [%s] exit=%d in=%dB out=%dB %s", line, effect, exit, len(rq.Stdin), so.Len(), time.Since(t0).Round(time.Millisecond))
 	record("ran", map[string]any{"exit": exit, "stdin_bytes": len(rq.Stdin), "stdout_bytes": so.Len(),
