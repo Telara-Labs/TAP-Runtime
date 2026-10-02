@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -171,3 +172,34 @@ func TestSaveMigratesOldSaves(t *testing.T) {
 		t.Fatalf("the save does not report the migration:\n%s", out.String())
 	}
 }
+
+// End to end for TENG-3125: a plain VS Code install is not taken for a
+// Copilot user, so it gets no pointer; once Copilot Chat has kept state, the
+// save points VS Code's Copilot at the primitive too.
+func TestPointersFollowCopilotChatDetection(t *testing.T) {
+	home, _ := isolatedHome(t)
+	writeClaudeChain(t, home, 3)
+	user := filepath.Join(home, "Library", "Application Support", "Code", "User")
+	if runtimeGOOS() != "darwin" {
+		user = filepath.Join(home, ".config", "Code", "User")
+	}
+	os.MkdirAll(filepath.Join(user, "globalStorage", "ms-python.python"), 0o755)
+	var out, errOut bytes.Buffer
+	if code := discover.Command([]string{"--all"}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, ".copilot")); err == nil || strings.Contains(out.String(), "vscode-copilot") {
+		t.Fatalf("plain VS Code got a Copilot pointer:\n%s", out.String())
+	}
+	os.MkdirAll(filepath.Join(user, "globalStorage", "github.copilot-chat"), 0o755)
+	os.RemoveAll(filepath.Join(home, ".tap"))
+	out.Reset()
+	if code := discover.Command([]string{"--all"}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "vscode-copilot: written "+filepath.Join(home, ".copilot", "skills")) {
+		t.Fatalf("no Copilot pointer once Copilot Chat is there:\n%s", out.String())
+	}
+}
+
+func runtimeGOOS() string { return runtime.GOOS }

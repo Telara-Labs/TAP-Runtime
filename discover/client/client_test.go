@@ -144,3 +144,51 @@ func TestBridgeClientsCanConnectMCP(t *testing.T) {
 		}
 	}
 }
+
+// Every entry says where its facts were checked (TENG-3125).
+func TestEveryEntryNamesItsSource(t *testing.T) {
+	for _, c := range All() {
+		if len(c.Source) < 20 {
+			t.Errorf("%s: no source", c.ID)
+		}
+	}
+}
+
+// VS Code counts as Copilot only where Copilot Chat has kept state; a
+// plain VS Code install is not a Copilot user.
+func TestVSCodeIsCopilotOnlyWithCopilotChat(t *testing.T) {
+	home := t.TempDir()
+	user := filepath.Join(home, "Library", "Application Support", "Code", "User")
+	os.MkdirAll(filepath.Join(user, "globalStorage", "ms-python.python"), 0o755)
+	c, _ := Lookup("vscode-copilot")
+	if c.InstalledUnder(home) {
+		t.Fatal("VS Code without Copilot Chat detected as Copilot")
+	}
+	os.MkdirAll(filepath.Join(user, "globalStorage", "github.copilot-chat"), 0o755)
+	if !c.InstalledUnder(home) {
+		t.Fatal("Copilot Chat state not detected")
+	}
+}
+
+// Windows locations resolve through the existing APPDATA / LOCALAPPDATA
+// variables, or their default place under home.
+func TestWindowsAppDataMarkers(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("APPDATA", "")
+	if got := MarkerPath("$APPDATA/Cursor", home); got != filepath.Join(home, "AppData", "Roaming", "Cursor") {
+		t.Errorf("default APPDATA: %s", got)
+	}
+	roaming := t.TempDir()
+	t.Setenv("APPDATA", roaming)
+	if got := MarkerPath("$APPDATA/Cursor", home); got != filepath.Join(roaming, "Cursor") {
+		t.Errorf("APPDATA: %s", got)
+	}
+	os.MkdirAll(filepath.Join(roaming, "Cursor"), 0o755)
+	c, _ := Lookup("cursor")
+	if !c.InstalledUnder(home) {
+		t.Error("Cursor under APPDATA not detected")
+	}
+	if got := MarkerPath(".claude", home); got != filepath.Join(home, ".claude") {
+		t.Errorf("home marker: %s", got)
+	}
+}
