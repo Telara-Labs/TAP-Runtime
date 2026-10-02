@@ -101,7 +101,36 @@ func (v *VSCode) Asks(t bind.Tool) (bool, error) {
 		v.askSet = cached
 		v.mu.Unlock()
 	}
-	return cached[t.Name], nil
+	for key := range cached {
+		if askKeyCovers(key, t) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// askKeyCovers reports whether a key of chat.tools.eligibleForAutoApproval
+// names the tool. VS Code keys the setting by a tool's reference name, which
+// for an MCP tool is "<server>/<tool>" (read from the shipped VS Code, 1.138),
+// and "<server>/*" for a whole server. The editor lists the tool as
+// mcp_<server>_<tool>, so a key matches by its tool part as a suffix of that
+// name, or by its server part for a whole server. This is a best match, not
+// the editor's own lookup.
+func askKeyCovers(key string, t bind.Tool) bool {
+	if key == t.Name {
+		return true
+	}
+	server, tool := "", key
+	if i := strings.LastIndex(key, "/"); i >= 0 {
+		server, tool = key[:i], key[i+1:]
+	}
+	if tool == "*" {
+		return server != "" && server == t.Server
+	}
+	if server != "" && server != t.Server && !strings.EqualFold(server, t.Server) {
+		return false
+	}
+	return tool == t.Name || strings.HasSuffix(t.Name, "_"+tool)
 }
 func (v *VSCode) Close() { v.conn.Close() }
 

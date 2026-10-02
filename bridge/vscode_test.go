@@ -121,3 +121,20 @@ func TestVSCodeAsksComesFromTheAutoApprovalSetting(t *testing.T) {
 		t.Error("a tool not listed was an ask rule")
 	}
 }
+
+func TestVSCodeAskKeysAreMatchedByReferenceName(t *testing.T) {
+	tool := bind.Tool{Server: "github", Name: "mcp_github_search_issues"}
+	for key, want := range map[string]bool{
+		"mcp_github_search_issues": true,  // the editor's own name
+		"github/search_issues":     true,  // server/tool reference name
+		"github/*":                 true,  // a whole server
+		"search_issues":            true,  // a bare reference name
+		"gitlab/search_issues":     false, // another server's tool
+		"github/create_issue":      false,
+		"fetch":                    false,
+	} {
+		if got := askKeyCovers(key, tool); got != want {
+			t.Errorf("%q: %v, want %v", key, got, want)
+		}
+	}
+}
