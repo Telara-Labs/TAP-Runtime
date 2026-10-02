@@ -251,6 +251,7 @@ func directGraphVia(p primitive.Primitive, by map[string]*trace.Session, headRou
 		values := map[string][]string{}
 		fields := map[string]trace.ObservedField{}
 		present := map[string]int{}
+		inCall := map[string]map[int]bool{} // path -> calls that passed it
 		calls := 0
 		for _, u := range kept {
 			for _, c := range u[n] {
@@ -259,6 +260,10 @@ func directGraphVia(p primitive.Primitive, by map[string]*trace.Session, headRou
 					values[path] = append(values[path], f.Value)
 					fields[path] = f
 					present[path]++
+					if inCall[path] == nil {
+						inCall[path] = map[int]bool{}
+					}
+					inCall[path][calls] = true
 				}
 			}
 		}
@@ -315,6 +320,7 @@ func directGraphVia(p primitive.Primitive, by map[string]*trace.Session, headRou
 			}
 			step.Args = append(step.Args, arg)
 		}
+		step.Args = mergeArgNames(step.Args, inCall, calls)
 		// An optional argument carrying exactly what a required one carries
 		// (the same earlier result) is an older name for the same value:
 		// every recorded use worked without it, so it is left out.
@@ -354,6 +360,54 @@ func directGraphVia(p primitive.Primitive, by map[string]*trace.Session, headRou
 		g.Steps = append(g.Steps, step)
 	}
 	return g, ""
+}
+
+// mergeArgNames finds one value sent under several argument names: optional
+// arguments taken from the same earlier result, never two in one call, and
+// together present in every call. Each recorded call succeeded with the name
+// it used, so the program sends the one most calls used, always.
+func mergeArgNames(args []codegen.ProgramArg, inCall map[string]map[int]bool, calls int) []codegen.ProgramArg {
+	groups := map[codegen.ProgramValue][]int{}
+	for i, a := range args {
+		if a.Optional && a.Value.Kind == "result" {
+			groups[a.Value] = append(groups[a.Value], i)
+		}
+	}
+	drop := map[int]bool{}
+	for _, idx := range groups {
+		if len(idx) < 2 {
+			continue
+		}
+		seen := map[int]bool{}
+		disjoint := true
+		for _, i := range idx {
+			for c := range inCall[strings.Join(args[i].Path, "/")] {
+				disjoint = disjoint && !seen[c]
+				seen[c] = true
+			}
+		}
+		if !disjoint || len(seen) != calls {
+			continue
+		}
+		best := idx[0]
+		for _, i := range idx[1:] {
+			a, b := strings.Join(args[i].Path, "/"), strings.Join(args[best].Path, "/")
+			if len(inCall[a]) > len(inCall[b]) || len(inCall[a]) == len(inCall[b]) && a < b {
+				best = i
+			}
+		}
+		for _, i := range idx {
+			drop[i] = i != best
+		}
+		args[best].Optional = false
+	}
+	var out []codegen.ProgramArg
+	for i, a := range args {
+		if !drop[i] {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // listItem splits a path to one list item into the list and the item's

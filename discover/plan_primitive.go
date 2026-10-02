@@ -150,6 +150,14 @@ func planPrimitiveFamilies(res *primitive.Result, sessions []trace.Session) {
 			}
 		}
 		for j := range f.FollowUps {
+			if op := repeatOf(*f, f.FollowUps[j], byID); op != "" {
+				for _, k := range keep.FollowUps {
+					if len(k.Steps) == 1 && k.Steps[0] == op {
+						f.FollowUps[j].APIMode = "exact_chain"
+						f.FollowUps[j].APIReason = "covered: give " + strings.TrimPrefix(op, "mcp:") + " several items"
+					}
+				}
+			}
 			prefix := strings.Join(f.FollowUps[j].Steps, " > ") + ": "
 			for _, omitted := range left {
 				if strings.HasPrefix(omitted, prefix) {
@@ -197,8 +205,8 @@ func planPrimitiveFamilies(res *primitive.Result, sessions []trace.Session) {
 // long gaps or values only mentioned in text (caller inputs by rule) do not
 // block.
 func continuationIssue(p primitive.Primitive) string {
-	if len(p.Steps) != 2 {
-		return "this continuation contains more than one downstream operation"
+	if len(p.Steps) < 2 {
+		return "this continuation has no downstream operation"
 	}
 	if p.Confidence.Readiness == "needs_decision" {
 		if len(p.Confidence.NeedsReview) > 0 {
@@ -221,7 +229,25 @@ func executableFamily(f primitive.Family, members []primitive.Primitive, by map[
 	keep.FollowUps = nil
 	var kept []primitive.Primitive
 	var left []string
+	// Repeats go last, so the follow-up they repeat is already decided.
+	var order, repeats []primitive.FollowUp
 	for _, fu := range f.FollowUps {
+		if repeatOf(f, fu, byID) != "" {
+			repeats = append(repeats, fu)
+		} else {
+			order = append(order, fu)
+		}
+	}
+	for _, fu := range append(order, repeats...) {
+		if op := repeatOf(f, fu, byID); op != "" {
+			covered := false
+			for _, k := range keep.FollowUps {
+				covered = covered || len(k.Steps) == 1 && k.Steps[0] == op
+			}
+			if covered {
+				continue
+			}
+		}
 		ok := len(fu.Members) > 0
 		for _, id := range fu.Members {
 			if score, _, _ := primitive.RelationshipEvidence(byID[id], by); score != 100 {
@@ -254,6 +280,41 @@ func executableFamily(f primitive.Family, members []primitive.Primitive, by map[
 		keep.FollowUps, kept = candidate.FollowUps, candidateMembers
 	}
 	return keep, kept, left
+}
+
+// repeatOf returns the operation a follow-up repeats when it is one
+// operation several times, each acting only on the head's result, and the
+// family has that operation as a one-step follow-up: giving that follow-up
+// several items does the same. Otherwise it returns "".
+func repeatOf(f primitive.Family, fu primitive.FollowUp, byID map[string]primitive.Primitive) string {
+	if len(fu.Steps) < 2 {
+		return ""
+	}
+	op := fu.Steps[0]
+	for _, st := range fu.Steps {
+		if st != op {
+			return ""
+		}
+	}
+	single := false
+	for _, other := range f.FollowUps {
+		single = single || len(other.Steps) == 1 && other.Steps[0] == op
+	}
+	if !single || len(fu.Members) == 0 {
+		return ""
+	}
+	for _, id := range fu.Members {
+		p, ok := byID[id]
+		if !ok {
+			return ""
+		}
+		for _, b := range p.Bindings {
+			if b.Source == "step" && b.From > 1 {
+				return ""
+			}
+		}
+	}
+	return op
 }
 
 func assessContinuation(p primitive.Primitive, by map[string]*trace.Session) (string, string) {

@@ -291,11 +291,12 @@ func score(p Primitive) Confidence {
 		}
 		c.Dimensions = append(c.Dimensions, d)
 	}
-	// A long gap is a point to check, listed with the open questions.
+	// A long gap is a point to check, listed after the open questions: it
+	// does not hold the flow back, so it never stands in for one that does.
+	sort.Strings(c.NeedsReview)
 	if long > 0 {
 		c.NeedsReview = append(c.NeedsReview, fmt.Sprintf("%d of %d runs: 20 minutes or more between two calls; check it is one operation", long, n))
 	}
-	sort.Strings(c.NeedsReview)
 	return c
 }
 

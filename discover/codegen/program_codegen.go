@@ -74,9 +74,33 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 		} else if step.WhenValue != "" {
 			return nil, fmt.Errorf("step %d has a branch value without an input", i+1)
 		}
+		if step.SameItemAs != 0 {
+			// A follower sits right after its leader or another follower of
+			// it, shares the leader's caller list, and has no loop of its own.
+			lead := step.SameItemAs
+			prev := g.Steps[i-1]
+			if lead < 1 || lead > i || g.Steps[lead-1].Loop == "" || g.Steps[lead-1].SameItemAs != 0 || step.Loop != g.Steps[lead-1].Loop ||
+				step.LoopResultStep != 0 || step.Tool == "shell" || step.WhenInput != "" || !(i == lead || prev.SameItemAs == lead) {
+				return nil, fmt.Errorf("step %d joins an invalid loop", i+1)
+			}
+		}
 		indexedInputs := map[string]bool{}
 		for _, arg := range step.Args {
 			v := arg.Value
+			if v.Kind == "iteration_result" {
+				producer := v.Step
+				lead := step.SameItemAs
+				if lead == 0 || producer < lead || producer > i || (producer != lead && g.Steps[producer-1].SameItemAs != lead) {
+					return nil, fmt.Errorf("step %d reads a result outside its own loop iteration", i+1)
+				}
+				if arg.Optional {
+					return nil, fmt.Errorf("step %d has an optional iteration result", i+1)
+				}
+				continue
+			}
+			if step.SameItemAs != 0 && (arg.Optional && arg.Value.Kind != "item" || v.Kind == "collection_index" || v.Kind == "collection_index_item" || v.Kind == "indexed_result") {
+				return nil, fmt.Errorf("step %d has an unsupported argument inside a joined loop", i+1)
+			}
 			if (v.Kind == "result" || v.Kind == "indexed_result") && v.Step > 0 && v.Step <= i {
 				producer := g.Steps[v.Step-1]
 				if producer.WhenInput != "" && (producer.WhenInput != step.WhenInput || producer.WhenValue != step.WhenValue) {
@@ -320,6 +344,9 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 			m.Tools = append(m.Tools, manifest.Tool{Alias: alias, Capability: capability, Effect: st.Effect,
 				Pin: &manifest.Pin{Server: st.Binding.Server, Tool: st.Binding.Tool}})
 		}
+		if st.SameItemAs != 0 {
+			continue // called inside its leader's loop
+		}
 		optionalNames, err := ProgramOptionalNames(st)
 		if err != nil {
 			return nil, fmt.Errorf("step %d: %w", i+1, err)
@@ -412,20 +439,52 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 			code.WriteString("for item in " + collection + ":\n")
 			code.WriteString("    " + resultName + ".append(" + call + ")\n")
 		} else if st.Loop != "" {
-			code.WriteString(resultName + " = []\n")
+			// The leader and the steps joined to it run in one pass per
+			// caller item; each step's results are collected in order.
+			type member struct {
+				n           int
+				alias, call string
+			}
+			members := []member{{i + 1, alias, call}}
+			for j := i + 1; j < len(g.Steps) && g.Steps[j].SameItemAs == i+1; j++ {
+				expr, err := ProgramArgsExpression(g.Steps[j].Args)
+				if err != nil {
+					return nil, fmt.Errorf("step %d arguments: %w", j+1, err)
+				}
+				a := "step_" + strconv.Itoa(j+1)
+				members = append(members, member{j + 1, a, "tap.call(" + strconv.Quote(a) + ", " + expr + ")"})
+			}
 			loopInput := "inputs[" + strconv.Quote(st.Loop) + "]"
-			if inputSpecs[st.Loop].Optional {
+			optional := inputSpecs[st.Loop].Optional
+			if optional {
 				loopInput = "inputs.get(" + strconv.Quote(st.Loop) + ", [])"
-				// Keep each completed effect visible if a later item or
-				// another follow-up fails after the head has succeeded.
-				code.WriteString("outputs[" + strconv.Quote(alias) + "] = " + resultName + "\n")
+			}
+			for _, mb := range members {
+				code.WriteString("result_" + strconv.Itoa(mb.n) + " = []\n")
+				if optional {
+					// Keep each completed effect visible if a later item or
+					// another follow-up fails after the head has succeeded.
+					code.WriteString("outputs[" + strconv.Quote(mb.alias) + "] = result_" + strconv.Itoa(mb.n) + "\n")
+				}
 			}
 			code.WriteString("for item in " + loopInput + ":\n")
-			if inputSpecs[st.Loop].Optional {
-				code.WriteString("    try:\n        " + resultName + ".append(" + call + ")\n")
-				code.WriteString("    except Exception as exc:\n        print(json.dumps({'partial': outputs, 'failed_step': " + strconv.Quote(alias) + ", 'error': str(exc)}, sort_keys=True), file=sys.stderr)\n        raise\n")
-			} else {
-				code.WriteString("    " + resultName + ".append(" + call + ")\n")
+			indent := "    "
+			if optional {
+				code.WriteString("    _step = " + strconv.Quote(alias) + "\n    try:\n")
+				indent = "        "
+			}
+			for k, mb := range members {
+				if optional && k > 0 {
+					code.WriteString(indent + "_step = " + strconv.Quote(mb.alias) + "\n")
+				}
+				code.WriteString(indent + "_r_" + strconv.Itoa(mb.n) + " = " + mb.call + "\n")
+				code.WriteString(indent + "result_" + strconv.Itoa(mb.n) + ".append(_r_" + strconv.Itoa(mb.n) + ")\n")
+			}
+			if optional {
+				code.WriteString("    except Exception as exc:\n        print(json.dumps({'partial': outputs, 'failed_step': _step, 'error': str(exc)}, sort_keys=True), file=sys.stderr)\n        raise\n")
+			}
+			for _, mb := range members[1:] {
+				code.WriteString("outputs[" + strconv.Quote(mb.alias) + "] = result_" + strconv.Itoa(mb.n) + "\n")
 			}
 		} else {
 			code.WriteString(resultName + " = " + call + "\n")
@@ -519,6 +578,9 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 		}
 		if st.DistinctLoopSelections {
 			fmt.Fprintf(&readme, "   Selected positions in `%s` must be distinct.\n", st.Loop)
+		}
+		if st.SameItemAs != 0 {
+			fmt.Fprintf(&readme, "   Runs right after step %d, for the same item.\n", st.SameItemAs)
 		}
 		if st.WhenInput != "" {
 			fmt.Fprintf(&readme, "   Runs only when `%s` is `%s`.\n", st.WhenInput, st.WhenValue)
@@ -834,6 +896,12 @@ func RenderProgramTree(n *ProgramArgTree) (string, string, error) {
 			return "_at(" + selected + ", " + path + ")", presence, nil
 		case "selector":
 			return strconv.Quote(n.Value.Selector), presence, nil
+		case "iteration_result":
+			path, err := ProgramResultPath(n.Value.ResultPath)
+			if err != nil {
+				return "", "", err
+			}
+			return fmt.Sprintf("_at(_r_%d, %s)", n.Value.Step, path), presence, nil
 		case "result":
 			path, err := ProgramResultPath(n.Value.ResultPath)
 			if err != nil {

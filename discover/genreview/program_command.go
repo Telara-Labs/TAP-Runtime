@@ -212,7 +212,7 @@ func ProgramReviewShape(g *codegen.ProgramGraph) (int, string) {
 	dependent := last.LoopResultStep > 0
 	for _, arg := range last.Args {
 		switch arg.Value.Kind {
-		case "result", "indexed_result", "collection_index", "collection_index_item", "item_result", "selected_result":
+		case "result", "indexed_result", "collection_index", "collection_index_item", "item_result", "iteration_result", "selected_result":
 			dependent = true
 		}
 	}

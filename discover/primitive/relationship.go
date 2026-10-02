@@ -6,13 +6,15 @@ import (
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-// RelationshipEvidence measures whether a two-step continuation really acts
-// on the head created or found in the same request. A high frequency of calls
-// never substitutes for a structured result binding. The score describes
-// recorded support, not a probability of correctness.
+// RelationshipEvidence measures whether a continuation really acts on the
+// head created or found in the same request: a follow-up step reads the
+// head's result, and every follow-up step reads an earlier step's result or
+// has its own result read by a later one. A high frequency of calls never
+// substitutes for a structured result binding. The score describes recorded
+// support, not a probability of correctness.
 func RelationshipEvidence(p Primitive, by map[string]*trace.Session) (score int, support, reason string) {
-	if len(p.Steps) != 2 {
-		return 0, "0/0", "the continuation has more than one downstream operation"
+	if len(p.Steps) < 2 {
+		return 0, "0/0", "the continuation has no downstream operation"
 	}
 	total, linked, sameRequest := 0, 0, 0
 	for _, ex := range p.Executions {
@@ -35,11 +37,21 @@ func RelationshipEvidence(p Primitive, by map[string]*trace.Session) (score int,
 			continue
 		}
 		sameRequest++
-		bound := false
+		head := false
+		connected := map[int]bool{}
 		for _, o := range ex.Observed {
-			if o.Step == 2 && o.Source == "step" && o.From == 1 && o.Label == Explicit && o.Selector != "" {
-				bound = true
+			if o.Source != "step" || o.Label != Explicit || o.Selector == "" || o.From < 1 || o.From >= o.Step {
+				continue
 			}
+			head = head || o.From == 1
+			connected[o.Step] = true
+			if o.From > 1 {
+				connected[o.From] = true
+			}
+		}
+		bound := head
+		for st := 2; st <= len(p.Steps); st++ {
+			bound = bound && connected[st]
 		}
 		if bound {
 			linked++

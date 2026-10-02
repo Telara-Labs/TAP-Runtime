@@ -447,23 +447,33 @@ func condense(ss []trace.Session, graphs [][]node) []Primitive {
 		edgeSet := map[string]bool{}
 		for _, k := range keys {
 			ba := a.binds[k]
+			// The majority is the whole observation, producing step and
+			// field included: a value taken from step 2 in some runs and
+			// step 1 in others is a disagreement, not one source.
+			full := func(o Observed) string {
+				return fmt.Sprintf("%s/%s/%d/%s", o.Source, o.Label, o.From, o.Selector)
+			}
+			tally := map[string]int{}
+			byKey := map[string]Observed{}
+			for _, o := range ba.perExec {
+				tally[full(o)]++
+				byKey[full(o)] = o
+			}
 			major, n := "", -1
-			for c, cnt := range ba.b.Counts {
+			for c, cnt := range tally {
 				if cnt > n || cnt == n && c < major {
 					major, n = c, cnt
 				}
 			}
-			ba.b.Source, ba.b.Label, _ = strings.Cut(major, "/")
+			m := byKey[major]
+			ba.b.Source, ba.b.Label, ba.b.From, ba.b.Selector = m.Source, m.Label, m.From, m.Selector
 			reasons := map[string]bool{}
 			for exID, o := range ba.perExec {
-				if o.Source+"/"+o.Label != major {
+				if full(o) != major {
 					ba.b.Contradicting = append(ba.b.Contradicting, exID)
 					continue
 				}
 				reasons[o.Reason] = true
-				if o.From != 0 {
-					ba.b.From, ba.b.Selector = o.From, o.Selector
-				}
 			}
 			for r := range reasons {
 				ba.b.Reasons = append(ba.b.Reasons, r)

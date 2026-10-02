@@ -296,6 +296,8 @@ func ProgramValueLabel(v codegen.ProgramValue) string {
 		return v.Kind + " " + v.Input + v.ResultPath
 	case "item_result":
 		return "current result item" + v.ResultPath
+	case "iteration_result":
+		return fmt.Sprintf("step %d result for the same item%s", v.Step, v.ResultPath)
 	case "selected_result":
 		return fmt.Sprintf("step %d result%s unique item where %s = input %s, then %s", v.Step, v.CollectionPath, v.PredicatePath, v.Input, v.ResultPath)
 	case "indexed_result":
