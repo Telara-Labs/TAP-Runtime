@@ -64,7 +64,7 @@ func evidence(t *testing.T, dir, id string) string {
 func TestHandoffCitesAntigravityAndCursorCLISources(t *testing.T) {
 	home := t.TempDir()
 	bin := installCursorCLIFixtures(t, home)
-	copyTree(t, "../history/testdata/antigravity", filepath.Join(home, ".gemini", "antigravity", "brain"))
+	copyTree(t, "../history/testdata/antigravity/brain", filepath.Join(home, ".gemini", "antigravity", "brain"))
 	ag, err := history.Antigravity{Dir: filepath.Join(home, ".gemini", "antigravity", "brain")}.Read(time.Time{})
 	if err != nil || len(ag) != 1 {
 		t.Fatal(err)

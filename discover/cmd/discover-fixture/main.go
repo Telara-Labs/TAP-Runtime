@@ -269,5 +269,67 @@ func antigravity(in, out string, steps []string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "kept %d steps\n", len(lines))
-	return os.WriteFile(out, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	if err := os.WriteFile(out, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		return err
+	}
+	return antigravityUsage(in, out, want)
+}
+
+// antigravityUsage writes, beside the fixture, the SQL that rebuilds the
+// conversation state database's gen_metadata rows for the kept steps. Each
+// row is cut down to what the reader uses (token counts and
+// last_step_index), so no prompt, id or header leaves the machine.
+func antigravityUsage(in, out string, kept map[int]bool) error {
+	conv := filepath.Dir(filepath.Dir(filepath.Dir(in)))
+	id := filepath.Base(conv)
+	src := filepath.Join(filepath.Dir(filepath.Dir(conv)), "conversations", id+".db")
+	if _, err := os.Stat(src); err != nil {
+		return nil // no state database: the fixture has no usage
+	}
+	// Copy it with its write-ahead log, so the newest generations are read.
+	tmp, err := os.MkdirTemp("", "discover-fixture")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	for _, ext := range []string{"", "-wal", "-shm"} {
+		if b, err := os.ReadFile(src + ext); err == nil {
+			os.WriteFile(filepath.Join(tmp, "s.db"+ext), b, 0o600)
+		}
+	}
+	rows, err := exec.Command("sqlite3", "-json", "file:"+filepath.Join(tmp, "s.db")+"?immutable=1", `SELECT hex(data) AS data FROM gen_metadata`).Output()
+	if err != nil {
+		return err
+	}
+	var recs []struct{ Data string }
+	json.Unmarshal(rows, &recs)
+	var sql strings.Builder
+	sql.WriteString("CREATE TABLE gen_metadata (idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0);\n")
+	n := 0
+	for _, r := range recs {
+		b, _ := hex.DecodeString(r.Data)
+		last, u, ok := history.AntigravityGeneration(b)
+		if !ok || !kept[last+1] {
+			continue
+		}
+		stats := history.ProtoAppend(nil, 2, uint64(u.Fresh))
+		stats = history.ProtoAppend(stats, 3, uint64(u.Output))
+		if u.Cached > 0 {
+			stats = history.ProtoAppend(stats, 5, uint64(u.Cached))
+		}
+		meta := history.ProtoAppend(nil, 1, "last_step_index")
+		meta = history.ProtoAppend(meta, 2, strconv.Itoa(last))
+		inner := history.ProtoAppend(history.ProtoAppend(nil, 4, stats), 20, meta)
+		row := history.ProtoAppend(nil, 1, inner)
+		fmt.Fprintf(&sql, "INSERT INTO gen_metadata VALUES (%d, X'%s', %d);\n", n, hex.EncodeToString(row), len(row))
+		n++
+	}
+	// Laid out as Antigravity does: <root>/brain/<id>/... and <root>/conversations/<id>.
+	outConv := filepath.Dir(filepath.Dir(filepath.Dir(out)))
+	dest := filepath.Join(filepath.Dir(filepath.Dir(outConv)), "conversations", id+".sql")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "kept usage for %d generations\n", n)
+	return os.WriteFile(dest, []byte(sql.String()), 0o644)
 }

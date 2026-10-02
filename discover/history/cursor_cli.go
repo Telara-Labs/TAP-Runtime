@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -220,16 +222,51 @@ func uvarint(b []byte) (uint64, int) {
 }
 
 // CursorCLISession assembles one session from its messages. The store keeps
-// no per-message time, so every call carries the session's start.
+// no time per message; the CLI writes each user turn's time into the turn
+// (<timestamp>Friday, Aug 28, 2026, 4:32 PM (UTC-4)</timestamp>), so a call
+// carries the time of the turn it answers (to the minute), or the session's
+// start before any.
 func CursorCLISession(id string, start time.Time, msgs []CursorCLIMessage) trace.Session {
 	a := NewAssembler("cursor-cli", id)
 	a.S.Start = start
+	at := start
 	for _, m := range msgs {
-		for _, e := range CursorCLIEvents(m, id, start) {
+		if m.Role == "user" {
+			if t, ok := cursorCLITurnTime(m.Content); ok && !t.Before(start.Truncate(time.Minute)) {
+				at = t
+			}
+		}
+		for _, e := range CursorCLIEvents(m, id, at) {
 			a.Add(e)
 		}
 	}
 	return a.Finish()
+}
+
+var cursorCLITimestamp = regexp.MustCompile(`<timestamp>([^<]+?) \(UTC([+-]\d{1,2})(?::?(\d{2}))?\)</timestamp>`)
+
+// cursorCLITurnTime reads the time a user turn was sent, from its
+// <timestamp> envelope.
+func cursorCLITurnTime(content json.RawMessage) (time.Time, bool) {
+	m := cursorCLITimestamp.FindSubmatch(content)
+	if m == nil {
+		return time.Time{}, false
+	}
+	hours, _ := strconv.Atoi(string(m[2]))
+	mins, _ := strconv.Atoi(string(m[3]))
+	off := hours*3600 + sign(hours)*mins*60
+	t, err := time.ParseInLocation("Monday, Jan 2, 2006, 3:04 PM", string(m[1]), time.FixedZone("", off))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t.UTC(), true
+}
+
+func sign(n int) int {
+	if n < 0 {
+		return -1
+	}
+	return 1
 }
 
 // CursorCLIEvents decodes one message. The person's words are inside
