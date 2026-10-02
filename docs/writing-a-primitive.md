@@ -11,7 +11,7 @@ No Telara account is needed to write or run one.
 ```
 hello/
   primitive.yaml
-  main.py          # or main.sh, main.js, main.ts, or a compiled main.wasm
+  main.py          # or main.sh, main.js or main.ts
 ```
 
 ## The smallest primitive
@@ -42,7 +42,6 @@ They use nothing, so they run on any machine.
 | `.py` | CPython 3.12 compiled to WebAssembly | the standard library, and `tap` |
 | `.js` | QuickJS-ng 0.17 | ES2023, `print`, `console.log`, `std` (`qjs:std`), and `tap` |
 | `.ts` | QuickJS-ng, after the runner removes the types | as `.js`. Types are removed, not checked |
-| `.wasm` | the runner directly | a compiled program for `wasip1`, which speaks the request protocol itself |
 
 The runner downloads each interpreter the first time it is needed and checks
 it against a pinned sha256. `tap fetch` downloads them all ahead of time.

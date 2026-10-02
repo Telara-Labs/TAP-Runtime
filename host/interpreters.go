@@ -88,6 +88,9 @@ func storeDir(override string) (string, error) {
 func obtain(store, entrypoint string) ([]byte, interpreter, string, error) {
 	in, ok := interpreters[filepath.Ext(entrypoint)]
 	if !ok {
+		if filepath.Ext(entrypoint) == ".wasm" {
+			return nil, in, "", fmt.Errorf("a compiled .wasm entrypoint (%q) is not supported yet; write the primitive as main.sh, main.py, main.js or main.ts", entrypoint)
+		}
 		return nil, in, "", fmt.Errorf("no interpreter is listed for %q", entrypoint)
 	}
 	path := filepath.Join(store, in.File)

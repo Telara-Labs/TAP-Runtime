@@ -45,6 +45,19 @@ var arbitraryCode = [][]string{
 	// Ruling 36.
 	{"python"}, {"python3"}, {"node"}, {"deno"}, {"ruby"}, {"perl"}, {"php"},
 	{"ssh"}, {"sudo"},
+	// TENG-3103 (G5): programs that run another program or a script they are
+	// handed, and the subcommands of build tools that run a project's code.
+	{"nohup"}, {"nice"}, {"time"}, {"timeout"}, {"watch"}, {"flock"}, {"exec"}, {"eval"},
+	{"busybox"}, {"command"}, {"osascript"}, {"pwsh"}, {"powershell"}, {"cmd"}, {"lua"},
+	{"awk"}, {"gawk"}, {"mawk"}, {"make"}, {"gmake"}, {"npx"},
+	{"npm", "run"}, {"npm", "exec"}, {"npm", "x"}, {"npm", "start"}, {"npm", "test"}, {"npm", "install"}, {"npm", "ci"},
+	{"yarn", "run"}, {"yarn", "exec"}, {"pnpm", "run"}, {"pnpm", "exec"}, {"pnpm", "dlx"},
+	{"pip", "install"}, {"pip3", "install"},
+	{"cargo", "run"}, {"cargo", "build"}, {"cargo", "test"}, {"cargo", "install"},
+	{"go", "run"}, {"go", "generate"}, {"go", "test"},
+	{"git", "difftool"}, {"git", "mergetool"}, {"git", "filter-branch"}, {"git", "daemon"},
+	{"git", "bisect", "run"}, {"git", "submodule", "foreach"},
+	{"docker", "compose", "run"}, {"docker", "compose", "exec"},
 }
 
 // arbitraryAnywhere lists arguments that make a program run other code
@@ -53,6 +66,32 @@ var arbitraryCode = [][]string{
 // (ruling 36).
 var arbitraryAnywhere = map[string][]string{
 	"find": {"-exec", "-execdir", "-ok", "-okdir"},
+	// Flags that name a program for the command to run. A flag may carry its
+	// value as --flag=value, which matches too.
+	"git":   {"--upload-pack", "--receive-pack", "--exec", "--ext-cmd"},
+	"tar":   {"--to-command", "--checkpoint-action", "--use-compress-program", "-I"},
+	"rsync": {"-e", "--rsh", "--rsync-path"},
+	"scp":   {"-S", "-o"},
+}
+
+// gitGlobalCode reports whether git is given configuration on its command
+// line before the subcommand: `-c alias.x=!sh ...` defines an alias that runs
+// a shell, `-c core.pager`, `-c core.sshCommand` and the like run programs, and
+// --config-env and --exec-path point git at code. After the subcommand, -c is
+// an ordinary flag (git log -c), so only the leading flags are read.
+func gitGlobalCode(args []string) bool {
+	for i := 0; i < len(args) && strings.HasPrefix(args[i], "-"); i++ {
+		a := args[i]
+		switch {
+		case a == "-c", strings.HasPrefix(a, "-c") && len(a) > 2 && !strings.HasPrefix(a, "--"),
+			a == "--config-env", strings.HasPrefix(a, "--config-env="),
+			a == "--exec-path", strings.HasPrefix(a, "--exec-path="):
+			return true
+		case a == "-C", a == "--git-dir", a == "--work-tree", a == "--namespace":
+			i++ // these take a value, which is not a flag
+		}
+	}
+	return false
 }
 
 // runsArbitraryCode reports whether an invocation runs code the manifest
@@ -66,12 +105,12 @@ func runsArbitraryCode(name string, args []string) bool {
 	}
 	for _, flag := range arbitraryAnywhere[name] {
 		for _, a := range args {
-			if a == flag {
+			if a == flag || (strings.HasPrefix(flag, "--") && strings.HasPrefix(a, flag+"=")) {
 				return true
 			}
 		}
 	}
-	return false
+	return name == "git" && gitGlobalCode(args)
 }
 
 // baseEnv is what every host program is given. Everything else in the

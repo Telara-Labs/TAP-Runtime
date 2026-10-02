@@ -49,7 +49,7 @@ type fileBindings struct {
 }
 
 func defaultBindingsPath() string {
-	dir, err := os.UserConfigDir()
+	dir, err := userConfigDir()
 	if err != nil {
 		return ""
 	}

@@ -176,7 +176,7 @@ func TestAnAnswerIsHeldToTheContract(t *testing.T) {
 				t.Fatal(err)
 			}
 			var j bytes.Buffer
-			r := callTool(a, b, request{Alias: "search"}, true, &j)
+			r := callTool(a, b, request{Alias: "search", Arguments: map[string]any{"query": "x"}}, true, &j)
 			if r.Violation != c.violation || r.Landed != c.landed {
 				t.Fatalf("violation=%v landed=%v: %+v", r.Violation, r.Landed, r)
 			}

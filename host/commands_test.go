@@ -181,3 +181,57 @@ func toStrings(v any) []string {
 	}
 	return out
 }
+
+// TENG-3103 (G5). The list of invocations that run code the manifest cannot
+// describe was short. A command declared with args ["*"] and effect read ran
+// `git -c alias.x=!sh ...` with no approval (threat-model probe P6).
+func TestInvocationsThatRunCodeAreRecognized(t *testing.T) {
+	for _, c := range []struct {
+		argv []string
+		code bool
+	}{
+		{[]string{"git", "-c", "alias.x=!sh -c id", "x"}, true},
+		{[]string{"git", "-C", "/repo", "-c", "core.pager=sh", "log"}, true},
+		{[]string{"git", "--config-env=core.sshCommand=VAR", "fetch"}, true},
+		{[]string{"git", "--exec-path=/tmp/x", "status"}, true},
+		{[]string{"git", "fetch", "--upload-pack=/tmp/x", "origin"}, true},
+		{[]string{"git", "rebase", "--exec", "make test"}, true},
+		{[]string{"git", "bisect", "run", "./t.sh"}, true},
+		{[]string{"git", "submodule", "foreach", "id"}, true},
+		{[]string{"git", "difftool"}, true},
+		{[]string{"make", "all"}, true},
+		{[]string{"awk", "BEGIN{system(\"id\")}"}, true},
+		{[]string{"npm", "run", "build"}, true},
+		{[]string{"npx", "pkg"}, true},
+		{[]string{"go", "run", "."}, true},
+		{[]string{"cargo", "build"}, true},
+		{[]string{"tar", "-xf", "a.tar", "--to-command=sh"}, true},
+		{[]string{"rsync", "-e", "sh", "a", "b"}, true},
+		{[]string{"timeout", "5", "id"}, true},
+		{[]string{"nohup", "id"}, true},
+		// Ordinary reads stay reads.
+		{[]string{"git", "log", "-c"}, false},
+		{[]string{"git", "status", "--short"}, false},
+		{[]string{"git", "-C", "/repo", "diff"}, false},
+		{[]string{"git", "--no-pager", "log"}, false},
+		{[]string{"go", "list", "./..."}, false},
+		{[]string{"npm", "ls"}, false},
+		{[]string{"kubectl", "get", "pods"}, false},
+		{[]string{"tar", "-tf", "a.tar"}, false},
+		{[]string{"cat", "a.txt"}, false},
+	} {
+		if got := runsArbitraryCode(c.argv[0], c.argv[1:]); got != c.code {
+			t.Errorf("%v: runsArbitraryCode = %v, want %v", c.argv, got, c.code)
+		}
+	}
+}
+
+func TestGitDashCDeclaredAsAReadIsRaisedToDestructive(t *testing.T) {
+	m := &manifest{Commands: []command{{Command: "git", Args: []string{"*"}, Effect: "read"}}}
+	if _, effect := resolve(m, "git", []string{"-c", "alias.x=!id", "x"}); effect != "destructive" {
+		t.Fatalf("git -c ran as %q", effect)
+	}
+	if _, effect := resolve(m, "git", []string{"log", "-5"}); effect != "read" {
+		t.Fatalf("git log ran as %q", effect)
+	}
+}

@@ -45,6 +45,7 @@ type binding struct {
 	Candidates []string       `json:"passed_over,omitempty"`
 	tool       bind.Tool      `json:"-"`
 	result     map[string]any `json:"-"`
+	args       map[string]any `json:"-"` // the contract's arguments, held against every call
 }
 
 // admission is the outcome of resolving a manifest against a client.
@@ -172,6 +173,7 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 		if contract != nil {
 			// Whatever the client, an answer can be held to the contract.
 			bd.result, bd.ResultChecked = contract.Result, len(contract.Result) > 0
+			bd.args = contract.Args
 		}
 		bySchema := contract != nil && b.HasSchemas()
 		if d.Pin != nil {
@@ -350,6 +352,11 @@ func callTool(a *admission, b bridge.Bridge, rq request, approve bool, journal i
 		return reply{Refused: "alias not declared, or declared optional and not bound"}
 	}
 	entry["server"], entry["tool"], entry["effect"] = bd.Server, bd.Tool, bd.effective()
+	if why := satisfy.CallArguments(bd.args, rq.Arguments); why != "" {
+		logf("  REFUSED  call %s -> %s / %s  (arguments outside the contract: %s)", rq.Alias, bd.Server, bd.Tool, why)
+		record("refused_arguments", map[string]any{"error": why})
+		return reply{Refused: "the arguments are outside what the capability declares: " + why}
+	}
 	if bd.effective() != string(bind.Read) && !approve {
 		logf("  GATED    call %s -> %s / %s  (%s, no approval)", rq.Alias, bd.Server, bd.Tool, bd.effective())
 		record("gated", nil)
