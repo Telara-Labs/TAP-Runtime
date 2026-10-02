@@ -132,9 +132,21 @@ func TestVSCodeAskKeysAreMatchedByReferenceName(t *testing.T) {
 		"gitlab/search_issues":     false, // another server's tool
 		"github/create_issue":      false,
 		"fetch":                    false,
+		"search":                   false, // a part of a name is not the name
 	} {
 		if got := askKeyCovers(key, tool); got != want {
 			t.Errorf("%q: %v, want %v", key, got, want)
 		}
+	}
+}
+
+func TestVSCodeAskKeyForABuiltInToolMatchesItsListedName(t *testing.T) {
+	// Seen in a live VS Code 1.140: the editor lists run_task, and the setting's
+	// own example key is runTask.
+	if !askKeyCovers("runTask", bind.Tool{Server: "vscode", Name: "run_task"}) {
+		t.Error("runTask did not match run_task")
+	}
+	if askKeyCovers("runTask", bind.Tool{Server: "vscode", Name: "get_task_output"}) {
+		t.Error("runTask matched another tool")
 	}
 }
