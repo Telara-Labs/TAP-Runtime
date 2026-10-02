@@ -137,6 +137,10 @@ func TestContinueReader(t *testing.T) {
 	if !ss[0].Calls[1].Measured {
 		t.Error("usage not read")
 	}
+	// The result is the tool's own text, not Continue's context-item wrapper.
+	if out := ss[0].Calls[2].Output; out != "Issue ABC-99 does not exist" {
+		t.Errorf("result %q", out)
+	}
 	ss, _ = Continue{Dir: "testdata/continue/sessions"}.Read(time.Time{})
 	if c := ss[0].Calls[1]; c.Tool != "search_issues" || c.MCPServer != "" {
 		t.Errorf("no configuration, no server: %s %s", c.Tool, c.MCPServer)
