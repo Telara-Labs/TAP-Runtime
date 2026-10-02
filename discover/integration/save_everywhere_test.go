@@ -136,3 +136,38 @@ func TestDiscoverMigrateSaved(t *testing.T) {
 		t.Fatalf("second run: %s", out.String())
 	}
 }
+
+// A save also migrates primitives saved the old way (TENG-3109): after the
+// next save, an old full package in ~/.claude/skills is in the collection
+// and its folder is a pointer.
+func TestSaveMigratesOldSaves(t *testing.T) {
+	home, coll := isolatedHome(t)
+	writeClaudeChain(t, home, 3)
+	var out, errOut bytes.Buffer
+	if code := discover.Command([]string{"--all", "--save-client", "none"}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	entries, _ := os.ReadDir(coll)
+	name := entries[0].Name()
+	// Put it back where saves used to go, under another name, as an old save.
+	old := filepath.Join(home, ".claude", "skills", "older-save")
+	os.MkdirAll(filepath.Dir(old), 0o755)
+	if err := os.Rename(filepath.Join(coll, name), old); err != nil {
+		t.Fatal(err)
+	}
+	// Forget the earlier acceptance so the menu installs again.
+	os.RemoveAll(filepath.Join(home, ".tap"))
+	out.Reset()
+	if code := discover.Command([]string{"--all"}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	if _, err := pack.ReadMarker(filepath.Join(coll, "older-save")); err != nil {
+		t.Fatalf("the old save was not migrated:\n%s", out.String())
+	}
+	if _, ok := pack.IsPointer(old); !ok {
+		t.Fatal("no pointer left where the old save was")
+	}
+	if !strings.Contains(out.String(), "migrated") {
+		t.Fatalf("the save does not report the migration:\n%s", out.String())
+	}
+}

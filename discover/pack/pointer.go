@@ -477,19 +477,42 @@ func NewDestination(saveClients string, project bool, home, projectDir string) (
 	return Destination{Collection: coll, Targets: ts, Project: project, Home: home, ProjectDir: projectDir}, nil
 }
 
-// Point writes the pointers to the package saved at pkgDir.
+// Point writes the pointers to the package saved at pkgDir. It first moves
+// any primitive still saved the old way (a full package in an agent's skills
+// folder) into the collection, as a save is the moment the person expects
+// their saved primitives to be tidied (plan §3.2). Each move is reported as a
+// line with Mode "migrated".
 func (d Destination) Point(pkgDir string) ([]PointerResult, error) {
-	if len(d.Targets) == 0 {
-		return nil, nil
+	var out []PointerResult
+	if d.Home != "" {
+		moved, err := MigrateSaved(d.Home, d.ProjectDir, d.Collection)
+		for _, m := range moved {
+			r := PointerResult{Path: m.From, Mode: m.Mode, Reason: m.Reason}
+			if m.Mode == "moved" {
+				r.Mode, r.Reason = "migrated", "moved to "+m.To
+			}
+			out = append(out, r)
+		}
+		if err != nil {
+			return out, err
+		}
 	}
-	return WritePointers(pkgDir, d.Targets, d.Project, d.Home, d.ProjectDir)
+	if len(d.Targets) == 0 {
+		return out, nil
+	}
+	ptrs, err := WritePointers(pkgDir, d.Targets, d.Project, d.Home, d.ProjectDir)
+	return append(out, ptrs...), err
 }
 
 // FormatPointers is the report of a save's pointers, one line each.
 func FormatPointers(rs []PointerResult) string {
 	var b strings.Builder
 	for _, r := range rs {
-		fmt.Fprintf(&b, "  %s: %s", r.Client, r.Mode)
+		who := r.Client
+		if who == "" {
+			who = "saved primitive"
+		}
+		fmt.Fprintf(&b, "  %s: %s", who, r.Mode)
 		if r.Path != "" {
 			fmt.Fprintf(&b, " %s", r.Path)
 		}
