@@ -2,6 +2,7 @@ package primitive
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -32,8 +34,12 @@ type Skill struct {
 
 // Locator places one line of a transcript: its one-based line number and the
 // sha256 of that line, so an appended or rewritten transcript is detected.
+// For an agent that keeps sessions in a content-addressed store (the Cursor
+// CLI's store.db), it names the record instead: Record is the record's id,
+// which is the sha256 of its content, and Line is 0.
 type Locator struct {
 	Line   int    `json:"line"`
+	Record string `json:"record,omitempty"`
 	SHA256 string `json:"sha256"`
 }
 
@@ -83,6 +89,10 @@ type transcript struct {
 	lines   []string
 	calls   map[string]int // tool_use id -> line index
 	results map[string]int // tool_use_id -> line index
+	// store: the transcript is a content-addressed database, not lines;
+	// records holds the ids of the records it contains.
+	store   bool
+	records map[string]bool
 	// byQuotedID: the log has no content blocks; ids are indexed on demand.
 	byQuotedID bool
 }
@@ -94,6 +104,9 @@ func findTranscript(home, name, session string) string {
 }
 
 func loadTranscript(path string) (*transcript, error) {
+	if strings.HasSuffix(path, ".db") {
+		return loadStore(path)
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -165,6 +178,64 @@ func (t *transcript) indexID(id string) {
 		t.results[id] = i
 		return
 	}
+}
+
+// sqliteRows runs one read-only query on a store (immutable: never written
+// or locked) with the system sqlite3, as the readers do.
+func sqliteRows(path, sql string) ([]map[string]string, error) {
+	bin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		return nil, fmt.Errorf("sqlite3 is not installed")
+	}
+	out, err := exec.Command(bin, "-readonly", "-json", "file:"+path+"?immutable=1", sql).Output()
+	if err != nil {
+		return nil, err
+	}
+	var rows []map[string]string
+	if len(bytes.TrimSpace(out)) == 0 {
+		return nil, nil
+	}
+	return rows, json.Unmarshal(out, &rows)
+}
+
+func loadStore(path string) (*transcript, error) {
+	rows, err := sqliteRows(path, `SELECT id FROM blobs`)
+	if err != nil {
+		return nil, err
+	}
+	t := &transcript{path: path, store: true, records: map[string]bool{}, calls: map[string]int{}, results: map[string]int{}}
+	for _, r := range rows {
+		t.records[r["id"]] = true
+	}
+	return t, nil
+}
+
+// readRecord re-reads one record and checks that it still hashes to its id.
+func readRecord(path, id string) (string, bool) {
+	if len(id) != 64 || strings.Trim(id, "0123456789abcdef") != "" {
+		return "", false
+	}
+	rows, err := sqliteRows(path, `SELECT hex(data) AS data FROM blobs WHERE id = '`+id+`'`)
+	if err != nil || len(rows) != 1 {
+		return "", false
+	}
+	b, err := hex.DecodeString(rows[0]["data"])
+	if err != nil {
+		return "", false
+	}
+	sum := sha256.Sum256(b)
+	return string(b), hex.EncodeToString(sum[:]) == id
+}
+
+// sourceLoc places a call or its result from where its reader found it.
+func (t *transcript) sourceLoc(line int, record string) *Locator {
+	switch {
+	case t.store && record != "" && t.records[record]:
+		return &Locator{Record: record, SHA256: record}
+	case !t.store && line > 0 && line <= len(t.lines):
+		return &Locator{Line: line, SHA256: lineHash(t.lines[line-1])}
+	}
+	return nil
 }
 
 func lineHash(s string) string {
@@ -265,9 +336,21 @@ func WriteHandoff(dir, home string, p Primitive, sessions []trace.Session, skill
 			ie.Transcript = path
 			idx.Available++
 		}
+		byID := map[string]trace.Call{}
+		if s := bySession[ex.Client+"\x00"+ex.Session]; s != nil {
+			for _, c := range s.Calls {
+				byID[c.ID] = c
+			}
+		}
 		for _, c := range ex.Calls {
 			ic := IndexedCall{Step: c.Step, Op: c.Op, CallID: c.ID, Time: c.Time}
-			if t != nil && c.ID != "" {
+			src := byID[c.ID].Src
+			switch {
+			case t == nil || c.ID == "":
+			case src != (trace.CallSource{}):
+				// The reader placed it: lines of a step log, or records.
+				ic.Call, ic.Result = t.sourceLoc(src.CallLine, src.CallRecord), t.sourceLoc(src.ResultLine, src.ResultRecord)
+			case !t.store:
 				t.indexID(c.ID)
 				ic.Call, ic.Result = t.locate(t.calls, c.ID), t.locate(t.results, c.ID)
 			}
@@ -332,10 +415,10 @@ func excerpt(p Primitive, ex Execution, ie IndexedExecution, s *trace.Session, t
 		}
 		b.WriteString(".\n")
 		if ic.Call != nil {
-			fmt.Fprintf(&b, "Call at line %d (sha256 %s…)", ic.Call.Line, ic.Call.SHA256[:12])
+			fmt.Fprintf(&b, "Call at %s", ic.Call.where())
 		}
 		if ic.Result != nil {
-			fmt.Fprintf(&b, "; result at line %d (sha256 %s…)", ic.Result.Line, ic.Result.SHA256[:12])
+			fmt.Fprintf(&b, "; result at %s", ic.Result.where())
 		}
 		b.WriteString("\n")
 		if c, ok := calls[ic.CallID]; ok {
@@ -355,10 +438,17 @@ func excerpt(p Primitive, ex Execution, ie IndexedExecution, s *trace.Session, t
 			b.WriteString("\n```\n")
 		}
 		if t != nil && ic.Result != nil {
-			text := resultText(t.lines[ic.Result.Line-1], ic.CallID)
+			text := ""
+			if ic.Result.Line > 0 {
+				text = resultText(t.lines[ic.Result.Line-1], ic.CallID)
+			}
+			if text == "" {
+				// Not Claude's content blocks: the result as its reader decoded it.
+				text = calls[ic.CallID].Output
+			}
 			note := ""
 			if len(text) > maxExcerpt {
-				note = fmt.Sprintf("\n(First %d of %d bytes; the full result is at line %d.)\n", maxExcerpt, len(text), ic.Result.Line)
+				note = fmt.Sprintf("\n(First %d of %d bytes; the full result is at %s.)\n", maxExcerpt, len(text), ic.Result.where())
 				text = trace.TruncateUTF8(text, maxExcerpt)
 			}
 			fmt.Fprintf(&b, "\nResult:\n\n```text\n%s\n```\n%s", redact.Redact(text), note)
@@ -516,15 +606,26 @@ func Resolve(dir, id string, out io.Writer) error {
 					fmt.Fprintf(out, "step %d %s: not located\n", c.Step, l.name)
 					continue
 				}
-				if l.loc.Line > len(t.lines) || lineHash(t.lines[l.loc.Line-1]) != l.loc.SHA256 {
-					fmt.Fprintf(out, "step %d %s: STALE (line %d no longer matches its hash)\n", c.Step, l.name, l.loc.Line)
-					continue
+				var line string
+				if l.loc.Record != "" {
+					rec, ok := readRecord(ex.Transcript, l.loc.Record)
+					if !ok {
+						fmt.Fprintf(out, "step %d %s: STALE (record %s… is gone or no longer matches its id)\n", c.Step, l.name, l.loc.Record[:12])
+						continue
+					}
+					line = rec
+				} else {
+					if l.loc.Line < 1 || l.loc.Line > len(t.lines) || lineHash(t.lines[l.loc.Line-1]) != l.loc.SHA256 {
+						fmt.Fprintf(out, "step %d %s: STALE (line %d no longer matches its hash)\n", c.Step, l.name, l.loc.Line)
+						continue
+					}
+					line = t.lines[l.loc.Line-1]
 				}
-				line := t.lines[l.loc.Line-1]
-				if len(line) > maxExcerpt {
-					line = trace.TruncateUTF8(line, maxExcerpt) + fmt.Sprintf("… (%d bytes)", len(t.lines[l.loc.Line-1]))
+				full := len(line)
+				if full > maxExcerpt {
+					line = trace.TruncateUTF8(line, maxExcerpt) + fmt.Sprintf("… (%d bytes)", full)
 				}
-				fmt.Fprintf(out, "step %d %s, line %d (verified):\n%s\n\n", c.Step, l.name, l.loc.Line, redact.Redact(line))
+				fmt.Fprintf(out, "step %d %s, %s (verified):\n%s\n\n", c.Step, l.name, l.loc.where(), redact.Redact(line))
 			}
 		}
 		return nil
@@ -545,4 +646,12 @@ func counts(c map[string]int) string {
 		parts = append(parts, fmt.Sprintf("%d from %s (%s)", c[k], src, label))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// where says in words where a locator points.
+func (l *Locator) where() string {
+	if l.Record != "" {
+		return "record " + l.Record[:12] + "…"
+	}
+	return fmt.Sprintf("line %d (sha256 %s…)", l.Line, l.SHA256[:12])
 }

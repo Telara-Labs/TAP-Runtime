@@ -92,7 +92,7 @@ var registry = []Client{
 		Skills: SkillsPaths{Global: ".cursor/skills", Project: ".agents/skills"},
 		MCP:    MCPConfig{Kind: MCPJSONFile, Path: ".cursor/mcp.json", Key: "mcpServers"}},
 	{ID: "cursor-cli", Aliases: []string{"cursor-agent"}, Name: "Cursor CLI",
-		Markers: []string{".cursor/chats"}, History: true,
+		Markers: []string{".cursor/chats"}, History: true, Transcript: ".cursor/chats/*/{session}/store.db",
 		Skills: SkillsPaths{Global: ".cursor/skills", Project: ".agents/skills"},
 		MCP:    MCPConfig{Kind: MCPJSONFile, Path: ".cursor/mcp.json", Key: "mcpServers"},
 		Launch: []string{"cursor-agent"}},

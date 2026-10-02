@@ -70,6 +70,9 @@ type Call struct {
 	// Output is the start of the result as the client recorded it (at most
 	// 600 bytes), kept for reviewing a task's evidence on this machine.
 	Output string `json:",omitempty"`
+	// Src is where the reader found the call and its result, so evidence
+	// can cite the source exactly. It describes the read, not the call.
+	Src CallSource `json:"-"`
 }
 
 type ResultCollection struct {
@@ -308,6 +311,16 @@ func Spread(calls []Call, from, turn int, u Usage) {
 	for i := from; i < len(calls); i++ {
 		calls[i].Tokens, calls[i].Turn, calls[i].Measured = u.Scale(1/float64(n)), turn, true
 	}
+}
+
+// CallSource places a call and its result in the store they were read
+// from: one-based lines of a log file, or the content ids of records in a
+// content-addressed store (where the id is the sha256 of the record). Zero
+// values mean the reader does not place them; evidence then falls back to
+// finding the call id in the transcript.
+type CallSource struct {
+	CallLine, ResultLine     int
+	CallRecord, ResultRecord string
 }
 
 // Session is one conversation in one client, calls in the order they ran.
