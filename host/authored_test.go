@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover"
+	"gitlab.com/telara-labs/tap-runtime/discover/author"
 )
 
 // TestAuthoredPackageValidatesThroughTheRealRunner is the author path's
@@ -31,14 +31,14 @@ func TestAuthoredPackageValidatesThroughTheRealRunner(t *testing.T) {
 
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "oracle.sh"), []byte(`printf '{"lines": %d}\n' "$(( $(wc -l < "$1") ))"`+"\n"), 0o644)
-	cases := discover.CaseFile{Package: "line-count", Oracle: []string{"sh", "oracle.sh"}, Cases: []discover.Case{
-		{ID: "normal", Kind: "normal", Setup: []discover.SetupStep{{Write: "in/a.txt", Text: "one\ntwo\nthree\n"}}, Args: []string{"in/a.txt"}},
-		{ID: "empty", Kind: "empty", Setup: []discover.SetupStep{{Write: "in/a.txt", Text: ""}}, Args: []string{"in/a.txt"}},
+	cases := author.CaseFile{Package: "line-count", Oracle: []string{"sh", "oracle.sh"}, Cases: []author.Case{
+		{ID: "normal", Kind: "normal", Setup: []author.SetupStep{{Write: "in/a.txt", Text: "one\ntwo\nthree\n"}}, Args: []string{"in/a.txt"}},
+		{ID: "empty", Kind: "empty", Setup: []author.SetupStep{{Write: "in/a.txt", Text: ""}}, Args: []string{"in/a.txt"}},
 	}}
 	b, _ := json.Marshal(cases)
 	casesPath := filepath.Join(root, "cases.json")
 	os.WriteFile(casesPath, b, 0o644)
-	if _, err := discover.Freeze(casesPath); err != nil {
+	if _, err := author.Freeze(casesPath); err != nil {
 		t.Fatal(err)
 	}
 
@@ -57,7 +57,7 @@ func TestAuthoredPackageValidatesThroughTheRealRunner(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			pkg := writePackage(t, c.manifest, c.script)
-			rec, err := discover.Validate(discover.ValidateOptions{Package: pkg, Cases: casesPath, Runner: bin,
+			rec, err := author.Validate(author.ValidateOptions{Package: pkg, Cases: casesPath, Runner: bin,
 				RunnerFlags: []string{"-interpreters", store, "-approve"}})
 			if err != nil {
 				t.Fatal(err)
