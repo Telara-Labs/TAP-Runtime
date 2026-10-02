@@ -2,8 +2,6 @@ package pack
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +11,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/client"
 )
@@ -123,32 +123,11 @@ func ReadIdentity(pkgDir string) (Identity, error) {
 }
 
 // RunDigest is the digest the runner lists a package under and checks
-// before running it: sha256 over primitive.yaml followed by the entrypoint
-// program, hex. It is not the SavedMarker digest (the archive's). The rule
-// is the runner's (host/trust.go packageDigest); the host test
-// TestSavedOncePointedEverywhereListedOnceAndRunnable fails if they part.
+// before running it (contract/manifest RunDigest, the one rule the runner
+// uses too). It is not the SavedMarker digest, which is the archive's.
 func RunDigest(pkgDir string) (string, error) {
-	raw, err := os.ReadFile(filepath.Join(pkgDir, "primitive.yaml"))
-	if err != nil {
-		return "", err
-	}
-	var m struct {
-		Execution struct {
-			Entrypoint string `yaml:"entrypoint"`
-		} `yaml:"execution"`
-	}
-	if err := yaml.Unmarshal(raw, &m); err != nil {
-		return "", err
-	}
-	if m.Execution.Entrypoint == "" {
-		return "", fmt.Errorf("%s: primitive.yaml names no entrypoint", pkgDir)
-	}
-	script, err := os.ReadFile(filepath.Join(pkgDir, filepath.Clean(filepath.FromSlash(m.Execution.Entrypoint))))
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(append(append([]byte{}, raw...), script...))
-	return hex.EncodeToString(sum[:]), nil
+	d, _, err := manifest.RunDigest(pkgDir)
+	return d, err
 }
 
 // PointerSkillMD is the pointer's whole content. runsIn lists the agents
