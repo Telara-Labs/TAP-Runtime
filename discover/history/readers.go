@@ -1,7 +1,6 @@
 package history
 
 import (
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -67,10 +66,7 @@ func CursorStateDB(home string) string {
 	case "darwin":
 		return filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
 	case "windows":
-		if appData := os.Getenv("APPDATA"); appData != "" {
-			return filepath.Join(appData, "Cursor", "User", "globalStorage", "state.vscdb")
-		}
-		return filepath.Join(home, "AppData", "Roaming", "Cursor", "User", "globalStorage", "state.vscdb")
+		return filepath.Join(client.AppData("APPDATA", home, "AppData/Roaming"), "Cursor", "User", "globalStorage", "state.vscdb")
 	default:
 		return filepath.Join(home, ".config", "Cursor", "User", "globalStorage", "state.vscdb")
 	}
