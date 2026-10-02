@@ -146,6 +146,15 @@ interpreter, `install.sh` and `install.ps1`, their checksums, the signature
 and its public key, and the licence notices of everything compiled in. It is
 reproducible: the same source and toolchain give the same bytes.
 
+Pushing a `v*` tag to GitHub runs `.github/workflows/release.yml`: it tests the
+modules, builds and signs the release, creates the GitHub release, and
+publishes `@telaralabs/tap` with npm Trusted Publishing. Before enabling it,
+configure `TAP_RELEASE_KEY` as a GitHub Actions repository secret (the
+hex-encoded contents of the release signing key) and configure npm Trusted
+Publishing for `Telara-Labs/TAP-Runtime` and
+`.github/workflows/release.yml`. The workflow also supports manual dispatch
+with an existing release tag to package and publish already signed assets.
+
 `--download-base` is where the files will be served from. The runner is built
 knowing the address and digest of its interpreter, and each install script
 carries the digest of every runner. Without it the build is for checking only.
