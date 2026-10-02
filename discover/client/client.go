@@ -10,6 +10,7 @@
 package client
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -68,8 +69,11 @@ const (
 	MCPExtension MCPKind = "extension" // our editor extension registers it
 )
 
-// MCPConfig is how the TAP MCP server is connected. For MCPJSONFile, Path is
-// the file under home and Key the object that holds servers.
+// MCPConfig is how the TAP MCP server is connected. Path is the file under
+// home where the agent keeps its servers and Key the object (or TOML table)
+// that holds them; for MCPJSONFile the runner writes there, for MCPCommand
+// the agent's own command does and Path is only read to see whether TAP is
+// connected. For MCPExtension, Path is a glob of the installed extension.
 type MCPConfig struct {
 	Kind MCPKind
 	Path string
@@ -88,12 +92,12 @@ var registry = []Client{
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history and MCP (claude mcp add): on disk 2026-10-02",
 		Markers: []string{".claude"}, History: true, Transcript: ".claude/projects/*/{session}.jsonl",
 		Skills: SkillsPaths{Global: ".claude/skills", Project: ".claude/skills"},
-		MCP:    MCPConfig{Kind: MCPCommand}, Bridge: true, Launch: []string{"claude"}},
+		MCP:    MCPConfig{Kind: MCPCommand, Path: ".claude.json", Key: "mcpServers"}, Bridge: true, Launch: []string{"claude"}},
 	{ID: "codex", Name: "Codex",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history and MCP (codex mcp add): on disk 2026-10-02",
 		Markers: []string{".codex"}, History: true, Transcript: ".codex/sessions/*/*/*/*{session}.jsonl",
 		Skills: SkillsPaths{Global: ".codex/skills", Project: ".agents/skills"},
-		MCP:    MCPConfig{Kind: MCPCommand}, Bridge: true, Launch: []string{"codex"}},
+		MCP:    MCPConfig{Kind: MCPCommand, Path: ".codex/config.toml", Key: "mcp_servers"}, Bridge: true, Launch: []string{"codex"}},
 	{ID: "cursor", Aliases: []string{"cursor-ide"}, Name: "Cursor",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history globalStorage/state.vscdb and MCP ~/.cursor/mcp.json (mcpServers): on disk 2026-10-02",
 		Markers: []string{"Library/Application Support/Cursor", ".config/Cursor", "$APPDATA/Cursor"}, History: true,
@@ -123,12 +127,12 @@ var registry = []Client{
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs) (github-copilot skills); marker globalStorage/github.copilot-chat and history chatSessions: on disk 2026-10-02 + microsoft/vscode chatService.ts",
 		Markers: []string{"Library/Application Support/Code/User/globalStorage/github.copilot-chat", ".config/Code/User/globalStorage/github.copilot-chat", "$APPDATA/Code/User/globalStorage/github.copilot-chat"},
 		Skills:  SkillsPaths{Global: ".copilot/skills", Project: ".agents/skills"},
-		MCP:     MCPConfig{Kind: MCPExtension}, Bridge: true},
+		MCP:     MCPConfig{Kind: MCPExtension, Path: ".vscode/extensions/telara-labs.tap-vscode-*"}, Bridge: true},
 	{ID: "copilot-cli", Aliases: []string{"copilot"}, Name: "GitHub Copilot CLI",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs) (shares ~/.copilot); history session-state/<id>/events.jsonl: github/copilot-cli issues; MCP ~/.copilot/mcp-config.json: GitHub Copilot CLI docs (not seen on disk)",
 		Markers: []string{".copilot/session-state"},
 		Skills:  SkillsPaths{Global: ".copilot/skills", Project: ".agents/skills"},
-		MCP:     MCPConfig{Kind: MCPJSONFile, Path: ".copilot/mcp-config.json", Key: "mcpServers"}},
+		MCP:     MCPConfig{Kind: MCPCommand, Path: ".copilot/mcp-config.json", Key: "mcpServers"}},
 	{ID: "windsurf", Name: "Windsurf",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); MCP ~/.codeium/windsurf/mcp_config.json and transcript hook: docs.devin.ai/desktop (not installed here)",
 		Markers: []string{".codeium/windsurf"},
@@ -344,3 +348,47 @@ func TranscriptPath(name, session, home string) string {
 	sort.Strings(m)
 	return m[0]
 }
+
+// Connected reports whether the TAP MCP server is registered with c under
+// name, from c's own configuration under home. An agent whose configuration
+// cannot be read this way reports false.
+func (c Client) Connected(home, name string) bool {
+	if c.MCP.Path == "" {
+		return false
+	}
+	p := filepath.Join(home, filepath.FromSlash(c.MCP.Path))
+	if c.MCP.Kind == MCPExtension {
+		m, _ := filepath.Glob(p)
+		return len(m) > 0
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return false
+	}
+	if strings.HasSuffix(p, ".toml") {
+		// A TOML table header: [mcp_servers.tap] or [mcp_servers."tap"].
+		for _, line := range strings.Split(string(b), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "["+c.MCP.Key+"."+name+"]" || line == "["+c.MCP.Key+".\""+name+"\"]" {
+				return true
+			}
+		}
+		return false
+	}
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(b, &doc) != nil {
+		return false
+	}
+	var servers map[string]json.RawMessage
+	if json.Unmarshal(doc[c.MCP.Key], &servers) != nil {
+		return false
+	}
+	_, ok := servers[name]
+	return ok
+}
+
+// HasMCP reports whether the TAP MCP server can be connected to c at all.
+func HasMCP(c Client) bool { return c.MCP.Kind != MCPNone }
+
+// CapMCP names the capability in errors.
+const CapMCP = "connecting the TAP MCP server"

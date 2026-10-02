@@ -164,10 +164,17 @@ func TestPointersGoWhereThePrimitiveCanRunUnlessPicked(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	// Detected: installed and able to run it (a bridge).
-	ts, err := Targets("detected", home)
-	if err != nil || ids(ts) != "claude-code,codex" {
-		t.Fatalf("detected = %s, %v", ids(ts), err)
+	// Detected: installed, able to run it (a bridge) and with TAP connected.
+	// Codex has a bridge but no TAP registration: it is reported, not pointed.
+	os.WriteFile(filepath.Join(home, ".claude.json"), []byte(`{"mcpServers":{"tap":{"command":"tap"}}}`), 0o644)
+	ts, skipped, err := ResolveTargets("detected", home)
+	if err != nil || ids(ts) != "claude-code" || len(skipped) != 1 || skipped[0].Client != "codex" || !strings.Contains(skipped[0].Reason, "tap install --client codex") {
+		t.Fatalf("detected = %s, skipped %+v, %v", ids(ts), skipped, err)
+	}
+	os.WriteFile(filepath.Join(home, ".codex", "config.toml"), []byte("model = \"x\"\n\n[mcp_servers.tap]\ncommand = \"tap\"\n"), 0o644)
+	ts, skipped, err = ResolveTargets("detected", home)
+	if err != nil || ids(ts) != "claude-code,codex" || len(skipped) != 0 {
+		t.Fatalf("detected = %s, skipped %+v, %v", ids(ts), skipped, err)
 	}
 	// Picked by name: a pointer even without a bridge, saying so.
 	ts, err = Targets("windsurf,claude", home)

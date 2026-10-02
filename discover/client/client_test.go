@@ -192,3 +192,34 @@ func TestWindowsAppDataMarkers(t *testing.T) {
 		t.Errorf("home marker: %s", got)
 	}
 }
+
+// Connected reads each agent's own configuration: JSON servers, a Codex
+// TOML table, or the installed TAP extension for VS Code.
+func TestConnectedReadsEachAgentsConfig(t *testing.T) {
+	home := t.TempDir()
+	at := func(rel, body string) {
+		p := filepath.Join(home, rel)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(body), 0o644)
+	}
+	is := func(id string) bool { c, _ := Lookup(id); return c.Connected(home, "tap") }
+	for _, id := range []string{"claude-code", "codex", "cursor", "copilot-cli", "vscode-copilot", "aider"} {
+		if is(id) {
+			t.Errorf("%s connected with no configuration", id)
+		}
+	}
+	at(".claude.json", `{"mcpServers":{"other":{},"tap":{"command":"tap"}}}`)
+	at(".codex/config.toml", "[mcp_servers.telara]\ncommand = \"x\"\n\n[mcp_servers.\"tap\"]\ncommand = \"tap\"\n")
+	at(".cursor/mcp.json", `{"mcpServers":{"tapx":{}}}`)
+	at(".copilot/mcp-config.json", `{"mcpServers":{"tap":{"type":"local"}}}`)
+	at(".vscode/extensions/telara-labs.tap-vscode-0.1.3/package.json", "{}")
+	for id, want := range map[string]bool{"claude-code": true, "codex": true, "cursor": false, "copilot-cli": true, "vscode-copilot": true} {
+		if got := is(id); got != want {
+			t.Errorf("%s connected = %v, want %v", id, got, want)
+		}
+	}
+	at(".cursor/mcp.json", `not json`)
+	if is("cursor") {
+		t.Error("a malformed file reads as connected")
+	}
+}
