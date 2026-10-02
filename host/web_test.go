@@ -113,7 +113,7 @@ const mk = (annotations) => ({
   }
   const broken = { describeTool: async () => { throw new Error("no schema"); }, callTool: async () => ({payload: 1}) };
   try { await guardedCall(broken, "Gmail", "no-describe", {}); out.push("no describe:called"); } catch (e) { out.push("no describe:" + e.code); }
-  console.log(JSON.stringify({out, calls, unannotated: [...unannotated]}));
+  console.log(JSON.stringify({out, calls}));
 })();
 `
 	b, err := exec.Command(node, "-e", script).CombinedOutput()
@@ -121,21 +121,17 @@ const mk = (annotations) => ({
 		t.Fatalf("%v\n%s", err, b)
 	}
 	var got struct {
-		Out         []string `json:"out"`
-		Calls       []string `json:"calls"`
-		Unannotated []string `json:"unannotated"`
+		Out   []string `json:"out"`
+		Calls []string `json:"calls"`
 	}
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatalf("%v: %s", err, b)
 	}
-	want := "readonly:called destructive:refused not read only:refused says nothing:called no describe:called"
+	want := "readonly:called destructive:refused not read only:refused says nothing:refused no describe:refused"
 	if strings.Join(got.Out, " ") != want {
 		t.Fatalf("got %v", got.Out)
 	}
-	if strings.Join(got.Calls, ",") != "readonly,says nothing" {
+	if strings.Join(got.Calls, ",") != "readonly" {
 		t.Errorf("a refused tool was called: %v", got.Calls)
-	}
-	if len(got.Unannotated) != 2 {
-		t.Errorf("tools that said nothing were not counted: %v", got.Unannotated)
 	}
 }

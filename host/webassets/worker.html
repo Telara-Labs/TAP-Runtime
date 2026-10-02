@@ -149,9 +149,9 @@ let db = null;
 // A primitive here may only read (the page has no approval step). A connector
 // tool declares what it does in annotations the connector itself supplies. If
 // it says the tool changes state, the call is refused whatever the primitive
-// declared. A connector that says nothing is called, and counted, because the
-// page cannot tell (TENG-3104, threat G18).
-const unannotated = new Set();
+// declared. A connector that says nothing is refused too: the runner treats a
+// tool that does not say what it does as a write, and this page has no way to
+// ask (TENG-3104, threat G18).
 async function guardedCall(mcp, server, tool, args) {
   let info = null;
   try { info = await mcp.describeTool(server, tool); } catch { info = null; }
@@ -161,7 +161,11 @@ async function guardedCall(mcp, server, tool, args) {
     e.code = "refused";
     throw e;
   }
-  if (a.readOnlyHint !== true) unannotated.add(server + " / " + tool);
+  if (a.readOnlyHint !== true) {
+    const e = new Error(`${server} / ${tool} does not say it only reads, and a web page cannot ask for approval`);
+    e.code = "refused";
+    throw e;
+  }
   return mcp.callTool(server, tool, args, { cache: false });
 }
 // TAP-GUARD-END
@@ -185,7 +189,7 @@ async function handleJob(id, spec) {
     const result = (r.stdout || "").trimEnd();
     job.inBytes = inBytes; job.outBytes = result.length; job.state = r.exit ? "failed" : "done";
     if (r.exit) job.error = (r.stderr || "the primitive failed").trim();
-    update = { state: job.state, result, exit: r.exit, connector_calls: r.calls, refused: r.refused, connector_bytes_read: inBytes, result_bytes: job.outBytes, runner: RUNNER, unannotated_tools: Array.from(unannotated) };
+    update = { state: job.state, result, exit: r.exit, connector_calls: r.calls, refused: r.refused, connector_bytes_read: inBytes, result_bytes: job.outBytes, runner: RUNNER };
     if (r.stderr) update.stderr = r.stderr.trimEnd();
   } catch (e) {
     job.state = "failed"; job.error = e.message || String(e);
