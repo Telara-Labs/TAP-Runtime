@@ -10,7 +10,7 @@ published.
 Design: `telara-documentation/architecture/tap/34-the-baseline-primitive-is-a-program.md`
 section 13. Ticket: TENG-3031.
 
-**Status: tested on macOS arm64 and Linux (amd64, arm64). Not released.** On
+**Status: v0.1.2 release; tested on macOS arm64 and Linux (amd64, arm64).** On
 Windows (amd64) a subset runs in CI, on Windows itself: the packages that start
 no program, and one primitive in the sandbox, which reads and writes what it
 declared and is refused a write outside it. The rest of the suite drives Unix
@@ -105,12 +105,12 @@ The five-tool surface has passed direct MCP and live Codex tests. Its Claude
 Code live tool-call test remains unverified because that client's control
 call did not return, including for a read-only search.
 
-The npm distribution source is `npm/`. After a signed release is built and
-the package is published, `npm install -g @telaralabs/tap` installs the `tap` CLI.
+The npm distribution source is `npm/`. `npm install -g @telaralabs/tap`
+installs the `tap` CLI.
 When npm permits its install script, it also registers the local MCP with
 installed Claude Code and Codex; `tap setup` performs registration explicitly
 when scripts are disabled. The CLI includes `tap discover`; the MCP keeps the
-five fixed tools above. The npm package has not been published yet. See
+five fixed tools above. See
 [installation](docs/install.md).
 
 ## Find primitives in your own history
@@ -133,10 +133,9 @@ It reads local files only and sends nothing anywhere (`discover/`).
     ./bin/tap pkg/deploy-check-py
     ./bin/tap install --client claude --print
 
-    go run ./release build --version 0.1.0 --out dist --key ~/.tap-release/release.key \
-        # --unsigned says a build is meant to ship without a signature; the public key is release/release.pub
-        --download-base https://github.com/OWNER/REPO/releases/download/v0.1.0
-    go run ./release verify --dir dist --pub release.pub
+    go run ./release build --version 0.1.2 --out dist --key ~/.tap-release/release.key \
+        --download-base https://github.com/Telara-Labs/TAP-Runtime/releases/download/v0.1.2
+    go run ./release verify --dir dist --pub release/release.pub
 
 A release holds the runner for five platforms, the bash-compatible
 interpreter, `install.sh` and `install.ps1`, their checksums, the signature

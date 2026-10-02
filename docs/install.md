@@ -28,7 +28,7 @@ remote registry. The runner does not publish packages through MCP.
 
 ## One instruction
 
-### npm (after publication)
+### npm
 
 ```
 npm install -g @telaralabs/tap
@@ -45,9 +45,9 @@ experimental and requires `tap install --client gemini`; VS Code uses the
 separate extension below. Browser-only chats do not inherit a local MCP
 registration.
 
-The package is currently source and local test material, not a published npm
-release. A Git push alone does not make this command available: the signed
-five-platform release must be staged into the npm package and published.
+The package is published from a signed five-platform release. The matching
+release assets are at
+`https://github.com/Telara-Labs/TAP-Runtime/releases/tag/v0.1.2`.
 
 ### Release installer
 
