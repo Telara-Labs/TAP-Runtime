@@ -22,6 +22,12 @@ var Readers = map[string]func(home string) trace.Reader{
 		return Codex{Dir: filepath.Join(home, ".codex", "sessions")}
 	},
 	"cursor": func(home string) trace.Reader { return Cursor{DB: CursorStateDB(home)} },
+	"cursor-cli": func(home string) trace.Reader {
+		return CursorCLI{Dir: filepath.Join(home, ".cursor", "chats")}
+	},
+	"antigravity": func(home string) trace.Reader {
+		return Antigravity{Dir: filepath.Join(home, ".gemini", "antigravity", "brain")}
+	},
 }
 
 // DefaultReaders returns readers for the named clients at their usual places

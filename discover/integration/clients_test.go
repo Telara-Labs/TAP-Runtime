@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -109,5 +110,49 @@ func TestDiscoverReportIsByteIdenticalAcrossRuns(t *testing.T) {
 		if run() != first {
 			t.Fatalf("run %d differs", i+2)
 		}
+	}
+}
+
+// End to end for R1 (TENG-3112): with the Cursor CLI's and Antigravity's
+// stores in their usual places under HOME, `tap discover` detects both and
+// reads them with no flags, in the report and in the primitive menu path.
+func TestDiscoverReadsCursorCLIAndAntigravity(t *testing.T) {
+	bin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 is not installed")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sqls, _ := filepath.Glob("../history/testdata/cursor-cli/*/*/store.sql")
+	for _, f := range sqls {
+		rel, _ := filepath.Rel("../history/testdata/cursor-cli", filepath.Dir(f))
+		db := filepath.Join(home, ".cursor", "chats", rel, "store.db")
+		os.MkdirAll(filepath.Dir(db), 0o755)
+		sql, _ := os.ReadFile(f)
+		cmd := exec.Command(bin, db)
+		cmd.Stdin = bytes.NewReader(sql)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+	}
+	copyTree(t, "../history/testdata/antigravity", filepath.Join(home, ".gemini", "antigravity", "brain"))
+	if got := reportClients(t); strings.Join(got, ",") != "cursor-cli,antigravity" && strings.Join(got, ",") != "antigravity,cursor-cli" {
+		t.Fatalf("read %v", got)
+	}
+	// The default command (the primitive menu, as JSON) reads them too.
+	var out, errOut bytes.Buffer
+	if code := discover.Command([]string{"--json"}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	var res struct {
+		Summary map[string]any `json:"summary"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	// Two Cursor CLI sessions (19 and 12 calls) and one Antigravity
+	// conversation (14 calls).
+	if res.Summary["sessions"] != float64(3) || res.Summary["toolCalls"] != float64(45) {
+		t.Fatalf("summary %v", res.Summary)
 	}
 }
