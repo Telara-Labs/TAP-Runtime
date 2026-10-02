@@ -36,6 +36,16 @@ func primitiveInstaller(sessions []trace.Session, client, home, cwd string) func
 	return func(f primitive.Family, members []primitive.Primitive) (primitive.InstallResult, error) {
 		var r primitive.InstallResult
 		if len(f.FollowUps) > 1 {
+			// The continuations left out are named in the plan's reason,
+			// shown before the person accepts.
+			keep, kept, _ := executableFamily(f, members, by)
+			if len(keep.FollowUps) == 0 {
+				r.Reason = "the recorded uses do not establish an executable selection rule: none of its continuations compiles as recorded; prepare a handoff to refine it"
+				return r, nil
+			}
+			f, members = keep, kept
+		}
+		if len(f.FollowUps) > 1 {
 			g, why := branchGraph(f, members, by)
 			if g == nil {
 				r.Reason = "the recorded uses show multiple continuations, but do not establish an executable selection rule: " + why
@@ -150,6 +160,12 @@ func install(r primitive.InstallResult, pkg *codegen.GeneratedPackage, client, h
 // older synthesizer is tried. A binding the uses do not determine (taken
 // from an output line rather than a field) is returned as the reason.
 func directGraph(p primitive.Primitive, by map[string]*trace.Session) (*codegen.ProgramGraph, string) {
+	return directGraphVia(p, by, "")
+}
+
+// directGraphVia is directGraph with the first step's tool route fixed
+// ("server/tool"), so continuations of one family share one first step.
+func directGraphVia(p primitive.Primitive, by map[string]*trace.Session, headRoute string) (*codegen.ProgramGraph, string) {
 	for _, st := range p.Steps {
 		if !(strings.HasPrefix(st, "mcp:") || strings.HasPrefix(st, "op:")) || strings.Contains(st, "#") {
 			return nil, "fallback: not a tool-call chain"
@@ -197,6 +213,9 @@ func directGraph(p primitive.Primitive, by map[string]*trace.Session) (*codegen.
 			}
 		}
 		route[st] = best
+	}
+	if headRoute != "" && routes[1][headRoute] > 0 {
+		route[1] = headRoute
 	}
 	var kept []use
 	for _, u := range uses {
@@ -249,6 +268,7 @@ func directGraph(p primitive.Primitive, by map[string]*trace.Session) (*codegen.
 		}
 		sort.Strings(paths)
 		var optional []string
+		loopFrom, loopList := 0, ""
 		for _, path := range paths {
 			f := fields[path]
 			arg := codegen.ProgramArg{Path: f.Path, JSONString: f.JsonString, Optional: present[path] < calls}
@@ -268,11 +288,17 @@ func directGraph(p primitive.Primitive, by map[string]*trace.Session) (*codegen.
 				if m == nil {
 					return nil, fmt.Sprintf("step %d repeats, but %s is not taken from a list in step %d's result", n, path, b.From)
 				}
-				name := inputName(n, path) + "_positions"
-				step.Loop, step.DistinctLoopSelections = name, true
-				arg.Value = codegen.ProgramValue{Kind: "collection_index_item", Step: b.From, CollectionPath: m[1], ResultPath: m[2], Input: name}
-				g.Inputs = append(g.Inputs, codegen.ProgramInput{Name: name, Type: "integer", List: true,
-					Source: fmt.Sprintf("caller picks positions in step %d's result%s", b.From, m[1])})
+				// One set of picked positions per repeated step: every
+				// argument taken from the same list item shares it.
+				if step.Loop == "" {
+					step.Loop, step.DistinctLoopSelections = inputName(n, "positions"), true
+					loopFrom, loopList = b.From, m[1]
+					g.Inputs = append(g.Inputs, codegen.ProgramInput{Name: step.Loop, Type: "integer", List: true,
+						Source: fmt.Sprintf("caller picks positions in step %d's result%s", b.From, m[1])})
+				} else if b.From != loopFrom || m[1] != loopList {
+					return nil, fmt.Sprintf("step %d repeats over two different lists", n)
+				}
+				arg.Value = codegen.ProgramValue{Kind: "collection_index_item", Step: b.From, CollectionPath: m[1], ResultPath: m[2], Input: step.Loop}
 			case bound && b.Source == "step" && b.Label == primitive.Explicit && b.From > 0 && len(b.Contradicting) == 0:
 				arg.Value = codegen.ProgramValue{Kind: "result", Step: b.From, ResultPath: b.Selector}
 			case bound && b.Source == "step" && b.Label != primitive.Ambiguous && len(b.Contradicting) == 0:
@@ -289,6 +315,24 @@ func directGraph(p primitive.Primitive, by map[string]*trace.Session) (*codegen.
 			}
 			step.Args = append(step.Args, arg)
 		}
+		// An optional argument carrying exactly what a required one carries
+		// (the same earlier result) is an older name for the same value:
+		// every recorded use worked without it, so it is left out.
+		var args []codegen.ProgramArg
+		for _, a := range step.Args {
+			dup := false
+			if a.Optional && a.Value.Kind != "input" && a.Value.Kind != "selector" {
+				for _, b := range step.Args {
+					if !b.Optional && b.Value == a.Value {
+						dup = true
+					}
+				}
+			}
+			if !dup {
+				args = append(args, a)
+			}
+		}
+		step.Args = args
 		if len(optional) > 0 {
 			seen := map[string]bool{}
 			for _, u := range kept {
@@ -367,4 +411,30 @@ func packageSlug(p primitive.Primitive) string {
 		return id
 	}
 	return slug + "-" + id
+}
+
+// headRoute is the tool route ("server/tool") most of a family's recorded
+// first calls took, across all its continuations.
+func headRoute(members []primitive.Primitive, by map[string]*trace.Session) string {
+	n := map[string]int{}
+	for _, p := range members {
+		for _, ex := range p.Executions {
+			s := by[ex.Client+"\x00"+ex.Session]
+			if s == nil || ex.Overlaps != "" {
+				continue
+			}
+			for _, c := range ex.Calls {
+				if c.Step == 1 && c.Index < len(s.Calls) {
+					n[s.Calls[c.Index].MCPServer+"/"+s.Calls[c.Index].MCPTool]++
+				}
+			}
+		}
+	}
+	best, most := "", 0
+	for r, k := range n {
+		if k > most || k == most && r < best {
+			best, most = r, k
+		}
+	}
+	return best
 }
