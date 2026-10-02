@@ -1,0 +1,1 @@
+{"mcpServers": {"tracker": {"type": "local", "command": "/home/user/bin/fixture-mcp", "args": ["mcp"], "tools": ["*"]}}}

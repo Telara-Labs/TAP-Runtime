@@ -1,0 +1,2 @@
+{"status": "done", "type": "user_input", "user_input": {"rules_applied": {"always_on": []}, "user_response": "find the open issues"}}
+{"mcp_tool_use": {"mcp_server_name": "tracker", "mcp_tool_name": "search_issues", "mcp_tool_arguments": {"jql": "status = open"}, "status": "done"}, "type": "mcp_tool_use"}

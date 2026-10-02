@@ -1,0 +1,6 @@
+{"status": "done", "type": "user_input", "user_input": {"rules_applied": {"always_on": []}, "user_response": "find the open issues"}}
+{"planner_response": {"response": "Searching the tracker."}, "status": "done", "type": "planner_response"}
+{"mcp_tool_use": {"mcp_server_name": "tracker", "mcp_tool_name": "search_issues", "mcp_tool_arguments": {"jql": "status = open"}, "status": "done"}, "type": "mcp_tool_use"}
+{"command_execution": {"command_line": "git status --short", "cwd": "/home/user/work", "status": "done"}, "type": "run_command"}
+{"status": "done", "type": "user_input", "user_input": {"user_response": "open ABC-12"}}
+{"mcp_tool_use": {"mcp_server_name": "tracker", "mcp_tool_name": "get_issue", "mcp_tool_arguments": {"issue_key": "ABC-12"}, "status": "done"}, "type": "mcp_tool_use"}

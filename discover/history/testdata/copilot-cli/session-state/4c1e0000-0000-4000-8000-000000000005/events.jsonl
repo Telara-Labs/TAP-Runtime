@@ -1,0 +1,15 @@
+{"type": "session.start", "id": "e00", "timestamp": "2026-10-01T12:00:00Z", "data": {"sessionId": "4c1e0000-0000-4000-8000-000000000005", "copilotVersion": "1.0.91", "context": {"cwd": "/home/user/work"}}}
+{"type": "user.message", "id": "e01", "timestamp": "2026-10-01T12:00:01Z", "data": {"content": "find the open issues", "transformedContent": "find the open issues"}}
+{"type": "assistant.turn_start", "id": "e02", "timestamp": "2026-10-01T12:00:02Z", "data": {"turnId": "t1"}}
+{"type": "tool.execution_start", "id": "e03", "timestamp": "2026-10-01T12:00:03Z", "data": {"toolCallId": "c1", "toolName": "bash", "arguments": {"command": "git status --short"}}}
+{"type": "tool.execution_complete", "id": "e04", "timestamp": "2026-10-01T12:00:04Z", "data": {"toolCallId": "c1", "success": true, "result": {"content": "M a.go"}}}
+{"type": "tool.execution_start", "id": "e05", "timestamp": "2026-10-01T12:00:05Z", "data": {"toolCallId": "c2", "toolName": "tracker-search_issues", "arguments": {"jql": "status = open"}}}
+{"type": "tool.execution_complete", "id": "e06", "timestamp": "2026-10-01T12:00:06Z", "data": {"toolCallId": "c2", "success": true, "result": {"content": "{\"issues\":[{\"key\":\"ABC-12\"}]}"}}}
+{"type": "tool.execution_start", "id": "e07", "timestamp": "2026-10-01T12:00:07Z", "data": {"toolCallId": "c3", "toolName": "tracker-get_issue", "arguments": {"issue_key": "ABC-99"}}}
+{"type": "tool.execution_complete", "id": "e08", "timestamp": "2026-10-01T12:00:08Z", "data": {"toolCallId": "c3", "success": false, "result": {"content": "Issue ABC-99 does not exist"}}}
+{"type":"tool.execution_complete","data":{"toolCallId":"c9","result":{"content":"line one
+line two"}}}
+{"type": "user.message", "id": "e09", "timestamp": "2026-10-01T12:00:09Z", "data": {"content": "open ABC-12"}}
+{"type": "tool.execution_start", "id": "e10", "timestamp": "2026-10-01T12:00:10Z", "data": {"toolCallId": "c4", "toolName": "tracker-get_issue", "arguments": {"issue_key": "ABC-12"}}}
+{"type": "tool.execution_complete", "id": "e11", "timestamp": "2026-10-01T12:00:11Z", "data": {"toolCallId": "c4", "success": true, "result": {"content": "{\"key\":\"ABC-12\"}"}}}
+{"type": "tool.execution_start", "id": "e12", "timestamp": "2026-10-01T12:00:12Z", "data": {"toolCallId": "c5", "toolName": "view", "arguments": {"path": "a.go"}}}

@@ -32,3 +32,20 @@ vscode-ext/ holds synthetic Cline, Roo Code and Kilo Code extension tasks
 execute_command, and one older Cline task with the XML tool form. No
 extension is signed in on this machine; the Cline CLI fixture (cline-cli/)
 is a real run.
+
+# R5
+
+- copilot-cli/: Copilot CLI events.jsonl (deja-vu docs/registry/copilot.md
+  and github/copilot-cli issues): bash, MCP via mcp-config.json names, a
+  failed call, a result whose raw newline tore the line, an orphan call.
+- zed/: threads.db as SQL, one zstd-compressed 0.3.0 thread and one legacy
+  0.2.0 json thread (Zed crates/agent/src/db.rs layout).
+
+# R6
+
+- windsurf/: transcripts as Windsurf's post_cascade_response_with_transcript
+  hook writes them (docs.devin.ai/desktop/cascade/hooks), plus TAP's archive
+  copy (an older copy of one trajectory and one Windsurf already pruned).
+- amp/: an `amp threads export` document and an `amp threads list --json`
+  answer (vshulcz/deja-vu amp.go), served by a stand-in amp in the test.
+- aider/: real (see Real-run fixtures).

@@ -1,0 +1,89 @@
+{
+ "id": "T-0a1b2c3d",
+ "created": 1790000000000,
+ "title": "open issues",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "find the open issues"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_1",
+     "name": "mcp__tracker__search_issues",
+     "input": {
+      "jql": "status = open"
+     }
+    },
+    {
+     "type": "tool_use",
+     "id": "toolu_2",
+     "name": "Bash",
+     "input": {
+      "cmd": "git status --short"
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "toolUseID": "toolu_1",
+     "run": {
+      "status": "done",
+      "result": "{\"issues\":[{\"key\":\"ABC-12\"}]}"
+     }
+    },
+    {
+     "type": "tool_result",
+     "toolUseID": "toolu_2",
+     "run": {
+      "status": "done",
+      "result": {
+       "output": "M a.go",
+       "exitCode": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_3",
+     "name": "mcp__tracker__get_issue",
+     "input": {
+      "issue_key": "ABC-99"
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "toolUseID": "toolu_3",
+     "run": {
+      "status": "error",
+      "error": {
+       "message": "Issue ABC-99 does not exist"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -92,7 +92,7 @@ func TestResolve(t *testing.T) {
 		t.Errorf("duplicates: %s, %v", ids(cs), err)
 	}
 	// A named client without the capability is an error that says so.
-	if _, err := Resolve("aider", home, CapHistory, HasHistory); err == nil || !strings.Contains(err.Error(), "does not support reading session history") {
+	if _, err := Resolve("aider", home, CapLaunch, HasLaunch); err == nil || !strings.Contains(err.Error(), "does not support starting from the command line") {
 		t.Errorf("aider: %v", err)
 	}
 	// An unknown name lists the registry's clients, never a typed list.
