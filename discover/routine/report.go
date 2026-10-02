@@ -21,7 +21,7 @@ func WriteText(w io.Writer, r *model.Report, top int) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "CLIENT\tSESSIONS\tDUPLICATES\tCALLS\tSTEPS\tFROM\tTO\tNOTE")
 	for _, c := range r.Clients {
-		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\n", c.Client, c.Sessions, c.DuplicateSessions, c.Calls, c.Steps, Day(c.Earliest), Day(c.Latest), c.Error)
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\n", c.Client, c.Sessions, c.DuplicateSessions, c.Calls, c.Steps, Day(c.Earliest), Day(c.Latest), ClientNote(c))
 	}
 	tw.Flush()
 	trunc := ""
@@ -144,6 +144,11 @@ func WriteFunnel(w io.Writer, r *model.Report, top int, rejected bool) {
 		clients = append(clients, fmt.Sprintf("%s %d", c.Client, c.Sessions))
 	}
 	fmt.Fprintf(w, "Reviewed %d sessions (%s) and %d tool calls.\n", f.Sessions, strings.Join(clients, ", "), f.Calls)
+	for _, c := range r.Clients {
+		if c.SkippedRecords > 0 || c.UnreadableFiles > 0 {
+			fmt.Fprintf(w, "  %s: %s (see --stats)\n", c.Client, ClientNote(model.ClientStats{SkippedRecords: c.SkippedRecords, UnreadableFiles: c.UnreadableFiles}))
+		}
+	}
 	fmt.Fprintf(w, "%d requests; %d ran at least two steps a program could replay.\n", f.Requests, f.RequestsWithSteps)
 	parts := 0
 	for _, rt := range r.Routines {
@@ -358,4 +363,29 @@ func WriteSpanProposals(w io.Writer, r *model.Report, n int) {
 		fmt.Fprintf(w, "  %3d. %3d sessions %4d proposals  %-13s %-7s calls %v  %s  %s\n",
 			i+1, g.Sessions, g.Proposals, p.Kind, p.Effect, p.Calls, p.ID, trace.OneLine(strings.Join(p.Composition.Actions, " > "), 85))
 	}
+}
+
+// ClientNote is a client's error, then what its reader could not parse.
+func ClientNote(c model.ClientStats) string {
+	var parts []string
+	if c.Error != "" {
+		parts = append(parts, c.Error)
+	}
+	if c.SkippedRecords > 0 {
+		parts = append(parts, fmt.Sprintf("%d records skipped", c.SkippedRecords))
+	}
+	if c.UnreadableFiles > 0 {
+		parts = append(parts, fmt.Sprintf("%d sessions unreadable", c.UnreadableFiles))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// WriteStats prints, per client, what was read and what was left out.
+func WriteStats(w io.Writer, r *model.Report) {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "CLIENT\tSESSIONS\tCALLS\tSKIPPED RECORDS\tUNREADABLE SESSIONS\tERROR")
+	for _, c := range r.Clients {
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%s\n", c.Client, c.Sessions, c.Calls, c.SkippedRecords, c.UnreadableFiles, c.Error)
+	}
+	tw.Flush()
 }

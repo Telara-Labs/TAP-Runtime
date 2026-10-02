@@ -156,3 +156,38 @@ func TestDiscoverReadsCursorCLIAndAntigravity(t *testing.T) {
 		t.Fatalf("summary %v", res.Summary)
 	}
 }
+
+// End to end for TENG-3123: a corrupt record is skipped, the rest of the
+// session survives, and the report counts what was left out per agent.
+func TestReportCountsSkippedRecords(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	copyTree(t, "../history/testdata/claude", filepath.Join(home, ".claude", "projects"))
+	copyTree(t, "../history/testdata/antigravity", filepath.Join(home, ".gemini", "antigravity", "brain"))
+	// The Claude fixture already holds one line that is not JSON; tear one
+	// Antigravity step too.
+	f := filepath.Join(home, ".gemini", "antigravity", "brain", "1408d4ed-d5d8-4cd2-b3a4-d8f70bd2eed4", ".system_generated", "logs", "transcript_full.jsonl")
+	fh, _ := os.OpenFile(f, os.O_APPEND|os.O_WRONLY, 0o644)
+	fh.WriteString(`{"step_index":999,"type":"PLANNER_RESP`)
+	fh.Close()
+	var out, errOut bytes.Buffer
+	if code := discover.Command([]string{"report", "--json"}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	var rep model.Report
+	json.Unmarshal(out.Bytes(), &rep)
+	got := map[string]model.ClientStats{}
+	for _, c := range rep.Clients {
+		got[c.Client] = c
+	}
+	if got["claude-code"].SkippedRecords != 1 || got["antigravity"].SkippedRecords != 1 || got["antigravity"].Calls != 14 {
+		t.Fatalf("clients %+v", rep.Clients)
+	}
+	out.Reset()
+	if code := discover.Command([]string{"report", "--stats"}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "SKIPPED RECORDS") || !strings.Contains(out.String(), "antigravity") {
+		t.Fatalf("--stats:\n%s", out.String())
+	}
+}

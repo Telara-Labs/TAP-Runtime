@@ -34,15 +34,21 @@ type CursorCLI struct {
 func (CursorCLI) Client() string { return "cursor-cli" }
 
 func (r CursorCLI) Read(since time.Time) ([]trace.Session, error) {
+	ss, _, err := r.ReadWithStats(since)
+	return ss, err
+}
+
+func (r CursorCLI) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, error) {
+	var st trace.ReadStats
 	stores, err := filepath.Glob(filepath.Join(r.Dir, "*", "*", "store.db"))
 	if err != nil || len(stores) == 0 {
-		return nil, err
+		return nil, st, err
 	}
 	bin := r.SQLite3
 	if bin == "" {
 		p, err := exec.LookPath("sqlite3")
 		if err != nil {
-			return nil, fmt.Errorf("cursor-cli: %w: sqlite3 is not installed", ErrUnavailable)
+			return nil, st, fmt.Errorf("cursor-cli: %w: sqlite3 is not installed", ErrUnavailable)
 		}
 		bin = p
 	}
@@ -52,8 +58,12 @@ func (r CursorCLI) Read(since time.Time) ([]trace.Session, error) {
 			continue
 		}
 		s, err := ReadCursorCLIStore(bin, db)
-		if err != nil || len(s.Calls) == 0 || s.Start.Before(since) {
-			continue // one store that cannot be read is skipped, not the run
+		if err != nil {
+			st.UnreadableFiles++ // one store that cannot be read is skipped, not the run
+			continue
+		}
+		if len(s.Calls) == 0 || s.Start.Before(since) {
+			continue
 		}
 		out = append(out, s)
 	}
@@ -63,7 +73,7 @@ func (r CursorCLI) Read(since time.Time) ([]trace.Session, error) {
 		}
 		return out[i].ID < out[j].ID
 	})
-	return out, nil
+	return out, st, nil
 }
 
 // CursorCLIMessage is one AI SDK message.
@@ -130,11 +140,13 @@ func ReadCursorCLIStore(bin, db string) (trace.Session, error) {
 		}
 	}
 	var msgs []CursorCLIMessage
+	skipped := 0
 	h := sha256.New()
 	for _, id := range CursorCLIOrder(blobs[meta.Root]) {
 		var m CursorCLIMessage
 		if json.Unmarshal(blobs[id], &m) != nil || m.Role == "" {
-			continue // a tree node or an unreadable record
+			skipped++ // the root lists only messages: this one is missing or unreadable
+			continue
 		}
 		h.Write([]byte(id))
 		msgs = append(msgs, m)
@@ -148,6 +160,7 @@ func ReadCursorCLIStore(bin, db string) (trace.Session, error) {
 	}
 	s := CursorCLISession(id, start, msgs)
 	s.SourceDigest = hex.EncodeToString(h.Sum(nil))
+	s.Skipped = skipped
 	return s, nil
 }
 

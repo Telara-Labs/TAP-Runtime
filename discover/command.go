@@ -81,6 +81,7 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	days := fs.Int("days", 0, "only sessions from the last N days (0 = all retained history)")
 	top := fs.Int("top", 25, "primitives to list (0 = all)")
 	asJSON := fs.Bool("json", false, "print the full report as JSON")
+	stats := fs.Bool("stats", false, "print, per agent, what was read and what its reader could not parse, then stop")
 	outFile := fs.String("out", "", "also write the JSON report to this file")
 	review := fs.Bool("review", false, "list the primitives and pick which to save")
 	rejected := fs.Bool("rejected", false, "also list what each check removed, and why")
@@ -120,6 +121,10 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(errOut, "discover:", err)
 		return 1
+	}
+	if *stats {
+		routine.WriteStats(out, rep)
+		return 0
 	}
 	if *outFile != "" {
 		b, err := json.MarshalIndent(rep, "", "  ")

@@ -332,6 +332,10 @@ type Session struct {
 	// (its transcript file, or its rows in a client database), so a frozen
 	// corpus can prove its inputs unchanged whatever the parser does.
 	SourceDigest string `json:"-"`
+	// Skipped counts the records of this session the reader could not
+	// parse and left out. Like SourceDigest it describes the read, not the
+	// session, so it is not part of the session's encoding.
+	Skipped int `json:"-"`
 }
 
 // Approval is a user acknowledgement given after AfterCall calls of the
@@ -445,6 +449,19 @@ func (s *Session) Request() int {
 }
 
 // Reader reads one client's retained history.
+// ReadStats is what a read left out: whole files or sessions it could not
+// read at all. Records skipped inside a readable session are Session.Skipped.
+type ReadStats struct {
+	UnreadableFiles int
+}
+
+// StatReader is a Reader that also says what it left out, so a vendor
+// format change shows as a spike in skipped records, not as no history.
+type StatReader interface {
+	Reader
+	ReadWithStats(since time.Time) ([]Session, ReadStats, error)
+}
+
 type Reader interface {
 	// Client names the client, e.g. "claude-code".
 	Client() string

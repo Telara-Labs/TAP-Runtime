@@ -25,6 +25,12 @@ type Codex struct{ Dir string }
 func (Codex) Client() string { return "codex" }
 
 func (r Codex) Read(since time.Time) ([]trace.Session, error) {
+	ss, _, err := r.ReadWithStats(since)
+	return ss, err
+}
+
+func (r Codex) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, error) {
+	var st trace.ReadStats
 	var files []string
 	err := filepath.WalkDir(r.Dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -39,10 +45,10 @@ func (r Codex) Read(since time.Time) ([]trace.Session, error) {
 		return nil
 	})
 	if os.IsNotExist(err) {
-		return nil, nil
+		return nil, st, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, st, err
 	}
 	var out []trace.Session
 	ids := map[string]bool{}
@@ -51,7 +57,11 @@ func (r Codex) Read(since time.Time) ([]trace.Session, error) {
 			continue
 		}
 		s, err := ReadCodexFile(f)
-		if err != nil || len(s.Calls) == 0 || s.Start.Before(since) {
+		if err != nil {
+			st.UnreadableFiles++
+			continue
+		}
+		if len(s.Calls) == 0 || s.Start.Before(since) {
 			continue
 		}
 		s.SourceDigest = FileDigest(f)
@@ -67,7 +77,7 @@ func (r Codex) Read(since time.Time) ([]trace.Session, error) {
 		ids[s.ID] = true
 		out = append(out, s)
 	}
-	return out, nil
+	return out, st, nil
 }
 
 type CodexLine struct {
@@ -141,6 +151,7 @@ func ReadCodexFile(path string) (res trace.Session, err error) {
 		}
 		var ln CodexLine
 		if json.Unmarshal(b, &ln) != nil {
+			a.Skip()
 			continue
 		}
 		p := ln.Payload
