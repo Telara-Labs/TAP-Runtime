@@ -149,11 +149,11 @@ reproducible: the same source and toolchain give the same bytes.
 Pushing a `v*` tag to GitHub runs `.github/workflows/release.yml`: it tests the
 modules, builds and signs the release, creates the GitHub release, and
 publishes `@telaralabs/tap` with npm Trusted Publishing. Before enabling it,
-configure `TAP_RELEASE_KEY` as a GitHub Actions repository secret (the
-hex-encoded contents of the release signing key) and configure npm Trusted
-Publishing for `Telara-Labs/TAP-Runtime` and
-`.github/workflows/release.yml`. The workflow also supports manual dispatch
-with an existing release tag to package and publish already signed assets.
+configure npm Trusted Publishing for `Telara-Labs/TAP-Runtime` and
+`.github/workflows/release.yml`. Future tag builds also need
+`TAP_RELEASE_KEY` as a GitHub Actions repository secret (the hex-encoded
+contents of the release signing key). Manual dispatch can package and publish
+existing signed assets without that signing key.
 
 `--download-base` is where the files will be served from. The runner is built
 knowing the address and digest of its interpreter, and each install script
