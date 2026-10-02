@@ -56,6 +56,7 @@ type admission struct {
 	Bindings []binding `json:"bindings"`
 	Skipped  []string  `json:"optional_not_bound,omitempty"`
 	byAlias  map[string]*binding
+	inv      []bind.Tool // the client's tools, for operations dispatched through one
 }
 
 // detectClient names the client that started this process, from what that
@@ -166,6 +167,7 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 	if err != nil {
 		return nil, fmt.Errorf("reading the client's tools: %w", err)
 	}
+	a.inv = inv
 	for _, d := range decls {
 		bd := binding{Alias: d.Alias, Capability: d.Capability, Declared: d.Effect}
 		refusal := ""
@@ -362,16 +364,25 @@ func callTool(a *admission, b bridge.Bridge, rq request, approve bool, journal i
 		record("refused_undeclared", nil)
 		return reply{Refused: "alias not declared, or declared optional and not bound"}
 	}
-	entry["server"], entry["tool"], entry["effect"] = bd.Server, bd.Tool, bd.effective()
+	effect, refused, nested := callEffect(bd, a.inv, rq.Arguments)
+	entry["server"], entry["tool"], entry["effect"] = bd.Server, bd.Tool, effect
+	if nested != "" {
+		entry["dispatches"] = nested
+	}
+	if refused != "" {
+		logf("  REFUSED  call %s -> %s / %s  (%s)", rq.Alias, bd.Server, bd.Tool, refused)
+		record("refused_effect", nil)
+		return reply{Refused: refused}
+	}
 	if why := satisfy.CallArguments(bd.args, rq.Arguments); why != "" {
 		logf("  REFUSED  call %s -> %s / %s  (arguments outside the contract: %s)", rq.Alias, bd.Server, bd.Tool, why)
 		record("refused_arguments", map[string]any{"error": why})
 		return reply{Refused: "the arguments are outside what the capability declares: " + why}
 	}
-	if bd.effective() != string(bind.Read) && !approve {
-		logf("  GATED    call %s -> %s / %s  (%s, no approval)", rq.Alias, bd.Server, bd.Tool, bd.effective())
+	if effect != string(bind.Read) && !approve {
+		logf("  GATED    call %s -> %s / %s  (%s, no approval)", rq.Alias, bd.Server, bd.Tool, effect)
 		record("gated", nil)
-		return reply{Refused: bd.effective() + " tool needs approval", Gated: true}
+		return reply{Refused: effect + " tool needs approval", Gated: true}
 	}
 	t0 := time.Now()
 	res, err := b.Call(bd.tool, rq.Arguments)
@@ -385,13 +396,13 @@ func callTool(a *admission, b bridge.Bridge, rq request, approve bool, journal i
 			// The answer is not what the contract promises. For a read that
 			// is a failed call. For a change, the change has been made: the
 			// program and the record are told both things (34 section 11.3).
-			landed := bd.effective() != string(bind.Read)
+			landed := effect != string(bind.Read)
 			logf("  VIOLATES call %s -> %s / %s: %s (landed=%v)", rq.Alias, bd.Server, bd.Tool, why, landed)
 			record("output_schema_violation", map[string]any{"error": why, "landed": landed, "result_bytes": len(res)})
 			return reply{Exit: 1, Stderr: "output_schema_violation: " + why, Violation: true, Landed: landed}
 		}
 	}
-	logf("  call     %s -> %s / %s  [%s] %dB in, %s", rq.Alias, bd.Server, bd.Tool, bd.effective(), len(res), time.Since(t0).Round(time.Millisecond))
+	logf("  call     %s -> %s / %s  [%s] %dB in, %s", rq.Alias, bd.Server, bd.Tool, effect, len(res), time.Since(t0).Round(time.Millisecond))
 	record("ran", map[string]any{"result_bytes": len(res), "ms": time.Since(t0).Milliseconds()})
 	return reply{Result: res}
 }
