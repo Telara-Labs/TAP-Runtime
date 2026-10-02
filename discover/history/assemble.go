@@ -36,6 +36,10 @@ type ToolCall struct {
 // failure (trace.ResultOutcome). A store that records the outcome itself sets
 // HasOutcome and Outcome, which are then used as given.
 type ToolResult struct {
+	// Line and Record place the result in its store (trace.CallSource).
+	Line   int
+	Record string
+
 	Key        string
 	Nth        int
 	Text       string
@@ -122,6 +126,12 @@ func (a *Assembler) Add(e Event) {
 		}
 		c := &a.S.Calls[idx[n]]
 		RecordResult(c, e.Text)
+		if e.Line > 0 {
+			c.Src.ResultLine = e.Line
+		}
+		if e.Record != "" {
+			c.Src.ResultRecord = e.Record
+		}
 		switch {
 		case e.HasOutcome:
 			c.Outcome = e.Outcome

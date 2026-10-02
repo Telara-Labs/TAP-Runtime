@@ -78,6 +78,7 @@ func (r CursorCLI) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSt
 
 // CursorCLIMessage is one AI SDK message.
 type CursorCLIMessage struct {
+	Blob    string          `json:"-"` // the blob id it was read from (sha256 of it)
 	Role    string          `json:"role"`
 	ID      string          `json:"id"`
 	Content json.RawMessage `json:"content"`
@@ -149,6 +150,7 @@ func ReadCursorCLIStore(bin, db string) (trace.Session, error) {
 			continue
 		}
 		h.Write([]byte(id))
+		m.Blob = id
 		msgs = append(msgs, m)
 	}
 	id := filepath.Base(filepath.Dir(db))
@@ -251,11 +253,11 @@ func CursorCLIEvents(m CursorCLIMessage, session string, at time.Time) []Event {
 				out = append(out, UserText{Text: p.Text})
 			}
 		case p.Type == "tool-call":
-			c := trace.Call{Session: session, ID: p.ToolCallID, Time: at}
+			c := trace.Call{Session: session, ID: p.ToolCallID, Time: at, Src: trace.CallSource{CallRecord: m.Blob}}
 			CursorCLITool(&c, p.ToolName, p.Args)
 			out = append(out, ToolCall{Key: p.ToolCallID, Call: c})
 		case p.Type == "tool-result":
-			out = append(out, ToolResult{Key: p.ToolCallID, Nth: -1, Text: ResultText(p.Result), IsError: p.IsError})
+			out = append(out, ToolResult{Key: p.ToolCallID, Nth: -1, Text: ResultText(p.Result), IsError: p.IsError, Record: m.Blob})
 		}
 	}
 	return out

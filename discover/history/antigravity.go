@@ -106,14 +106,16 @@ func ReadAntigravityFile(path string) (s trace.Session, err error) {
 	a := NewAssembler("antigravity", filepath.Base(conv))
 	sc := bufio.NewScanner(fh)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
+	line := 0
 	for sc.Scan() {
+		line++
 		var st AntigravityStep
 		if json.Unmarshal(sc.Bytes(), &st) != nil {
 			a.Skip() // a torn line, e.g. the last one while it is being written
 			continue
 		}
 		FirstTime(&a.S, st.CreatedAt)
-		for _, e := range d.Events(st, a.S.ID) {
+		for _, e := range d.Events(st, a.S.ID, line) {
 			a.Add(e)
 		}
 	}
@@ -130,7 +132,8 @@ func antigravityKey(step int) string { return "step" + strconv.Itoa(step) }
 // Bookkeeping fields Antigravity adds to every call's arguments for its UI.
 var antigravityUIArgs = []string{"toolAction", "toolSummary"}
 
-func (d *AntigravityDecoder) Events(st AntigravityStep, session string) []Event {
+// Events decodes one step, read from line (one-based) of the transcript.
+func (d *AntigravityDecoder) Events(st AntigravityStep, session string, line int) []Event {
 	switch st.Type {
 	case "USER_INPUT":
 		text, ok := Envelope(st.Content, "USER_REQUEST")
@@ -142,7 +145,7 @@ func (d *AntigravityDecoder) Events(st AntigravityStep, session string) []Event 
 		// Answers the call made by the step before, if there was one; an
 		// error after a step with no call ("stream interrupted") answers
 		// nothing and is dropped by the assembler.
-		r := ToolResult{Key: antigravityKey(st.Index - 1), Nth: 0, Text: d.output(st.Content), IsError: st.Type == "ERROR_MESSAGE"}
+		r := ToolResult{Key: antigravityKey(st.Index - 1), Nth: 0, Line: line, Text: d.output(st.Content), IsError: st.Type == "ERROR_MESSAGE"}
 		if st.Status == "RUNNING" { // never finished: its outcome is not known
 			r.HasOutcome = true
 		}
@@ -151,7 +154,8 @@ func (d *AntigravityDecoder) Events(st AntigravityStep, session string) []Event 
 	var out []Event
 	for _, tc := range st.ToolCalls {
 		key := antigravityKey(st.Index)
-		c := trace.Call{Session: session, Time: st.CreatedAt}
+		// The step index is the call's id: its result is step index+1.
+		c := trace.Call{Session: session, ID: key, Time: st.CreatedAt, Src: trace.CallSource{CallLine: line}}
 		args := Without(tc.Args, antigravityUIArgs...)
 		switch {
 		case tc.Name == "run_command":
