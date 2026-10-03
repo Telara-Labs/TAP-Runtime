@@ -20,7 +20,7 @@ func TestRegistryBridgeMatchesRunner(t *testing.T) {
 			t.Errorf("%s: registry Bridge=%v, runner lends connections=%v", c.ID, c.Bridge, lends)
 		}
 	}
-	if !lendsConnections(clientFor("claude-code")) || !lendsConnections(clientFor("codex-mcp-client")) || !lendsConnections(clientFor("gemini-cli-mcp-client")) {
+	if !lendsConnections(clientFor("claude-code")) || !lendsConnections(clientFor("codex-mcp-client")) || !lendsConnections(clientFor("gemini-cli-mcp-client")) || !lendsConnections(clientFor("goose-cli")) {
 		t.Fatal("a handshake name of a bridged client does not reach its bridge")
 	}
 }

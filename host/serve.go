@@ -536,6 +536,8 @@ func clientFor(name string) string {
 		return "codex"
 	case "gemini-cli-mcp-client":
 		return "gemini"
+	case "goose-cli": // goose 1.53, also under goose acp (TENG-3116)
+		return "goose"
 	}
 	if name == "" {
 		return "unknown"

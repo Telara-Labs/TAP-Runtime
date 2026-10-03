@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/bridge"
+	agents "gitlab.com/telara-labs/tap-runtime/discover/client"
 )
 
 const cursorConfig = `{
@@ -190,3 +193,133 @@ func TestInstallIsSeenByEachAgentCLI(t *testing.T) {
 		})
 	}
 }
+
+const gooseConfig = `# my goose settings
+GOOSE_PROVIDER: openai # the provider
+GOOSE_MODE: approve
+extensions:
+  developer:
+    enabled: true
+    type: builtin
+    name: developer
+    timeout: 300
+  telara:
+    enabled: true
+    type: streamable_http
+    uri: https://example.test/mcp
+`
+
+// Goose keeps its MCP servers as extensions in config.yaml and has no
+// command to add one: the runner merges its entry, keeping comments, other
+// settings and order, backs the file up once, does nothing the second time,
+// removes only its own entry, and refuses a file that is not YAML
+// (TENG-3116).
+func TestSetYAMLEntryMergesGooseConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	os.WriteFile(path, []byte(gooseConfig), 0o600)
+	entry := gooseEntry("/opt/tap", "tap", envFlags{"OTEL_SERVICE_NAME=tap"})
+	if changed, err := setYAMLEntry(path, "extensions", "tap", entry); err != nil || !changed {
+		t.Fatalf("add: %v %v", changed, err)
+	}
+	after, _ := os.ReadFile(path)
+	s := string(after)
+	for _, want := range []string{"# my goose settings", "GOOSE_PROVIDER: openai # the provider", "  telara:\n", "  tap:\n", "type: stdio", "cmd: /opt/tap", "OTEL_SERVICE_NAME: tap"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("missing %q in:\n%s", want, s)
+		}
+	}
+	if strings.Index(s, "developer:") > strings.Index(s, "telara:") || strings.Index(s, "telara:") > strings.Index(s, "tap:") {
+		t.Errorf("order changed:\n%s", s)
+	}
+	if b, _ := os.ReadFile(path + ".tap-backup"); string(b) != gooseConfig {
+		t.Error("no backup of the original")
+	}
+	c, _ := agents.Lookup("goose")
+	if !connectedAt(c, path) {
+		t.Error("the registry does not read the entry as connected")
+	}
+	if changed, err := setYAMLEntry(path, "extensions", "tap", entry); err != nil || changed {
+		t.Fatalf("second add changed=%v %v", changed, err)
+	}
+	if changed, err := setYAMLEntry(path, "extensions", "tap", nil); err != nil || !changed {
+		t.Fatalf("remove: %v %v", changed, err)
+	}
+	b, _ := os.ReadFile(path)
+	if strings.Contains(string(b), "tap:") || !strings.Contains(string(b), "telara:") {
+		t.Fatalf("remove:\n%s", b)
+	}
+	os.WriteFile(path, []byte("extensions: [unclosed\n"), 0o600)
+	if _, err := setYAMLEntry(path, "extensions", "tap", entry); err == nil {
+		t.Fatal("a file that is not YAML was rewritten")
+	}
+}
+
+// connectedAt checks Connected with a home whose config.yaml is path.
+func connectedAt(c agents.Client, path string) bool {
+	home, _ := os.MkdirTemp("", "goose-home-")
+	defer os.RemoveAll(home)
+	dst := filepath.Join(home, filepath.FromSlash(c.MCP.Path))
+	os.MkdirAll(filepath.Dir(dst), 0o755)
+	b, _ := os.ReadFile(path)
+	os.WriteFile(dst, b, 0o600)
+	return c.Connected(home, "tap")
+}
+
+// Live with Goose: tap install --client goose into a temporary home, then
+// real Goose, through the bridge, starts the installed runner as its
+// extension and lists the runner's own tools. The person's configuration is
+// never touched.
+func TestInstallIsSeenByGoose(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs goose")
+	}
+	gooseBin, err := exec.LookPath("goose")
+	if err != nil {
+		if h, _ := os.UserHomeDir(); h != "" {
+			if p := filepath.Join(h, ".local", "bin", "goose"); fileIsThere(p) {
+				gooseBin = p
+			}
+		}
+	}
+	if gooseBin == "" {
+		t.Skip("not run: goose is not on this machine")
+	}
+	home := t.TempDir()
+	tap := filepath.Join(t.TempDir(), "tap")
+	build := exec.Command("go", "build", "-o", tap, "./host")
+	build.Dir = repoRoot
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v %s", err, out)
+	}
+	cfg := filepath.Join(home, ".config", "goose", "config.yaml")
+	os.MkdirAll(filepath.Dir(cfg), 0o755)
+	os.WriteFile(cfg, []byte("GOOSE_PROVIDER: openai\nGOOSE_MODEL: none\n"), 0o600)
+	inst := exec.Command(tap, "install", "--client", "goose")
+	inst.Env = append(os.Environ(), "HOME="+home)
+	if out, err := inst.CombinedOutput(); err != nil {
+		t.Fatalf("install: %v %s", err, out)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", filepath.Dir(gooseBin)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	g, err := bridge.NewGoose()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	inv, err := g.Inventory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, tool := range inv {
+		if tool.Server == "tap" {
+			names = append(names, tool.Name)
+		}
+	}
+	if len(names) == 0 {
+		t.Fatalf("goose lists no tools of the installed runner: %v", inv)
+	}
+	t.Logf("goose lists the runner's tools: %v", names)
+}
+
+func fileIsThere(p string) bool { _, err := os.Stat(p); return err == nil }

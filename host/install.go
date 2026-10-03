@@ -106,6 +106,33 @@ func installOne(c agents.Client, home, self, name, scope string, env envFlags, p
 	case agents.MCPExtension:
 		fmt.Fprintf(stdout, "%s: connected by the TAP extension (tap-vscode-<version>.vsix from the release); nothing to change here.\n", c.Name)
 		return 0
+	case agents.MCPYAMLFile:
+		path := filepath.Join(home, filepath.FromSlash(c.MCP.Path))
+		if print {
+			verb := "add to"
+			if remove {
+				verb = "remove from"
+			}
+			fmt.Fprintf(stdout, "%s %s: %s.%s runs %s serve --name %s%s\n", verb, path, c.MCP.Key, name, self, name, env.masked())
+			return 0
+		}
+		var e any = gooseEntry(self, name, env)
+		if remove {
+			e = nil
+		}
+		changed, err := setYAMLEntry(path, c.MCP.Key, name, e)
+		switch {
+		case err != nil:
+			fmt.Fprintln(stderr, "not changed:", err)
+			return 1
+		case !changed:
+			fmt.Fprintf(stdout, "%s: %s already as wanted.\n", c.Name, path)
+		case remove:
+			fmt.Fprintf(stdout, "%s: removed %s from %s.\n", c.Name, name, path)
+		default:
+			fmt.Fprintf(stdout, "%s: added %s to %s. Start a new %s session to use it.\n", c.Name, name, path, c.Name)
+		}
+		return 0
 	case agents.MCPJSONFile:
 		path := filepath.Join(home, filepath.FromSlash(c.MCP.Path))
 		if c.ID == "gemini-cli" {
