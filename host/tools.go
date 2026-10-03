@@ -220,7 +220,7 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 			switch {
 			case !found:
 				refusal = fmt.Sprintf("the pinned tool %s / %s is not on this client", d.Pin.Server, d.Pin.Tool)
-			case bd.tool.Annotated != bind.Unknown && rankOf(bd.tool.Annotated) > rankOf(bind.Effect(d.Effect)):
+			case d.Effect == string(bind.Read) && bd.tool.Annotated != bind.Unknown && bd.tool.Annotated != bind.Read:
 				refusal = fmt.Sprintf("the pinned tool is annotated %s and the primitive declares %s", bd.tool.Annotated, d.Effect)
 			}
 			bd.Score = 1
@@ -344,24 +344,27 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 
 func rankOf(e bind.Effect) int { return bind.Rank(e) }
 
-// effective is the effect the gate uses. The declaration is an upper bound,
-// held at binding (a tool annotated as doing more never binds). Within it
-// the tool's own server decides: a tool its server annotates read-only runs
-// as a read, whatever was declared, since a primitive generated from history
-// declares write when the history could not show the effect. A tool its
-// server says nothing about is treated as a write (ruling 20), and so is one
-// the person's client is set to ask about (TENG-3101).
+// effective is the effect the gate uses. A server annotation can make an
+// effectful declaration more specific or more restrictive; it cannot make a
+// read declaration effectful (that is refused at admission). An unannotated
+// or client-asked call is at least a write (rulings 20 and TENG-3101).
 func (b *binding) effective() string {
-	if b.Gated || b.Asked {
-		if b.Declared == string(bind.Read) {
-			return string(bind.Write)
+	declared := bind.Effect(b.Declared)
+	effective := declared
+	switch b.tool.Annotated {
+	case bind.Read:
+		effective = bind.Read
+	case bind.Unknown:
+		// Keep the declaration; unknown effects never reduce its gate.
+	default:
+		if rankOf(b.tool.Annotated) > rankOf(effective) {
+			effective = b.tool.Annotated
 		}
-		return b.Declared
 	}
-	if b.tool.Annotated == bind.Read {
-		return string(bind.Read)
+	if (b.Gated || b.Asked) && rankOf(effective) < rankOf(bind.Write) {
+		effective = bind.Write
 	}
-	return b.Declared
+	return string(effective)
 }
 
 func (a *admission) aliases() []string {
