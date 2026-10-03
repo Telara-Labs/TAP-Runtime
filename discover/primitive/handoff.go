@@ -19,6 +19,7 @@ import (
 	"gitlab.com/telara-labs/tap-runtime/discover/client"
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
 // RefinePrompt is the reusable refinement prompt every handoff carries.
@@ -180,14 +181,14 @@ func (t *transcript) indexID(id string) {
 	}
 }
 
-// sqliteRows runs one read-only query on a store (immutable: never written
-// or locked) with the system sqlite3, as the readers do.
+// sqliteRows runs one read-only query on a store (never written; WAL
+// included, util.SQLiteURI) with the system sqlite3, as the readers do.
 func sqliteRows(path, sql string) ([]map[string]string, error) {
 	bin, err := exec.LookPath("sqlite3")
 	if err != nil {
 		return nil, fmt.Errorf("sqlite3 is not installed")
 	}
-	out, err := exec.Command(bin, "-readonly", "-json", "file:"+path+"?immutable=1", sql).Output()
+	out, err := exec.Command(bin, "-readonly", "-json", util.SQLiteURI(path), sql).Output()
 	if err != nil {
 		return nil, err
 	}

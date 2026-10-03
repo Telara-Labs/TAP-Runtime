@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
 // Antigravity reads Google Antigravity conversations (TENG-3112):
@@ -241,7 +242,7 @@ func AntigravityUsage(db string) map[int]trace.Usage {
 	if err != nil {
 		return nil
 	}
-	raw, err := exec.Command(bin, "-readonly", "-json", "file:"+db+"?immutable=1", `SELECT hex(data) AS data FROM gen_metadata`).Output()
+	raw, err := exec.Command(bin, "-readonly", "-json", util.SQLiteURI(db), `SELECT hex(data) AS data FROM gen_metadata`).Output()
 	if err != nil || len(bytes.TrimSpace(raw)) == 0 {
 		return nil
 	}

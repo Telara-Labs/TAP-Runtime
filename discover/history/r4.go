@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,22 +15,32 @@ import (
 	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
 // R4 readers (TENG-3119): agents that keep sessions in a SQLite database
 // (OpenCode and the Kilo CLI built on it, Goose, Crush) or one JSON document
 // per session (Continue). Each was read from a real run of the agent on
 // 2026-10-02 (testdata/<agent>), and each is read through the system sqlite3
-// with immutable=1, as the Cursor readers are.
+// read-only, WAL included (util.SQLiteURI), as the Cursor readers are.
+
+// errStoreSchema marks a store without the tables or columns a reader
+// queries: a store the agent has not created yet, or another version's. The
+// reader counts it unreadable; it does not fail the run (TENG-3129).
+var errStoreSchema = errors.New("the store does not have the expected tables")
 
 // sqliteRows runs one query against a store, read-only.
 func sqliteRows(bin, db, sql string) ([]map[string]any, error) {
-	cmd := exec.Command(bin, "-readonly", "-json", "file:"+db+"?immutable=1", sql)
+	cmd := exec.Command(bin, "-readonly", "-json", util.SQLiteURI(db), sql)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("sqlite3: %v: %s", err, strings.TrimSpace(stderr.String()))
+		msg := strings.TrimSpace(stderr.String())
+		if strings.Contains(msg, "no such table") || strings.Contains(msg, "no such column") {
+			return nil, fmt.Errorf("%w: %s", errStoreSchema, msg)
+		}
+		return nil, fmt.Errorf("sqlite3: %v: %s", err, msg)
 	}
 	if len(bytes.TrimSpace(out)) == 0 {
 		return nil, nil
@@ -38,6 +49,16 @@ func sqliteRows(bin, db, sql string) ([]map[string]any, error) {
 	dec := json.NewDecoder(bytes.NewReader(out))
 	dec.UseNumber()
 	return rows, dec.Decode(&rows)
+}
+
+// unreadableStore counts a store without the expected schema as unreadable
+// and drops the error; any other error is returned.
+func unreadableStore(st *trace.ReadStats, err error) error {
+	if errors.Is(err, errStoreSchema) {
+		st.UnreadableFiles++
+		return nil
+	}
+	return err
 }
 
 func sqliteBin(client string) (string, error) {
@@ -120,15 +141,15 @@ func (r OpenCodeDB) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadS
 	}
 	sessions, err := sqliteRows(bin, r.DB, `SELECT id, time_created FROM session`)
 	if err != nil {
-		return nil, st, err
+		return nil, st, unreadableStore(&st, err)
 	}
 	msgs, err := sqliteRows(bin, r.DB, `SELECT id, session_id, time_created, data FROM message ORDER BY time_created, id`)
 	if err != nil {
-		return nil, st, err
+		return nil, st, unreadableStore(&st, err)
 	}
 	parts, err := sqliteRows(bin, r.DB, `SELECT id, message_id, session_id, time_created, data FROM part ORDER BY time_created, id`)
 	if err != nil {
-		return nil, st, err
+		return nil, st, unreadableStore(&st, err)
 	}
 	servers := openCodeServers(r.Configs)
 	role := map[string]string{}
@@ -269,7 +290,7 @@ func (r Goose) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats,
 	}
 	rows, err := sqliteRows(bin, db, `SELECT session_id, role, content_json, created_timestamp FROM messages ORDER BY session_id, id`)
 	if err != nil {
-		return nil, st, err
+		return nil, st, unreadableStore(&st, err)
 	}
 	bySession := map[string]*Assembler{}
 	var order []string
