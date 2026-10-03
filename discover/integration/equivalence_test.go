@@ -2,6 +2,7 @@ package integration
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,46 +15,60 @@ import (
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
 
-// scriptedSessions reads the scripted task (plan §6.4) as each agent that
-// ran it for real recorded it (TENG-3124): Claude Code, OpenCode, the Kilo
-// CLI, Goose, Crush, Continue and the Cline CLI.
-func scriptedSessions(t *testing.T) map[string]trace.Session {
+// scriptedReaders are the readers of the scripted task (plan §6.4) as each
+// agent that ran it for real recorded it (TENG-3124): Claude Code, OpenCode,
+// the Kilo CLI, Goose, Crush, Continue and the Cline CLI. Stores are rebuilt
+// and Continue's files copied under dir, so a test may change them.
+func scriptedReaders(t *testing.T, dir string) map[string]trace.Reader {
 	t.Helper()
 	td := "../history/testdata/"
-	dir := t.TempDir()
-	out := map[string]trace.Session{}
-	keep := func(client string) func([]trace.Session, error) {
-		return func(ss []trace.Session, err error) {
-			if err != nil {
-				t.Fatalf("%s: %v", client, err)
-			}
-			// The session that ran the whole task: the one with the most calls.
-			var best trace.Session
-			for _, s := range ss {
-				if len(s.Calls) > len(best.Calls) {
-					best = s
-				}
-			}
-			out[client] = best
-		}
+	db := func(name, sql string) string {
+		p := filepath.Join(dir, name)
+		buildStore(t, td+sql, p)
+		return p
 	}
-	keep("claude-code")(history.ClaudeCode{Dir: td + "scripted/claude"}.Read(time.Time{}))
-	db := filepath.Join(dir, "opencode.db")
-	buildStore(t, td+"opencode/opencode.sql", db)
-	keep("opencode")(history.OpenCodeDB{ID: "opencode", DB: db, Configs: []string{td + "opencode/opencode.json"}}.Read(time.Time{}))
-	db = filepath.Join(dir, "kilo.db")
-	buildStore(t, td+"kilo/kilo.sql", db)
-	keep("kilo")(history.OpenCodeDB{ID: "kilo", DB: db, Configs: []string{td + "kilo/kilo.json"}}.Read(time.Time{}))
 	gdir := filepath.Join(dir, "goose")
 	buildStore(t, td+"goose/sessions.sql", filepath.Join(gdir, "sessions.db"))
-	keep("goose")(history.Goose{Dir: gdir}.Read(time.Time{}))
 	work := filepath.Join(dir, "crush")
 	buildStore(t, td+"crush/work/.crush/crush.sql", filepath.Join(work, ".crush", "crush.db"))
 	pj, _ := json.Marshal(map[string]any{"projects": []any{map[string]any{"path": work, "data_dir": filepath.Join(work, ".crush")}}})
 	os.WriteFile(filepath.Join(dir, "projects.json"), pj, 0o644)
-	keep("crush")(history.Crush{Dir: dir, Configs: []string{td + "crush/crush.json"}}.Read(time.Time{}))
-	keep("continue")(history.Continue{Dir: td + "continue/sessions", Configs: []string{td + "continue/config.yaml"}}.Read(time.Time{}))
-	keep("cline")(history.ClineCLI{Dir: td + "cline-cli/sessions", Configs: []string{td + "cline-cli/cline_mcp_settings.json"}}.Read(time.Time{}))
+	cont := filepath.Join(dir, "continue")
+	os.MkdirAll(cont, 0o755)
+	files, _ := filepath.Glob(td + "continue/sessions/*.json")
+	for _, f := range files {
+		b, _ := os.ReadFile(f)
+		os.WriteFile(filepath.Join(cont, filepath.Base(f)), b, 0o644)
+	}
+	return map[string]trace.Reader{
+		"claude-code": history.ClaudeCode{Dir: td + "scripted/claude"},
+		"opencode":    history.OpenCodeDB{ID: "opencode", DB: db("opencode.db", "opencode/opencode.sql"), Configs: []string{td + "opencode/opencode.json"}},
+		"kilo":        history.OpenCodeDB{ID: "kilo", DB: db("kilo.db", "kilo/kilo.sql"), Configs: []string{td + "kilo/kilo.json"}},
+		"goose":       history.Goose{Dir: gdir},
+		"crush":       history.Crush{Dir: dir, Configs: []string{td + "crush/crush.json"}},
+		"continue":    history.Continue{Dir: cont, Configs: []string{td + "continue/config.yaml"}},
+		"cline":       history.ClineCLI{Dir: td + "cline-cli/sessions", Configs: []string{td + "cline-cli/cline_mcp_settings.json"}},
+	}
+}
+
+// scriptedSessions is each agent's session that ran the whole task: the
+// one with the most calls.
+func scriptedSessions(t *testing.T) map[string]trace.Session {
+	t.Helper()
+	out := map[string]trace.Session{}
+	for client, r := range scriptedReaders(t, t.TempDir()) {
+		ss, err := r.Read(time.Time{})
+		if err != nil {
+			t.Fatalf("%s: %v", client, err)
+		}
+		var best trace.Session
+		for _, s := range ss {
+			if len(s.Calls) > len(best.Calls) {
+				best = s
+			}
+		}
+		out[client] = best
+	}
 	return out
 }
 
@@ -133,5 +148,49 @@ func TestScriptedTaskReadsTheSameInEveryAgent(t *testing.T) {
 	}
 	if len(clients) != 7 {
 		t.Fatalf("the primitive's executions come from %d agents: %v", len(clients), clients)
+	}
+}
+
+// The new readers work under a frozen corpus (plan §6.4): a manifest built
+// from their sessions reads back the same sessions through FrozenReader, and
+// a session changed after the freeze is reported, not silently re-read.
+func TestNewReadersFreeze(t *testing.T) {
+	dir := t.TempDir()
+	rs := scriptedReaders(t, dir)
+	var all []trace.Session
+	for client, r := range rs {
+		ss, err := r.Read(time.Time{})
+		if err != nil || len(ss) == 0 {
+			t.Fatalf("%s: %d sessions, %v", client, len(ss), err)
+		}
+		for _, s := range ss {
+			if s.SourceDigest == "" {
+				t.Errorf("%s/%s has no SourceDigest", client, s.ID)
+			}
+		}
+		all = append(all, ss...)
+	}
+	m := history.BuildManifest(all, time.Now().Add(24*time.Hour))
+	if len(m.Sessions) != len(all) {
+		t.Fatalf("froze %d of %d sessions", len(m.Sessions), len(all))
+	}
+	for client, r := range rs {
+		want, _ := r.Read(time.Time{})
+		got, err := history.FrozenReader{Inner: r, Manifest: m}.Read(time.Time{})
+		if err != nil || len(got) != len(want) {
+			t.Errorf("%s: frozen read %d of %d, %v", client, len(got), len(want), err)
+		}
+	}
+	// A Continue session edited after the freeze.
+	files, _ := filepath.Glob(filepath.Join(dir, "continue", "*.json"))
+	for _, f := range files {
+		if filepath.Base(f) == "sessions.json" {
+			continue
+		}
+		b, _ := os.ReadFile(f)
+		os.WriteFile(f, append(b, ' '), 0o644)
+	}
+	if _, err := (history.FrozenReader{Inner: rs["continue"], Manifest: m}).Read(time.Time{}); !errors.Is(err, history.ErrCorpusChanged) {
+		t.Fatalf("a changed session read back as frozen: %v", err)
 	}
 }
