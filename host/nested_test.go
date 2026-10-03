@@ -35,8 +35,8 @@ func TestADispatchedCallTakesTheEffectOfTheOperationItNames(t *testing.T) {
 	if r := call("add_comment"); !r.Gated {
 		t.Fatalf("a dispatched operation with no annotation ran without approval: %+v", r)
 	}
-	if r := call("delete_issue"); r.Gated || !strings.Contains(r.Refused, "destructive") {
-		t.Fatalf("a dispatched operation doing more than declared was not refused: %+v", r)
+	if r := call("delete_issue"); !r.Gated || !strings.Contains(r.Refused, "destructive tool needs approval") {
+		t.Fatalf("a dispatched destructive operation was not promoted to a destructive approval: %+v", r)
 	}
 	if r := call("unlisted_thing"); !r.Gated {
 		t.Fatalf("an operation the client does not list ran without approval: %+v", r)

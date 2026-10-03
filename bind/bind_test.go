@@ -47,6 +47,7 @@ var claudeCases = []want{
 	{"gmail.drafts.get", Read, "get_draft", false},
 	{"gmail.labels.list", Read, "list_labels", false},
 	{"gmail.drafts.create", Write, "create_draft", true},
+	{"gmail.drafts.delete", Write, "delete_draft", false}, // an effectful annotation promotes the approval gate
 	{"gmail.drafts.update", Write, "update_draft", true},
 	{"gmail.labels.create", Write, "create_label", true},
 	{"gmail.messages.send", Write, "send_message", true},

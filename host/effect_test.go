@@ -31,7 +31,11 @@ func TestTheToolsOwnServerDecidesWithinTheDeclaredEffect(t *testing.T) {
 	if got := a.byAlias["a"].effective(); got != "write" {
 		t.Errorf("a read-only tool the client asks about runs as %q", got)
 	}
-	if _, err := admit(pinned("delete_draft"), gmail()); err == nil {
-		t.Error("a tool annotated as doing more than declared bound")
+	a, err = admit(pinned("delete_draft"), gmail())
+	if err != nil {
+		t.Fatalf("an effectful tool annotation should promote a write declaration, not prevent binding: %v", err)
+	}
+	if got := a.byAlias["a"].effective(); got != "destructive" {
+		t.Errorf("write declaration with destructive annotation gates as %q, want destructive", got)
 	}
 }

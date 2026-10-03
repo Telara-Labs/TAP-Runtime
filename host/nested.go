@@ -77,9 +77,9 @@ func nestedTool(args map[string]any, via bind.Tool, inv []bind.Tool) (bind.Tool,
 }
 
 // callEffect is the effect one call is gated by. A dispatched operation the
-// client also lists as its own tool takes that tool's annotation, within the
-// declared bound; it is refused when the operation is annotated as doing
-// more than the primitive declared. Otherwise it is the binding's effect.
+// client also lists as its own tool contributes its annotation to the gate.
+// A read declaration is refused when the operation is effectful; an
+// effectful declaration is promoted to the stronger observed effect.
 func callEffect(bd *binding, inv []bind.Tool, args map[string]any) (effect, refused, nested string) {
 	effect = bd.effective()
 	inner, ok := nestedTool(args, bd.tool, inv)
@@ -87,11 +87,14 @@ func callEffect(bd *binding, inv []bind.Tool, args map[string]any) (effect, refu
 		return effect, "", ""
 	}
 	nested = inner.Server + " / " + inner.Name
-	if bind.Rank(inner.Annotated) > bind.Rank(bind.Effect(bd.Declared)) {
+	if bd.Declared == string(bind.Read) && inner.Annotated != bind.Read {
 		return effect, "the dispatched operation " + nested + " is annotated " + string(inner.Annotated) + " and the primitive declares " + bd.Declared, nested
 	}
 	if inner.Annotated == bind.Read && effect != string(bind.Read) && !bd.Asked {
 		return string(bind.Read), "", nested
+	}
+	if bind.Rank(inner.Annotated) > bind.Rank(bind.Effect(effect)) {
+		effect = string(inner.Annotated)
 	}
 	return effect, "", nested
 }

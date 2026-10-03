@@ -202,9 +202,11 @@ func Candidates(capability string, declared Effect, inventory []Tool) (Choice, [
 		if !have[verb] {
 			continue // a different action is never the same capability
 		}
-		// Ruling 20: a tool its server says is more dangerous than the
-		// primitive declared never binds.
-		if t.Annotated != Unknown && rank[t.Annotated] > rank[declared] {
+		// Ruling 20: a read declaration is admitted only when the tool also
+		// says read. Effectful declarations are already approval-gated; a
+		// stronger annotation promotes the call's gate instead of preventing
+		// the primitive from binding.
+		if declared == Read && t.Annotated != Unknown && t.Annotated != Read {
 			sawEffectMismatch = true
 			continue
 		}
