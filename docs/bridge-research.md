@@ -27,7 +27,7 @@ prompts are model turns.
 | Antigravity | `PreInvocation` / `PostInvocation` hooks return `injectSteps: [{"toolCall": {"name", "args"}}]`; each hook gets `transcriptPath`, where the injected call's result is written | **candidate: verify live** | Hook contract embedded in `Antigravity.app/Contents/Resources/bin/language_server` ("Lifecycle Hooks (`hooks.json`)", sections 3 and 4) |
 | Cursor IDE | none. Hooks (`preToolUse`, `beforeMCPExecution`, …) answer only `permission`, `user_message`, `agent_message`, `updated_input` (rewrites the arguments of a call the model already made), `additional_context`; `stop` can send a `followup_message`, which is a model turn. Its extension host stubs `vscode.lm`: `invokeTool` rejects with "Language model tools are not available" and `tools` is always empty, so our VS Code extension cannot reach Cursor's MCP servers | **no** | `Cursor.app/…/workbench.desktop.main.js` (`agent.v1.PreToolUseRequestResponse`, `agent.v1.PostToolUseRequestResponse`); `…/api/node/extensionHostProcess.js` |
 | Cursor CLI (`cursor-agent`) | same hooks as the IDE. `cursor-agent acp` is an ACP server; its `initialize` offers `loadSession`, `mcpCapabilities`, `promptCapabilities`, `sessionCapabilities` and no tool call | **no** | `cursor-agent acp` initialize, run here 2026-10-02 (CLI 2026.08.25) |
-| Goose | ACP custom request `_goose/unstable/tools/call` `{sessionId, extensionName, name, arguments}` runs one extension tool through Goose's own extension manager (`dispatch_app_tool_call`) with no model turn and returns `{content, structuredContent, isError}`. It refuses unless the session is in **auto mode**, so Goose shows no approval of its own; the runner's effect gate is the only one. Tools whose `_meta.ui.visibility` excludes `app` are refused. Marked unstable | **candidate: build after a live test**, approval caveat | `aaif-goose/goose` `crates/goose-sdk-types/src/custom_requests.rs` (`GooseToolCallRequest`), `crates/goose/src/acp/server/tools.rs` (`on_call_tool`), `crates/goose/src/agents/reply_parts.rs` (`is_tool_visible_to_app`), read 2026-10-02 |
+| Goose | ACP custom request `_goose/unstable/tools/call` `{sessionId, extensionName, name, arguments}` runs one extension tool through Goose's own extension manager (`dispatch_app_tool_call`) with no model turn and returns `{content, structuredContent, isError}`. It refuses unless the session is in **auto mode**, so Goose shows no approval of its own; the runner's effect gate is the only one. Tools whose `_meta.ui.visibility` excludes `app` are refused. Marked unstable | **built (TENG-3116)**: live-tested on Goose 1.53.0; the runner's gate is the only approval (docs/install.md) | `aaif-goose/goose` `crates/goose-sdk-types/src/custom_requests.rs` (`GooseToolCallRequest`), `crates/goose/src/acp/server/tools.rs` (`on_call_tool`), `crates/goose/src/agents/reply_parts.rs` (`is_tool_visible_to_app`), read 2026-10-02 |
 | GitHub Copilot CLI | Hooks: `preToolUse` returns `permissionDecision`, `permissionDecisionReason`, `modifiedArgs`; `postToolUse` returns `modifiedResult`, `additionalContext`; nothing makes a call. `copilot --acp` is plain ACP | **no** | docs.github.com/en/copilot/reference/hooks-configuration (checked 2026-10-02) |
 | OpenCode | `opencode serve` routes (from `@opencode-ai/sdk` 1.18.34): `/mcp` and `/mcp/{name}/connect`, `/auth`, `/disconnect` manage servers, `/experimental/tool` lists tools, `/session/{id}/shell` runs a shell command; no route runs a tool. Plugin hooks `tool.execute.before/after` rewrite arguments and output | **no** via documented APIs | SDK route list, read 2026-10-02; opencode.ai/docs/server |
 | Windsurf (Devin Desktop) | Cascade hooks `pre_*`/`post_*` (`read_code`, `write_code`, `run_command`, `mcp_tool_use`, …): a pre hook blocks with exit code 2, everything else observes | **no** (vendor docs) | docs.devin.ai/desktop/cascade/hooks |
@@ -54,8 +54,13 @@ test in the shape of `bridge/live_test.go`:
    Antigravity's own approval (`PreToolUse` still runs on the injected step).
 2. **Goose**: `_goose/unstable/tools/call` over ACP. Simplest protocol of
    all, but it requires auto mode, so a run has no Goose approval prompt and
-   relies on the runner's effect gate alone; the method is unstable. Decide
-   whether that approval model is acceptable before building.
+   relies on the runner's effect gate alone; the method is unstable. Built
+   with that approval model (decided 2026-10-02, TENG-3116): `bridge/goose.go`.
+   Live facts that differ from the source reading: a tool is named
+   `<extension>__<tool>` in both tools/list and tools/call, the session
+   lists a connected stdio server as extension type `mcp`, Goose's MCP
+   client calls itself `goose-cli` and sends `server/discover` before
+   `initialize`.
 
 Everything else has no bridge today. Primitives saved for those agents get
 a pointer that says so (TENG-3109), and they can still run the primitive

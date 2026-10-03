@@ -3,8 +3,8 @@
 ## What the machine needs
 
 - **An agent that can lend its connections**, for a primitive that calls
-  tools: Claude Code, Codex, VS Code (with the extension below) or Gemini CLI
-  (experimental). `tap install` also connects the TAP MCP server to Cursor,
+  tools: Claude Code, Codex, VS Code (with the extension below), Gemini CLI
+  (experimental) or Goose (experimental, see below). `tap install` also connects the TAP MCP server to Cursor,
   Windsurf and Copilot CLI, so `tap_search` works there, but those agents
   cannot yet run a primitive's tool calls (docs/bridge-research.md). The
   runner also runs from a terminal with no agent, for primitives that use no
@@ -84,12 +84,23 @@ named `tap` to every agent installed here:
 | Cursor (app and CLI) | one entry merged into `~/.cursor/mcp.json` |
 | Windsurf | one entry merged into `~/.codeium/windsurf/mcp_config.json` |
 | Gemini CLI | `~/.gemini/settings.json`, with the hook its bridge needs |
+| Goose | one extension merged into `~/.config/goose/config.yaml` |
 | VS Code | the TAP extension below |
 
-A JSON file is changed only by adding (or, with `--remove`, removing) the
-`tap` entry: other servers and settings keep their values and order, the
-original is kept once as `<file>.tap-backup`, a file that is not plain JSON
-is left alone, and running it again changes nothing.
+A JSON or YAML file is changed only by adding (or, with `--remove`,
+removing) the `tap` entry: other servers and settings keep their values and
+order (and, in YAML, their comments), the original is kept once as
+`<file>.tap-backup`, a file that does not parse is left alone, and running
+it again changes nothing.
+
+**Goose: the runner is the only approval.** The runner reaches Goose's
+connections through Goose's ACP request `_goose/unstable/tools/call`, which
+Goose marks unstable and runs only in auto mode. A primitive's tool calls
+therefore show no Goose approval prompt, whatever mode Goose is set to.
+The runner's own gate still applies. Goose annotates no tool, so each one is
+treated as a write and needs the runner's approval, which `tap serve` asks
+for through the agent. A tool set to `never_allow` in Goose is refused.
+Tested with Goose 1.53.0.
 
 Options: `--client AGENTS|none` and `--dir DIR` (default `~/.local/bin`).
 Windows takes `-Client` and `-Dir`, and installs to
