@@ -33,11 +33,13 @@ prompts are model turns.
 | Windsurf (Devin Desktop) | Cascade hooks `pre_*`/`post_*` (`read_code`, `write_code`, `run_command`, `mcp_tool_use`, …): a pre hook blocks with exit code 2, everything else observes | **no** (vendor docs) | docs.devin.ai/desktop/cascade/hooks |
 | Qwen Code | Hooks return `permissionDecision`, `updatedInput`, `additionalContext` (PreToolUse) and `decision`, `reason`, `additionalContext` (PostToolUse); no chained tool call like Gemini CLI's `tailToolCallRequest` | **no** (vendor docs; source not read) | QwenLM/qwen-code `docs/users/features/hooks.md` |
 | Roo Code | Exported `RooCodeAPI`: `startNewTask`, `resumeTask`, `sendMessage`, button presses, settings. Every path goes through the model (`use_mcp_tool`) | **no** | RooCodeInc/Roo-Code `packages/types/src/api.ts` |
-| Cline, Kilo Code | No exported invoke-tool API found; their MCP connections are private to the extension and not registered with `vscode.lm`. Kilo is a Roo fork | **no evidence** (not verified in source) | github.com/cline/cline |
-| Zed | Zed passes its context servers to external agents over ACP; no way for an outside program to call one | **no evidence** | zed.dev/docs/ai/external-agents |
+| Cline (extension and CLI) | Extension exports only `startNewTask`, `sendMessage`, `pressPrimaryButton`, `pressSecondaryButton` (model turns); its `cline.McpService` gRPC methods manage servers and call none. CLI hub commands (`session.*`, `run.*`, `task.*`, `approval.respond`, `capability.*`) have no MCP call; `--acp` has no extension methods; hooks return `cancel`, `review`, `contextModification`, `overrideInput`, `errorMessage` (rewrite or block, never add a call) | **no** | `saoudrizwan.claude-dev-4.1.22` `dist/extension.js`; `cline` 3.0.68 `@cline/core/dist/hub/index.js`, `@cline/core/dist/extensions/mcp/manager.d.ts`, read 2026-10-02 |
+| Kilo CLI | `kilo serve` route `POST /experimental/mcp/call-tool` `{server, name, arguments}` (query `directory`) calls the server's own live MCP client and returns `{content, isError, structuredContent}`, with no model turn. 404 unless Kilo's own experimental flag (`KILO_EXPERIMENTAL_MCP_APPS`, or `KILO_EXPERIMENTAL`) is on in the serve process. It skips Kilo's permission prompt and plugin hooks, so as with Goose the runner's gate would be the only approval | **bridge candidate, verified live** (Kilo CLI 7.8.3, fixture tracker: search returned ABC-12/13, ABC-99 came back `isError`); build needs a decision (TENG-3131) | `@kilocode/cli` 7.8.3 binary (`McpHttpApi.callTool`); live probe 2026-10-02 |
+| Kilo Code (extension) | Starts its own `kilo serve --port 0` with a random `KILO_SERVER_PASSWORD`, so no outside program knows the port or password; it is not documented to turn the experimental flag on | **no** (from Kilo's docs, extension not installed here) | Kilo-Org/kilocode `packages/kilo-vscode/AGENTS.md` |
+| Zed | As an ACP client Zed answers file, terminal, permission and elicitation requests only; external agents get the MCP server configs and connect themselves; the MCP extension API only supplies a launch command. No method runs one of Zed's context-server tools | **no** (source read; Zed not installed here) | zed-industries/zed `crates/agent_servers/src/acp.rs`; zed.dev/docs/extensions/mcp-extensions, read 2026-10-02 |
 | Crush | One `PreToolUse` hook returning `decision`, `updated_input`, `context` | **no** (vendor docs) | charmbracelet/crush `docs/hooks/README.md` |
-| Amp | Nothing in the manual; toolbox and plugin pages not read | **no evidence**, still open | ampcode.com/manual |
-| Continue | Not researched | **open** | |
+| Amp | `amp tools use [--only output] <tool> --<param> <value>` runs a tool with no model turn; documented only for toolbox tools (`tb__…`), not shown for MCP tools. Plugin hook `tool.call` approves, rejects, rewrites or synthesizes a result for a model call, never adds one. Amp asks no approval by default | **candidate, unconfirmed for MCP tools** (Amp not installed here; it needs a sign-in, TENG-3121) | ampcode.com/news/more-tools-for-the-agent, ampcode.com/docs/customize/mcp, ampcode.com/docs/plugin-api, read 2026-10-02 |
+| Continue (extension and `cn` CLI) | `cn serve` routes are `GET /state`, `POST /message` (a model turn), `/permission`, `/pause`, `/diff`, `/exit`; `MCPService.runTool` is reachable only from the model's tool wrapper; the extension exports only `registerCustomContextProvider` | **no** | `@continuedev/cli` 1.5.47 `dist/index.js`; continuedev/continue `extensions/vscode/src/activation/activate.ts`, read 2026-10-02 |
 | Aider | No MCP at all (issue 3314, RFC 4506 open) | **no** | Aider-AI/aider#4506 |
 
 
@@ -47,7 +49,7 @@ checked in the shipped binary, app bundle, source or SDK.
 
 ## What to build (P3b)
 
-Two agents have a mechanism worth a build ticket, each starting with a live
+Three agents have a mechanism worth a build ticket, each starting with a live
 test in the shape of `bridge/live_test.go`:
 
 1. **Antigravity**: hook-injected tool calls (below). It keeps
@@ -61,6 +63,13 @@ test in the shape of `bridge/live_test.go`:
    lists a connected stdio server as extension type `mcp`, Goose's MCP
    client calls itself `goose-cli` and sends `server/discover` before
    `initialize`.
+
+3. **Kilo CLI**: `kilo serve` `POST /experimental/mcp/call-tool`, verified
+   live. Same approval model as Goose (the runner's gate only), and the serve
+   process needs Kilo's experimental flag: TENG-3131 waits on that decision.
+
+Amp's `amp tools use` may be a fourth once it is shown to reach MCP tools;
+that needs an Amp sign-in.
 
 Everything else has no bridge today. Primitives saved for those agents get
 a pointer that says so (TENG-3109), and they can still run the primitive
