@@ -75,7 +75,7 @@ func geminiAfterTool(stdin io.Reader, dir string) (map[string]any, error) {
 	if in.Event != "" && in.Event != "AfterTool" {
 		return map[string]any{}, nil
 	}
-	text := llmText(in.ToolResponse.LLMContent)
+	text := geminiUnwrap(llmText(in.ToolResponse.LLMContent))
 
 	// tap_run answered that its run waits on a call: ask Gemini to make it.
 	if strings.HasSuffix(in.ToolName, "tap_run") {
@@ -192,6 +192,17 @@ func llmText(raw json.RawMessage) string {
 		return one.Text
 	}
 	return string(raw)
+}
+
+// geminiUnwrap removes the one layer Gemini CLI (0.62) puts around every MCP
+// result it hands the model, <untrusted_context>\n…\n</untrusted_context>,
+// so the runner reads the tool's own text (TENG-3058, found live).
+func geminiUnwrap(s string) string {
+	const open, close = "<untrusted_context>\n", "\n</untrusted_context>"
+	if strings.HasPrefix(s, open) && strings.HasSuffix(s, close) && len(s) >= len(open)+len(close) {
+		return s[len(open) : len(s)-len(close)]
+	}
+	return s
 }
 
 func errorText(raw json.RawMessage) string {
