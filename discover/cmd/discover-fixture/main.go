@@ -25,6 +25,7 @@ import (
 
 	"gitlab.com/telara-labs/tap-runtime/discover/history"
 	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
 func main() {
@@ -94,7 +95,7 @@ func marshal(v any) []byte {
 }
 
 func sqlite(db, sql string) ([]map[string]string, error) {
-	out, err := exec.Command("sqlite3", "-readonly", "-json", "file:"+db+"?immutable=1", sql).Output()
+	out, err := exec.Command("sqlite3", "-readonly", "-json", util.SQLiteURI(db), sql).Output()
 	if err != nil {
 		return nil, err
 	}

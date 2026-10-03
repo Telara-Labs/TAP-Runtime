@@ -176,7 +176,7 @@ func (r Zed) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, e
 	zstd, zerr := exec.LookPath("zstd")
 	rows, err := sqliteRows(bin, db, `SELECT id, updated_at, data_type, hex(data) AS data FROM threads`)
 	if err != nil {
-		return nil, st, err
+		return nil, st, unreadableStore(&st, err)
 	}
 	var out []trace.Session
 	for _, row := range rows {

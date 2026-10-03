@@ -15,12 +15,13 @@ import (
 	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
 // Cursor reads Cursor's chat store, globalStorage/state.vscdb, a SQLite
 // database. No SQLite driver is a dependency of this module, so it runs the
-// system sqlite3 read-only with immutable=1: the file is never written or
-// locked, and a missing sqlite3 makes this reader unavailable, not the run.
+// system sqlite3 read-only, WAL included (util.SQLiteURI): the file is never
+// written, and a missing sqlite3 makes this reader unavailable, not the run.
 //
 // Each message ("bubble") is a row bubbleId:<composer>:<bubble>; a tool call
 // is a bubble with toolFormerData. A conversation ("composer") lists its
@@ -100,7 +101,7 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 		bin = p
 	}
 	query := func(sql string) ([]CursorRow, error) {
-		cmd := exec.Command(bin, "-readonly", "-json", "file:"+r.DB+"?immutable=1", sql)
+		cmd := exec.Command(bin, "-readonly", "-json", util.SQLiteURI(r.DB), sql)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()

@@ -1,7 +1,9 @@
 package history
 
 import (
+	"bufio"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -175,5 +177,64 @@ func TestAllFixturesAreRedacted(t *testing.T) {
 	})
 	if err != nil || n < 20 {
 		t.Fatalf("%d fixture files, %v", n, err)
+	}
+}
+
+// TENG-3129: an agent's store in WAL mode, still open in the agent, has its
+// schema and rows only in the -wal file. The reader sees them; immutable=1,
+// which reads the main file alone, did not.
+func TestOpenCodeReaderSeesWhatIsOnlyInTheWAL(t *testing.T) {
+	bin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 is not installed")
+	}
+	sql, err := os.ReadFile("testdata/opencode/opencode.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := filepath.Join(t.TempDir(), "opencode.db")
+	// The writer stays open, as the agent does, so nothing is checkpointed.
+	w := exec.Command(bin, db)
+	in, _ := w.StdinPipe()
+	out, _ := w.StdoutPipe()
+	if err := w.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { in.Close(); w.Wait() }()
+	io.WriteString(in, "PRAGMA journal_mode=WAL;\nPRAGMA wal_autocheckpoint=0;\n"+string(sql)+"\n.print ready\n")
+	sc := bufio.NewScanner(out)
+	for sc.Scan() && sc.Text() != "ready" {
+	}
+	if fi, err := os.Stat(db + "-wal"); err != nil || fi.Size() == 0 {
+		t.Fatalf("the rows are not in the WAL: %v", err)
+	}
+	if b, _ := exec.Command(bin, "-readonly", "file:"+db+"?immutable=1", "SELECT count(*) FROM session").CombinedOutput(); !strings.Contains(string(b), "no such table") {
+		t.Fatalf("the main file already holds the schema, so this test shows nothing: %s", b)
+	}
+	ss, err := OpenCodeDB{ID: "opencode", DB: db, Configs: []string{"testdata/opencode/opencode.json"}}.Read(time.Time{})
+	if err != nil || onlyWithCalls(ss, 5) == nil {
+		t.Fatalf("%d sessions, %v", len(ss), err)
+	}
+}
+
+// A store without the tables a reader queries (one the agent has not set
+// up yet) is counted unreadable; the run goes on (TENG-3129).
+func TestAStoreWithoutItsTablesIsUnreadableNotFatal(t *testing.T) {
+	bin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 is not installed")
+	}
+	db := filepath.Join(t.TempDir(), "kilo.db")
+	if out, err := exec.Command(bin, db, "CREATE TABLE other(x);").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	ss, st, err := OpenCodeDB{ID: "kilo", DB: db}.ReadWithStats(time.Time{})
+	if err != nil || len(ss) != 0 || st.UnreadableFiles != 1 {
+		t.Fatalf("%d sessions, %+v, %v", len(ss), st, err)
+	}
+	dir := t.TempDir()
+	exec.Command(bin, filepath.Join(dir, "sessions.db"), "CREATE TABLE other(x);").Run()
+	if _, st, err := (Goose{Dir: dir}).ReadWithStats(time.Time{}); err != nil || st.UnreadableFiles != 1 {
+		t.Fatalf("goose: %+v %v", st, err)
 	}
 }

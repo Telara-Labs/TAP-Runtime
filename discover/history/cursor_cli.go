@@ -16,12 +16,13 @@ import (
 	"time"
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
 )
 
 // CursorCLI reads the Cursor CLI's (cursor-agent's) sessions:
 // <Dir>/<workspace>/<session>/store.db, one SQLite database per session
-// (TENG-3112). Like Cursor, it runs the system sqlite3 read-only with
-// immutable=1, so the store is never written or locked.
+// (TENG-3112). Like Cursor, it runs the system sqlite3 read-only
+// (util.SQLiteURI), so the store is never written.
 //
 // The store is content-addressed: table blobs holds each message as AI SDK
 // JSON ({role, content: [text | tool-call | tool-result]}) under its sha256,
@@ -99,7 +100,7 @@ type cursorCLIPart struct {
 // ReadCursorCLIStore reads one session's store.db with the sqlite3 at bin.
 func ReadCursorCLIStore(bin, db string) (trace.Session, error) {
 	query := func(sql string) ([]map[string]string, error) {
-		cmd := exec.Command(bin, "-readonly", "-json", "file:"+db+"?immutable=1", sql)
+		cmd := exec.Command(bin, "-readonly", "-json", util.SQLiteURI(db), sql)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		b, err := cmd.Output()
