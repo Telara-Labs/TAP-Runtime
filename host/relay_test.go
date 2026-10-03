@@ -258,3 +258,20 @@ files:
 		t.Fatal("the file was written")
 	}
 }
+
+// Gemini CLI 0.62 wraps every MCP result it shows the model in
+// <untrusted_context>; the hook hands the runner the tool's own text, with
+// one layer removed and nothing else changed (TENG-3058, found live).
+func TestGeminiUnwrapRemovesOneUntrustedContextLayer(t *testing.T) {
+	for in, want := range map[string]string{
+		"<untrusted_context>\n{\"issues\":[]}\n</untrusted_context>":                              `{"issues":[]}`,
+		"<untrusted_context>\n<untrusted_context>\nx\n</untrusted_context>\n</untrusted_context>": "<untrusted_context>\nx\n</untrusted_context>",
+		`{"issues":[]}`:                               `{"issues":[]}`,
+		"<untrusted_context>\nno closing tag":         "<untrusted_context>\nno closing tag",
+		"<untrusted_context>\n\n</untrusted_context>": "",
+	} {
+		if got := geminiUnwrap(in); got != want {
+			t.Errorf("geminiUnwrap(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
