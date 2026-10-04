@@ -53,7 +53,11 @@ func TestAcceptGeneratesAndInstalls(t *testing.T) {
 	}
 	var members []primitive.Primitive
 	for _, id := range res.Families[0].Members {
-		members = append(members, byID[id])
+		p := byID[id]
+		// A reviewer can explicitly waive approval for a read-only step;
+		// the effect must survive code generation without changing its next step.
+		p.StepEffects[0] = "read"
+		members = append(members, p)
 	}
 	home := t.TempDir()
 	r, err := primitiveInstaller(ss, pack.Destination{Collection: home})(res.Families[0], members)
@@ -66,5 +70,13 @@ func TestAcceptGeneratesAndInstalls(t *testing.T) {
 	}
 	if strings.Contains(string(main), `"step_2_issue_key"`) || strings.Contains(string(main), "null") {
 		t.Fatalf("the created key must flow from step 1, not be asked for:\n%s", main)
+	}
+	manifestBytes, err := os.ReadFile(filepath.Join(r.Where, "primitive.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestText := string(manifestBytes)
+	if !strings.Contains(manifestText, "effect: read") || !strings.Contains(manifestText, "effect: write") {
+		t.Fatalf("reviewed read effect and remaining write gate were not preserved:\n%s", manifestText)
 	}
 }

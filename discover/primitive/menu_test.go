@@ -1,6 +1,7 @@
 package primitive
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"os"
@@ -11,6 +12,47 @@ import (
 
 	"gitlab.com/telara-labs/tap-runtime/discover/trace"
 )
+
+func TestReviewFamilyEffectsRequiresExplicitStepChoice(t *testing.T) {
+	res := twoFamilies()
+	f := res.Families[0]
+	byID := map[string]Primitive{}
+	for _, p := range res.Primitives {
+		byID[p.ID] = p
+	}
+	var out bytes.Buffer
+	reviewFamilyEffects(bufio.NewScanner(strings.NewReader("r 1\n\n")), &out, style{}, f, byID)
+	rows := effectRows(f, byID, snapshotEffects(byID))
+	if len(rows) == 0 || rows[0].Selected != "read" {
+		t.Fatalf("explicit read-only selection not kept: %+v\n%s", rows, out.String())
+	}
+	if !strings.Contains(out.String(), "will run as read") {
+		t.Fatalf("selection outcome was not shown:\n%s", out.String())
+	}
+}
+
+func TestMenuPassesReviewedStepEffectsToInstaller(t *testing.T) {
+	res := twoFamilies()
+	dir := t.TempDir()
+	var out bytes.Buffer
+	var installed []Primitive
+	err := Menu(strings.NewReader("i\nm\nr 1\n\na\ns\ns\n"), &out, res, MenuConfig{
+		StateDir: dir, Home: t.TempDir(), Clients: "claude-code",
+		Install: func(_ Family, members []Primitive) (InstallResult, error) {
+			installed = append(installed, members...)
+			return InstallResult{Installed: true, Name: "test", Where: "test"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(installed) == 0 || len(installed[0].StepEffects) == 0 || installed[0].StepEffects[0] != "read" {
+		t.Fatalf("installer did not receive reviewed effect: %+v\n%s", installed, out.String())
+	}
+	if !strings.Contains(out.String(), "will run as read") {
+		t.Fatalf("review outcome was not shown:\n%s", out.String())
+	}
+}
 
 // twoFamilies is a corpus with two proposed primitives.
 func twoFamilies() Result {

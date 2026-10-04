@@ -229,7 +229,11 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	inspect := func() bool {
 		for pos < len(shown) {
 			card(out, s, pos+1, len(shown), shown[pos], byID, choice[pos], res.Summary)
-			actions := []string{"d", "dismiss", "e", "export evidence", "n", "next", "p", "previous", "s", "review choices", "q", "quit"}
+			actions := []string{"d", "dismiss", "e", "export evidence"}
+			if shown[pos].APIMode != "needs_refinement" {
+				actions = append(actions, "m", "review step effects")
+			}
+			actions = append(actions, "n", "next", "p", "previous", "s", "review choices", "q", "quit")
 			acceptLabel := "accept and install"
 			if shown[pos].APIMode == "needs_refinement" {
 				acceptLabel = "accept for API design"
@@ -249,6 +253,13 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 				pos++
 			case "n":
 				pos++
+			case "m":
+				if shown[pos].APIMode == "needs_refinement" {
+					fmt.Fprintln(out, "  This pattern has no installable API, so it has no effect settings.")
+				} else {
+					reviewFamilyEffects(sc, out, s, shown[pos], byID)
+					shown[pos].Effect = familySelectedEffect(shown[pos], byID)
+				}
 			case "p":
 				if pos > 0 {
 					pos--
@@ -320,6 +331,50 @@ func Menu(in io.Reader, out io.Writer, res Result, cfg MenuConfig) error {
 	}
 }
 
+func reviewFamilyEffects(sc *bufio.Scanner, out io.Writer, s style, f Family, byID map[string]Primitive) {
+	observed := snapshotEffects(byID)
+	rows := effectRows(f, byID, observed)
+	if len(rows) == 0 {
+		fmt.Fprintln(out, "  No steps to review.")
+		return
+	}
+	fmt.Fprintln(out, "\nReview step effects. Unknown steps require approval by default; use read-only only when intended.")
+	for i, row := range rows {
+		fmt.Fprintf(out, "  %d. %s · observed %s · selected %s\n", i+1, display(effectRowLabel(row)), row.Observed, row.Selected)
+	}
+	fmt.Fprintln(out, "  Enter 'r N' to mark a step read-only, 'w N' to require approval, or blank to return.")
+	for {
+		fmt.Fprint(out, "  effect › ")
+		if !sc.Scan() {
+			return
+		}
+		input := strings.Fields(strings.ToLower(strings.TrimSpace(sc.Text())))
+		if len(input) == 0 {
+			return
+		}
+		if len(input) != 2 || (input[0] != "r" && input[0] != "w") {
+			fmt.Fprintln(out, "  Use r N, w N, or enter to return.")
+			continue
+		}
+		n, err := strconv.Atoi(input[1])
+		if err != nil || n < 1 || n > len(rows) {
+			fmt.Fprintf(out, "  Choose a step from 1 to %d.\n", len(rows))
+			continue
+		}
+		effect := "read"
+		if input[0] == "w" {
+			effect = "write"
+		}
+		row := rows[n-1]
+		if err := setStepEffect(byID, row, effect); err != nil {
+			fmt.Fprintln(out, "  "+err.Error())
+			continue
+		}
+		rows = effectRows(f, byID, observed)
+		fmt.Fprintf(out, "  %s will run as %s.\n", effectRowLabel(row), effect)
+	}
+}
+
 // title names a family the way a person would: its first step and the
 // number of observed continuations.
 func title(f Family) string {
@@ -372,6 +427,11 @@ func card(out io.Writer, s style, n, total int, f Family, byID map[string]Primit
 		used += " (" + p + ")"
 	}
 	fmt.Fprintln(out, " "+s.dim(used+" · "+effectText(f.Effect)))
+	if familyHasUnknownEffect(f, byID) {
+		for _, line := range wrapText("Unknown steps ask for approval by default. Press [m] effects to set a confirmed read-only step.", max(20, min(s.cols(), screen)-2)) {
+			fmt.Fprintln(out, " "+s.dim(line))
+		}
+	}
 	switch f.Status {
 	case StatusNewSince:
 		fmt.Fprintln(out, " "+s.accent(fmt.Sprintf("Only what is new since your last decision (%s) is shown.", f.Earlier)))

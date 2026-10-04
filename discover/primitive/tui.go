@@ -25,6 +25,7 @@ const (
 	listView view = iota
 	cardView
 	reviewView
+	effectView
 	doneView
 )
 
@@ -36,20 +37,22 @@ type tui struct {
 	rows []string
 	sel  selection
 	// copy puts selected text on the clipboard; nil means copyText.
-	copy   func(string)
-	res    Result
-	cfg    MenuConfig
-	s      style
-	shown  []Family
-	hidden map[string]int
-	byID   map[string]Primitive
-	choice []string
-	cursor int
-	scroll int
-	view   view
-	w, h   int
-	notice string
-	out    *os.File
+	copy            func(string)
+	res             Result
+	cfg             MenuConfig
+	s               style
+	shown           []Family
+	hidden          map[string]int
+	byID            map[string]Primitive
+	observedEffects map[string][]string
+	choice          []string
+	cursor          int
+	effectCursor    int
+	scroll          int
+	view            view
+	w, h            int
+	notice          string
+	out             *os.File
 	// filter narrows the list to primitives whose name contains it; typing
 	// is true while the person types it after pressing /.
 	filter string
@@ -102,6 +105,7 @@ func RunTUI(in, out *os.File, res Result, cfg MenuConfig) error {
 	for _, p := range res.Primitives {
 		t.byID[p.ID] = p
 	}
+	t.observedEffects = snapshotEffects(t.byID)
 	fd := int(in.Fd())
 	old, err := term.MakeRaw(fd)
 	if err != nil {
@@ -239,6 +243,9 @@ func (t *tui) key(k string) bool {
 			t.step(delta)
 		case cardView:
 			t.scroll = max(0, t.scroll+delta)
+		case effectView:
+			rows := effectRows(t.shown[t.cursor], t.byID, t.observedEffects)
+			t.effectCursor = max(0, min(max(0, len(rows)-1), t.effectCursor+delta))
 		}
 		return false
 	}
@@ -339,10 +346,43 @@ func (t *tui) key(k string) bool {
 			}
 		case k == "s":
 			t.view = reviewView
+		case k == "m" && t.shown[t.cursor].APIMode != "needs_refinement":
+			t.effectCursor = 0
+			t.view = effectView
 		case esc || enter || k == "q" || k == "\x7f":
 			t.view = listView
 		case k == "\x03":
 			t.view = doneView
+		}
+	case effectView:
+		rows := effectRows(t.shown[t.cursor], t.byID, t.observedEffects)
+		switch {
+		case up:
+			t.effectCursor = max(0, t.effectCursor-1)
+		case down:
+			t.effectCursor = min(max(0, len(rows)-1), t.effectCursor+1)
+		case pgup:
+			t.effectCursor = max(0, t.effectCursor-(t.h-10))
+		case pgdn:
+			t.effectCursor = min(max(0, len(rows)-1), t.effectCursor+t.h-10)
+		case (k == "r" || k == "w") && len(rows) > 0:
+			effect := "read"
+			if k == "w" {
+				effect = "write"
+			}
+			row := rows[t.effectCursor]
+			if err := setStepEffect(t.byID, row, effect); err != nil {
+				t.notice = err.Error()
+			} else {
+				t.refreshFamilyEffect(t.cursor)
+				if effect == "read" {
+					t.notice = fmt.Sprintf("%s marked read-only; this step will not ask before running.", effectRowLabel(row))
+				} else {
+					t.notice = fmt.Sprintf("%s will ask before running.", effectRowLabel(row))
+				}
+			}
+		case esc || enter || k == "q" || k == "\x7f":
+			t.view, t.scroll = cardView, 0
 		}
 	case reviewView:
 		switch {
@@ -381,7 +421,11 @@ func (t *tui) draw() {
 		}
 	case t.view == cardView:
 		card(&body, t.s, t.cursor+1, len(t.shown), t.shown[t.cursor], t.byID, t.choice[t.cursor], t.res.Summary)
-		actions := []string{"d", "dismiss", "e", "export evidence", "s", "review choices", "↑↓", "scroll", "←→", "previous / next", "esc", "list"}
+		actions := []string{"d", "dismiss", "e", "export evidence"}
+		if t.shown[t.cursor].APIMode != "needs_refinement" {
+			actions = append(actions, "m", "effects")
+		}
+		actions = append(actions, "s", "review", "↑↓", "scroll", "←→", "previous / next", "esc", "list")
 		acceptLabel := "accept and install"
 		if t.shown[t.cursor].APIMode == "needs_refinement" {
 			acceptLabel = "accept for design"
@@ -391,6 +435,9 @@ func (t *tui) draw() {
 	case t.view == reviewView:
 		t.drawReview(&body)
 		footer = keys(t.s, "s", "submit choices", "esc", "back", "q", "quit without saving")
+	case t.view == effectView:
+		t.drawEffects(&body)
+		footer = keys(t.s, "r", "mark read-only", "w", "require approval", "↑↓", "choose step", "esc", "back")
 	}
 	lines := strings.Split(strings.TrimRight(body.String(), "\n"), "\n")
 	room := t.h - 2
@@ -537,6 +584,7 @@ func (t *tui) drawHelp(out *bytes.Buffer) {
 		{"A", "mark every runnable flow for installation"},
 		{"/", "search by name; esc clears"},
 		{"s", "open Review; on Review, submit pending choices"},
+		{"m (on a runnable card)", "review each step's effect before installation; read-only steps skip approval"},
 		{"esc", "back"},
 		{"q", "quit; nothing is saved before you submit"},
 	}}.render(out, s)
@@ -568,6 +616,48 @@ func (t *tui) drawReview(out *bytes.Buffer) {
 	}
 	tab.render(out, s)
 	fmt.Fprintf(out, "  %d of %d undecided (left as they are).\n", len(t.shown)-n, len(t.shown))
+}
+
+func (t *tui) refreshFamilyEffect(index int) {
+	if index < 0 || index >= len(t.shown) {
+		return
+	}
+	f := t.shown[index]
+	f.Effect = familySelectedEffect(f, t.byID)
+	t.shown[index] = f
+}
+
+func (t *tui) drawEffects(out *bytes.Buffer) {
+	f := t.shown[t.cursor]
+	rows := effectRows(f, t.byID, t.observedEffects)
+	section(out, t.s, "Review step effects")
+	fmt.Fprintln(out, "  Unknown effects require approval by default. Mark a step read-only only when you intend it to run without an approval request.")
+	fmt.Fprintln(out, "  These changes are pending with the primitive choice and take effect only when you submit.")
+	if len(rows) == 0 {
+		fmt.Fprintln(out, "  No steps to review.")
+		return
+	}
+	room := max(1, t.h-11)
+	start := max(0, t.effectCursor-room/2)
+	if start+room > len(rows) {
+		start = max(0, len(rows)-room)
+	}
+	end := min(len(rows), start+room)
+	tab := table{head: []string{"", "Primitive step", "Recorded", "Will run as"}, widths: []int{2, 52, 13, 15}, flex: 1}
+	for i := start; i < end; i++ {
+		row := rows[i]
+		cursor := " "
+		if i == t.effectCursor {
+			cursor = "▶"
+		}
+		selected := "write (approval)"
+		if row.Selected == "read" {
+			selected = "read-only"
+		}
+		tab.rows = append(tab.rows, []string{cursor, display(effectRowLabel(row)), row.Observed, selected})
+	}
+	tab.render(out, t.s)
+	fmt.Fprintf(out, "  Step %d of %d · r marks read-only · w requires approval\n", t.effectCursor+1, len(rows))
 }
 
 func (t *tui) submit(out *os.File) error {

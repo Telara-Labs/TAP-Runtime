@@ -13,6 +13,7 @@ func newTUI(res Result) *tui {
 	for _, p := range res.Primitives {
 		t.byID[p.ID] = p
 	}
+	t.observedEffects = snapshotEffects(t.byID)
 	return t
 }
 
@@ -73,6 +74,11 @@ func TestMouseWheelRoutesToDiscoverViews(t *testing.T) {
 	if ui.scroll != 0 {
 		t.Fatalf("wheel up did not scroll card back: %d", ui.scroll)
 	}
+	ui.view, ui.effectCursor = effectView, 0
+	ui.key("\x1b[<65;12;8M")
+	if ui.effectCursor != 1 {
+		t.Fatalf("effect review wheel did not move selection: %d", ui.effectCursor)
+	}
 }
 
 func TestTUIShowsOnlyAvailableActions(t *testing.T) {
@@ -92,7 +98,7 @@ func TestTUIShowsOnlyAvailableActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	footer := string(frame[strings.LastIndex(string(frame), "\r\n")+2:])
-	if !strings.Contains(footer, "[a] accept for design") || !strings.Contains(footer, "[e] export evidence") || !strings.Contains(footer, "[d] dismiss") || !strings.Contains(footer, "[s] review choices") {
+	if !strings.Contains(footer, "[a] accept for design") || !strings.Contains(footer, "[e] export evidence") || !strings.Contains(footer, "[d] dismiss") || !strings.Contains(footer, "[s] review") || strings.Contains(footer, "[m] effects") {
 		t.Fatalf("unresolved card actions = %q", footer)
 	}
 	ui.key("a")
@@ -106,8 +112,38 @@ func TestTUIShowsOnlyAvailableActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	footer = string(frame[strings.LastIndex(string(frame), "\r\n")+2:])
-	if !strings.Contains(footer, "[a] accept and install") || !strings.Contains(footer, "[s] review choices") {
+	if !strings.Contains(footer, "[a] accept and install") || !strings.Contains(footer, "[s] review") {
 		t.Fatalf("runnable card actions = %q", footer)
+	}
+}
+
+func TestTUIEffectReviewChangesOnlySelectedStepUntilSubmit(t *testing.T) {
+	ui := newTUI(twoFamilies())
+	ui.view = cardView
+	ui.key("m")
+	if ui.view != effectView {
+		t.Fatal("m did not open step effect review")
+	}
+	rows := effectRows(ui.shown[0], ui.byID, ui.observedEffects)
+	if len(rows) < 2 || rows[0].Selected != "write" {
+		t.Fatalf("fixture effect rows = %+v", rows)
+	}
+	ui.key("r")
+	got := ui.byID[rows[0].MemberID]
+	if got.StepEffects[rows[0].Step] != "read" || got.StepEffects[rows[1].Step] != "unknown" {
+		t.Fatalf("marking one step read changed effects: %v", got.StepEffects)
+	}
+	if rows[0].Observed != "unknown" {
+		t.Fatalf("recorded effect evidence changed: %q", rows[0].Observed)
+	}
+	ui.key("w")
+	got = ui.byID[rows[0].MemberID]
+	if got.StepEffects[rows[0].Step] != "write" {
+		t.Fatalf("w did not restore the approval gate: %v", got.StepEffects)
+	}
+	ui.key("\x1b")
+	if ui.view != cardView {
+		t.Fatal("esc did not return to the primitive card")
 	}
 }
 
@@ -150,7 +186,7 @@ func TestTUIQuitWritesNothingAndToggleClears(t *testing.T) {
 func TestTUIDrawFitsTheScreen(t *testing.T) {
 	ui := newTUI(twoFamilies())
 	var out bytes.Buffer
-	for _, v := range []view{listView, cardView, reviewView} {
+	for _, v := range []view{listView, cardView, reviewView, effectView} {
 		ui.view = v
 		var body bytes.Buffer
 		switch v {
@@ -160,6 +196,8 @@ func TestTUIDrawFitsTheScreen(t *testing.T) {
 			card(&body, ui.s, 1, len(ui.shown), ui.shown[0], ui.byID, "", ui.res.Summary)
 		case reviewView:
 			ui.drawReview(&body)
+		case effectView:
+			ui.drawEffects(&body)
 		}
 		for _, l := range strings.Split(body.String(), "\n") {
 			if width(fit(l, 80)) > 80 {
