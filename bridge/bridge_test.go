@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"os"
 	"testing"
 
 	"gitlab.com/telara-labs/tap-runtime/bind"
@@ -42,6 +43,19 @@ func TestCodexEffect(t *testing.T) {
 		if got := codexEffect(c.in); got != c.want {
 			t.Errorf("%s: got %s, want %s", c.name, got, c.want)
 		}
+	}
+}
+
+func TestCodexBridgeThreadDelegatesApprovalToTAP(t *testing.T) {
+	params := codexBridgeThreadStartParams()
+	if params["ephemeral"] != true {
+		t.Fatalf("bridge thread is not ephemeral: %#v", params)
+	}
+	if params["approvalPolicy"] != "never" {
+		t.Fatalf("bridge thread must not add a second MCP approval gate: %#v", params)
+	}
+	if params["cwd"] != os.TempDir() {
+		t.Fatalf("bridge thread cwd = %#v, want temp dir", params["cwd"])
 	}
 }
 

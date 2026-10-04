@@ -57,7 +57,7 @@ func NewCodex() (*Codex, error) {
 			c.version = strings.Fields(ua[i+1:])[0]
 		}
 	}
-	r, err = c.call("thread/start", map[string]any{"ephemeral": true, "cwd": os.TempDir()})
+	r, err = c.call("thread/start", codexBridgeThreadStartParams())
 	if err != nil {
 		c.Close()
 		return nil, err
@@ -73,6 +73,20 @@ func NewCodex() (*Codex, error) {
 		return nil, fmt.Errorf("codex thread/start returned no thread id")
 	}
 	return c, nil
+}
+
+// codexBridgeThreadStartParams creates the private app-server thread used to
+// dispatch a primitive's calls. TAP has already applied the primitive's
+// effect gate and obtained any required approval before Bridge.Call. The
+// bridge thread has no person to answer Codex's separate MCP approval prompt,
+// so keep that second gate off; calls still cannot reach Bridge.Call unless
+// TAP's gate allowed them.
+func codexBridgeThreadStartParams() map[string]any {
+	return map[string]any{
+		"ephemeral":      true,
+		"cwd":            os.TempDir(),
+		"approvalPolicy": "never",
+	}
 }
 
 // read hands each response to whoever asked for it.
