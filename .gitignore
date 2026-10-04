@@ -4,6 +4,10 @@ bin/
 cache/
 journal.jsonl
 
+# The npm CLI entrypoint is source code, not a build artifact.
+!npm/bin/
+!npm/bin/tap.cjs
+
 # Local environment and secret material
 .env
 .env.*
