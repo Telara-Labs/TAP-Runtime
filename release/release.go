@@ -26,6 +26,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/url"
@@ -35,6 +36,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Platforms are the systems a release is built for.
@@ -42,7 +44,7 @@ var Platforms = []string{"darwin/arm64", "darwin/amd64", "linux/amd64", "linux/a
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: release build|verify|keygen [flags]")
+		fmt.Fprintln(os.Stderr, "usage: release build|verify|keygen|publish [flags]")
 		os.Exit(2)
 	}
 	var err error
@@ -82,6 +84,28 @@ func main() {
 		out := fs.String("out", "release", "path without extension; .key and .pub are written")
 		fs.Parse(os.Args[2:])
 		err = Keygen(*out)
+	case "publish":
+		fs := flag.NewFlagSet("publish", flag.ExitOnError)
+		version := fs.String("version", "", "version to release, such as 0.1.4")
+		plan := fs.Bool("plan", false, "change nothing; say what would happen")
+		home, _ := os.UserHomeDir()
+		key := fs.String("key", filepath.Join(home, ".tap-release", "release.key"), "release signing key")
+		fs.Parse(os.Args[2:])
+		dir, _ := os.Getwd()
+		p := &Publisher{Dir: dir, Version: strings.TrimPrefix(*version, "v"), Key: *key, GitHubRepo: "Telara-Labs/TAP-Runtime",
+			Origin: "origin", GitHub: "github", Package: "@telaralabs/tap", Workflow: "release.yml", Plan: *plan, Wait: 3 * time.Minute,
+			Run: func(name string, args ...string) (string, error) {
+				out, err := run(dir, nil, name, args...)
+				return string(out), err
+			}}
+		p.Build = buildFromExport(dir, *key, p.GitHubRepo)
+		rep := p.Publish()
+		b, _ := json.MarshalIndent(rep, "", "  ")
+		fmt.Println(string(b))
+		if rep.Status == "failed" {
+			os.Exit(1)
+		}
+		return
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}

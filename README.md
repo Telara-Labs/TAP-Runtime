@@ -137,23 +137,27 @@ It reads local files only and sends nothing anywhere (`discover/`).
     ./bin/tap pkg/deploy-check-py
     ./bin/tap install --client claude --print
 
-    go run ./release build --version 0.1.2 --out dist --key ~/.tap-release/release.key \
-        --download-base https://github.com/Telara-Labs/TAP-Runtime/releases/download/v0.1.2
+To release, run one command (details in `AGENTS.md`):
+
+    go run ./release publish --version 0.1.5 --plan   # changes nothing
+    go run ./release publish --version 0.1.5
+
+It commits the version, tags it, builds and signs the release from a clean
+export (`~/.tap-release/release.key`), pushes `main` and the tag to GitLab and
+GitHub, creates the GitHub release, and runs `.github/workflows/release.yml`,
+which verifies the signed release and publishes `@telaralabs/tap` with npm
+Trusted Publishing. Pushing a tag alone publishes nothing: the workflow runs
+only when dispatched, because the Go tests need private GitLab modules that
+GitHub Actions cannot fetch. The pieces can still be run by hand:
+
+    go run ./release build --version 0.1.5 --out dist --key ~/.tap-release/release.key \
+        --download-base https://github.com/Telara-Labs/TAP-Runtime/releases/download/v0.1.5
     go run ./release verify --dir dist --pub release/release.pub
 
 A release holds the runner for five platforms, the bash-compatible
 interpreter, `install.sh` and `install.ps1`, their checksums, the signature
 and its public key, and the licence notices of everything compiled in. It is
 reproducible: the same source and toolchain give the same bytes.
-
-Pushing a `v*` tag to GitHub runs `.github/workflows/release.yml`: it tests the
-modules, builds and signs the release, creates the GitHub release, and
-publishes `@telaralabs/tap` with npm Trusted Publishing. Before enabling it,
-configure npm Trusted Publishing for `Telara-Labs/TAP-Runtime` and
-`.github/workflows/release.yml`. Future tag builds also need
-`TAP_RELEASE_KEY` as a GitHub Actions repository secret (the hex-encoded
-contents of the release signing key). Manual dispatch can package and publish
-existing signed assets without that signing key.
 
 `--download-base` is where the files will be served from. The runner is built
 knowing the address and digest of its interpreter, and each install script
