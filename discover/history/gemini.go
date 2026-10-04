@@ -229,10 +229,10 @@ func geminiResult(result, display json.RawMessage) string {
 			}
 		}
 		if len(b) > 0 {
-			return strings.Join(b, "\n")
+			return UnwrapUntrusted(strings.Join(b, "\n"))
 		}
 	}
-	return jsonString(display)
+	return UnwrapUntrusted(jsonString(display))
 }
 
 // sortSessions orders sessions by start, then id.

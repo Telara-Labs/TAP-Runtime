@@ -184,10 +184,22 @@ func QwenEvents(rec QwenRecord, session string) []Event {
 		for _, p := range rec.Message.Parts {
 			if fc := p.FunctionCall; fc != nil {
 				c := trace.Call{Session: session, ID: fc.ID, Time: rec.Timestamp}
-				if fc.Name == "run_shell_command" {
-					c.Tool, c.Command = "shell", RawString(fc.Args["command"])
+				name, args := fc.Name, fc.Args
+				// Qwen Code 0.24 loads tools on demand: tool_call {name,
+				// arguments} runs the named tool, arguments as a JSON string
+				// (TENG-3162). The call is the named tool's.
+				if inner := RawString(fc.Args["name"]); name == "tool_call" && inner != "" {
+					name, args = inner, map[string]json.RawMessage{}
+					raw := fc.Args["arguments"]
+					if str := RawString(raw); str != "" && strings.HasPrefix(strings.TrimSpace(str), "{") {
+						raw = json.RawMessage(str)
+					}
+					_ = json.Unmarshal(raw, &args)
+				}
+				if name == "run_shell_command" {
+					c.Tool, c.Command = "shell", RawString(args["command"])
 				} else {
-					c.Tool, c.Command, c.Args, c.RawArgs, c.MCPServer, c.MCPTool = DoubleUnderscore(fc.Name, fc.Args)
+					c.Tool, c.Command, c.Args, c.RawArgs, c.MCPServer, c.MCPTool = DoubleUnderscore(name, args)
 				}
 				out = append(out, ToolCall{Key: fc.ID, Turn: turn, Call: c})
 			}

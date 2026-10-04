@@ -88,3 +88,15 @@ func Envelope(text, tag string) (string, bool) {
 	}
 	return strings.TrimSpace(rest), true
 }
+
+// UnwrapUntrusted removes the one layer Gemini CLI (0.62) and its forks put
+// around a tool result they record, <untrusted_context>\n...\n</untrusted_context>,
+// so the result is the tool's own text (TENG-3162; the bridge hook does the
+// same, TENG-3058). Anything else is returned unchanged.
+func UnwrapUntrusted(s string) string {
+	const open, close = "<untrusted_context>\n", "\n</untrusted_context>"
+	if strings.HasPrefix(s, open) && strings.HasSuffix(s, close) && len(s) >= len(open)+len(close) {
+		return s[len(open) : len(s)-len(close)]
+	}
+	return s
+}

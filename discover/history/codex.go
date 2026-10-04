@@ -99,6 +99,9 @@ type CodexLine struct {
 		Action       struct {
 			Command []string `json:"command"`
 		} `json:"action"`
+		// Result is an mcp_tool_call_end event's {Ok: {content, isError}}
+		// or {Err: "..."}.
+		Result json.RawMessage `json:"result"`
 	} `json:"payload"`
 }
 
@@ -118,7 +121,8 @@ func ReadCodexFile(path string) (res trace.Session, err error) {
 	s := &a.S
 	metaSeen := false
 	automationSession := false
-	execInputs := map[string]string{} // functions.exec source, for result attribution
+	execInputs := map[string]string{}      // functions.exec source, for result attribution
+	mcpEnds := map[string]codexMCPResult{} // call_id -> the clean result Codex recorded (TENG-3160)
 	curID := ""
 	// Calls under one call_id: one, or several from one exec script.
 	add := func(c trace.Call) { a.Add(ToolCall{Key: curID, Call: c}) }
@@ -146,7 +150,7 @@ func ReadCodexFile(path string) (res trace.Session, err error) {
 			}
 			continue
 		}
-		if !JsonHasAny(b, `"session_meta"`, `"function_call"`, `"custom_tool_call"`, `"local_shell_call"`, `"role":"user"`, `"role": "user"`, `_call_output"`) {
+		if !JsonHasAny(b, `"session_meta"`, `"function_call"`, `"custom_tool_call"`, `"local_shell_call"`, `"role":"user"`, `"role": "user"`, `_call_output"`, `"mcp_tool_call_end"`) {
 			continue
 		}
 		var ln CodexLine
@@ -157,6 +161,12 @@ func ReadCodexFile(path string) (res trace.Session, err error) {
 		p := ln.Payload
 		curID = p.CallID
 		switch {
+		case p.Type == "mcp_tool_call_end":
+			// Codex records an MCP call's result here, clean, before the
+			// function_call_output that carries it inside a text envelope.
+			if r, ok := codexMCPEnd(p.Result); ok {
+				mcpEnds[p.CallID] = r
+			}
 		case p.Type == "message" && p.Role == "user":
 			var blocks []struct {
 				Type string `json:"type"`
@@ -222,6 +232,11 @@ func ReadCodexFile(path string) (res trace.Session, err error) {
 			}
 			text := CodexOutputText(p.Output)
 			failed := false
+			if r, ok := mcpEnds[p.CallID]; ok {
+				text, failed = r.Text, r.Failed
+			} else if inner, ok := CodexMCPEnvelope(text); ok {
+				text = inner
+			}
 			if source, nested := execInputs[p.CallID]; nested {
 				if !CodexExecPassesThroughResult(source) {
 					continue
@@ -259,6 +274,67 @@ func ReadCodexFile(path string) (res trace.Session, err error) {
 		s.Requests = []string{""}
 	}
 	return a.Finish(), sc.Err()
+}
+
+// codexMCPResult is an MCP call's result as Codex recorded it.
+type codexMCPResult struct {
+	Text   string
+	Failed bool
+}
+
+// codexMCPEnd reads an mcp_tool_call_end result: {Ok: {content, isError}}
+// or {Err: "message"}.
+func codexMCPEnd(raw json.RawMessage) (codexMCPResult, bool) {
+	var r struct {
+		Ok *struct {
+			Content           json.RawMessage `json:"content"`
+			StructuredContent json.RawMessage `json:"structuredContent"`
+			IsError           bool            `json:"isError"`
+		} `json:"Ok"`
+		Err *string `json:"Err"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &r) != nil {
+		return codexMCPResult{}, false
+	}
+	switch {
+	case r.Ok != nil:
+		text := CodexOutputText(r.Ok.Content)
+		if strings.TrimSpace(text) == "" && len(r.Ok.StructuredContent) > 0 && string(r.Ok.StructuredContent) != "null" {
+			text = string(r.Ok.StructuredContent)
+		}
+		return codexMCPResult{Text: strings.TrimSuffix(text, "\n"), Failed: r.Ok.IsError}, true
+	case r.Err != nil:
+		return codexMCPResult{Text: *r.Err, Failed: true}, true
+	}
+	return codexMCPResult{}, false
+}
+
+// CodexMCPEnvelope unwraps the text Codex hands the model for a direct MCP
+// call, "Wall time: X seconds\nOutput:\n" and the MCP content array as JSON,
+// to the content's text. It is the fallback when no mcp_tool_call_end was
+// recorded; a shell's output, which is not a content array, is left as is.
+func CodexMCPEnvelope(text string) (string, bool) {
+	if !strings.HasPrefix(text, "Wall time: ") {
+		return "", false
+	}
+	_, body, ok := strings.Cut(text, "\nOutput:\n")
+	if !ok {
+		return "", false
+	}
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(body)), &parts) != nil || len(parts) == 0 {
+		return "", false
+	}
+	var b []string
+	for _, p := range parts {
+		if p.Type == "text" {
+			b = append(b, p.Text)
+		}
+	}
+	return strings.Join(b, "\n"), true
 }
 
 func CodexAutomationPrompt(output string) string {

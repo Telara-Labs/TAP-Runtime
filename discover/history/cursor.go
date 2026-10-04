@@ -46,10 +46,11 @@ var (
 	// "value" would name json_each's own column, not the row's.
 	CursorBubbleSQL = `SELECT substr(c.key, 10, 36) AS composer, substr(c.key, 47) AS bubble,
   json_extract(c.value, '$.toolFormerData.name') AS name,
-  ` + fmt.Sprintf(CursorArgs, `coalesce(json_extract(c.value, '$.toolFormerData.rawArgs'), json_extract(c.value, '$.toolFormerData.params'))`) + ` AS args,
+  ` + fmt.Sprintf(CursorArgs, `coalesce(nullif(json_extract(c.value, '$.toolFormerData.rawArgs'), ''), json_extract(c.value, '$.toolFormerData.params'))`) + ` AS args,
   json_extract(c.value, '$.createdAt') AS created,
+  CASE WHEN json_valid(json_extract(c.value, '$.toolFormerData.params')) THEN json_extract(json_extract(c.value, '$.toolFormerData.params'), '$.tools[0].serverName') END AS server,
   json_extract(c.value, '$.toolFormerData.status') AS status,
-  substr(CAST(json_extract(c.value, '$.toolFormerData.result') AS TEXT), 1, 2048) AS result
+  substr(CAST(json_extract(c.value, '$.toolFormerData.result') AS TEXT), 1, 65536) AS result
 FROM cursorDiskKV c WHERE c.key LIKE 'bubbleId:%' AND json_extract(c.value, '$.toolFormerData.name') IS NOT NULL;`
 
 	CursorComposerSQL = `SELECT substr(c.key, 14) AS composer, json_extract(c.value, '$.createdAt') AS created,
@@ -68,8 +69,9 @@ WHERE c.key LIKE 'composerData:%' AND json_extract(j.value, '$.type') = 1;`
 
 	CursorInlineSQL = `SELECT substr(c.key, 14) AS composer, CAST(j.key AS TEXT) AS bubble,
   json_extract(j.value, '$.toolFormerData.name') AS name,
-  ` + fmt.Sprintf(CursorArgs, `coalesce(json_extract(j.value, '$.toolFormerData.rawArgs'), json_extract(j.value, '$.toolFormerData.params'))`) + ` AS args,
+  ` + fmt.Sprintf(CursorArgs, `coalesce(nullif(json_extract(j.value, '$.toolFormerData.rawArgs'), ''), json_extract(j.value, '$.toolFormerData.params'))`) + ` AS args,
   NULL AS created,
+  CASE WHEN json_valid(json_extract(j.value, '$.toolFormerData.params')) THEN json_extract(json_extract(j.value, '$.toolFormerData.params'), '$.tools[0].serverName') END AS server,
   json_extract(j.value, '$.toolFormerData.status') AS status,
   substr(CAST(json_extract(j.value, '$.toolFormerData.result') AS TEXT), 1, 65536) AS result
 FROM cursorDiskKV c, json_each(c.value, '$.conversation') j
@@ -83,6 +85,7 @@ type CursorRow struct {
 	Args     string          `json:"args"`
 	Created  json.RawMessage `json:"created"`
 	Status   string          `json:"status"`
+	Server   string          `json:"server"` // an MCP call's server, from params.tools[0].serverName
 	Result   string          `json:"result"`
 	Headers  string          `json:"headers"`
 	Text     string          `json:"text"`
@@ -267,9 +270,15 @@ func CursorEvents(row CursorRow, key string) []Event {
 	case strings.HasPrefix(row.Name, "run_terminal"):
 		c.Tool, c.Command = "shell", RawString(args["command"])
 	case strings.HasPrefix(row.Name, "mcp-"):
+		// mcp-<server>-<tool>; the server is also params.tools[0].serverName
+		// (TENG-3163).
 		parts := strings.Split(row.Name, "-")
+		server := row.Server
+		if server == "" && len(parts) > 2 {
+			server = strings.Join(parts[1:len(parts)-1], "-")
+		}
 		args = CursorMCPArgs(args)
-		c.Tool, c.Args, c.RawArgs = "mcp:"+parts[len(parts)-1], Flatten(args), RawKeys(args)
+		MCPCall(&c, server, parts[len(parts)-1], args)
 	default:
 		c.Tool, c.Args, c.RawArgs = row.Name, Flatten(args), RawKeys(args)
 	}
@@ -280,7 +289,39 @@ func CursorEvents(row CursorRow, key string) []Event {
 	case "error", "cancelled":
 		outcome = trace.OutcomeFailed
 	}
-	return []Event{ToolCall{Key: key, Call: c}, ToolResult{Key: key, Text: row.Result, HasOutcome: true, Outcome: outcome}}
+	return []Event{ToolCall{Key: key, Call: c}, ToolResult{Key: key, Text: CursorResult(row.Result), HasOutcome: true, Outcome: outcome}}
+}
+
+// CursorResult is a tool's result text. Cursor records an MCP result as
+// {"result": "<the MCP {content: [...]} object, as a JSON string>"}; the
+// tool's result is the text of that content (TENG-3163). Anything else is
+// the result as recorded.
+func CursorResult(raw string) string {
+	if !strings.HasPrefix(raw, `{"result":`) {
+		return raw
+	}
+	var outer map[string]json.RawMessage
+	if json.Unmarshal([]byte(raw), &outer) != nil || len(outer) != 1 {
+		return raw
+	}
+	inner := RawString(outer["result"])
+	var mcp struct {
+		Content           json.RawMessage `json:"content"`
+		StructuredContent json.RawMessage `json:"structuredContent"`
+	}
+	if json.Unmarshal([]byte(inner), &mcp) != nil || len(mcp.Content) == 0 {
+		if inner != "" {
+			return inner
+		}
+		return raw
+	}
+	if text := strings.TrimSuffix(CodexOutputText(mcp.Content), "\n"); strings.TrimSpace(text) != "" {
+		return text
+	}
+	if len(mcp.StructuredContent) > 0 && string(mcp.StructuredContent) != "null" {
+		return string(mcp.StructuredContent)
+	}
+	return inner
 }
 
 // CursorMCPArgs returns the arguments the MCP tool received. Cursor records

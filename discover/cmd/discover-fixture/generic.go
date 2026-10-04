@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"gitlab.com/telara-labs/tap-runtime/discover/util"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,7 +26,7 @@ func sqliteCapture(db, out string, specs []string) error {
 	var sql strings.Builder
 	for _, spec := range specs {
 		table, where, _ := strings.Cut(spec, ":")
-		schema, err := exec.Command("sqlite3", "-readonly", db, ".schema "+table).Output()
+		schema, err := exec.Command("sqlite3", "-readonly", util.SQLiteURI(db), ".schema "+table).Output()
 		if err != nil {
 			return fmt.Errorf("%s: %w", table, err)
 		}
@@ -39,7 +40,7 @@ func sqliteCapture(db, out string, specs []string) error {
 		if where != "" {
 			q += " WHERE " + where
 		}
-		raw, err := exec.Command("sqlite3", "-readonly", "-json", db, q).Output()
+		raw, err := exec.Command("sqlite3", "-readonly", "-json", util.SQLiteURI(db), q).Output()
 		if err != nil {
 			return fmt.Errorf("%s: %w", table, err)
 		}
@@ -68,7 +69,7 @@ func sqliteCapture(db, out string, specs []string) error {
 }
 
 func tableColumns(db, table string) ([]string, error) {
-	raw, err := exec.Command("sqlite3", "-readonly", "-json", db, "SELECT name FROM pragma_table_info('"+table+"')").Output()
+	raw, err := exec.Command("sqlite3", "-readonly", "-json", util.SQLiteURI(db), "SELECT name FROM pragma_table_info('"+table+"')").Output()
 	if err != nil {
 		return nil, err
 	}
