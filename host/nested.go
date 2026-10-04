@@ -2,15 +2,93 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 
 	"gitlab.com/telara-labs/tap-runtime/bind"
+	"gitlab.com/telara-labs/tap-runtime/bridge"
 )
 
 // plainWord is a value that can name an operation: a short word, never free
 // text, an identifier with spaces, or a structure.
 var plainWord = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:-]{0,39}$`)
+
+type telaraDispatch struct {
+	Integration string
+	Action      string
+	WrapArgs    bool
+}
+
+var telaraIntegrations = []string{
+	"asana", "bitbucket", "confluence", "gitlab", "google_workspace",
+	"jira", "linear", "microsoft_entra", "notion", "openai_admin", "slack", "teams",
+}
+
+func findTool(inv []bind.Tool, server, name string) (bind.Tool, bool) {
+	for _, t := range inv {
+		if t.Server == server && t.Name == name {
+			return t, true
+		}
+	}
+	return bind.Tool{}, false
+}
+
+func isTelaraDispatcher(t bind.Tool) bool {
+	return t.Server == "telara" && t.Name == "telara_execute_action"
+}
+
+// telaraActionFromPin translates an action-specific Telara tool name into the
+// generic execute_action route used by Codex. The actual action and its effect
+// are verified through telara_tool_search before a read is dispatched.
+func telaraActionFromPin(server, tool string) (integration, action string, ok bool) {
+	if server != "telara" || !strings.HasPrefix(tool, "telara_") {
+		return "", "", false
+	}
+	rest := strings.TrimPrefix(tool, "telara_")
+	for _, candidate := range telaraIntegrations {
+		prefix := candidate + "_"
+		if strings.HasPrefix(rest, prefix) && len(rest) > len(prefix) {
+			return candidate, strings.TrimPrefix(rest, prefix), true
+		}
+	}
+	return "", "", false
+}
+
+func wrapTelaraActionArgs(integration, action string, args map[string]any) (map[string]any, error) {
+	params := map[string]any{}
+	call := map[string]any{"integration": integration, "action": action, "params": params}
+	for key, value := range args {
+		switch key {
+		case "approval_reason":
+			call[key] = value
+		case "params":
+			switch p := value.(type) {
+			case map[string]any:
+				for k, v := range p {
+					params[k] = v
+				}
+			case string:
+				var decoded map[string]any
+				if err := json.Unmarshal([]byte(p), &decoded); err != nil {
+					return nil, fmt.Errorf("invalid params JSON: %w", err)
+				}
+				for k, v := range decoded {
+					params[k] = v
+				}
+			default:
+				return nil, fmt.Errorf("params must be an object or JSON object string")
+			}
+		default:
+			name := strings.TrimPrefix(key, "params_")
+			if name == "" {
+				return nil, fmt.Errorf("parameter name is empty")
+			}
+			params[name] = value
+		}
+	}
+	return call, nil
+}
 
 // nestedTool finds the operation a call dispatches through another tool. A
 // call dispatches when its arguments are plain-word values beside exactly one
@@ -80,7 +158,36 @@ func nestedTool(args map[string]any, via bind.Tool, inv []bind.Tool) (bind.Tool,
 // client also lists as its own tool contributes its annotation to the gate.
 // A read declaration is refused when the operation is effectful; an
 // effectful declaration is promoted to the stronger observed effect.
-func callEffect(bd *binding, inv []bind.Tool, args map[string]any) (effect, refused, nested string) {
+func callEffect(bd *binding, inv []bind.Tool, args map[string]any, br bridge.Bridge) (effect, refused, nested string) {
+	if isTelaraDispatcher(bd.tool) && bd.Declared == string(bind.Read) && !bd.Asked {
+		integration, action := "", ""
+		if bd.dispatch != nil && bd.dispatch.Integration != "" {
+			integration, action = bd.dispatch.Integration, bd.dispatch.Action
+		} else {
+			integration, _ = args["integration"].(string)
+			action, _ = args["action"].(string)
+		}
+		if integration == "" || action == "" {
+			return "", "a read through telara_execute_action needs a fixed integration and action", ""
+		}
+		// If this client exposes the dispatched operation directly, its own
+		// annotation remains authoritative (the existing nestedTool path).
+		if inner, ok := nestedTool(args, bd.tool, inv); ok {
+			nested = inner.Server + " / " + inner.Name
+			if inner.Annotated != bind.Read {
+				return "", "the dispatched operation " + nested + " is annotated " + string(inner.Annotated) + " and the primitive declares read", nested
+			}
+			return string(bind.Read), "", nested
+		}
+		resolved, err := telaraActionEffect(br, bd.tool.Server, inv, integration, action)
+		if err != nil {
+			return "", err.Error(), integration + "/" + action
+		}
+		if resolved != string(bind.Read) {
+			return "", fmt.Sprintf("Telara declares %s/%s as %s; the primitive declares read", integration, action, resolved), integration + "/" + action
+		}
+		return string(bind.Read), "", integration + "/" + action
+	}
 	effect = bd.effective()
 	inner, ok := nestedTool(args, bd.tool, inv)
 	if !ok || inner.Annotated == bind.Unknown {
@@ -97,4 +204,53 @@ func callEffect(bd *binding, inv []bind.Tool, args map[string]any) (effect, refu
 		effect = string(inner.Annotated)
 	}
 	return effect, "", nested
+}
+
+// telaraActionEffect checks the generic dispatcher's target against the
+// action catalog. A generic execute_action annotation is necessarily broad;
+// it cannot authorize a read by itself. Reads through it run only when the
+// catalog identifies the exact operation as read-only.
+func telaraActionEffect(br bridge.Bridge, server string, inv []bind.Tool, integration, action string) (string, error) {
+	search, ok := findTool(inv, server, "telara_tool_search")
+	if !ok || search.Annotated != bind.Read {
+		return "", fmt.Errorf("cannot verify read effect: %s/telara_tool_search is not available as read-only", server)
+	}
+	denied, err := br.Denied(search)
+	if err != nil {
+		return "", fmt.Errorf("cannot verify read effect: checking tool_search permission: %w", err)
+	}
+	if denied {
+		return "", fmt.Errorf("cannot verify read effect: %s/telara_tool_search is denied", server)
+	}
+	if ak, ok := br.(bridge.Asker); ok {
+		asks, err := ak.Asks(search)
+		if err != nil {
+			return "", fmt.Errorf("cannot verify read effect: checking tool_search approval: %w", err)
+		}
+		if asks {
+			return "", fmt.Errorf("cannot verify read effect: %s/telara_tool_search asks for approval", server)
+		}
+	}
+	result, err := br.Call(search, map[string]any{"integration": integration, "query": action})
+	if err != nil {
+		return "", fmt.Errorf("cannot verify read effect for %s/%s: %w", integration, action, err)
+	}
+	toolName := "telara_" + integration + "_" + action
+	return parseTelaraActionEffect(result, toolName)
+}
+
+var telaraEffectLine = regexp.MustCompile(`(?m)^-\s+\*\*([^*]+)\*\*\s+\((read|write|delete|financial|identity-admin)\)`)
+
+func parseTelaraActionEffect(result, toolName string) (string, error) {
+	for _, match := range telaraEffectLine.FindAllStringSubmatch(result, -1) {
+		if match[1] != toolName {
+			continue
+		}
+		effect := match[2]
+		if effect == "delete" {
+			effect = string(bind.Destructive)
+		}
+		return effect, nil
+	}
+	return "", fmt.Errorf("Telara did not report an exact effect for %s", toolName)
 }

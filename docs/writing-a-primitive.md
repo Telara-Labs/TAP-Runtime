@@ -131,6 +131,17 @@ Anything but `read` is asked of the person before it happens. A tool whose
 own annotation says it does more than the declared effect (for example
 `readOnlyHint: false` on a tool declared `read`) is not bound.
 
+Some clients expose Telara actions only through the generic
+`telara_execute_action` tool. Its annotation covers every action, including
+writes, so it cannot establish that a particular action is a read. For a
+primitive pinned to a specific Telara action, TAP checks that action's effect
+through the read-only `telara_tool_search` catalog before dispatch. A read is
+allowed only when the catalog returns an exact action name marked `read`; a
+write, missing action, unavailable catalog, or failed lookup is refused. A
+write primitive still goes through the ordinary approval gate. When a client
+exposes the action-specific tool directly, that tool's annotation remains the
+effect evidence.
+
 ### commands: host programs
 
 ```yaml

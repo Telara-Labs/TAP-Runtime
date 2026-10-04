@@ -41,12 +41,15 @@ type binding struct {
 	ContractChecked bool   `json:"contract_checked"`
 	ResultChecked   bool   `json:"result_checked"`
 	Schema          string `json:"schema,omitempty"`
+	Adapter         string `json:"adapter,omitempty"`
+	Operation       string `json:"operation,omitempty"`
 	// Candidates are tools whose names ranked ahead of the one bound and
 	// whose schemas did not satisfy the contract, each with why.
-	Candidates []string       `json:"passed_over,omitempty"`
-	tool       bind.Tool      `json:"-"`
-	result     map[string]any `json:"-"`
-	args       map[string]any `json:"-"` // the contract's arguments, held against every call
+	Candidates []string        `json:"passed_over,omitempty"`
+	tool       bind.Tool       `json:"-"`
+	result     map[string]any  `json:"-"`
+	args       map[string]any  `json:"-"` // the contract's arguments, held against every call
+	dispatch   *telaraDispatch `json:"-"`
 }
 
 // admission is the outcome of resolving a manifest against a client.
@@ -217,15 +220,30 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 					bd.tool, found = t, true
 				}
 			}
+			if !found {
+				if integration, action, ok := telaraActionFromPin(d.Pin.Server, d.Pin.Tool); ok {
+					if dispatcher, exists := findTool(inv, d.Pin.Server, "telara_execute_action"); exists {
+						bd.tool, found = dispatcher, true
+						bd.dispatch = &telaraDispatch{Integration: integration, Action: action, WrapArgs: true}
+						bd.Adapter, bd.Operation = "telara_execute_action", integration+"/"+action
+					}
+				}
+			}
+			if found && isTelaraDispatcher(bd.tool) {
+				bd.Adapter = "telara_execute_action"
+				if bd.dispatch == nil {
+					bd.dispatch = &telaraDispatch{}
+				}
+			}
 			switch {
 			case !found:
 				refusal = fmt.Sprintf("the pinned tool %s / %s is not on this client", d.Pin.Server, d.Pin.Tool)
-			case d.Effect == string(bind.Read) && bd.tool.Annotated != bind.Unknown && bd.tool.Annotated != bind.Read:
+			case d.Effect == string(bind.Read) && bd.tool.Annotated != bind.Unknown && bd.tool.Annotated != bind.Read && !isTelaraDispatcher(bd.tool):
 				refusal = fmt.Sprintf("the pinned tool is annotated %s and the primitive declares %s", bd.tool.Annotated, d.Effect)
 			}
 			bd.Score = 1
 			bd.Gated = bd.tool.Annotated == bind.Unknown
-			if refusal == "" && bySchema {
+			if refusal == "" && bySchema && (bd.dispatch == nil || !bd.dispatch.WrapArgs) {
 				if why := satisfy.Arguments(contract.Args, bd.tool.Schema); len(why) > 0 {
 					refusal = "the pinned tool does not satisfy the contract: " + strings.Join(why, "; ")
 				} else {
@@ -334,6 +352,9 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 			return nil, fmt.Errorf("tool %q (%s): %s", d.Alias, d.Capability, refusal)
 		}
 		bd.Server, bd.Tool, bd.Annotated = bd.tool.Server, bd.tool.Name, string(bd.tool.Annotated)
+		if bd.dispatch != nil && bd.dispatch.Integration != "" {
+			bd.Operation = bd.dispatch.Integration + "/" + bd.dispatch.Action
+		}
 		a.Bindings = append(a.Bindings, bd)
 	}
 	for i := range a.Bindings {
@@ -398,7 +419,7 @@ func callTool(a *admission, b bridge.Bridge, rq request, approve bool, journal i
 		record("refused_undeclared", nil)
 		return reply{Refused: "alias not declared, or declared optional and not bound"}
 	}
-	effect, refused, nested := callEffect(bd, a.inv, rq.Arguments)
+	effect, refused, nested := callEffect(bd, a.inv, rq.Arguments, b)
 	entry["server"], entry["tool"], entry["effect"] = bd.Server, bd.Tool, effect
 	if nested != "" {
 		entry["dispatches"] = nested
@@ -419,7 +440,17 @@ func callTool(a *admission, b bridge.Bridge, rq request, approve bool, journal i
 		return reply{Refused: effect + " tool needs approval", Gated: true}
 	}
 	t0 := time.Now()
-	res, err := b.Call(bd.tool, rq.Arguments)
+	callArgs := rq.Arguments
+	if bd.dispatch != nil && bd.dispatch.WrapArgs {
+		var err error
+		callArgs, err = wrapTelaraActionArgs(bd.dispatch.Integration, bd.dispatch.Action, rq.Arguments)
+		if err != nil {
+			logf("  REFUSED  call %s: invalid Telara action arguments: %v", rq.Alias, err)
+			record("refused_arguments", map[string]any{"error": err.Error()})
+			return reply{Refused: "invalid action arguments: " + err.Error()}
+		}
+	}
+	res, err := b.Call(bd.tool, callArgs)
 	if err != nil {
 		logf("  FAILED   call %s -> %s / %s: %v", rq.Alias, bd.Server, bd.Tool, err)
 		record("failed", map[string]any{"error": err.Error()})

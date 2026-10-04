@@ -15,6 +15,8 @@ type fakeBridge struct {
 	inv     []bind.Tool
 	deny    map[string]bool
 	calls   []string
+	args    []map[string]any
+	results map[string]string
 	schemas bool
 }
 
@@ -27,6 +29,10 @@ func (f *fakeBridge) Denied(t bind.Tool) (bool, error) {
 }
 func (f *fakeBridge) Call(t bind.Tool, args map[string]any) (string, error) {
 	f.calls = append(f.calls, t.Server+"/"+t.Name)
+	f.args = append(f.args, args)
+	if result, ok := f.results[t.Server+"/"+t.Name]; ok {
+		return result, nil
+	}
 	return `{"ok":true}`, nil
 }
 

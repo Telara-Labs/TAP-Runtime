@@ -45,3 +45,90 @@ func TestADispatchedCallTakesTheEffectOfTheOperationItNames(t *testing.T) {
 		t.Fatalf("want only the read called, got %v", br.calls)
 	}
 }
+
+func TestGenericTelaraReadIsAllowedOnlyAfterActionCatalogConfirmsIt(t *testing.T) {
+	br := &fakeBridge{deny: map[string]bool{}, inv: []bind.Tool{
+		{Server: "telara", Name: "telara_execute_action", Annotated: bind.Destructive},
+		{Server: "telara", Name: "telara_tool_search", Annotated: bind.Read},
+	}, results: map[string]string{
+		"telara/telara_tool_search":    "- **telara_jira_get_issue** (read) — Get issue\n",
+		"telara/telara_execute_action": `{"key":"TENG-3059"}`,
+	}}
+	a, err := admit([]toolDecl{{Alias: "read", Capability: "local.discover/jira.get.issue@1", Effect: "read", Pin: &mf.Pin{Server: "telara", Tool: "telara_execute_action"}}}, br)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := callTool(a, br, request{Alias: "read", Arguments: map[string]any{
+		"integration": "jira", "action": "get_issue", "params": map[string]any{"issue_key": "TENG-3059"},
+	}}, false, &bytes.Buffer{})
+	if r.Refused != "" || r.Result == "" {
+		t.Fatalf("catalog-confirmed read was refused: %+v", r)
+	}
+	if got, want := strings.Join(br.calls, ","), "telara/telara_tool_search,telara/telara_execute_action"; got != want {
+		t.Fatalf("called %s, want %s", got, want)
+	}
+}
+
+func TestGenericTelaraReadRefusesWhenCatalogSaysWrite(t *testing.T) {
+	br := &fakeBridge{deny: map[string]bool{}, inv: []bind.Tool{
+		{Server: "telara", Name: "telara_execute_action", Annotated: bind.Destructive},
+		{Server: "telara", Name: "telara_tool_search", Annotated: bind.Read},
+	}, results: map[string]string{
+		"telara/telara_tool_search": "- **telara_jira_add_comment** (write) — Add comment\n",
+	}}
+	a, err := admit([]toolDecl{{Alias: "read", Capability: "local.discover/jira.get.issue@1", Effect: "read", Pin: &mf.Pin{Server: "telara", Tool: "telara_execute_action"}}}, br)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := callTool(a, br, request{Alias: "read", Arguments: map[string]any{
+		"integration": "jira", "action": "add_comment", "params": map[string]any{"issue_key": "TENG-3059", "body": "test"},
+	}}, true, &bytes.Buffer{})
+	if r.Refused == "" || !strings.Contains(r.Refused, "declares read") {
+		t.Fatalf("write action was not refused for a read primitive: %+v", r)
+	}
+	if len(br.calls) != 1 || br.calls[0] != "telara/telara_tool_search" {
+		t.Fatalf("write action dispatched after preflight: %v", br.calls)
+	}
+}
+
+func TestCodexBindsMissingTelaraActionPinThroughVerifiedDispatcher(t *testing.T) {
+	br := &fakeBridge{deny: map[string]bool{}, inv: []bind.Tool{
+		{Server: "telara", Name: "telara_execute_action", Annotated: bind.Destructive},
+		{Server: "telara", Name: "telara_tool_search", Annotated: bind.Read},
+	}, results: map[string]string{
+		"telara/telara_tool_search":    "- **telara_jira_get_issue** (read) — Get issue\n",
+		"telara/telara_execute_action": `{"key":"TENG-3059"}`,
+	}}
+	a, err := admit([]toolDecl{{Alias: "get", Capability: "local.discover/jira.get.issue@1", Effect: "read", Pin: &mf.Pin{Server: "telara", Tool: "telara_jira_get_issue"}}}, br)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bd := a.byAlias["get"]
+	if bd.Tool != "telara_execute_action" || bd.Operation != "jira/get_issue" {
+		t.Fatalf("unexpected compatibility binding: %+v", bd)
+	}
+	r := callTool(a, br, request{Alias: "get", Arguments: map[string]any{"params_issue_key": "TENG-3059", "approval_reason": "read test"}}, false, &bytes.Buffer{})
+	if r.Refused != "" || r.Result == "" {
+		t.Fatalf("verified generic dispatch failed: %+v", r)
+	}
+	if len(br.args) != 2 {
+		t.Fatalf("want search and action call arguments, got %d", len(br.args))
+	}
+	actionArgs := br.args[1]
+	params, _ := actionArgs["params"].(map[string]any)
+	if actionArgs["integration"] != "jira" || actionArgs["action"] != "get_issue" || params["issue_key"] != "TENG-3059" || actionArgs["approval_reason"] != "read test" {
+		t.Fatalf("direct-action arguments were not adapted: %#v", actionArgs)
+	}
+}
+
+func TestTelaraActionArgumentAdapterRejectsMalformedParams(t *testing.T) {
+	for _, args := range []map[string]any{
+		{"params": "not-json"},
+		{"params": 42},
+		{"params_": "value"},
+	} {
+		if _, err := wrapTelaraActionArgs("jira", "get_issue", args); err == nil {
+			t.Fatalf("accepted malformed action arguments: %#v", args)
+		}
+	}
+}
