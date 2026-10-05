@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -22,26 +23,51 @@ func TestVerificationPublishedInstallerWithBusyBoxOnLinux(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("Docker unavailable")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	script, err := os.ReadFile(filepath.Join(*verificationReleaseDir, "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := regexp.MustCompile(`(?m)^version=([^\r\n]+)$`).FindSubmatch(script)
+	if len(match) != 2 {
+		t.Fatal("published installer has no pinned version")
+	}
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	probe := exec.CommandContext(probeCtx, "docker", "version", "--format", "{{.Server.Version}}")
+	probe.WaitDelay = time.Second
+	probeOut, probeErr := probe.CombinedOutput()
+	probeCancel()
+	if probeErr != nil {
+		t.Fatalf("Docker daemon prerequisite: %v %s", probeErr, probeOut)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	created, err := exec.CommandContext(ctx, "docker", "create", "--platform", "linux/amd64", "busybox:latest").CombinedOutput()
 	if err != nil {
 		t.Fatalf("create isolated BusyBox container: %v %s", err, created)
 	}
 	id := strings.TrimSpace(string(created))
-	defer exec.Command("docker", "rm", id).Run()
+	if !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(id) {
+		t.Fatalf("Docker returned an invalid container ID: %q", id)
+	}
+	probeName := "tap-installer-" + id[:12]
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		cleanup := exec.CommandContext(cleanupCtx, "docker", "rm", "-f", id, probeName)
+		cleanup.WaitDelay = time.Second
+		if out, err := cleanup.CombinedOutput(); err != nil {
+			t.Logf("owned-container cleanup: %v %s", err, out)
+		}
+	}()
 	bin := filepath.Join(t.TempDir(), "busybox")
 	if b, err := exec.CommandContext(ctx, "docker", "cp", id+":/bin/busybox", bin).CombinedOutput(); err != nil {
 		t.Fatalf("copy BusyBox: %v %s", err, b)
 	}
-	script, err := os.ReadFile(filepath.Join(*verificationReleaseDir, "install.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-i", "--platform", "linux/amd64", "--mount", "type=bind,source="+bin+",target=/probe/busybox,readonly", "golang:1.26", "/bin/sh", "-c", `/probe/busybox sh -s -- --client none --dir /tmp/tap-bin && /tmp/tap-bin/tap version`)
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--name", probeName, "-i", "--platform", "linux/amd64", "--mount", "type=bind,source="+bin+",target=/probe/busybox,readonly", "golang:1.26", "/bin/sh", "-c", `/probe/busybox sh -s -- --client none --dir /tmp/tap-bin && /tmp/tap-bin/tap version`)
+	cmd.WaitDelay = time.Second
 	cmd.Stdin = bytes.NewReader(script)
 	b, err := cmd.CombinedOutput()
-	if err != nil || !strings.Contains(string(b), "tap 0.1.4") {
+	if err != nil || !strings.Contains(string(b), "tap "+string(match[1])) {
 		t.Fatalf("BusyBox published installer: %v\n%s", err, b)
 	}
 	t.Logf("fresh-container published installer under BusyBox, with curl/checksum prerequisites: %s", b)

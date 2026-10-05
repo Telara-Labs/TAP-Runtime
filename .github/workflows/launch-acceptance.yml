@@ -28,7 +28,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-latest, platform: linux-amd64}
+          - {os: ubuntu-24.04, platform: linux-amd64}
           - {os: ubuntu-24.04-arm, platform: linux-arm64}
           - {os: macos-latest, platform: darwin-arm64}
           - {os: macos-15-intel, platform: darwin-amd64}
@@ -43,8 +43,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
-      - name: strace, to record discover's connections
+      - name: strace and BusyBox, for network and installer acceptance
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq strace
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq strace busybox
       - name: Accept v${{ inputs.version }}
         run: go test ./acceptance/launch -count=1 -v -timeout 30m -launch-version "${{ inputs.version }}"
