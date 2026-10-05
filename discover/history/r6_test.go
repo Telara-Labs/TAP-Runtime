@@ -73,10 +73,13 @@ func TestAiderReader(t *testing.T) {
 	os.MkdirAll(proj, 0o755)
 	b, _ := os.ReadFile("testdata/aider/work/.aider.chat.history.md")
 	os.WriteFile(filepath.Join(proj, ".aider.chat.history.md"), b, 0o644)
-	// Deeper than the fixed depth: not looked at.
-	deep := filepath.Join(home, "a", "b", "c", "d")
-	os.MkdirAll(deep, 0o755)
-	os.WriteFile(filepath.Join(deep, ".aider.chat.history.md"), b, 0o644)
+	// Only the project above is read: folders past six levels, hidden
+	// folders and dependency trees never hold a project's history.
+	for _, dir := range [][]string{{"a", "b", "c", "d", "e", "f", "g"}, {".hidden", "x"}, {"code", "node_modules", "pkg"}, {"Library", "x"}} {
+		d := filepath.Join(append([]string{home}, dir...)...)
+		os.MkdirAll(d, 0o755)
+		os.WriteFile(filepath.Join(d, ".aider.chat.history.md"), b, 0o644)
+	}
 	ss, err := Aider{Home: home}.Read(time.Time{})
 	if err != nil || len(ss) != 2 {
 		t.Fatalf("%d chats (two in the real history), %v", len(ss), err)
@@ -89,5 +92,22 @@ func TestAiderReader(t *testing.T) {
 	}
 	if len(ss[1].Requests) != 1 || ss[1].Requests[0] != "Append a second line with the word world to notes.txt" {
 		t.Errorf("requests %q", ss[1].Requests)
+	}
+}
+
+// TENG-3167: Aider writes its history into the project folder, and projects
+// often sit 4 or more levels below home (~/Desktop/Projects/<org>/<repo>).
+// Histories 4 and 6 levels down are read.
+func TestAiderReadsProjectsDeepUnderHome(t *testing.T) {
+	home := t.TempDir()
+	b, _ := os.ReadFile("testdata/aider/work/.aider.chat.history.md")
+	for _, dir := range [][]string{{"Desktop", "Projects", "Telara", "repo"}, {"a", "b", "c", "d", "e", "f"}} {
+		d := filepath.Join(append([]string{home}, dir...)...)
+		os.MkdirAll(d, 0o755)
+		os.WriteFile(filepath.Join(d, ".aider.chat.history.md"), b, 0o644)
+	}
+	ss, err := Aider{Home: home}.Read(time.Time{})
+	if err != nil || len(ss) != 4 {
+		t.Fatalf("%d chats (two per history), %v", len(ss), err)
 	}
 }

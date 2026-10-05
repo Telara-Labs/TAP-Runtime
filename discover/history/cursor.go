@@ -44,7 +44,7 @@ const CursorArgs = `CASE WHEN json_valid(%[1]s) THEN (SELECT json_group_object(a
 var (
 	// The table is aliased c throughout: inside the json_each subquery a bare
 	// "value" would name json_each's own column, not the row's.
-	CursorBubbleSQL = `SELECT substr(c.key, 10, 36) AS composer, substr(c.key, 47) AS bubble,
+	CursorBubbleSQL = `SELECT substr(c.key, 10, 36) AS composer, substr(c.key, 47) AS bubble, length(c.value) AS size,
   json_extract(c.value, '$.toolFormerData.name') AS name,
   ` + fmt.Sprintf(CursorArgs, `coalesce(nullif(json_extract(c.value, '$.toolFormerData.rawArgs'), ''), json_extract(c.value, '$.toolFormerData.params'))`) + ` AS args,
   json_extract(c.value, '$.createdAt') AS created,
@@ -53,12 +53,12 @@ var (
   substr(CAST(json_extract(c.value, '$.toolFormerData.result') AS TEXT), 1, 65536) AS result
 FROM cursorDiskKV c WHERE c.key LIKE 'bubbleId:%' AND json_extract(c.value, '$.toolFormerData.name') IS NOT NULL;`
 
-	CursorComposerSQL = `SELECT substr(c.key, 14) AS composer, json_extract(c.value, '$.createdAt') AS created,
+	CursorComposerSQL = `SELECT substr(c.key, 14) AS composer, length(c.value) AS size, json_extract(c.value, '$.createdAt') AS created,
   (SELECT json_group_array(json_extract(h.value, '$.bubbleId')) FROM json_each(c.value, '$.fullConversationHeadersOnly') h) AS headers
 FROM cursorDiskKV c WHERE c.key LIKE 'composerData:%';`
 
 	// The user's messages (bubble type 1), in both storage forms.
-	CursorUserSQL = `SELECT substr(c.key, 10, 36) AS composer, substr(c.key, 47) AS bubble,
+	CursorUserSQL = `SELECT substr(c.key, 10, 36) AS composer, substr(c.key, 47) AS bubble, length(c.value) AS size,
   substr(json_extract(c.value, '$.text'), 1, 4000) AS text
 FROM cursorDiskKV c WHERE c.key LIKE 'bubbleId:%' AND json_extract(c.value, '$.type') = 1;`
 
@@ -89,6 +89,9 @@ type CursorRow struct {
 	Result   string          `json:"result"`
 	Headers  string          `json:"headers"`
 	Text     string          `json:"text"`
+	// Size is the stored record's length in bytes: with its key, the
+	// record's identity for the source digest (TENG-3168).
+	Size int64 `json:"size"`
 }
 
 func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
@@ -140,7 +143,7 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 
 	convs := map[string]*CursorConv{}
 	for _, c := range composers {
-		cv := &CursorConv{Start: CursorTime(c.Created), Order: map[string]int{}}
+		cv := &CursorConv{Start: CursorTime(c.Created), Order: map[string]int{}, Records: map[string]int64{"composerData:" + c.Composer: c.Size}}
 		var hs []string
 		_ = json.Unmarshal([]byte(c.Headers), &hs)
 		for i, h := range hs {
@@ -154,8 +157,9 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 			return
 		}
 		cv.Calls = append(cv.Calls, CursorPlaced{Pos: pos, Row: row})
-		raw, _ := json.Marshal(row)
-		cv.Raw = append(cv.Raw, string(raw))
+		if row.Size > 0 {
+			cv.Records["bubbleId:"+row.Composer+":"+row.Bubble] = row.Size
+		}
 	}
 	for _, b := range bubbles {
 		pos, ok := convs[b.Composer].OrderOf(b.Bubble)
@@ -172,8 +176,9 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 	addUser := func(row CursorRow, pos int) {
 		if cv := convs[row.Composer]; cv != nil {
 			cv.Users = append(cv.Users, CursorUser{pos, row.Text})
-			raw, _ := json.Marshal(row)
-			cv.Raw = append(cv.Raw, string(raw))
+			if row.Size > 0 {
+				cv.Records["bubbleId:"+row.Composer+":"+row.Bubble] = row.Size
+			}
 		}
 	}
 	for _, u := range users {
@@ -195,13 +200,7 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 		sort.SliceStable(cv.Users, func(i, j int) bool { return cv.Users[i].Pos < cv.Users[j].Pos })
 		a := NewAssembler("cursor", id)
 		a.S.Start = cv.Start
-		sort.Strings(cv.Raw)
-		h := sha256.New()
-		for _, r := range cv.Raw {
-			h.Write([]byte(r))
-			h.Write([]byte{0})
-		}
-		a.S.SourceDigest = hex.EncodeToString(h.Sum(nil))
+		a.S.SourceDigest = cv.SourceDigest()
 		u := 0
 		for i, c := range cv.Calls {
 			for u < len(cv.Users) && cv.Users[u].Pos < c.Pos {
@@ -230,16 +229,37 @@ type CursorPlaced struct {
 }
 
 type CursorConv struct {
-	Raw   []string // the rows read for it, for its source digest
-	Start time.Time
-	Order map[string]int
-	Calls []CursorPlaced
-	Users []CursorUser
+	// Records are the store records the conversation was read from, key to
+	// stored length: its source identity, whatever the reader extracts.
+	Records map[string]int64
+	Start   time.Time
+	Order   map[string]int
+	Calls   []CursorPlaced
+	Users   []CursorUser
 }
 
 type CursorUser struct {
 	Pos  int
 	Text string
+}
+
+// SourceDigest identifies the conversation's input: the key and stored
+// length of each record it was read from (the conversation and its tool and
+// user bubbles; inline bubbles are inside the conversation record). It does
+// not depend on what the reader's queries extract, so changing the reader
+// never reads as changed input to a frozen corpus, while an edited record
+// does (TENG-3168).
+func (c *CursorConv) SourceDigest() string {
+	keys := make([]string, 0, len(c.Records))
+	for k := range c.Records {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	for _, k := range keys {
+		fmt.Fprintf(h, "%s\x00%d\n", k, c.Records[k])
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // orderOf is the bubble's position in its conversation's header list.

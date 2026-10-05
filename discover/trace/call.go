@@ -89,8 +89,8 @@ type ResultCollectionField struct {
 // ResultCollections retains bounded equality evidence for complete JSON
 // arrays. It never stores the raw list items in a Discover report or graph.
 func ResultCollections(text string) []ResultCollection {
-	text = strings.TrimSpace(text)
-	if len(text) == 0 || len(text) > 64<<10 || !strings.Contains(text, "[") || !json.Valid([]byte(text)) {
+	text, ok := ResultJSON(text)
+	if !ok || !strings.Contains(text, "[") {
 		return nil
 	}
 	var value any
@@ -489,8 +489,8 @@ func JsonPaths(text string, ids []string) []string {
 	if len(ids) == 0 {
 		return nil
 	}
-	t := strings.TrimSpace(text)
-	if len(t) > 64<<10 || (!strings.HasPrefix(t, "{") && !strings.HasPrefix(t, "[")) {
+	t, ok := ResultJSON(text)
+	if !ok {
 		return make([]string, len(ids))
 	}
 	var v any
@@ -574,4 +574,62 @@ func ResultOutcome(text string) Outcome {
 		return OutcomeFailed
 	}
 	return ExitOutcome(text)
+}
+
+// ResultJSON is the JSON a tool result carries: the JSON value the text
+// starts with, else the one fenced code block in it whose content is a JSON
+// object or array (TENG-3166). An MCP server can return its data as text wrapped in
+// a banner and Markdown (the Telara gateway does: "[UNTRUSTED EXTERNAL
+// DATA]", "## Action", a json block) while sending the same data as
+// structuredContent, which is what a running primitive receives (bridge
+// resultText). Two or more such blocks leave it unclear which is the data,
+// so none is used.
+func ResultJSON(text string) (string, bool) {
+	t := strings.TrimSpace(text)
+	if t == "" || len(t) > 64<<10 {
+		return "", false
+	}
+	// A result that starts with a JSON value is that value, even when text
+	// follows it (Chrome's tabs_context: the tab list, then a summary).
+	// "[UNTRUSTED EXTERNAL DATA]" also starts with "[", so the value must
+	// parse.
+	if strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[") {
+		dec := json.NewDecoder(strings.NewReader(t))
+		var raw json.RawMessage
+		if dec.Decode(&raw) == nil {
+			return string(raw), true
+		}
+	}
+	found := ""
+	rest := t
+	for {
+		i := strings.Index(rest, "```")
+		if i < 0 {
+			break
+		}
+		rest = rest[i+3:]
+		// The info string (json, or nothing) runs to the end of the line.
+		nl := strings.IndexByte(rest, '\n')
+		if nl < 0 {
+			break
+		}
+		info := strings.TrimSpace(rest[:nl])
+		body := rest[nl+1:]
+		end := strings.Index(body, "```")
+		if end < 0 {
+			break
+		}
+		block := strings.TrimSpace(body[:end])
+		rest = body[end+3:]
+		if info != "" && info != "json" {
+			continue
+		}
+		if (strings.HasPrefix(block, "{") || strings.HasPrefix(block, "[")) && json.Valid([]byte(block)) {
+			if found != "" {
+				return "", false
+			}
+			found = block
+		}
+	}
+	return found, found != ""
 }

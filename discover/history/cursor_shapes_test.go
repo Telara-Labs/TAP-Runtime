@@ -76,3 +76,41 @@ func TestCursorReaderReadsTheCurrentToolFormerShapes(t *testing.T) {
 		t.Errorf("ABC-12 has no JSON path in the search result (%v %v), or the lookup lost its server/argument: %+v", search.OutIDs, search.OutPaths, get)
 	}
 }
+
+// TENG-3168: a conversation's source digest is the key and stored length of
+// each record it was read from, so it does not move when the reader's
+// queries change, and it does move when a record is edited.
+func TestCursorSourceDigestIsTheStoreRecords(t *testing.T) {
+	bin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 is not installed")
+	}
+	const comp = "44444444-4444-4444-4444-444444444444"
+	conv := `{"createdAt":1790000000000,"fullConversationHeadersOnly":[{"bubbleId":"b1","type":2}]}`
+	bubble := `{"createdAt":"2026-09-21T10:00:00Z","toolFormerData":{"name":"run_terminal_command_v2","rawArgs":"","params":"{\"command\":\"ls\"}","status":"completed"}}`
+	db := filepath.Join(t.TempDir(), "state.vscdb")
+	build := func(b string) {
+		sql := "DROP TABLE IF EXISTS cursorDiskKV; CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);\n" +
+			"INSERT INTO cursorDiskKV VALUES ('composerData:" + comp + "', '" + conv + "');\n" +
+			"INSERT INTO cursorDiskKV VALUES ('bubbleId:" + comp + ":b1', '" + strings.ReplaceAll(b, "'", "''") + "');\n"
+		if out, err := exec.Command(bin, db, sql).CombinedOutput(); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+	}
+	build(bubble)
+	ss, err := Cursor{DB: db}.Read(time.Time{})
+	if err != nil || len(ss) != 1 {
+		t.Fatalf("%v %v", ss, err)
+	}
+	want := (&CursorConv{Records: map[string]int64{
+		"composerData:" + comp:     int64(len(conv)),
+		"bubbleId:" + comp + ":b1": int64(len(bubble)),
+	}}).SourceDigest()
+	if ss[0].SourceDigest != want {
+		t.Fatalf("digest %s, want the record keys and lengths %s", ss[0].SourceDigest, want)
+	}
+	build(strings.Replace(bubble, `\"ls\"`, `\"ls -la\"`, 1))
+	if again, _ := (Cursor{DB: db}).Read(time.Time{}); again[0].SourceDigest == want {
+		t.Fatal("an edited record kept its digest")
+	}
+}

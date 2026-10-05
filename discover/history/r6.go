@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -264,12 +265,57 @@ func AmpThread(id string, b []byte) (trace.Session, error) {
 // Aider reads Aider's chat history (Markdown): .aider.chat.history.md in the
 // home folder and at project roots. Aider makes no MCP or tool calls; a
 // `/run <command>` the person typed is a shell call, and an applied edit is
-// an edit of that file. Project roots are looked for at a fixed depth below
-// home (never a recursive walk of the home folder). Read from a real run
-// (testdata/aider).
+// an edit of that file. Project roots are found by a bounded walk of the
+// home folder, at most six levels down, skipping hidden folders, system and
+// dependency trees (TENG-3167; a fixed depth of 3 missed every project at
+// ~/Desktop/Projects/<org>/<repo>). Read from a real run (testdata/aider).
 type Aider struct {
 	Home  string
-	Depth int // how many folder levels below home to look; 0 means 3
+	Depth int // how many folder levels below home to look; 0 means 6
+}
+
+// aiderSkip are folders that never hold a project's chat history: system
+// and package trees, dependency and build output, caches. Hidden folders
+// are skipped too (TENG-3167).
+var aiderSkip = map[string]bool{"Library": true, "Applications": true, "node_modules": true, "vendor": true,
+	"venv": true, "site-packages": true, "__pycache__": true, "target": true, "dist": true, "build": true, "Pictures": true, "Movies": true, "Music": true}
+
+// aiderBudget bounds the folders visited, so a large home stays fast.
+const aiderBudget = 200000
+
+// aiderHistories finds .aider.chat.history.md files under home, at most
+// depth folder levels down. Aider writes the file into the project folder,
+// which is often 4 or more levels down (~/Desktop/Projects/<org>/<repo>).
+func aiderHistories(home string, depth int) []string {
+	var files []string
+	visited := 0
+	base := strings.Count(filepath.Clean(home), string(filepath.Separator))
+	filepath.WalkDir(home, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			if p == home {
+				return nil
+			}
+			visited++
+			name := d.Name()
+			if visited > aiderBudget || aiderSkip[name] || strings.HasPrefix(name, ".") ||
+				strings.Count(p, string(filepath.Separator))-base > depth {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.Name() == ".aider.chat.history.md" {
+			files = append(files, p)
+		}
+		return nil
+	})
+	sort.Strings(files)
+	return files
 }
 
 func (Aider) Client() string { return "aider" }
@@ -283,16 +329,9 @@ func (r Aider) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats,
 	var st trace.ReadStats
 	depth := r.Depth
 	if depth == 0 {
-		depth = 3
+		depth = 6
 	}
-	var files []string
-	pat := filepath.Join(r.Home, ".aider.chat.history.md")
-	for i := 0; i <= depth; i++ {
-		m, _ := filepath.Glob(pat)
-		files = append(files, m...)
-		pat = filepath.Join(filepath.Dir(pat), "*", ".aider.chat.history.md")
-	}
-	sort.Strings(files)
+	files := aiderHistories(r.Home, depth)
 	var out []trace.Session
 	for _, f := range files {
 		info, err := os.Stat(f)
