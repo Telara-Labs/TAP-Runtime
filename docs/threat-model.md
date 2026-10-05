@@ -11,10 +11,13 @@ complete installer invocation, pointer repair and digest-scoped CLI fetch
 grants. A downloaded macOS arm64 binary completed an allowed-origin request
 through a real CONNECT proxy. Native Claude Code 2.1.289 completed one public
 GET after separate package-trust and origin forms, answered by UI automation.
-This is not human write acceptance or all-client acceptance. A subsequent
-source fix makes untrusted local-reach packages refuse admission when the
-client cannot ask, rather than skipping first-run trust. That change is awaiting
-release and must not be attributed to v0.1.13. The historical
+This is not human write acceptance or all-client acceptance. Current source
+after v0.1.13 checks digest-scoped package trust even when the client advertises
+no elicitation: an untrusted package requiring this check is refused before a
+run starts, an owner-pretrusted exact digest can run, and changed entrypoint
+bytes require new trust. A real external MCP stdio probe exercised all three
+paths with capabilities `{}`. This source behavior is absent from v0.1.13;
+no later binary release is claimed by that probe. The historical
 30-item report and later remediation receipts live locally under
 `dist/verification-2026-10-05/`; they are not public repository artifacts.
 
@@ -350,7 +353,7 @@ ticket, and what remains. A fixed gap names the test that holds it.
 | G3 | Fixed (TENG-3103) | A call's arguments are checked against the capability's contract at call time: undeclared arguments, wrong types and missing required ones are refused before any approval. `TestACallIsHeldToTheContractsArguments` | Applies only where the manifest carries a contract for the tool |
 | G4 | Fixed (TENG-3100) | When more than one server fits a capability equally well the runner refuses, or asks the person through the client, and keeps the choice on the machine per client (`tap bind`). The manifest names no server, so a primitive stays portable. `TestTwoServersThatFitEquallyAreNotChosenBetween` | A server that fits slightly better than the real one still wins. A person can choose the wrong server when asked |
 | G5 | Partly fixed (TENG-3103) | The list now covers `git -c`, `--exec-path`, `--upload-pack`, `make`, `awk`, `npm run`, `go run` and other launchers. `TestInvocationsThatRunCodeAreRecognized` | Still a hand-maintained list: any program not on it that runs code is classed by what the manifest declares |
-| G6 | Partial in v0.1.13; source fix awaiting release (TENG-3103) | The first time a package is run through a client that can ask, the person sees what it declares and says yes; the answer is kept by the package's digest, so an edit asks again. `TestAPackageIsAskedAboutOnceAndAgainWhenItChanges` | A client advertising no elicitation skips this package-wide question; effect and fetch gates remain. A client advertising elicitation but cancelling the question refuses an untrusted package. Tool-only packages use per-call gates. Trust covers manifest and entrypoint bytes, not a claim that the program is harmless. The subsequent source fix refuses untrusted local-reach packages even when no elicitation is advertised; it is awaiting release |
+| G6 | v0.1.13 gap; corrected in subsequent source (TENG-3103) | In v0.1.13, clients advertising elicitation ask before first use and edits; clients advertising no elicitation skip the package-wide question. Subsequent source checks the recorded manifest-and-entrypoint digest before deciding whether the client can ask. An external stdio MCP probe with capabilities `{}` refused an untrusted package before creating a run, ran the owner-pretrusted exact digest, and refused its changed entrypoint digest. `TestSourceNoElicitationRequiresDigestScopedOwnerTrust` | The external probe used a source-built runner; it does not establish this behavior in v0.1.13 or human approval in another client. Tool-only packages retain per-call gates. Package trust does not approve writes or fetch origins and cannot establish that a program is harmless |
 | G7 | Fixed where the client exposes rules (TENG-3101) | Claude Code ask rules, Codex `enabled_tools`, `disabled_tools`, disabled servers and `approval_mode = "prompt"` (checked against Codex 0.147.0), Gemini `includeTools` and `excludeTools`, VS Code `chat.tools.eligibleForAutoApproval`. | VS Code gives an extension no way to read tools switched off in its picker. The direct MCP bridge has no person between it and the server. The Gemini field names were confirmed in Gemini CLI 0.62.0's bundle, and the VS Code setting's key format (`tool`, `server/tool`, `server/*`) in the shipped VS Code 1.138 source; the VS Code ask rule was run through the real extension in a real VS Code 1.140 (`go test ./bridge -run LiveVSCode -live-vscode`): a setting key `runTask` made `run_task` ask and no other tool. The match is a best match to the editor's own lookup, and an MCP server was not connected in that run |
 | G8 | VS Code source gate present; Gemini source interpretation only (TENG-3101) | **VS Code:** a live run (VS Code 1.140, a real MCP server that logs each call) showed that a call made through the extension, which has no invocation token, ran a tool that is not read-only with nobody confirming it, after a delay of 47 to 104 seconds. The runner no longer leaves approval of tool calls to VS Code; it asks the person itself, and a call with no yes is not made. `TestAToolCalledThroughVSCodeIsAskedByTheRunnerAndRefusedWithoutAYes`. The extension now gives up after 2 minutes with a message instead of 10. **Gemini:** in Gemini CLI 0.62.0's source, a hook's tail call is turned into a validating call with the session's approval mode, so it goes through the same confirmation as a call the model makes. This was read in the source, not run | Native Copilot rendered a first-trust form and a declined response; read execution passed. Its own write prompt and runner-specific two-minute stall message remain unverified. Gemini 0.62.0 returned IneligibleTierError for the existing account, so native hook/write/includeTools/excludeTools acceptance remains unverified |
 | G9 | Fixed (TENG-3103) | The file system root, paths that leave the directory, plain `http` to a remote host and link-local addresses are refused at admission. A named origin that resolves to loopback, a private address or a metadata address is not reached. `TestDeclarationsThatCannotBeMeantAreRefused`, `TestANameThatResolvesToTheMachineItselfIsNotReached` | An origin declared as a private or loopback address is allowed, on purpose |
@@ -372,9 +375,13 @@ ticket, and what remains. A fixed gap names the test that holds it.
 - Current source: Python/JavaScript/Bash memory probes, 1000-request bound,
   default 600-second timeout, status/evidence for failed and unknown-outcome
   runs, same-user/private-mode behavior, and real CONNECT proxy use passed.
-- The no-elicitation package-trust bypass exists in v0.1.13. A subsequent
-  source fix requires prior owner trust for local-reach packages when the client
-  cannot ask. It is awaiting release; tool-only packages retain per-call gates.
+- The no-elicitation package-trust bypass exists in v0.1.13. Subsequent
+  source requires prior owner trust for packages needing package admission
+  when the client cannot ask. An external MCP stdio probe with capabilities
+  `{}` refused an untrusted package before starting a run, ran its owner-trusted
+  exact digest, and refused an edited entrypoint with a new digest. This probe
+  establishes source behavior, not behavior in the v0.1.13 binary. Tool-only
+  packages retain per-call gates.
 - Released v0.1.13 includes the complete installer invocation, explicit stale
   pointer repair and digest-scoped CLI fetch grants. GitHub and npm serve the
   release; package trust and fetch approval remain separate.
