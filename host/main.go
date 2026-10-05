@@ -474,7 +474,14 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				pb.UsePins(pins)
 			}
 		}
-		adm, err = admitWith(newFileBindings(defaultBindingsPath()), o.Choose, m.Tools, br, m.Capabilities...)
+		choose := o.Choose
+		if choose != nil {
+			choose = func(p Pick) (string, bool) {
+				p.Primitive = m.Metadata.Name
+				return o.Choose(p)
+			}
+		}
+		adm, err = admitWith(newFileBindings(defaultBindingsPath()), choose, m.Tools, br, m.Capabilities...)
 		if err != nil {
 			return nil, err
 		}

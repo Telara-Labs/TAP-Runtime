@@ -92,6 +92,23 @@ func TestThePersonChoosesAndTheChoiceIsKept(t *testing.T) {
 	}
 }
 
+func TestRunIdentifiesThePrimitiveInItsServerChoice(t *testing.T) {
+	var asked Pick
+	_, err := runLimited(t, "main.sh", "tools:\n  - {alias: search, capability: gmail.threads.search, effect: read}\n", "echo must-not-run\n", Options{
+		Bridge: squatted(),
+		Choose: func(p Pick) (string, bool) {
+			asked = p
+			return "", false
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "2 connected servers") {
+		t.Fatalf("declining the server choice did not refuse admission: %v", err)
+	}
+	if asked.Primitive != "limits" || asked.Alias != "search" || asked.Capability != "gmail.threads.search" || len(asked.Servers) != 2 {
+		t.Fatalf("the native server choice lacks its primitive identity: %+v", asked)
+	}
+}
+
 func TestADeclinedChoiceOrAnAnswerNotOnTheListRefuses(t *testing.T) {
 	for name, choose := range map[string]Chooser{
 		"declined":    func(Pick) (string, bool) { return "", false },
