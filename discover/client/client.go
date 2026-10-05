@@ -81,6 +81,10 @@ type MCPConfig struct {
 	Kind MCPKind
 	Path string
 	Key  string
+	// Local, for an MCPJSONFile, is the OpenCode family's entry shape,
+	// {"type": "local", "command": [program, args...], "enabled": true},
+	// instead of {"command", "args"} (TENG-3131).
+	Local bool
 }
 
 // Capabilities a call site can ask for, named in errors.
@@ -152,11 +156,18 @@ var registry = []Client{
 	{ID: "kilo", Aliases: []string{"kilocode", "kilo-code"}, Name: "Kilo Code",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history: Roo fork, vshulcz/deja-vu kilo.go (not installed here)",
 		Markers: []string{".kilocode", ".config/kilo", ".local/share/kilo", "Library/Application Support/*/User/globalStorage/kilocode.kilo-code"}, History: true,
-		Skills: SkillsPaths{Global: ".kilocode/skills", Project: ".kilocode/skills"}},
+		Skills: SkillsPaths{Global: ".kilocode/skills", Project: ".kilocode/skills"},
+		// The Kilo CLI's MCP servers; its bridge is kilo serve's
+		// /experimental/mcp/call-tool (TENG-3131). The Kilo Code extension
+		// starts its own server on a random port and is not reachable.
+		MCP:    MCPConfig{Kind: MCPJSONFile, Path: ".config/kilo/kilo.json", Key: "mcp", Local: true},
+		Bridge: true, Launch: []string{"kilo", "run"}},
 	{ID: "opencode", Name: "OpenCode",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history opencode.db: schema seen on disk (empty) + vshulcz/deja-vu opencode.go",
 		Markers: []string{".config/opencode", ".local/share/opencode"}, History: true,
-		Skills: SkillsPaths{Global: ".config/opencode/skills", Project: ".agents/skills"}},
+		Skills: SkillsPaths{Global: ".config/opencode/skills", Project: ".agents/skills"},
+		MCP:    MCPConfig{Kind: MCPJSONFile, Path: ".config/opencode/opencode.json", Key: "mcp", Local: true},
+		Launch: []string{"opencode", "run"}},
 	{ID: "zed", Name: "Zed",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history threads.db: zed source crates/agent/src/db.rs (not installed here)",
 		Markers: []string{"Library/Application Support/Zed", ".config/zed", ".local/share/zed", "$LOCALAPPDATA/Zed"}, History: true,

@@ -222,6 +222,12 @@ func TestConnectedReadsEachAgentsConfig(t *testing.T) {
 	if is("cursor") {
 		t.Error("a malformed file reads as connected")
 	}
+	// Kilo and OpenCode: an entry under "mcp" (TENG-3131).
+	at(".config/kilo/kilo.json", `{"model":"x","mcp":{"tap":{"type":"local","command":["tap","serve"]}}}`)
+	at(".config/opencode/opencode.json", `{"mcp":{"other":{"type":"local","command":["x"]}}}`)
+	if !is("kilo") || is("opencode") {
+		t.Errorf("kilo connected=%v (want true), opencode connected=%v (want false)", is("kilo"), is("opencode"))
+	}
 	// Goose: an extension in config.yaml, beside scalar settings.
 	at(".config/goose/config.yaml", "GOOSE_PROVIDER: openai\nextensions:\n  developer:\n    type: builtin\n")
 	if is("goose") {
