@@ -19,9 +19,9 @@ import (
 // tap_run takes a package path from the model. A model
 // that has been steered can write a primitive anywhere and ask for it to be
 // run. So the first time this machine is asked to run a particular package,
-// through a client that can ask, the person sees what it declares and says
-// yes or no. The answer is kept by the package's digest: edit the manifest or
-// the program and it is asked about again.
+// the person sees what it declares and says yes or no, or trusts it through
+// the owner CLI before using a client that cannot ask. The answer is kept by
+// the package's digest: edit the manifest or the program and it is asked about again.
 
 // userConfigDir is where the runner keeps what a person has chosen. A test
 // replaces it, so no test writes into a real user's configuration.
@@ -128,12 +128,8 @@ type Truster func(name, publisher, version, path, digest, declared string) bool
 
 // admitPackage decides whether a package named by a client may be run. A
 // package whose digest is kept runs. Otherwise the person is asked; with
-// nobody to ask (ask is nil) it runs as before, and a change in it is refused
-// anyway because no one can approve one.
+// nobody to ask (ask is nil), local-reach packages require prior owner trust.
 func admitPackage(store *trustStore, ask Truster, dir string) (refusal string) {
-	if ask == nil {
-		return ""
-	}
 	digest, m, err := packageDigest(dir)
 	if err != nil {
 		return "" // Run reports a package that cannot be read
@@ -145,7 +141,7 @@ func admitPackage(store *trustStore, ask Truster, dir string) (refusal string) {
 		return ""
 	}
 	abs, _ := filepath.Abs(dir)
-	if !ask(m.Metadata.Name, m.Metadata.Publisher, m.Metadata.Version, abs, digest[:12], declares(m)) {
+	if ask == nil || !ask(m.Metadata.Name, m.Metadata.Publisher, m.Metadata.Version, abs, digest[:12], declares(m)) {
 		return fmt.Sprintf("the person did not agree to run %s from %s; in a client that cannot show this question, review the package and run: tap trust %q", m.Metadata.Name, abs, abs)
 	}
 	if err := store.add(digest, m.Metadata.Name, abs); err != nil {

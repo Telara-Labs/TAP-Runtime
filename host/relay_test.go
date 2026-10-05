@@ -222,6 +222,9 @@ tools:
 // Only tool calls are left to the client's approval. A change the client
 // never sees, here a file write, is still refused without a person's yes.
 func TestRelayStillGatesWhatTheClientDoesNotSee(t *testing.T) {
+	cfg, oldCfg := t.TempDir(), userConfigDir
+	userConfigDir = func() (string, error) { return cfg, nil }
+	defer func() { userConfigDir = oldCfg }()
 	dir := t.TempDir()
 	old := relayDir
 	relayDir = func() (string, error) { return dir, nil }
@@ -250,6 +253,7 @@ execution: {entrypoint: main.sh}
 files:
   - {path: out, access: write}
 `, "mkdir -p out 2>/dev/null; echo x > out/y.txt || echo refused\n")
+	trustTestPackage(t, pkg)
 	text := c.run(pkg)
 	if !strings.Contains(text, "refused") {
 		t.Fatalf("a file write in a relay run was not refused:\n%s", text)

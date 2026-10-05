@@ -422,7 +422,9 @@ func Run(runner []string, log io.Writer) []Lane {
 			}
 			return ""
 		})
-	lane("a read needs nobody", false, nil,
+	// Package admission is separate from an action's effect: trust the package
+	// through the existing first-run handler, then require no read approval.
+	lane("an admitted package read needs no action approval", true, nil,
 		func(w string) string {
 			os.MkdirAll(filepath.Join(w, "in"), 0o755)
 			os.WriteFile(filepath.Join(w, "in", "x.txt"), []byte("readable\n"), 0o644)
@@ -431,6 +433,9 @@ func Run(runner []string, log io.Writer) []Lane {
 		func(w, out string, s *session) string {
 			if !strings.Contains(out, "readable") {
 				return "a declared read did not happen:\n" + out
+			}
+			if len(s.asked) != 0 {
+				return "a declared read requested action approval"
 			}
 			return ""
 		})

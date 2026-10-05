@@ -60,6 +60,16 @@ func writePackage(t *testing.T, manifest, script string) string {
 	return dir
 }
 
+// Action-gate tests admit their owned package separately from the action.
+// Callers isolate userConfigDir before using this helper.
+func trustTestPackage(t *testing.T, pkg string) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	if code := trustCommand([]string{pkg}, &out, &errb); code != 0 {
+		t.Fatalf("trust disposable test package: %d %s", code, errb.String())
+	}
+}
+
 // client is a minimal MCP client: the other end of the wire.
 type client struct {
 	t           *testing.T
@@ -318,7 +328,9 @@ func TestServeWritesNothingWithoutAnExplicitYes(t *testing.T) {
 func TestServeNeverAsksAClientThatCannotShowAPrompt(t *testing.T) {
 	dir := inDir(t)
 	c := startServer(t, false, accept) // it would say yes, if asked
-	out := c.run(writePackage(t, writeManifest, writeScript))
+	pkg := writePackage(t, writeManifest, writeScript)
+	trustTestPackage(t, pkg)
+	out := c.run(pkg)
 	if len(c.asked) != 0 {
 		t.Fatal("a client that did not advertise elicitation was sent one")
 	}
@@ -335,7 +347,9 @@ func TestServeReadsNeedNobody(t *testing.T) {
 	os.MkdirAll("in", 0o755)
 	os.WriteFile("in/x.txt", []byte("content\n"), 0o644)
 	c := startServer(t, false, decline)
-	out := c.run(writePackage(t, strings.Replace(writeManifest, "{path: out, access: write}", "{path: in, access: read}", 1), "cat in/x.txt\n"))
+	pkg := writePackage(t, strings.Replace(writeManifest, "{path: out, access: write}", "{path: in, access: read}", 1), "cat in/x.txt\n")
+	trustTestPackage(t, pkg)
+	out := c.run(pkg)
 	if !strings.Contains(out, "content") || len(c.asked) != 0 {
 		t.Fatalf("asked %d, output:\n%s", len(c.asked), out)
 	}
@@ -398,6 +412,9 @@ tools:
 	if refusal != "" || asked {
 		t.Fatalf("tool-only package got a separate package prompt: refusal=%q asked=%v", refusal, asked)
 	}
+	if refusal := admitPackage(store, nil, pkg); refusal != "" {
+		t.Fatalf("tool-only package refused without a prompt callback: %s", refusal)
+	}
 	// Effectful tool calls still stop in callTool without an approval; see
 	// TestCallGate. This test only removes the redundant whole-package ask.
 }
@@ -432,12 +449,37 @@ func TestADeclinedPackageIsNotRun(t *testing.T) {
 	}
 }
 
-func TestAClientThatCannotAskRunsAPackageAsBefore(t *testing.T) {
+func TestAClientThatCannotAskRefusesAnUntrustedPackage(t *testing.T) {
 	inDir(t)
 	c := startServer(t, false, nil)
 	out := c.run(writePackage(t, writeManifest, writeScript))
-	if len(c.trust) != 0 || out == "" {
-		t.Fatalf("a client with no elicitation was sent a question: %v", c.trust)
+	if len(c.trust) != 0 || !strings.Contains(out, "did not agree to run") || !strings.Contains(out, "tap trust") {
+		t.Fatalf("non-eliciting client did not refuse with owner trust instructions: %s; questions=%v", out, c.trust)
+	}
+}
+
+func TestNonElicitingClientRequiresExactPackageTrust(t *testing.T) {
+	inDir(t)
+	pkg := writePackage(t, writeManifest, writeScript)
+	store := &trustStore{path: filepath.Join(t.TempDir(), "trusted.json")}
+	if refusal := admitPackage(store, nil, pkg); !strings.Contains(refusal, "tap trust") {
+		t.Fatalf("untrusted local-reach package was admitted without a question: %q", refusal)
+	}
+	digest, _, err := packageDigest(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.add(digest, "writer", pkg); err != nil {
+		t.Fatal(err)
+	}
+	if refusal := admitPackage(store, nil, pkg); refusal != "" {
+		t.Fatalf("owner-trusted package refused: %s", refusal)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "main.sh"), []byte(writeScript+"\n# changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if refusal := admitPackage(store, nil, pkg); !strings.Contains(refusal, "tap trust") {
+		t.Fatalf("changed package inherited its old trust: %q", refusal)
 	}
 }
 
