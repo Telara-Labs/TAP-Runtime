@@ -2,10 +2,19 @@
 
 Evidence baseline: the October 1 review covered v0.1.1. Sections 1–8 are
 historical, including probes superseded by later fixes. Their threat rows and
-statuses must not be read as current v0.1.14 behavior. Section 9 and the final
+statuses must not be read as current release behavior. Section 9 and the final
 status summary record the current controls and their evidence boundaries.
 
-Current release: signed [v0.1.14](https://github.com/Telara-Labs/TAP-Runtime/releases/tag/v0.1.14),
+Most recent verified release baseline: signed [v0.1.15](https://github.com/Telara-Labs/TAP-Runtime/releases/tag/v0.1.15),
+from `0198ea3e0935cccfcc9d286a1b7aab5932b1de71`, published October 5 at
+21:29:08 UTC. All five downloaded platform binaries matched the checksum
+manifest authenticated with the repository's pinned public key. A downloaded
+macOS arm64 binary passed no-elicitation package trust/refusal/changed-digest
+checks, one Discover-generated real Jira read and an HTTP 200 fetch through
+one real proxy CONNECT. These focused checks do not establish a full native
+v0.1.15 launch matrix.
+
+Earlier release evidence: signed [v0.1.14](https://github.com/Telara-Labs/TAP-Runtime/releases/tag/v0.1.14),
 from `fd5b0b82b81248de3d7c8a1b52cb87069b0f3a1d`. GitHub published it on
 October 5 at 20:56:08 UTC. npm records publication at 20:59:57.357 UTC;
 a fresh public registry check confirmed it after publication.
@@ -359,11 +368,11 @@ ticket, and what remains. A fixed gap names the test that holds it.
 | G1 | Fetch gate and headless extension shipped in v0.1.13 (TENG-3099) | A fetch, including a read, requires origin approval: a prompt once per origin per run, or an explicit owner CLI grant for that exact package digest. Every full address is in the record, and a refusal is recorded too. `TestAReadFetchThatCarriesDataOutIsGatedAndRecorded`, `TestThePersonIsAskedOncePerOriginForReads` | Data can leave to an approved origin. v0.1.13 includes CLI-only --fetch-origin grants scoped to the package digest; plain package trust does not approve fetches and revokes existing grants for that digest. Downloaded v0.1.13 and v0.1.14 macOS arm64 binaries completed real CONNECT proxy requests; native Claude Code completed public GET approval in v0.1.13. v0.1.4 and v0.1.10 proxy failures are historical |
 | G2 | Fixed (TENG-3102) | `timeoutSeconds` (default 10 minutes, paused while a person is asked), a 512 MiB memory ceiling, `limits.max_dispatches` (default 1000), a 16 MiB cap on one protocol line, and a cap and timeout on each host program's output. `TestAProgramThatNeverEndsIsStoppedAtItsTimeLimit`, `TestPythonCannotAllocateBeyondTheMemoryCeiling` | `max_steps`, `max_input_bytes` and `max_checkpoint_bytes` are accepted but cannot be applied by this runner; the log names them when declared. A guest can use all of the memory ceiling and the whole time limit |
 | G3 | Fixed (TENG-3103) | A call's arguments are checked against the capability's contract at call time: undeclared arguments, wrong types and missing required ones are refused before any approval. `TestACallIsHeldToTheContractsArguments` | Applies only where the manifest carries a contract for the tool |
-| G4 | Fixed (TENG-3100) | When more than one server fits a capability equally well the runner refuses, or asks the person through the client, and keeps the choice on the machine per client (`tap bind`). The manifest names no server, so a primitive stays portable. `TestTwoServersThatFitEquallyAreNotChosenBetween` | A server that fits slightly better than the real one still wins. A person can choose the wrong server when asked |
+| G4 | Fixed (TENG-3100) | When more than one server fits a capability equally well the runner refuses, or asks the person through the client, and keeps the choice on the machine per client (`tap bind`). The binding stays outside the manifest. A package can explicitly name a server with `pin.server`, which narrows portability. `TestTwoServersThatFitEquallyAreNotChosenBetween` | A server that fits slightly better than the real one still wins. A person can choose the wrong server when asked |
 | G5 | Partly fixed (TENG-3103) | The list now covers `git -c`, `--exec-path`, `--upload-pack`, `make`, `awk`, `npm run`, `go run` and other launchers. `TestInvocationsThatRunCodeAreRecognized` | Still a hand-maintained list: any program not on it that runs code is classed by what the manifest declares |
 | G6 | Fixed in v0.1.14 (TENG-3103) | v0.1.13 clients advertising no elicitation skipped package-wide trust. v0.1.14 checks the recorded manifest-and-entrypoint digest before deciding whether the client can ask. An external stdio MCP probe with capabilities `{}` against the independently downloaded signed v0.1.14 macOS arm64 binary refused an untrusted package before creating a run, ran its owner-pretrusted exact digest, and refused its changed entrypoint digest. A Discover-generated tool-only primitive also performed one real Jira read | This is released protocol acceptance, not human GUI approval in another client. Tool-only packages retain per-call gates. Package trust does not approve writes or fetch origins and cannot establish that a program is harmless |
 | G7 | Fixed where the client exposes rules (TENG-3101) | Claude Code ask rules, Codex `enabled_tools`, `disabled_tools`, disabled servers and `approval_mode = "prompt"` (checked against Codex 0.147.0), Gemini `includeTools` and `excludeTools`, VS Code `chat.tools.eligibleForAutoApproval`. | VS Code gives an extension no way to read tools switched off in its picker. The direct MCP bridge has no person between it and the server. The Gemini field names were confirmed in Gemini CLI 0.62.0's bundle, and the VS Code setting's key format (`tool`, `server/tool`, `server/*`) in the shipped VS Code 1.138 source; the VS Code ask rule was run through the real extension in a real VS Code 1.140 (`go test ./bridge -run LiveVSCode -live-vscode`): a setting key `runTask` made `run_task` ask and no other tool. The match is a best match to the editor's own lookup, and an MCP server was not connected in that run |
-| G8 | VS Code source gate present; Gemini source interpretation only (TENG-3101) | **VS Code:** a live run (VS Code 1.140, a real MCP server that logs each call) showed that a call made through the extension, which has no invocation token, ran a tool that is not read-only with nobody confirming it, after a delay of 47 to 104 seconds. The runner no longer leaves approval of tool calls to VS Code; it asks the person itself, and a call with no yes is not made. `TestAToolCalledThroughVSCodeIsAskedByTheRunnerAndRefusedWithoutAYes`. The extension now gives up after 2 minutes with a message instead of 10. **Gemini:** in Gemini CLI 0.62.0's source, a hook's tail call is turned into a validating call with the session's approval mode, so it goes through the same confirmation as a call the model makes. This was read in the source, not run | Native Copilot rendered a first-trust form and a declined response; read execution passed. Its own write prompt and runner-specific two-minute stall message remain unverified. Gemini 0.62.0 returned IneligibleTierError for the existing account, so native hook/write/includeTools/excludeTools acceptance remains unverified |
+| G8 | VS Code source gate present; Gemini source interpretation only (TENG-3101) | **VS Code:** a live run (VS Code 1.140, a real MCP server that logs each call) showed that a call made through the extension, which has no invocation token, ran a tool that is not read-only with nobody confirming it, after a delay of 47 to 104 seconds. The runner no longer leaves approval of tool calls to VS Code; it asks the person itself, and a call with no yes is not made. `TestAToolCalledThroughVSCodeIsAskedByTheRunnerAndRefusedWithoutAYes`. The extension declared a two-minute deadline, but a native VS Code 1.140 pending write confirmation still had no reply after 150 seconds. Corrected source returned its deadline error after 120.011 seconds in a fresh native SDK invocation; the owned target stayed absent. That correction awaits release. A tool already running may still ignore cancellation. **Gemini:** in Gemini CLI 0.62.0's source, a hook's tail call is turned into a validating call with the session's approval mode, so it goes through the same confirmation as a call the model makes. This was read in the source, not run | Native Copilot on signed v0.1.15 rendered separate first-trust and fetch forms: approved public GET returned HTTP 200, while a later declined fetch never reached the backend. The corrected extension deadline has source/native proof, not published-release acceptance. Human effectful-write approval remains unverified. Gemini 0.62.0 returned IneligibleTierError for the existing account, so native hook/write/includeTools/excludeTools acceptance remains unverified |
 | G9 | Fixed (TENG-3103) | The file system root, paths that leave the directory, plain `http` to a remote host and link-local addresses are refused at admission. A named origin that resolves to loopback, a private address or a metadata address is not reached. `TestDeclarationsThatCannotBeMeantAreRefused`, `TestANameThatResolvesToTheMachineItselfIsNotReached` | An origin declared as a private or loopback address is allowed, on purpose |
 | G10 | Fixed (TENG-3103) | The docs no longer offer a `.wasm` entrypoint; the runner says so | Support would need a published request protocol |
 | G11 | Fixed (TENG-3104) | `tapRuntime.path` is machine-scoped | Any local process of the same user can still reach the extension's socket |
@@ -373,7 +382,7 @@ ticket, and what remains. A fixed gap names the test that holds it.
 | G15 | Mostly fixed (TENG-3104) | `tap serve --no-record` keeps no record; fetch addresses are logged without their query; a command is logged as the program, its first two arguments and a count. `TestACommandIsLoggedWithoutItsTrailingArguments` | The record still holds whole command lines and results, 30 days by default |
 | G16 | Private modes verified (TENG-3104) | Files a primitive writes are created 0600 and their directories 0700. Same-user consumption passed; a distinct Linux UID was refused | Cross-user CI must deliberately copy reviewed output into a separately managed shared directory. Windows ACL behavior is unverified |
 | G17 | Mostly fixed (TENG-3104) | The interpreter store is 0700 and its files 0600. A runner built from source remembers the digest of the bash interpreter it first reads and refuses a changed file. `TestASourceBuiltInterpreterThatChangesAfterFirstUseIsRefused` | Releases pin the bash interpreter by digest, so every shipped binary is checked. Only a runner built from source trusts its first read, and says so in the log on every run |
-| G18 | Guard tested with one live connector (TENG-3104) | The page refuses a connector tool unless readOnlyHint is true and destructiveHint is not true. The exact guard permitted a metadata-only search through real Gmail in a private claude.ai Artifact on October 5 | Annotations remain the connector's own claim. Other connectors, the complete compiled WASM worker and the desktop-companion path are unverified |
+| G18 | Representative compiled Artifact reads passed on signed v0.1.15 (TENG-3104) | The page refuses a connector tool unless readOnlyHint is true and destructiveHint is not true. Actual compiled worker jobs completed Gmail search_threads, Calendar search_events, Drive search_files and Telara telara_tool_describe reads; rendered rows and terminal database records agreed. The initial Drive query error was preserved before the corrected fixture passed | Annotations remain the connector's own claim. These four representative reads do not establish every tool/connector or desktop-companion support |
 
 ## Summary of current status
 
@@ -390,14 +399,17 @@ ticket, and what remains. A fixed gap names the test that holds it.
   tool-only primitive made one real Jira read; the real HTTPS proxy check
   returned HTTP 200 through one CONNECT. No external writes were made.
 - The complete installer invocation, explicit stale pointer repair and
-  digest-scoped CLI fetch grants shipped in v0.1.13 and remain in v0.1.14.
+  digest-scoped CLI fetch grants shipped in v0.1.13 and remain in v0.1.15.
   Package trust and fetch approval remain separate.
 - In v0.1.13, Claude Code 2.1.289 rendered separate native first-trust and origin forms;
   the known public GET completed with HTTP 200, one read and zero refusals.
-  UI automation answered the forms. Native Copilot read execution and a
-  declined trust form were observed. Human write acceptance, change prompts,
-  ambiguous-server picker acceptance, Gemini hook behavior and complete
-  all-client compatibility remain unverified.
+  UI automation answered the forms. Native v0.1.15 Claude Code and Copilot
+  rendered separate trust/fetch forms; approved public GETs passed and declined
+  fetches were refused before execution. Claude also refused a changed package
+  digest. Native Claude/Codex selected between two real matching servers and
+  persisted bindings. These owned read fixtures do not establish human
+  effectful-write acceptance, Gemini hook behavior or complete all-client
+  compatibility.
 - Tool results and primitive output can steer the model (T9). Intermediate
   data stays outside the conversation only when the program does not print it.
   A declared host command runs with the user's privileges; tool annotations
@@ -410,12 +422,21 @@ ticket, and what remains. A fixed gap names the test that holds it.
 - v0.1.13 native release acceptance passed Windows amd64, macOS arm64 and
   amd64, and Linux arm64, including the platform install scripts. Linux amd64
   never acquired a hosted runner on two attempts, so no acceptance test ran.
-  Fresh v0.1.14 native release acceptance on all five platforms is pending;
-  its macOS arm64 external protocol proof does not replace that matrix.
-  Windows ACL behavior and the complete host suite on every platform remain
-  separate checks. See the
-  [release workflow](https://github.com/Telara-Labs/TAP-Runtime/actions/runs/37367125042).
-- Full unchanged frozen-corpus Discover parity remains incomplete: 38 source
-  sessions are missing. Paired synthetic cases do not substitute for that
-  corpus. Live Telara publish/pull/promotion, off-machine key recovery and
-  complete compiled web/desktop-companion execution are also unverified.
+  v0.1.14 clean native launch checks subsequently passed on both Linux
+  architectures, Windows and Intel macOS in the
+  [workflow](https://github.com/Telara-Labs/TAP-Runtime/actions/runs/37373338835).
+  Its complete Apple Silicon launch package passed locally with isolated HOME
+  and PATH and existing Go caches; the hosted job was cancelled before steps.
+  These results do not establish the complete host suite, Windows ACL behavior
+  or a five-platform v0.1.15 native launch matrix.
+- Full unchanged frozen-corpus Discover parity remains incomplete: the latest
+  recovery audit has 39 missing original source sessions. Four exact frozen
+  prefixes were recovered; paired synthetic cases do not replace the corpus.
+  Live Telara publish/pull/promotion and off-machine key recovery remain
+  unverified. Signed v0.1.15 compiled Artifact workers completed representative
+  Gmail, Calendar, Drive and Telara read jobs through the actual connector
+  guard; this does not establish desktop-companion or every-connector support.
+- Published v0.1.15 can leave a header-only journal after a chooser cancellation,
+  reporting it as interrupted rather than a known refusal. Corrected source
+  records the refusal and passed a native cancelled-run status/evidence check;
+  that fix awaits release.

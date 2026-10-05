@@ -53,7 +53,7 @@ Without it, the generic bridge uses the backend's advertised `serverInfo.name`.
 This labels the configured connection; it does not rename tools or choose
 another backend.
 
-For clients using Streamable HTTP, the source build also supports:
+For clients using Streamable HTTP, the released runner also supports:
 
 ```
 tap serve --http-listen 127.0.0.1:8765 \
@@ -107,9 +107,9 @@ explicit: run `npm exec -- tap setup` in that project. VS Code uses the
 separate extension below. Browser-only chats do not inherit a local MCP
 registration.
 
-The package is published from a signed five-platform release. The matching
-release assets are at
-`https://github.com/Telara-Labs/TAP-Runtime/releases/tag/v0.1.2`.
+The package is published from a signed five-platform release. Find assets
+for the same version as your package on the
+[GitHub releases page](https://github.com/Telara-Labs/TAP-Runtime/releases).
 
 ### Release installer
 
@@ -126,7 +126,8 @@ irm <release>/install.ps1 | iex
 ```
 
 `<release>` is the address of a release's files, such as
-`https://github.com/OWNER/REPO/releases/download/v0.1.0`.
+`https://github.com/Telara-Labs/TAP-Runtime/releases/download/v0.1.15`.
+Choose the version you intend to install.
 
 The script downloads the runner for this machine and checks it against a
 sha256 written into the script when the release was built. If it doesn't
@@ -203,15 +204,17 @@ tap bind --client claude-code --forget gmail.threads.search
 ```
 
 The choice is kept on this machine, per client, in `tap/bindings.json` in your
-user config directory. The primitive's manifest never names a server, so the
-same primitive runs where Gmail is a plugin on one client and an MCP server on
-another.
+user config directory, outside the primitive's manifest. A package can still
+explicitly pin a server with `pin.server`, which narrows its portability.
+Without that pin, the same capability can bind to different compatible
+connections in different clients.
 
 ## Gemini CLI
 
-**Experimental.** Built and tested against a stand-in for Gemini CLI, never
-against Gemini CLI itself: Google no longer admits individual accounts to it
-("please migrate to the Antigravity suite"), so the test could not run.
+**Experimental.** Hook execution was tested against a stand-in, not live Gemini.
+The existing `oauth-personal` profile in Gemini CLI 0.62.0 returned
+`IneligibleTierError`, so native hook approval and tool filtering could not be
+verified with that account.
 
 ```
 tap install --client gemini
@@ -232,16 +235,20 @@ with the server's name as it appears in Gemini's settings.
 
 ## VS Code (GitHub Copilot)
 
-**Preview.** The extension ships with each release as
-`tap-vscode-<version>.vsix`. Install it from VS Code's Extensions view, under
-"Install from VSIX...".
+**Preview.** Extension source is in [`vscode/`](../vscode/README.md).
+The published v0.1.15 release has no VSIX asset. A locally packaged VSIX can
+be installed from VS Code's Extensions view, under "Install from VSIX...".
 
 It registers the runner with VS Code as the MCP server "TAP Runtime", so there is
 nothing to add to `mcp.json`, and it lets the runner call the tools VS Code
-already has: every MCP server connected for Copilot, and the editor's own
-tools. VS Code makes each call with its own connection and shows its own
-confirmation where a tool asks for one. Tools bind by name and schema, as on
-Claude Code and Codex.
+exposes through its public tool API. In VS Code 1.140, the Local chat harness
+exposed the tested real MCP tools, while the newer Copilot SDK harness omitted
+MCP tools from `lm.tools`. Connecting a server alone does not establish its
+visibility through this extension. Calls use VS Code's connections. The runner obtains required approval
+itself; extension-dispatched calls cannot rely on VS Code's native confirmation.
+Tools bind by name and schema, as on Claude Code and Codex. Native Copilot on
+v0.1.15 rendered separate package-trust and fetch-origin forms; an approved
+public GET passed and a later declined fetch was refused before execution.
 
 The extension finds `tap` in `~/.local/bin`, on PATH, or at the
 `tapRuntime.path` setting. macOS and Linux only for now.
@@ -267,18 +274,21 @@ go run ./release verify --dir <downloaded release> --pub <trusted key file>
 ## Codex
 
 - In `codex exec`, Codex cancels an MCP tool call that needs approval. It
-  reports `user cancelled MCP tool call`. Allow the tool once:
+  reports `user cancelled MCP tool call`. Permit the outer `tap_run` tool for
+  that exec invocation:
 
   ```
   codex exec -c 'mcp_servers.tap.tools.tap_run.approval_mode="approve"' "..."
   ```
 
+  This configures Codex's outer tool gate. Package trust, fetch-origin approval
+  and an ambiguous tool binding remain separate runner gates; see
+  [TAP Local](../README.md#tap-local-your-primitives-as-an-mcp-server).
   An interactive Codex session asks instead.
-- A runner that Codex starts as an MCP server can download interpreters,
-  measured in Codex's `read-only` sandbox. A runner started from Codex's
-  **shell** has no network, and so can't download one. Run primitives
-  through the `tap_run` tool, or run `tap fetch` once in your own
-  terminal first.
+- In the tested Codex `read-only` sandbox, an MCP-started runner could download
+  interpreters while a shell-started runner could not. Network access depends
+  on the session's sandbox configuration. If downloading is unavailable, run
+  `tap fetch` once in your own terminal first.
 
 ## Building from source
 
@@ -303,7 +313,14 @@ The installed program is named `host`; rename it to `tap`.
 
 | Platform | State |
 |---|---|
-| macOS arm64 | the full suite, the install script, and primitives through Claude Code and Codex |
-| Linux amd64, arm64 | the full suite, in CI |
-| Windows amd64 | a subset, and one primitive, under Wine in CI. Never on Windows itself. `install.ps1` has never been run |
-| macOS amd64 (Intel) | built. Never run |
+| macOS arm64 | full source suite and native Claude/Codex reads; full v0.1.14 launch package passed locally with isolated HOME/PATH and existing Go caches |
+| Linux amd64, arm64 | source suite in CI; clean native v0.1.14 launch package passed, including public npm, installer and BusyBox/truncation checks |
+| Windows amd64 | portable source suites in native CI; clean v0.1.14 launch package passed, including actual PowerShell installation and npm/README flow |
+| macOS amd64 (Intel) | clean native v0.1.14 launch package passed, including public installer and npm/README flow |
+
+The four clean hosted v0.1.14 results are in
+[this workflow](https://github.com/Telara-Labs/TAP-Runtime/actions/runs/37373338835).
+The Apple Silicon hosted job was cancelled before any steps; its local
+functional pass is a separate receipt. These are version-specific launch
+checks, not the complete host suite or a five-platform v0.1.15 acceptance run.
+Windows ACL behavior remains unverified.
