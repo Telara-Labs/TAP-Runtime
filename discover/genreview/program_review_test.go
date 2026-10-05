@@ -99,7 +99,7 @@ func TestReviewGeneratedRefineAndUnresolvedGate(t *testing.T) {
 	if !strings.Contains(out.String(), "Needs decision") {
 		t.Fatalf("missing reason in review: %s", out.String())
 	}
-	handoff := filepath.Join(state, "handoffs", graph.CandidateID+"-"+genreview.UnresolvedGraphDigest(graph))
+	handoff := genreview.HandoffDir(state, graph.CandidateID, genreview.UnresolvedGraphDigest(graph))
 	if _, err := os.Stat(filepath.Join(handoff, "program-graph.json")); err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,10 @@ func TestReviewGeneratedResultListIndexNeedsSelectionDecision(t *testing.T) {
 	if err := genreview.ReviewGenerated(strings.NewReader("refine\n"), &out, graph, root, state); err != nil {
 		t.Fatal(err)
 	}
-	handoff := filepath.Join(state, "handoffs", graph.CandidateID+"-"+pkg.Digest, "HANDOFF.md")
+	handoff := filepath.Join(genreview.HandoffDir(state, graph.CandidateID, pkg.Digest), "HANDOFF.md")
+	if strings.Contains(filepath.Base(filepath.Dir(handoff)), ":") {
+		t.Fatalf("handoff folder %q holds a ':' (not allowed on Windows)", handoff)
+	}
 	data, err := os.ReadFile(handoff)
 	if err != nil || !strings.Contains(string(data), "Unresolved selection:") {
 		t.Fatalf("refinement handoff omitted selection decision: %v %s", err, data)

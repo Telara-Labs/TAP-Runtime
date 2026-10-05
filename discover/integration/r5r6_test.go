@@ -23,7 +23,7 @@ func TestDiscoverReadsR5R6Agents(t *testing.T) {
 		t.Skip("zstd is not installed")
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	td := "../history/testdata/"
 	copyTree(t, td+"copilot-cli/session-state", filepath.Join(home, ".copilot/session-state"))
 	copyFile(t, td+"copilot-cli/mcp-config.json", filepath.Join(home, ".copilot/mcp-config.json"))

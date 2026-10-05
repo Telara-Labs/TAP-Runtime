@@ -1,0 +1,3 @@
+# Recorded agent sessions and stores are byte-exact fixtures: never convert
+# their line endings on checkout (Windows CI, TENG-3171).
+**/testdata/** -text

@@ -103,7 +103,7 @@ func TestInlineFileReplaceRunsThroughHostAndRespectsFileReach(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	bin := filepath.Join(t.TempDir(), "tap")
+	bin := filepath.Join(t.TempDir(), "tap"+exeSuffix)
 	build := exec.Command("go", "build", "-o", bin, "./host")
 	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {

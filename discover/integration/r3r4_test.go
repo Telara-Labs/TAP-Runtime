@@ -41,7 +41,7 @@ func copyFile(t *testing.T, from, to string) {
 // its real place under HOME, read by discover with no flags.
 func TestDiscoverReadsR3R4Agents(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	td := "../history/testdata/"
 	// OpenCode and the Kilo CLI.

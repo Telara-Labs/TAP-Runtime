@@ -129,7 +129,7 @@ func TestPick(t *testing.T) {
 }
 
 func TestCommandRunsWithNoHistory(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	var out, errOut bytes.Buffer
 	// With no subcommand, discover ends in the primitive menu.
 	if code := discover.Command([]string{"--client", "claude-code,codex"}, strings.NewReader(""), &out, &errOut); code != 0 {

@@ -64,7 +64,7 @@ func reportClients(t *testing.T, args ...string) []string {
 // installed is not read.
 func TestDiscoverReadsEveryDetectedAgentByDefault(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	copyTree(t, "../history/testdata/claude", filepath.Join(home, ".claude", "projects"))
 	if got := reportClients(t); strings.Join(got, ",") != "claude-code" {
 		t.Fatalf("only Claude Code installed: read %v", got)
@@ -89,7 +89,7 @@ func TestDiscoverReadsEveryDetectedAgentByDefault(t *testing.T) {
 // from every reader through discovery, is the same bytes on every run.
 func TestDiscoverReportIsByteIdenticalAcrossRuns(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	copyTree(t, "../history/testdata/claude", filepath.Join(home, ".claude", "projects"))
 	copyTree(t, "../history/testdata/codex", filepath.Join(home, ".codex", "sessions"))
 	run := func() string {
@@ -123,7 +123,7 @@ func TestDiscoverReadsCursorCLIAndAntigravity(t *testing.T) {
 		t.Skip("sqlite3 is not installed")
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	sqls, _ := filepath.Glob("../history/testdata/cursor-cli/*/*/store.sql")
 	for _, f := range sqls {
 		rel, _ := filepath.Rel("../history/testdata/cursor-cli", filepath.Dir(f))
@@ -180,7 +180,7 @@ func TestDiscoverReadsCursorCLIAndAntigravity(t *testing.T) {
 // session survives, and the report counts what was left out per agent.
 func TestReportCountsSkippedRecords(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	copyTree(t, "../history/testdata/claude", filepath.Join(home, ".claude", "projects"))
 	copyTree(t, "../history/testdata/antigravity/brain", filepath.Join(home, ".gemini", "antigravity", "brain"))
 	// The Claude fixture already holds one line that is not JSON; tear one
@@ -224,7 +224,7 @@ func mustRead(path string) []byte {
 // default.
 func TestDiscoverReadsR2Agents(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	user := filepath.Join(home, ".config", "Code", "User")
 	if runtime.GOOS == "darwin" {
 		user = filepath.Join(home, "Library", "Application Support", "Code", "User")

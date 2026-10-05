@@ -19,7 +19,7 @@ import (
 func isolatedHome(t *testing.T) (home, collection string) {
 	t.Helper()
 	home = t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	coll, err := pack.CollectionDir()
 	if err != nil || !strings.HasPrefix(coll, home) {

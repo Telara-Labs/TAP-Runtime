@@ -395,12 +395,19 @@ func AppendGeneratedDecision(dir string, decision GeneratedDecision) error {
 	return os.Rename(temp.Name(), filepath.Join(dir, "decisions.json"))
 }
 
+// HandoffDir is where a candidate's handoff folder goes. A package digest
+// reads "sha256:<hex>", and ":" cannot appear in a Windows folder name, so
+// it is written as "-" (TENG-3171).
+func HandoffDir(stateDir, candidate, digest string) string {
+	return filepath.Join(stateDir, "handoffs", candidate+"-"+strings.ReplaceAll(digest, ":", "-"))
+}
+
 func WriteGeneratedHandoff(g *codegen.ProgramGraph, p *codegen.GeneratedPackage, stateDir string, evidence []model.SpanProposal) (string, error) {
 	digest := UnresolvedGraphDigest(g)
 	if p != nil {
 		digest = p.Digest
 	}
-	dir := filepath.Join(stateDir, "handoffs", g.CandidateID+"-"+digest)
+	dir := HandoffDir(stateDir, g.CandidateID, digest)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}

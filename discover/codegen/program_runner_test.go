@@ -102,7 +102,7 @@ func TestGeneratedPackageRunsThroughHostWithFreshInputs(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": result})
 	}))
 	defer server.Close()
-	bin := filepath.Join(t.TempDir(), "tap")
+	bin := filepath.Join(t.TempDir(), "tap"+exeSuffix)
 	build := exec.Command("go", "build", "-o", bin, "./host")
 	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
@@ -209,7 +209,7 @@ func TestGeneratedCollectionSubsetRunsThroughHost(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": result})
 	}))
 	defer server.Close()
-	bin := filepath.Join(t.TempDir(), "tap")
+	bin := filepath.Join(t.TempDir(), "tap"+exeSuffix)
 	build := exec.Command("go", "build", "-o", bin, "./host")
 	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
@@ -315,7 +315,7 @@ func TestGeneratedRepeatedProducerJoinRunsThroughHost(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": result})
 	}))
 	defer server.Close()
-	bin := filepath.Join(t.TempDir(), "tap")
+	bin := filepath.Join(t.TempDir(), "tap"+exeSuffix)
 	build := exec.Command("go", "build", "-o", bin, "./host")
 	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
@@ -419,7 +419,7 @@ func TestGeneratedLoopResultRolesRunThroughHost(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": result})
 	}))
 	defer server.Close()
-	bin := filepath.Join(t.TempDir(), "tap")
+	bin := filepath.Join(t.TempDir(), "tap"+exeSuffix)
 	build := exec.Command("go", "build", "-o", bin, "./host")
 	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
@@ -481,7 +481,7 @@ func TestGeneratedPipelineRunsThroughHostWithFreshFile(t *testing.T) {
 	if err := os.WriteFile(data, []byte("ignore\nmatch this line\nignore too\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	bin := filepath.Join(t.TempDir(), "tap")
+	bin := filepath.Join(t.TempDir(), "tap"+exeSuffix)
 	build := exec.Command("go", "build", "-o", bin, "./host")
 	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
@@ -534,7 +534,7 @@ func TestGeneratedSuccessChainRunsThroughHost(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	bin := filepath.Join(t.TempDir(), "tap")
+	bin := filepath.Join(t.TempDir(), "tap"+exeSuffix)
 	build := exec.Command("go", "build", "-o", bin, "./host")
 	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {

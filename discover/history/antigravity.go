@@ -185,6 +185,29 @@ func (d *AntigravityDecoder) Events(st AntigravityStep, session string, line int
 
 var antigravitySaved = regexp.MustCompile(`The output was large and was saved to: (file://\S+)`)
 
+// antigravityFilePath is the local path a file:// link names. On Windows
+// Antigravity writes "file://C:\Users\..." (a drive, backslashes, no third
+// slash), which url.Parse reads as host "C:"; "file:///C:/Users/..." is
+// read the same way (TENG-3171).
+func antigravityFilePath(link string) (string, bool) {
+	rest, ok := strings.CutPrefix(link, "file://")
+	if !ok {
+		return "", false
+	}
+	if unescaped, err := url.PathUnescape(rest); err == nil {
+		rest = unescaped
+	}
+	rest = strings.TrimPrefix(rest, "localhost")
+	if d := strings.TrimPrefix(rest, "/"); len(d) >= 3 && d[1] == ':' && (d[2] == '\\' || d[2] == '/') &&
+		((d[0] >= 'A' && d[0] <= 'Z') || (d[0] >= 'a' && d[0] <= 'z')) {
+		return filepath.Clean(filepath.FromSlash(strings.ReplaceAll(d, "\\", "/"))), true
+	}
+	if !strings.HasPrefix(rest, "/") {
+		return "", false
+	}
+	return filepath.Clean(filepath.FromSlash(rest)), true
+}
+
 // maxSavedOutput bounds how much of a saved large output is read.
 const maxSavedOutput = 64 << 10
 
@@ -196,11 +219,10 @@ func (d *AntigravityDecoder) output(content string) string {
 	if m == nil || d.Conversation == "" {
 		return content
 	}
-	u, err := url.Parse(m[1])
-	if err != nil || u.Scheme != "file" {
+	p, ok := antigravityFilePath(m[1])
+	if !ok {
 		return content
 	}
-	p := filepath.Clean(u.Path)
 	conv, err := filepath.EvalSymlinks(d.Conversation)
 	if err != nil {
 		return content
