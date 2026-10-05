@@ -41,7 +41,8 @@ type Publisher struct {
 	Run func(name string, args ...string) (string, error)
 	// Build builds and verifies the signed release of tag into out.
 	Build func(tag, out string) error
-	// Wait is how long to wait for npm to show a published version.
+	// Wait is how long to wait for npm to show a published version. npm can
+	// take several minutes to process a package after publish accepts it.
 	Wait time.Duration
 }
 

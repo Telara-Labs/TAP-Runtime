@@ -93,7 +93,7 @@ func main() {
 		fs.Parse(os.Args[2:])
 		dir, _ := os.Getwd()
 		p := &Publisher{Dir: dir, Version: strings.TrimPrefix(*version, "v"), Key: *key, GitHubRepo: "Telara-Labs/TAP-Runtime",
-			Origin: "origin", GitHub: "github", Package: "@telaralabs/tap", Workflow: "release.yml", Plan: *plan, Wait: 3 * time.Minute,
+			Origin: "origin", GitHub: "github", Package: "@telaralabs/tap", Workflow: "release.yml", Plan: *plan, Wait: 10 * time.Minute,
 			Run: func(name string, args ...string) (string, error) {
 				out, err := run(dir, nil, name, args...)
 				return string(out), err
