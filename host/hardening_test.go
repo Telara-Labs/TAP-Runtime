@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// TENG-3104: file modes, prompt text, the relay socket, logging, the install
+// File modes, prompt text, the relay socket, logging, the install
 // script and the VS Code path setting (threat-model gaps G11 to G17).
 
 func TestFilesAPrimitiveWritesAreOwnerOnly(t *testing.T) {

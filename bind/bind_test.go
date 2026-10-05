@@ -86,7 +86,7 @@ var codexCases = []want{
 	{"google_drive.files.create", Write, "google_drive.create_file", false},
 
 	// Must refuse.
-	{"gmail.threads.search", Read, "", false}, // section 4.1.1: this connector searches messages
+	{"gmail.threads.search", Read, "", false}, // this connector searches messages
 	{"calendar.events.list", Read, "", false}, // no calendar connector installed
 	{"slack.messages.send", Write, "", false},
 	{"gmail.emails.send", Read, "", false}, // declared read, the tool writes

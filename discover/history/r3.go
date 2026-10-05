@@ -13,7 +13,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// R3 readers (TENG-3118): Cline, Roo Code and Kilo Code.
+// R3 readers: Cline, Roo Code and Kilo Code.
 //
 //   - The Cline CLI (3.x) keeps <Dir>/<id>/<id>.messages.json: Anthropic
 //     blocks with a ts per message. MCP tools are named <server>__<tool>; a

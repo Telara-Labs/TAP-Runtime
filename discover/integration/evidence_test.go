@@ -57,7 +57,7 @@ func evidence(t *testing.T, dir, id string) string {
 	return out.String()
 }
 
-// End to end for TENG-3122: a handoff cites the exact source of every call
+// End to end: a handoff cites the exact source of every call
 // and result read from Antigravity (transcript lines placed by step index)
 // and from the Cursor CLI (records of its content-addressed store), and
 // `tap discover evidence` verifies them and reports a changed source.

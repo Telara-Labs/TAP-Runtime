@@ -79,7 +79,7 @@ func TestWidening(t *testing.T) {
 	}
 }
 
-// Found by the promotion gate's tests (TENG-3042): two manifests Widening
+// Found by the promotion gate's tests: two manifests Widening
 // cannot read compared as "nothing widened".
 func TestAManifestThatCannotBeComparedWidens(t *testing.T) {
 	ok, err := Parse([]byte(approved))

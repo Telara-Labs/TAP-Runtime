@@ -26,7 +26,7 @@ import (
 // Kilo reaches the Kilo CLI through its own server, `kilo serve`, started
 // for this run. POST /experimental/mcp/call-tool runs one tool of a
 // connected MCP server through Kilo's live client, with no model turn
-// (TENG-3131). Kilo exposes the route only with its experimental flag on,
+// Kilo exposes the route only with its experimental flag on,
 // which the bridge sets on the server it starts and nowhere else.
 //
 // The route skips Kilo's own permission prompt, so, as for Goose, the

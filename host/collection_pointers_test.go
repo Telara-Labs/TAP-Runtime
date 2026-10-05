@@ -11,7 +11,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 )
 
-// End to end for TENG-3109 through the runner's MCP server: discover saves a
+// End to endG-3109 through the runner's MCP server: discover saves a
 // primitive once into the TAP collection and points three agents at it. The
 // runner lists it once, under the ref and digest the pointers name, and runs
 // it by that identity. A primitive saved the old way (a full package in

@@ -83,7 +83,7 @@ func TestWebBuildRefuses(t *testing.T) {
 	}
 }
 
-// TENG-3104 (G18): the page has no approval step, so a connector tool that
+// The page has no approval step, so a connector tool that
 // says it changes state is refused even when the primitive declared it a read.
 func TestTheWebPageRefusesAToolThatSaysItChangesState(t *testing.T) {
 	node, err := exec.LookPath("node")

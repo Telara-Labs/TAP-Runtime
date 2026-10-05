@@ -41,7 +41,7 @@ func TestDefaultReadersFollowTheRegistry(t *testing.T) {
 	if err != nil || len(rs) != 1 || rs[0].Client() != "claude-code" {
 		t.Fatalf("alias: %v, %v", rs, err)
 	}
-	// Every registered agent has a reader now (TENG-3117 to TENG-3121).
+	// Every registered agent has a reader now.
 	if rs, err := DefaultReaders([]string{"all"}, home); err != nil || len(rs) != len(client.All()) {
 		t.Fatalf("all: %d readers for %d agents, %v", len(rs), len(client.All()), err)
 	}

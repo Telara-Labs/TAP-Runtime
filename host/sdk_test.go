@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// The guest SDK contract of doc 34 section 13.17: every error carries a code a
+// The guest SDK contract: every error carries a code a
 // program can branch on, in both languages, and a command the host refused to
 // run raises, while a command that ran and exited non-zero is a result.
 func TestErrorsCarryACodeAndARefusedCommandRaises(t *testing.T) {

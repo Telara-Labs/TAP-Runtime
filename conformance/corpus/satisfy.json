@@ -1,6 +1,5 @@
 {
- "rule": "doc 34 section 11.3",
- "note": "Rulings 22 and 30, doc 34 sections 13.15 and 13.16.",
+ "rule": "a tool satisfies a declaration when the arguments match both ways",
  "arguments": [
   {
    "name": "identical",

@@ -15,7 +15,7 @@ import (
 var version = "dev"
 
 // installCommand is `tap install`: it connects this runner to agents as an
-// MCP server (TENG-3114). Agents come from discover's registry: an agent
+// MCP server. Agents come from discover's registry: an agent
 // with its own `mcp add` (Claude Code, Codex, Copilot CLI) is asked to add
 // it, so the format of its configuration stays its business; an agent that
 // keeps servers in a JSON file (Cursor, Windsurf) gets one entry merged in;
@@ -26,8 +26,7 @@ var version = "dev"
 //	... [--env OTEL_EXPORTER_OTLP_ENDPOINT=URL --env OTEL_EXPORTER_OTLP_HEADERS=...]
 //
 // --env hands the runner the standard OpenTelemetry variables through the
-// client's own configuration, so a run reports to that collector (rulings 26
-// and 35). Only OTEL_* names are accepted: those are the only variables the
+// client's own configuration, so a run reports to that collector. Only OTEL_* names are accepted: those are the only variables the
 // runner reads for telemetry, and nothing else is to be configured this way.
 //
 // It is the one setup step a person takes. With --print it changes nothing
@@ -180,7 +179,7 @@ func installOne(c agents.Client, home, self, name, scope string, env envFlags, p
 		}
 		if c.ID == "windsurf" {
 			// Windsurf keeps transcripts only while this hook is set
-			// (discover reads them, TENG-3121).
+			// (discover reads them).
 			hooks := filepath.Join(home, ".codeium", "windsurf", "hooks.json")
 			hc, err := addWindsurfHook(hooks, self, remove)
 			if err != nil {
@@ -255,7 +254,7 @@ func mcpEntry(self, name string, env envFlags) map[string]any {
 
 // localMCPEntry is the runner's server entry in the OpenCode family's
 // configuration (Kilo CLI, OpenCode): a local server whose command is one
-// array, with its environment under "environment" (TENG-3131).
+// array, with its environment under "environment".
 func localMCPEntry(self, name string, env envFlags) map[string]any {
 	entry := map[string]any{"type": "local", "command": []any{self, "serve", "--name", name}, "enabled": true}
 	if e, ok := mcpEntry(self, name, env)["env"]; ok {
@@ -395,7 +394,7 @@ func installArgv(client, scope, name, self string, env envFlags) ([]string, erro
 }
 
 // envFlags is the repeatable --env NAME=VALUE flag. Only OTEL_* names are
-// accepted (ruling 35).
+// accepted.
 type envFlags []string
 
 func (e *envFlags) String() string { return strings.Join(*e, ",") }

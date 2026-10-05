@@ -15,7 +15,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// R5 readers (TENG-3120). Both fixtures are synthetic (testdata/SYNTHETIC.md):
+// R5 readers. Both fixtures are synthetic (testdata/SYNTHETIC.md):
 // Copilot CLI and Zed need a sign-in this machine does not have.
 
 // CopilotCLI reads GitHub Copilot CLI sessions:

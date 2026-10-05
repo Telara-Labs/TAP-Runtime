@@ -466,18 +466,6 @@ func contains(xs []string, x string) bool {
 	return false
 }
 
-// stepKeys are steps by command, as follow-ups are named.
-func stepKeys(steps []string) []string {
-	out := make([]string, len(steps))
-	for i, s := range steps {
-		if strings.HasPrefix(s, "sh:") {
-			s = strings.Split(s, "+")[0]
-		}
-		out[i] = s
-	}
-	return out
-}
-
 // packageSlug names a generated package after what it does (its steps'
 // tools), with the chain's ID tail so two chains never share a name:
 // discovered-jira-search-issues-add-comment-cae7a0.

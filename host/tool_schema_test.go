@@ -7,7 +7,7 @@ import (
 
 // Every tool the server lists has an object input schema whose required is
 // an array, never null: Claude Code rejects the whole tool list otherwise
-// (found by `claude mcp list` during TENG-3114).
+// (found by `claude mcp list` during).
 func TestEveryToolSchemaIsStrictJSONSchema(t *testing.T) {
 	c := startServer(t, true, accept)
 	res := c.call("tools/list", map[string]any{})

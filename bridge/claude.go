@@ -32,7 +32,7 @@ type Claude struct {
 	denied  bool // deny has been read
 }
 
-// NewClaude starts a second copy of Claude Code (ruling 11). extra is passed
+// NewClaude starts a second copy of Claude Code. extra is passed
 // to it and exists for tests.
 func NewClaude(extra ...string) (*Claude, error) {
 	executable, err := ClaudeExecutable()

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TENG-3166: the Telara gateway's text result is a banner, Markdown and a
+// The Telara gateway's text result is a banner, Markdown and a
 // json block, with the same data as structuredContent. The block is the
 // result's JSON, so a value in it has a path.
 func TestResultJSONReadsTheOneFencedBlock(t *testing.T) {

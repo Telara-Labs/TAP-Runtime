@@ -7,8 +7,8 @@ import (
 )
 
 // The discover registry says which agents a saved primitive can run in
-// (pointers go there by default, TENG-3109); the runner decides which it can
-// borrow connections from. The two must agree (TENG-3108, plan §3.1). VS Code
+// (pointers go there by default); the runner decides which it can
+// borrow connections from. The two must agree. VS Code
 // lends its tools through the TAP extension's socket, not openBridge.
 func TestRegistryBridgeMatchesRunner(t *testing.T) {
 	for _, c := range agents.All() {

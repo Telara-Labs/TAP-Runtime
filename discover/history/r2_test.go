@@ -10,7 +10,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// R2 readers (TENG-3117). Fixtures are synthetic, following each agent's
+// R2 readers. Fixtures are synthetic, following each agent's
 // own writer (testdata/SYNTHETIC.md).
 
 type wantCall struct {

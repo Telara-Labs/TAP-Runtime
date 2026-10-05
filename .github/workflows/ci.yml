@@ -1,7 +1,7 @@
 name: CI
 
 # Builds and tests the runner and its two modules (contract, discover) on
-# every push and pull request, from public sources only (TENG-3181).
+# every push and pull request, from public sources only.
 
 on:
   push:

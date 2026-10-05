@@ -13,7 +13,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// The R1 fixtures (TENG-3112) are slices of real sessions captured with
+// The R1 fixtures are slices of real sessions captured with
 // cmd/discover-fixture and redacted with discover/redact. A Cursor CLI store
 // is checked in as the SQL that rebuilds it.
 
@@ -314,7 +314,7 @@ func TestAntigravityAbsentDir(t *testing.T) {
 }
 
 // One MCP call decodes to the same server, tool and arguments whichever
-// dialect recorded it (plan §6.4).
+// dialect recorded it.
 func TestDialectsAgreeOnOneMCPCall(t *testing.T) {
 	args := map[string]json.RawMessage{"issue_key": json.RawMessage(`"ABC-1"`), "fields": json.RawMessage(`["summary"]`)}
 	claude := ClaudeEvents(ClaudeLine{Type: "assistant", Message: claudeMessage(t, `[{"type":"tool_use","id":"t","name":"mcp__jira__get_issue","input":{"issue_key":"ABC-1","fields":["summary"]}}]`)}, "s")
@@ -414,7 +414,7 @@ func ids(ss []trace.Session) []string {
 	return out
 }
 
-// Each reader counts what it could not parse (TENG-3123).
+// Each reader counts what it could not parse.
 func TestReadersCountSkippedRecordsAndUnreadableStores(t *testing.T) {
 	ss, err := ClaudeCode{Dir: filepath.Join("testdata", "claude")}.Read(time.Time{})
 	if err != nil || len(ss) != 1 || ss[0].Skipped != 1 {
@@ -477,7 +477,7 @@ func installAntigravity(t *testing.T) string {
 
 // Antigravity token use comes from the conversation's state database, one
 // row per model generation, attributed to the step that generation wrote
-// (TENG-3112). Without the database the same calls are simply unmeasured.
+// Without the database the same calls are simply unmeasured.
 func TestAntigravityUsageFromStateDB(t *testing.T) {
 	ss, err := Antigravity{Dir: installAntigravity(t)}.Read(time.Time{})
 	if err != nil || len(ss) != 1 {

@@ -9,7 +9,7 @@ import (
 
 // Asker is implemented by a bridge that can read the person's own "ask me
 // first" rule for a tool. The runner then puts a call to that tool in front of
-// them even when the primitive declares it a read (TENG-3101).
+// them even when the primitive declares it a read.
 type Asker interface {
 	Asks(t bind.Tool) (bool, error)
 }

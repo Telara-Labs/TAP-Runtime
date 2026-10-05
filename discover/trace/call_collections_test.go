@@ -9,7 +9,7 @@ import (
 )
 
 // An item with more scalar leaves than the bound keeps the same leaves on
-// every read; map order once decided which (found by TENG-3111's
+// every read; map order once decided which (found by the
 // before/after comparison of real Codex history).
 func TestResultCollectionsAreDeterministicPastTheLeafBound(t *testing.T) {
 	// The first item sets the fields; a later item with more leaves than the

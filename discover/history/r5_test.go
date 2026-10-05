@@ -9,7 +9,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// R5 readers (TENG-3120), on synthetic fixtures (testdata/SYNTHETIC.md).
+// R5 readers, on synthetic fixtures (testdata/SYNTHETIC.md).
 
 func TestCopilotCLIReader(t *testing.T) {
 	ss, st, err := CopilotCLI{Dir: "testdata/copilot-cli/session-state", Configs: []string{"testdata/copilot-cli/mcp-config.json"}}.ReadWithStats(time.Time{})

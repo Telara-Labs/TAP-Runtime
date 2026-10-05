@@ -19,7 +19,7 @@ import (
 // MCP reaches one MCP server directly, over streamable HTTP. It is the bridge
 // for a runner with no client to borrow from: a service that runs primitives
 // itself hands the runner the MCP endpoint it would call and the header that
-// authenticates it (doc 34 section 13.20). The server decides, per call, what
+// authenticates it. The server decides, per call, what
 // the caller may do; this bridge adds no policy of its own.
 type MCP struct {
 	url    string

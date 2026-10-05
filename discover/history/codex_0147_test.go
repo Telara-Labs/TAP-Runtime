@@ -7,12 +7,12 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// TENG-3160: a default Codex 0.147 records a direct MCP call's result
+// A default Codex 0.147 records a direct MCP call's result
 // cleanly in an mcp_tool_call_end event, and hands the model the same result
 // inside a "Wall time / Output:" text envelope. The reader takes the clean
 // one: the result is the tool's own text, and a call the server marked
 // isError is a failure. testdata/codex-0147 is three real codex exec runs of
-// the scripted task (TENG-3124), trimmed to the records the reader uses.
+// the scripted task, trimmed to the records the reader uses.
 func TestCodex0147ReadsMCPResultsFromTheirEndEvents(t *testing.T) {
 	ss, err := Codex{Dir: "testdata/codex-0147/sessions"}.Read(time.Time{})
 	if err != nil || len(ss) != 3 {

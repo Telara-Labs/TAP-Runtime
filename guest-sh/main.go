@@ -1,6 +1,6 @@
 // guest-sh is a bash-compatible interpreter built for GOOS=wasip1.
 //
-// It is the spike for doc 34 section 13.3/13.4: a script is the primitive, the
+// A script is the primitive, the
 // interpreter ships with the runner, and every external command the script
 // names is handed to the host instead of being started here. This program
 // cannot start a process: the target has no such call.

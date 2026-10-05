@@ -19,7 +19,7 @@ func obj(props map[string]any, req ...string) map[string]any {
 
 func typ(t string) map[string]any { return map[string]any{"type": t} }
 
-// The golden and negative cases of the rule in doc 34 section 11.3.
+// The golden and negative cases of the rule.
 func TestArguments(t *testing.T) {
 	threads := obj(map[string]any{"query": typ("string"), "pageSize": typ("integer"), "pageToken": typ("string")}, "query")
 	cases := []struct {
@@ -50,7 +50,7 @@ func TestArguments(t *testing.T) {
 			obj(map[string]any{"q": typ("string")}), obj(map[string]any{"q": map[string]any{"description": "a query"}}), ""},
 		{"an open connector accepts what it does not list",
 			threads, map[string]any{"type": "object", "additionalProperties": true}, ""},
-		// Ruling 30: an empty tool schema accepts anything.
+		// An empty tool schema accepts anything.
 		{"a connector with an empty schema accepts anything", threads, map[string]any{"type": "object"}, ""},
 		{"a connector with no schema at all accepts anything", threads, nil, ""},
 		{"a connector that says it takes no arguments takes none", threads,

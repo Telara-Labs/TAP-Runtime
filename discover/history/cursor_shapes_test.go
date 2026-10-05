@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// TENG-3163: Cursor's current toolFormerData, as read from a real
+// Cursor's current toolFormerData, as read from a real
 // state.vscdb on 2026-10-04. A terminal call keeps rawArgs as an empty
 // string and its arguments in params; an MCP call names its server in
 // params.tools[0].serverName; an MCP result is {"result": "<the MCP
@@ -77,7 +77,7 @@ func TestCursorReaderReadsTheCurrentToolFormerShapes(t *testing.T) {
 	}
 }
 
-// TENG-3168: a conversation's source digest is the key and stored length of
+// A conversation's source digest is the key and stored length of
 // each record it was read from, so it does not move when the reader's
 // queries change, and it does move when a record is edited.
 func TestCursorSourceDigestIsTheStoreRecords(t *testing.T) {

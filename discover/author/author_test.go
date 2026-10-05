@@ -23,7 +23,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// The author path (TENG-2936): brief, validate, save.
+// The author path: brief, validate, save.
 
 func homeWithClaudeSession(t *testing.T) string {
 	t.Helper()

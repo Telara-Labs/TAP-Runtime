@@ -37,7 +37,7 @@ func ReviewGenerated(in io.Reader, out io.Writer, graph *codegen.ProgramGraph, s
 }
 
 // ReviewGeneratedTo is ReviewGenerated saving an accepted package into
-// dest's collection and pointing dest's agents at it (TENG-3109).
+// dest's collection and pointing dest's agents at it.
 func ReviewGeneratedTo(in io.Reader, out io.Writer, graph *codegen.ProgramGraph, dest pack.Destination, stateDir string, evidence ...model.SpanProposal) error {
 	skillRoot := dest.Collection
 	if graph == nil {
@@ -397,7 +397,7 @@ func AppendGeneratedDecision(dir string, decision GeneratedDecision) error {
 
 // HandoffDir is where a candidate's handoff folder goes. A package digest
 // reads "sha256:<hex>", and ":" cannot appear in a Windows folder name, so
-// it is written as "-" (TENG-3171).
+// it is written as "-".
 func HandoffDir(stateDir, candidate, digest string) string {
 	return filepath.Join(stateDir, "handoffs", candidate+"-"+strings.ReplaceAll(digest, ":", "-"))
 }

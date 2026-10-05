@@ -21,7 +21,7 @@ import (
 
 // CursorCLI reads the Cursor CLI's (cursor-agent's) sessions:
 // <Dir>/<workspace>/<session>/store.db, one SQLite database per session
-// (TENG-3112). Like Cursor, it runs the system sqlite3 read-only
+// Like Cursor, it runs the system sqlite3 read-only
 // (util.SQLiteURI), so the store is never written.
 //
 // The store is content-addressed: table blobs holds each message as AI SDK

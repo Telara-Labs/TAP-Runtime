@@ -1,14 +1,14 @@
 // Package canon is RFC 8785, the JSON Canonicalization Scheme: one way to
 // write a JSON value, whatever language writes it.
 //
-// A capability's identity is the hash of its contract (doc 34 section 11.1),
+// A capability's identity is the hash of its contract,
 // and "two publishers who write the same contract get the same id" has to
 // hold between a publisher writing Go and one writing Python. Go's own
 // encoder does not give that: it writes < > and & as escapes, and formats
 // numbers its own way. This does.
 //
 // It is the encoder of telara-agents tap-runtime/artifact/canonical.go,
-// copied. That module is being retired (ruling 10), and the two must agree
+// copied. That module is being retired, and the two must agree
 // until it is.
 package canon
 

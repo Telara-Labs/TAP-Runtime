@@ -143,7 +143,7 @@ func TestFetchIsBoundedByOriginAndMethod(t *testing.T) {
 	}
 }
 
-// Ruling 33: a declared path may be a pattern.
+// A declared path may be a pattern.
 func TestFilePatterns(t *testing.T) {
 	dir := inDir(t)
 	outside, _ := filepath.EvalSymlinks(t.TempDir())
@@ -188,7 +188,7 @@ func TestFilePatterns(t *testing.T) {
 	}
 }
 
-// Ruling 34: one subdomain level may be a wildcard.
+// One subdomain level may be a wildcard.
 func TestFetchSubdomainWildcard(t *testing.T) {
 	decls := []fetchDecl{{Origin: "https://*.atlassian.net"}, {Origin: "https://api.github.com:8443", Methods: []string{"GET", "POST"}}}
 	for raw, want := range map[string]bool{
@@ -213,7 +213,7 @@ func TestFetchSubdomainWildcard(t *testing.T) {
 	}
 }
 
-// TENG-3099: a GET is a read, but its address and headers can carry what the
+// A GET is a read, but its address and headers can carry what the
 // program read off this machine. It is gated like a change, and the full
 // address is recorded whether it ran or not.
 func TestAReadFetchThatCarriesDataOutIsGatedAndRecorded(t *testing.T) {

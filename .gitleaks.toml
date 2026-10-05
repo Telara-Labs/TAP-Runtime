@@ -1,0 +1,13 @@
+# Tests that check secret redaction carry synthetic credentials on purpose.
+# None of them is real.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "synthetic credentials in redaction tests"
+paths = [
+  '''discover/internal/testkit/testkit\.go''',
+  '''discover/author/author_test\.go''',
+  '''discover/secrets_test\.go''',
+  '''discover/redact/secrets_test\.go''',
+]

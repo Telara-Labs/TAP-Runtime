@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TENG-3162: Gemini CLI 0.62 records results inside one
+// Gemini CLI 0.62 records results inside one
 // <untrusted_context> layer; the reader keeps the tool's own text.
 func TestUnwrapUntrusted(t *testing.T) {
 	for in, want := range map[string]string{
@@ -20,7 +20,7 @@ func TestUnwrapUntrusted(t *testing.T) {
 	}
 }
 
-// TENG-3162: Qwen Code 0.24 runs an MCP tool loaded on demand through
+// Qwen Code 0.24 runs an MCP tool loaded on demand through
 // tool_call {name, arguments-as-JSON-string}; the call is that tool's.
 func TestQwenToolCallDispatcherIsTheNamedTool(t *testing.T) {
 	var rec QwenRecord

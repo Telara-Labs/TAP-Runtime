@@ -134,7 +134,7 @@ func TestCallGate(t *testing.T) {
 	if r := callTool(a, f, request{Alias: "draft"}, false, &journal); r.Refused == "" {
 		t.Fatal("a write ran without approval")
 	}
-	// Declared read, but its server said nothing about it: ruling 20.
+	// Declared read, but its server said nothing about it:
 	if r := callTool(a, f, request{Alias: "labels"}, false, &journal); r.Refused == "" {
 		t.Fatal("a tool with no annotation ran as a read without approval")
 	}

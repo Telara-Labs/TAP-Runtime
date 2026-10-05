@@ -266,5 +266,5 @@ func parseTelaraActionEffect(result, toolName string) (string, error) {
 		}
 		return effect, nil
 	}
-	return "", fmt.Errorf("Telara did not report an exact effect for %s", toolName)
+	return "", fmt.Errorf("the Telara gateway did not report an exact effect for %s", toolName)
 }

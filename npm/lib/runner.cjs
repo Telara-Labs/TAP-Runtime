@@ -26,7 +26,7 @@ function resolveRunner(packageDir, platform = process.platform, arch = process.a
 
 // setup connects the runner to every agent installed here. The list of
 // agents, and how each is connected, lives in the runner (discover's agent
-// registry, TENG-3114), not here: `tap install --client detected` skips the
+// registry), not here: `tap install --client detected` skips the
 // ones that are not installed and says what it did for each.
 function setup(packageDir, { output = console.log, spawn = spawnSync } = {}) {
   const runner = resolveRunner(packageDir);

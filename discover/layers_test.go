@@ -13,7 +13,7 @@ const modPath = "github.com/Telara-Labs/TAP-Runtime/discover/"
 
 // allowed lists, for each subpackage, the sibling subpackages it may import.
 // A package may only import packages in layers below it; the compiler already
-// forbids cycles, this keeps the direction (TENG-3084).
+// forbids cycles, this keeps the direction.
 var allowed = map[string][]string{
 	"client":     {},
 	"util":       {},

@@ -60,7 +60,7 @@ func reportClients(t *testing.T, args ...string) []string {
 }
 
 // End to end through `tap discover report`: with no --client, discover reads
-// every agent installed under HOME (D1, TENG-3108), and an agent that is not
+// every agent installed under HOME, and an agent that is not
 // installed is not read.
 func TestDiscoverReadsEveryDetectedAgentByDefault(t *testing.T) {
 	home := t.TempDir()
@@ -85,7 +85,7 @@ func TestDiscoverReadsEveryDetectedAgentByDefault(t *testing.T) {
 	}
 }
 
-// End to end through the shared assembler (TENG-3111): the whole report,
+// End to end through the shared assembler: the whole report,
 // from every reader through discovery, is the same bytes on every run.
 func TestDiscoverReportIsByteIdenticalAcrossRuns(t *testing.T) {
 	home := t.TempDir()
@@ -114,7 +114,7 @@ func TestDiscoverReportIsByteIdenticalAcrossRuns(t *testing.T) {
 	}
 }
 
-// End to end for R1 (TENG-3112): with the Cursor CLI's and Antigravity's
+// End to end for R1: with the Cursor CLI's and Antigravity's
 // stores in their usual places under HOME, `tap discover` detects both and
 // reads them with no flags, in the report and in the primitive menu path.
 func TestDiscoverReadsCursorCLIAndAntigravity(t *testing.T) {
@@ -176,7 +176,7 @@ func TestDiscoverReadsCursorCLIAndAntigravity(t *testing.T) {
 	}
 }
 
-// End to end for TENG-3123: a corrupt record is skipped, the rest of the
+// End to end: a corrupt record is skipped, the rest of the
 // session survives, and the report counts what was left out per agent.
 func TestReportCountsSkippedRecords(t *testing.T) {
 	home := t.TempDir()
@@ -219,7 +219,7 @@ func mustRead(path string) []byte {
 	return b
 }
 
-// End to end for R2 (TENG-3117): VS Code Copilot, Gemini CLI and Qwen Code
+// End to end for R2: VS Code Copilot, Gemini CLI and Qwen Code
 // sessions in their usual places under HOME are detected and read by
 // default.
 func TestDiscoverReadsR2Agents(t *testing.T) {

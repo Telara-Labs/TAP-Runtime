@@ -9,21 +9,6 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-func familyWith(t *testing.T, res Result, head string) Family {
-	t.Helper()
-	for _, f := range res.Families {
-		if f.Head == head {
-			return f
-		}
-	}
-	var got []string
-	for _, f := range res.Families {
-		got = append(got, f.Head)
-	}
-	t.Fatalf("no family headed %s among %v", head, got)
-	return Family{}
-}
-
 // Rule 1: a call whose argument the agent built from the previous output
 // (a line range from grep's line number) starts a new chain.
 func TestConstructedArgumentStartsANewChain(t *testing.T) {

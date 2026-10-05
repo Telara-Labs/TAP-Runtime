@@ -13,7 +13,7 @@ import (
 )
 
 // TestAuthoredPackageValidatesThroughTheRealRunner is the author path's
-// check (TENG-2936) against this runner, built from this tree: `tap discover
+// check against this runner, built from this tree: `tap discover
 // validate` starts it as a separate process on fresh fixtures, compares each
 // result with an oracle and inspects the fixture afterwards. A package that
 // answers wrongly, or changes the fixture, must not pass.

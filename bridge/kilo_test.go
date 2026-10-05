@@ -52,7 +52,7 @@ func kiloBin(t *testing.T) string {
 
 var trackerPins = []bind.Tool{{Server: "tracker", Name: "search_issues"}, {Server: "tracker", Name: "get_issue"}}
 
-// TENG-3131: through real Kilo, the bridge offers the pinned tools of a
+// Through real Kilo, the bridge offers the pinned tools of a
 // server Kilo has connected, calls one with no model turn, and returns a
 // failed call as an error.
 func TestLiveKiloBridge(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// publish cuts a TAP runner release with one command (TENG-3157), the way
+// publish cuts a TAP runner release with one command, the way
 // clipush does for the Telara CLI:
 //
 //	go run ./release publish --version 0.1.4 [--plan]

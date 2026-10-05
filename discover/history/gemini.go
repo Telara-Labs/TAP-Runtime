@@ -12,7 +12,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// GeminiCLI reads Gemini CLI sessions (TENG-3117):
+// GeminiCLI reads Gemini CLI sessions:
 // <Dir>/<project>/chats/session-*.jsonl, replay logs (ReplayGemini). A
 // message is {id, timestamp, type: user|gemini|info|error, content, toolCalls,
 // tokens}; each tool call is {id, name, args, result (function response

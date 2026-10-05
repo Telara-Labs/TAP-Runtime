@@ -13,7 +13,7 @@ import (
 )
 
 // Generic captures for agents whose sessions are SQLite tables, JSON files
-// or text (TENG-3118 to TENG-3121). Every string is scrubbed (credentials
+// or text. Every string is scrubbed (credentials
 // redacted, the home directory replaced) and a database becomes the SQL
 // that rebuilds it, never a binary.
 //

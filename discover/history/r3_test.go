@@ -9,7 +9,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// R3 readers (TENG-3118).
+// R3 readers.
 
 func TestClineCLIReader(t *testing.T) {
 	ss, err := ClineCLI{Dir: "testdata/cline-cli/sessions", Configs: []string{"testdata/cline-cli/cline_mcp_settings.json"}}.Read(time.Time{})

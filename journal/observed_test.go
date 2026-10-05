@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Ruling 27: replayed steps see what they saw before, and steps after the
+// Replayed steps see what they saw before, and steps after the
 // resume point see the real clock and real random bytes.
 func TestReadingsAreReplayedAndThenReal(t *testing.T) {
 	dir := t.TempDir()

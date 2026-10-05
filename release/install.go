@@ -13,8 +13,7 @@ import (
 // installers writes the two scripts a person runs to install this release:
 // install.sh for macOS and Linux, install.ps1 for Windows. Each carries the
 // version and the digest of every runner, so what it installs is decided when
-// the release is built and not when the script is run (doc 34 section 13.7:
-// the install step pins a version and digest).
+// the release is built and not when the script is run.
 func installers(dir, version, base string, runners map[string]string) (map[string][]byte, error) {
 	var platforms []string
 	for p := range runners {
@@ -63,7 +62,7 @@ const installSh = `#!/bin/sh
 #
 # Everything below is one function, called on the last line. A download cut
 # short in the middle of this script defines it and never calls it, so a
-# partial script does nothing (TENG-3104).
+# partial script does nothing.
 set -eu
 
 main() {
@@ -116,7 +115,7 @@ mv -f "$tmp" "$dir/tap"
 trap - EXIT
 echo "installed $("$dir/tap" version) at $dir/tap"
 
-# The runner knows the agents and how each is connected (TENG-3114).
+# The runner knows the agents and how each is connected.
 if [ "$client" != none ]; then
   "$dir/tap" install --client "${client:-detected}"
   echo "To connect another agent later: $dir/tap install --client <agent>"
@@ -178,7 +177,7 @@ $exe = Join-Path $Dir 'tap.exe'
 Move-Item -Force $tmp $exe
 Write-Host "installed $(& $exe version) at $exe"
 
-# The runner knows the agents and how each is connected (TENG-3114).
+# The runner knows the agents and how each is connected.
 if ($Client -ne 'none') {
   $agents = if ($Client) { $Client } else { 'detected' }
   & $exe install --client $agents

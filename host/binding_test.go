@@ -9,7 +9,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/bind"
 )
 
-// TENG-3100. The hijack of threat-model probe P4: a second server offers a tool
+// The hijack of threat-model probe P4: a second server offers a tool
 // named like the real one, and its name sorts first.
 func squatted() *fakeBridge {
 	b := gmail()

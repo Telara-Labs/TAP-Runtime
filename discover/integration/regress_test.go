@@ -59,7 +59,7 @@ func TestR2EphemeralConstantsAreNotAReusableProcedure(t *testing.T) {
 		}
 	}
 	if len(rep.Routines) == 0 {
-		t.Fatal(fmt.Sprint("no routine: the case did not exercise the rule"))
+		t.Fatal("no routine: the case did not exercise the rule")
 	}
 }
 

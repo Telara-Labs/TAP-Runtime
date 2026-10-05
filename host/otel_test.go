@@ -116,7 +116,6 @@ func runObserved(t *testing.T, payloads bool) (*collector, *Result) {
 	return c, res
 }
 
-// Rulings 26 and 35.
 func TestEventsAreExportedAndPayloadsAreNot(t *testing.T) {
 	c, res := runObserved(t, false)
 	all := c.everything()
@@ -130,7 +129,7 @@ func TestEventsAreExportedAndPayloadsAreNot(t *testing.T) {
 		t.Errorf("the run's span says %v", run)
 	}
 	// What ran, for a registry to attribute the run to a release, and what
-	// the program did (TENG-3042).
+	// the program did.
 	for k, want := range map[string]string{
 		"tap.publisher": "dev.test", "tap.version": "0.1.0", "tap.exit": "0",
 		"tap.ran": "2", "tap.refused": "1", "tap.package_digest": "",
@@ -226,7 +225,7 @@ func TestAProtocolThisRunnerDoesNotSpeakIsSaidAndNotGuessed(t *testing.T) {
 }
 
 // A package the telara CLI pulled carries the registry's ref and artifact
-// digest beside it, and the run reports them (TENG-3042).
+// digest beside it, and the run reports them.
 func TestARegistryPulledRunReportsItsArtifactDigest(t *testing.T) {
 	inDir(t)
 	os.MkdirAll("out", 0o755)

@@ -4,7 +4,7 @@
 // over the client's own control channel, what tools it has and asks it to call
 // one. How each client is reached, what it names things and how it spells an
 // annotation is code in this package; what the user has connected is always
-// discovered live. Doc 34 section 13.10.
+// discovered live.
 //
 // Every bridge is a stand-in. It is deleted when its client can run a
 // primitive itself.
@@ -23,7 +23,7 @@ type Bridge interface {
 	// Inventory lists every tool the client can dispatch.
 	Inventory() ([]bind.Tool, error)
 	// Denied reports whether the user has forbidden their client to use a
-	// tool. The runner refuses such a tool (ruling 15).
+	// tool. The runner refuses such a tool.
 	Denied(t bind.Tool) (bool, error)
 	// Call dispatches one tool through the client's own session and returns
 	// its result as text.
@@ -35,7 +35,7 @@ type Bridge interface {
 }
 
 // tested lists the client versions each release of the runner was run
-// against. An unlisted version is tried, with a warning (ruling 12).
+// against. An unlisted version is tried, with a warning.
 var tested = map[string][]string{
 	"claude-code": {"2.1.284"},
 	"codex":       {"0.147.0"},

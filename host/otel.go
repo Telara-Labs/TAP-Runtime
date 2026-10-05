@@ -21,8 +21,7 @@ import (
 )
 
 // An OpenTelemetry exporter for the events of a run: what tools and commands
-// ran, what was approved, how each ended. Rulings 26 and 35, doc 34 sections
-// 13.16 and 13.17.
+// ran, what was approved, how each ended.
 //
 // It is OFF unless an endpoint is set. It is configured by the standard
 // OpenTelemetry environment variables, which the exporter library reads:

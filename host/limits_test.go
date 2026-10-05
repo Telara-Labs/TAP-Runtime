@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// TENG-3102: execution.timeoutSeconds and limits were accepted and never
+// Execution.timeoutSeconds and limits were accepted and never
 // enforced. These tests run the real runner against programs that break each
 // bound.
 

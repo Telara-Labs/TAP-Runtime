@@ -22,7 +22,7 @@ func TestGeminiTrackerServer(t *testing.T) {
 	os.Exit(0)
 }
 
-// TENG-3058 live: in the real Gemini CLI, one model call to tap_run runs a
+// Live: in the real Gemini CLI, one model call to tap_run runs a
 // primitive whose two tool calls (search, then a lookup of the key the
 // search returned) Gemini makes itself through the AfterTool hook, with its
 // own connection to the tracker server. The primitive's output is what

@@ -8,7 +8,7 @@ import (
 // setHome points every place the program finds the person's home and
 // application folders at home: HOME on Unix, USERPROFILE, APPDATA and
 // LOCALAPPDATA on Windows, and the XDG folders on Linux. Setting HOME
-// alone left Windows reading the real profile (TENG-3171).
+// alone left Windows reading the real profile.
 func setHome(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv("HOME", home)

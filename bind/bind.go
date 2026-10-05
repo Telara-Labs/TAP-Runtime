@@ -1,8 +1,8 @@
 // Package bind chooses which of a client's tools a declared capability binds
 // to when the client gives no input schema to check a contract against.
 //
-// Doc 34 section 13.11, rulings 16 to 20. Where a schema IS available the
-// satisfaction rule of section 11.3 decides and this package is not used.
+// Where a schema IS available the
+// satisfaction rule (package satisfy) decides and this package is not used.
 //
 // Everything here is normative: two runners must reach the same choice from
 // the same inventory, so nothing depends on map order, inventory order or
@@ -41,7 +41,7 @@ var rank = map[Effect]int{Read: 0, Write: 1, Destructive: 2, Financial: 2, Ident
 func Rank(e Effect) int { return rank[e] }
 
 // Floor is the minimum score that binds. Chosen from measurement against two
-// clients' real inventories; see bind_test.go and doc 34 section 13.12.
+// clients' real inventories; see bind_test.go.
 const Floor = 0.60
 
 // Tool is one entry of a client's inventory, as its bridge reports it.
@@ -61,7 +61,7 @@ type Choice struct {
 	RunnerUp      *Tool // nil when there was no second candidate
 	RunnerUpScore float64
 	// Gated is set when the bound tool's server did not say what it does. The
-	// runner treats it as a write whatever the primitive declared (ruling 20).
+	// runner treats it as a write whatever the primitive declared.
 	Gated bool
 	// Refused says why nothing bound. Empty when Bound is set.
 	Refused string
@@ -150,7 +150,7 @@ func Resolve(capability string, declared Effect, inventory []Tool) Choice {
 
 // Candidates returns the choice Resolve makes, and with it every tool whose
 // name clears the floor, best first. A caller that can also check a tool's
-// schema walks the list and takes the first that passes (ruling 22).
+// schema walks the list and takes the first that passes.
 func Candidates(capability string, declared Effect, inventory []Tool) (Choice, []Candidate) {
 	parts := strings.Split(capability, ".")
 	if len(parts) < 2 {
@@ -179,7 +179,7 @@ func Candidates(capability string, declared Effect, inventory []Tool) (Choice, [
 		for w := range serverWords {
 			all[w] = true
 		}
-		// Ruling 19: the provider must appear in the server or tool name.
+		// The provider must appear in the server or tool name.
 		ok := true
 		for _, p := range provider {
 			if !all[p] {
@@ -202,7 +202,7 @@ func Candidates(capability string, declared Effect, inventory []Tool) (Choice, [
 		if !have[verb] {
 			continue // a different action is never the same capability
 		}
-		// Ruling 20: a read declaration is admitted only when the tool also
+		// A read declaration is admitted only when the tool also
 		// says read. Effectful declarations are already approval-gated; a
 		// stronger annotation promotes the call's gate instead of preventing
 		// the primitive from binding.
@@ -224,7 +224,7 @@ func Candidates(capability string, declared Effect, inventory []Tool) (Choice, [
 		}
 		cands = append(cands, scored{t, score, recall, len(have)})
 	}
-	// Ruling 18: the top score binds. Equal scores are separated by recall,
+	// The top score binds. Equal scores are separated by recall,
 	// then by the shorter name, then by server and name in byte order, so the
 	// order the client listed its tools in never decides anything.
 	sort.SliceStable(cands, func(i, j int) bool {

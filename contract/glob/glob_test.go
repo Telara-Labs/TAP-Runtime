@@ -7,7 +7,7 @@ func TestArgs(t *testing.T) {
 		pattern, args []string
 		want          bool
 	}{
-		// The example of ruling 31.
+		// A command's arguments as a pattern.
 		{[]string{"get", "pods", "*"}, []string{"get", "pods", "-n", "app"}, true},
 		{[]string{"get", "pods", "*"}, []string{"get", "pods"}, true},
 		{[]string{"get", "pods", "*"}, []string{"get", "secrets"}, false},

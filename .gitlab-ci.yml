@@ -7,7 +7,7 @@ variables:
   GOFLAGS: "-mod=readonly"
 
 # Every job runs on Telara's own runners on GCP, never on GitLab.com's shared
-# ones (TENG-1863). Those runners are Linux.
+# ones. Those runners are Linux.
 default:
   tags: [telara-amd64]
   retry:
@@ -19,7 +19,7 @@ default:
     - mkdir -p "${CI_PROJECT_DIR}/.tmp" "${CI_PROJECT_DIR}/.cache/go-build"
     - export TMPDIR="${CI_PROJECT_DIR}/.tmp" GOTMPDIR="${CI_PROJECT_DIR}/.tmp" GOCACHE="${CI_PROJECT_DIR}/.cache/go-build"
     # contract/ and discover/ come from the public module proxy at the
-    # versions go.mod names, as for anyone building from source (TENG-3180).
+    # versions go.mod names, as for anyone building from source.
 
 .suite: &suite
   - test -z "$(gofmt -l bind bridge conformance contract host journal release satisfy guest-sh)"
@@ -28,7 +28,7 @@ default:
   - GOOS=wasip1 GOARCH=wasm go build -o /dev/null ./guest-sh
   - go test ./bind ./bridge ./conformance ./host ./journal ./release ./satisfy -count=1
   # discover reads agents' stores with the sqlite3 and zstd programs; with
-  # them installed its store readers are tested, not skipped (TENG-3171).
+  # them installed its store readers are tested, not skipped.
   - command -v sqlite3 >/dev/null && command -v zstd >/dev/null || (apt-get update -qq && apt-get install -y -qq sqlite3 zstd >/dev/null)
   - (cd discover && test -z "$(gofmt -l .)" && go vet ./... && go test ./... -count=1)
 

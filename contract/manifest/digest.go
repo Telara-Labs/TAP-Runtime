@@ -10,7 +10,7 @@ import (
 // RunDigest is the digest a package is listed under and checked by before it
 // runs: sha256 over primitive.yaml followed by the entrypoint program, in
 // hex. The runner (host packageDigest) and discover's pointers (pack) both
-// use it, so a pointer always names what tap_run accepts (TENG-3126).
+// use it, so a pointer always names what tap_run accepts.
 func RunDigest(dir string) (string, *Manifest, error) {
 	m, err := Load(dir)
 	if err != nil {

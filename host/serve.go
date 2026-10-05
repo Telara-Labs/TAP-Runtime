@@ -14,7 +14,7 @@ import (
 
 // serve runs the runner as an MCP server over standard input and output, so
 // a client can start a primitive as a tool and so the runner can ask the
-// person at that client to approve a write (ruling 14).
+// person at that client to approve a write.
 //
 // The approval is an MCP elicitation. The client shows it; the model that
 // called the tool is never given the question and cannot answer it. A client
@@ -567,7 +567,7 @@ func clientFor(name string) string {
 		return "codex"
 	case "gemini-cli-mcp-client":
 		return "gemini"
-	case "goose-cli": // goose 1.53, also under goose acp (TENG-3116)
+	case "goose-cli": // goose 1.53, also under goose acp
 		return "goose"
 	}
 	if name == "" {

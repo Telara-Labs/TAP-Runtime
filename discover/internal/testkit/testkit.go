@@ -189,14 +189,6 @@ func FileReplaceSession(id, file, old, new string) trace.Session {
 	return NewSession(id, "Replace text in a file", trace.Call{Tool: "shell", Command: "cd project && python3 - <<'PY'\n" + body + "PY\necho done", Outcome: trace.OutcomeOK})
 }
 
-// Synthetic credentials only. None of these is real.
-const (
-	fakeBearer = "Bearer abcDEF1234567890ghiJKL"
-	fakeGitlab = "glpat-AbCdEfGhIjKlMnOpQrSt"
-	fakeJWT    = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
-	fakeKey    = "AKIAABCDEFGHIJKLMNOP"
-)
-
 // RequestCorpus: 30 sessions over 10 weeks. Each carries a few requests:
 //   - "move TENG-<n> to done": transition then comment on that ticket (the
 //     ticket id is in the request: a primitive)

@@ -15,7 +15,7 @@ import (
 )
 
 // When two connected servers offer a tool that fits one capability equally
-// well, the runner does not pick between them (TENG-3100). Name alone cannot
+// well, the runner does not pick between them. Name alone cannot
 // say which server a person trusts, and another server can offer a tool named
 // like the one a primitive means. The person chooses once; the choice is kept
 // on this machine, per client, and the primitive stays portable because its

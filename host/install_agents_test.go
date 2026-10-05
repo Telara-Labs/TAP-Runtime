@@ -45,7 +45,7 @@ func keysInOrder(t *testing.T, b []byte) []string {
 // The JSON writer adds exactly one entry and keeps everything else: other
 // servers, unknown keys, key order. It backs the file up once, does nothing
 // the second time, removes only its own entry, and refuses a file that is
-// not JSON (TENG-3114).
+// not JSON.
 func TestSetMCPEntryMergesWithoutDisturbing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mcp.json")
 	os.WriteFile(path, []byte(cursorConfig), 0o600)
@@ -237,7 +237,7 @@ extensions:
 // command to add one: the runner merges its entry, keeping comments, other
 // settings and order, backs the file up once, does nothing the second time,
 // removes only its own entry, and refuses a file that is not YAML
-// (TENG-3116).
+// .
 func TestSetYAMLEntryMergesGooseConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	os.WriteFile(path, []byte(gooseConfig), 0o600)

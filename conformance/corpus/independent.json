@@ -1,6 +1,6 @@
 {
-  "rule": "doc 34 sections 13.12-13.17",
-  "author": "written from the spec text by a session that did not write the runner, without reading glob/ or manifest/widens.go (TENG-3033: the corpus was not independent)",
+  "rule": "binding, manifest admission and argument satisfaction",
+  "author": "written from the specification by an author who did not write the runner, without reading glob/ or manifest/widens.go",
   "manifest": [
     {
       "name": "R31: a command must declare its arguments",

@@ -39,7 +39,7 @@ func writeCodexTranscript(t *testing.T, home string, s trace.Session) {
 }
 
 // A handoff cites transcript lines for Codex sessions too, not only Claude
-// Code ones (TENG-3108: findTranscript followed one client).
+// Code ones (findTranscript once followed only Claude Code).
 func TestHandoffLocatesCodexTranscriptLines(t *testing.T) {
 	home := t.TempDir()
 	var ss []trace.Session

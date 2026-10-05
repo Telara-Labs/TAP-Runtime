@@ -64,7 +64,7 @@ func resolvePath(p, cwd string) (string, error) {
 
 // under reports whether the real path falls under one declared path. A
 // declaration with no wildcard is a file, or a directory and everything
-// under it. One with a wildcard is a pattern (ruling 33): its leading part,
+// under it. One with a wildcard is a pattern: its leading part,
 // up to the first wildcard, is resolved through symbolic links like any
 // other path, and what follows is matched segment by segment.
 func under(declared, real, cwd string) bool {
@@ -122,7 +122,7 @@ func fileAllowed(decls []fileDecl, real, want, cwd string) bool {
 // fetchAllowed reports whether a declaration admits this method on this URL.
 func fetchAllowed(decls []fetchDecl, method string, u *url.URL) bool {
 	for _, d := range decls {
-		// A declared origin may wildcard its first label (ruling 34). The
+		// A declared origin may wildcard its first label. The
 		// scheme and the port are always exact.
 		scheme, rest, ok := strings.Cut(d.Origin, "://")
 		if !ok || !strings.EqualFold(scheme, u.Scheme) {
@@ -268,7 +268,7 @@ func fetchOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 	}
 	rec.entry["effect"] = effect
 	// Every fetch is gated, a read included: the address, the headers and the
-	// body can carry what the program has read out of this machine (TENG-3099).
+	// body can carry what the program has read out of this machine.
 	// The person is asked once per origin and kind of request, and the full
 	// address is in the record either way.
 	if !approve {

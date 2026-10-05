@@ -145,7 +145,7 @@ func TestBridgeClientsCanConnectMCP(t *testing.T) {
 	}
 }
 
-// Every entry says where its facts were checked (TENG-3125).
+// Every entry says where its facts were checked.
 func TestEveryEntryNamesItsSource(t *testing.T) {
 	for _, c := range All() {
 		if len(c.Source) < 20 {
@@ -222,7 +222,7 @@ func TestConnectedReadsEachAgentsConfig(t *testing.T) {
 	if is("cursor") {
 		t.Error("a malformed file reads as connected")
 	}
-	// Kilo and OpenCode: an entry under "mcp" (TENG-3131).
+	// Kilo and OpenCode: an entry under "mcp".
 	at(".config/kilo/kilo.json", `{"model":"x","mcp":{"tap":{"type":"local","command":["tap","serve"]}}}`)
 	at(".config/opencode/opencode.json", `{"mcp":{"other":{"type":"local","command":["x"]}}}`)
 	if !is("kilo") || is("opencode") {

@@ -6,7 +6,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// A reader is a decoder plus this assembler (TENG-3111). The decoder knows
+// A reader is a decoder plus this assembler. The decoder knows
 // one agent's format: where its sessions are, how a record is laid out, how
 // it names MCP tools. It turns records into the events below, in the order
 // they happened. The assembler does what every reader used to repeat: it

@@ -47,7 +47,7 @@ func TestInstallReplacesAnEarlierRegistration(t *testing.T) {
 }
 
 // --env passes the OpenTelemetry variables through each client's own
-// configuration (TENG-3042), and nothing else.
+// configuration, and nothing else.
 func TestInstallPassesOnlyOTelVariables(t *testing.T) {
 	var env envFlags
 	if err := env.Set("OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.example"); err != nil {

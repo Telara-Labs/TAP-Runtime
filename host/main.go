@@ -1,4 +1,4 @@
-// host is the runner. Doc 34 section 13. It loads a package whose
+// host is the runner. It loads a package whose
 // entrypoint is a SOURCE FILE, runs it inside an interpreter that is itself a
 // wasm module, and executes each declared host command on the guest's behalf.
 //
@@ -99,8 +99,8 @@ type reply struct {
 }
 
 // Approver is asked, on a person's behalf, whether a primitive may make a
-// kind of change, and how many times. Doc 34 section 11.11: the approval
-// carries the ceiling, and reaching it asks again.
+// kind of change, and how many times. The approval carries the ceiling,
+// and reaching it asks again.
 type Approver func(ask Ask) Grant
 
 // Ask describes a kind of change a primitive wants to make.
@@ -265,7 +265,7 @@ func main() {
 	askFn := Approver(func(Ask) Grant { return grant })
 	// A call made through VS Code is asked here like any other change. VS Code
 	// does not confirm it: called with no invocation token, it ran a tool
-	// that is not read-only with nobody asked (live, VS Code 1.140, TENG-3101).
+	// that is not read-only with nobody asked (live, VS Code 1.140).
 	res, err := Run(context.Background(), Options{
 		Package: flag.Arg(0), Args: flag.Args()[1:], Journal: journal,
 		Approve:   askFn,
@@ -297,7 +297,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return nil, fmt.Errorf("primitive.yaml declares what this runner will not allow:\n  - %s", strings.Join(problems, "\n  - "))
 	}
 	m := *loaded
-	// Ruling 7 and 34 section 5.1: a subprocess is not contained. This
+	// A subprocess is not contained. This
 	// runner runs the contained tier only.
 	if m.Runtime() != mf.RuntimeWasm {
 		return nil, fmt.Errorf("execution.runtime is %s; this runner runs %s only", m.Runtime(), mf.RuntimeWasm)
@@ -472,7 +472,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 
 	// Events of the run go to an OpenTelemetry endpoint when one is set
-	// (rulings 26 and 35). A collector that cannot be reached does not stop
+	// A collector that cannot be reached does not stop
 	// a run: the run is the point, and its record is on this machine.
 	runID, clientName := "", ""
 	if run != nil {
@@ -765,7 +765,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		case runlog.Interrupted:
 			// Nothing was recorded after it began. A read is asked again.
 			// A change may or may not have happened, and doing it again
-			// could do it twice: it goes to a person (34 section 11.12).
+			// could do it twice: it goes to a person.
 			if effect := run.Effect(id); effect != "read" {
 				logf("  UNKNOWN  %s %s  (%s, in progress when the earlier run stopped)", rq.Method, id, effect)
 				rp = reply{Unknown: true, Refused: "the outcome of this " + effect + " is unknown: an earlier run stopped while it was in progress"}
@@ -935,8 +935,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 // guestConfig is the whole of what a guest is given. Kept as one function so a
 // test can assert against the real object.
-// The preludes are the "SDK preloaded into the interpreter" of doc 34 section
-// 13.3. The author's file never contains protocol code: it calls tap.exec and
+// The preludes are the SDK preloaded into the interpreter. The author's file never contains protocol code: it calls tap.exec and
 // prints. print is captured, because stdout is the wire.
 const pyPrelude = `
 import sys, json, io

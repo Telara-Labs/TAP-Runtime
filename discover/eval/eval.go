@@ -51,8 +51,7 @@ func NewCorpus(ss []trace.Session) *Corpus {
 	// Copied calls tie a resumed session to its original; compute that
 	// before the copies are dropped.
 	parent := map[string]string{}
-	var find func(string) string
-	find = func(x string) string {
+	find := func(x string) string {
 		for parent[x] != "" && parent[x] != x {
 			x = parent[x]
 		}

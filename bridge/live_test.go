@@ -84,7 +84,7 @@ func TestLiveCodexInventory(t *testing.T) {
 	}
 }
 
-// TENG-3101: Codex answers config/read with its merged configuration, and the
+// Codex answers config/read with its merged configuration, and the
 // rules are read from it. This reads the real one and checks only that the
 // read works and is consistent with the tools the same Codex lists.
 func TestLiveCodexRulesAreReadable(t *testing.T) {
@@ -113,7 +113,7 @@ func TestLiveCodexRulesAreReadable(t *testing.T) {
 
 var liveVSCode = flag.Bool("live-vscode", false, "launch a real VS Code with the TAP extension (opens a window, then closes it)")
 
-// TENG-3101: the VS Code ask rule, through the real extension in a real VS
+// The VS Code ask rule, through the real extension in a real VS
 // Code. Run with: go test ./bridge -run LiveVSCode -live-vscode
 func TestLiveVSCodeAskRulesThroughTheRealExtension(t *testing.T) {
 	code := "/Applications/Visual Studio Code.app/Contents/MacOS/Code"

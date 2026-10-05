@@ -54,7 +54,7 @@ func gooseBin(t *testing.T) string {
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
-// TENG-3116: through real Goose, the bridge lists the user's extension
+// Through real Goose, the bridge lists the user's extension
 // tools (not Goose's own), calls one with no model turn even though the
 // user's mode is approve, and returns a failed call as an error.
 func TestLiveGooseBridge(t *testing.T) {

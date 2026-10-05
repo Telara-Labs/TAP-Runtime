@@ -37,7 +37,7 @@ func copyFile(t *testing.T, from, to string) {
 	}
 }
 
-// End to end for R3 and R4 (TENG-3118, TENG-3119): every agent's fixture in
+// End to end for R3 and R4: every agent's fixture in
 // its real place under HOME, read by discover with no flags.
 func TestDiscoverReadsR3R4Agents(t *testing.T) {
 	home := t.TempDir()

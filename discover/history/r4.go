@@ -18,7 +18,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/util"
 )
 
-// R4 readers (TENG-3119): agents that keep sessions in a SQLite database
+// R4 readers: agents that keep sessions in a SQLite database
 // (OpenCode and the Kilo CLI built on it, Goose, Crush) or one JSON document
 // per session (Continue). Each was read from a real run of the agent on
 // 2026-10-02 (testdata/<agent>), and each is read through the system sqlite3
@@ -26,7 +26,7 @@ import (
 
 // errStoreSchema marks a store without the tables or columns a reader
 // queries: a store the agent has not created yet, or another version's. The
-// reader counts it unreadable; it does not fail the run (TENG-3129).
+// reader counts it unreadable; it does not fail the run.
 var errStoreSchema = errors.New("the store does not have the expected tables")
 
 // sqliteRows runs one query against a store, read-only.

@@ -7,7 +7,7 @@ import (
 )
 
 // observed gives the program its clock and its random bytes through the
-// run's record (ruling 27, doc 34 section 13.16). A program that is started
+// run's record. A program that is started
 // again is given the readings it took before, in the order it took them, so
 // it takes the path it took before. Once it has caught up with its record it
 // is given the real clock and real random bytes.

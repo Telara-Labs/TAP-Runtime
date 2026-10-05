@@ -33,7 +33,7 @@ func DoubleUnderscore(name string, input map[string]json.RawMessage) (tool, comm
 // Dispatcher decodes a generic tool whose arguments name the server, the
 // tool and the tool's own arguments (Cursor's CallMcpTool, Antigravity's
 // call_mcp_tool). The call takes the identity of the operation it names, the
-// rule the runner applies to dispatchers (TENG-3054). ok is false when the
+// rule the runner applies to dispatchers. ok is false when the
 // arguments do not name both.
 func Dispatcher(c *trace.Call, input map[string]json.RawMessage, serverKey, toolKey, argsKey string) (ok bool) {
 	server, tool := RawString(input[serverKey]), RawString(input[toolKey])
@@ -91,8 +91,7 @@ func Envelope(text, tag string) (string, bool) {
 
 // UnwrapUntrusted removes the one layer Gemini CLI (0.62) and its forks put
 // around a tool result they record, <untrusted_context>\n...\n</untrusted_context>,
-// so the result is the tool's own text (TENG-3162; the bridge hook does the
-// same, TENG-3058). Anything else is returned unchanged.
+// so the result is the tool's own text (the bridge hook does the same). Anything else is returned unchanged.
 func UnwrapUntrusted(s string) string {
 	const open, close = "<untrusted_context>\n", "\n</untrusted_context>"
 	if strings.HasPrefix(s, open) && strings.HasSuffix(s, close) && len(s) >= len(open)+len(close) {

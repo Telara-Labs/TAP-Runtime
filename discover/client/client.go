@@ -2,7 +2,7 @@
 // names, how to tell one is installed, where their skills folders are, how
 // the TAP MCP server is connected to them, and whether the runner can borrow
 // their connections. It holds data only and imports nothing from discover,
-// so every other package can use it (TENG-3108).
+// so every other package can use it.
 //
 // Each capability a call site needs (read history, write a pointer, launch
 // the agent) is a field here. A call site looks the client up and checks the
@@ -33,7 +33,7 @@ type Client struct {
 	Markers []string
 
 	// Source says where each fact in this entry was checked: skills folders
-	// and markers, history location, MCP configuration (TENG-3125).
+	// and markers, history location, MCP configuration.
 	Source string
 
 	// History is true when discover has a reader for this agent's session
@@ -83,7 +83,7 @@ type MCPConfig struct {
 	Key  string
 	// Local, for an MCPJSONFile, is the OpenCode family's entry shape,
 	// {"type": "local", "command": [program, args...], "enabled": true},
-	// instead of {"command", "args"} (TENG-3131).
+	// instead of {"command", "args"}.
 	Local bool
 }
 
@@ -158,7 +158,7 @@ var registry = []Client{
 		Markers: []string{".kilocode", ".config/kilo", ".local/share/kilo", "Library/Application Support/*/User/globalStorage/kilocode.kilo-code"}, History: true,
 		Skills: SkillsPaths{Global: ".kilocode/skills", Project: ".kilocode/skills"},
 		// The Kilo CLI's MCP servers; its bridge is kilo serve's
-		// /experimental/mcp/call-tool (TENG-3131). The Kilo Code extension
+		// /experimental/mcp/call-tool. The Kilo Code extension
 		// starts its own server on a random port and is not reachable.
 		MCP:    MCPConfig{Kind: MCPJSONFile, Path: ".config/kilo/kilo.json", Key: "mcp", Local: true},
 		Bridge: true, Launch: []string{"kilo", "run"}},
@@ -177,7 +177,7 @@ var registry = []Client{
 		Markers: []string{".config/goose", ".local/share/goose", "$APPDATA/Block/goose"}, History: true,
 		Skills: SkillsPaths{Global: ".config/goose/skills", Project: ".goose/skills"},
 		// Goose has no command to add an extension; the runner writes its
-		// config.yaml. Its bridge is ACP _goose/unstable/tools/call (TENG-3116).
+		// config.yaml. Its bridge is ACP _goose/unstable/tools/call.
 		MCP:    MCPConfig{Kind: MCPYAMLFile, Path: ".config/goose/config.yaml", Key: "extensions"},
 		Bridge: true, Launch: []string{"goose", "run", "-t"}},
 	{ID: "crush", Name: "Crush",

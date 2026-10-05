@@ -284,7 +284,7 @@ func itoa(i int) string {
 	return string(b)
 }
 
-// Ruling 27, end to end in the sandbox: a program resumed later is given the
+// End to end in the sandbox: a program resumed later is given the
 // clock readings it took before the resume point, and the real clock after.
 func TestAResumedProgramSeesRealTimeAfterItCatchesUp(t *testing.T) {
 	store := interpreterStore(t)
@@ -340,7 +340,7 @@ print(before, after);
 	}
 }
 
-// Ruling 25, through the runner: a run somebody holds cannot be continued.
+// Through the runner: a run somebody holds cannot be continued.
 func TestTheRunnerRefusesARunSomebodyHolds(t *testing.T) {
 	inDir(t)
 	runs := t.TempDir()

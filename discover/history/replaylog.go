@@ -11,7 +11,7 @@ import (
 // Replay logs (plan §3.4.1, envelope ReplayLog): an agent writes a session as
 // an initial state followed by changes, one JSON record per line, and the
 // session is what replaying them gives. Two dialects are read here, each
-// following its writer's own reader (TENG-3117):
+// following its writer's own reader:
 //
 //   - VS Code chat (chatSessions/<id>.jsonl, VS Code >= 1.109): kind 0 is the
 //     whole state; kind 1 sets the value at path k; kind 2 pushes the values v
@@ -146,8 +146,8 @@ func pushAt(root any, path []any, items []any, cut *int) bool {
 	if !ok {
 		return false
 	}
-	get := func() []any { return nil }
-	put := func([]any) bool { return false }
+	var get func() []any
+	var put func([]any) bool
 	switch c := parent.(type) {
 	case map[string]any:
 		key, _ := path[len(path)-1].(string)

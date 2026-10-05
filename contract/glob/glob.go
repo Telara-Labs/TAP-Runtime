@@ -1,6 +1,5 @@
 // Package glob matches the wildcard patterns a manifest may declare: command
-// arguments, environment names, file paths and fetch hosts. Doc 34 section
-// 13.16, rulings 31 to 34.
+// arguments, environment names, file paths and fetch hosts.
 //
 // The patterns are bash-style: * matches any run of characters, ? matches
 // one, [...] matches one of a set. What a run of characters may contain
@@ -88,7 +87,7 @@ func Word(pattern, word string) bool { return match(pattern, word, 0) }
 
 // Args matches a command's arguments against one declared pattern. Each
 // pattern word is matched against one argument. A final bare * matches
-// whatever remains, including nothing (ruling 31).
+// whatever remains, including nothing.
 func Args(pattern, args []string) bool {
 	rest := len(pattern) > 0 && pattern[len(pattern)-1] == "*"
 	if rest {
@@ -109,7 +108,7 @@ func Args(pattern, args []string) bool {
 
 // Path matches a slash-separated path against a pattern. * and ? stay within
 // one segment. A segment that is exactly ** matches any number of segments,
-// including none (ruling 33).
+// including none.
 func Path(pattern, path string) bool {
 	return segments(strings.Split(strings.Trim(pattern, "/"), "/"), strings.Split(strings.Trim(path, "/"), "/"))
 }
@@ -133,7 +132,7 @@ func segments(pattern, path []string) bool {
 }
 
 // Host matches a host name against a declared one. The only wildcard allowed
-// is a leading "*.", which matches exactly one label (ruling 34):
+// is a leading "*.", which matches exactly one label:
 // *.atlassian.net matches telara.atlassian.net and neither atlassian.net nor
 // a.b.atlassian.net.
 func Host(pattern, host string) bool {

@@ -255,7 +255,7 @@ func TestExtraFilesAreListed(t *testing.T) {
 	}
 }
 
-// TENG-3104 (G12): piped to sh, a script cut short mid-way would run what
+// Piped to sh, a script cut short mid-way would run what
 // arrived. The body is one function, called on the last line, so a partial
 // script defines it and never calls it.
 func TestTheInstallScriptDoesNothingIfItIsCutShort(t *testing.T) {
@@ -285,7 +285,7 @@ func TestAReleaseIsSignedOrSaysItIsNot(t *testing.T) {
 }
 
 // With no --client, the install script connects the runner to every agent
-// installed here, through the runner's own agent list (TENG-3114): with
+// installed here, through the runner's own agent list: with
 // only Cursor's CLI and Windsurf in a fresh home, both their MCP files get
 // the entry and nothing else is touched.
 func TestInstallScriptConnectsDetectedAgents(t *testing.T) {

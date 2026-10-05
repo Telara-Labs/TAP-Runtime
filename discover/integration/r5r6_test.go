@@ -14,7 +14,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 )
 
-// End to end for R5 and R6 (TENG-3120, TENG-3121): Copilot CLI, Zed,
+// End to end for R5 and R6: Copilot CLI, Zed,
 // Windsurf (hook-captured transcripts and TAP's archive) and Aider in their
 // real places under HOME, read by discover with no flags. Amp needs its own
 // CLI and is covered by its reader test.

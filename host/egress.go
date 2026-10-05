@@ -12,7 +12,7 @@ import (
 )
 
 // What a manifest may declare, and where a declared request may actually go
-// (TENG-3103, threat G9). The manifest format checks spelling. These checks
+// The manifest format checks spelling. These checks
 // ask whether a declaration is one a person could mean.
 
 // declarationProblems names declarations the runner will not honor.
@@ -124,7 +124,7 @@ func guardedTransport() *http.Transport {
 
 // logURL is an address as it is written to the log: without its query string
 // or fragment, which is where a token or something the program read tends to
-// ride. The record of the run keeps the full address (TENG-3099).
+// ride. The record of the run keeps the full address.
 func logURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
@@ -137,7 +137,7 @@ func logURL(raw string) string {
 // forPrompt makes text a program wrote safe to show a person who is deciding
 // whether to allow it: control characters, which could redraw a terminal or
 // start a new line that looks like part of the question, become spaces, and
-// it is cut to a length that can be read (TENG-3104, threat G14).
+// it is cut to a length that can be read.
 func forPrompt(s string) string {
 	const max = 300
 	var b strings.Builder

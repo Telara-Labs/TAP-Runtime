@@ -125,7 +125,7 @@ func (s *session) call(method string, params any) (map[string]any, error) {
 				p, _ := l.m["params"].(map[string]any)
 				msg, _ := p["message"].(string)
 				// The first time a runner is asked to run a package it may ask
-				// whether to (TENG-3103). That is not a question about a change,
+				// whether to. That is not a question about a change,
 				// so it is answered yes and not counted among them.
 				if strings.Contains(msg, "for the first time on this machine") {
 					s.send(map[string]any{"jsonrpc": "2.0", "id": l.m["id"], "result": yes})
@@ -338,7 +338,7 @@ func Run(runner []string, log io.Writer) []Lane {
 		})
 
 	// A read can carry data out in its address, so a fetch is asked of the
-	// person, even a GET. With no yes, nothing leaves (TENG-3099).
+	// person, even a GET. With no yes, nothing leaves.
 	lane("a fetch, even a read, goes nowhere unless a person says yes", true, nil,
 		func(w string) string {
 			return pkg(root, "fetch-unasked", "main.sh", "fetch:\n  - {origin: \""+web.URL+"\"}\n",

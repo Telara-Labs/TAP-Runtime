@@ -13,7 +13,7 @@ import (
 )
 
 // VSCodeCopilot reads GitHub Copilot Chat sessions kept by VS Code
-// (TENG-3117): User/workspaceStorage/<ws>/chatSessions/<id>.jsonl (a replay
+// : User/workspaceStorage/<ws>/chatSessions/<id>.jsonl (a replay
 // log, ReplayVSCode; <id>.json before VS Code 1.109) and
 // User/globalStorage/emptyWindowChatSessions/. The session state is
 // {sessionId, creationDate, requests: [{timestamp, message: {text},

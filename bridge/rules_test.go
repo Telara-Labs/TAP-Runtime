@@ -8,7 +8,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/bind"
 )
 
-// TENG-3101: the person's own deny and ask rules, read per client. The shapes
+// The person's own deny and ask rules, read per client. The shapes
 // are those the clients answer with: Codex's mcp_servers table as
 // `codex app-server` returns it from config/read (Codex 0.147.0), Gemini CLI's
 // settings.json, and Claude Code's list_permission_rules.

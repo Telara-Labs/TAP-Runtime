@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TENG-3171: Antigravity names a saved large output with a file:// link;
+// Antigravity names a saved large output with a file:// Link;
 // on Windows it writes the drive and backslashes straight after file://.
 func TestAntigravityFilePath(t *testing.T) {
 	for link, want := range map[string]string{

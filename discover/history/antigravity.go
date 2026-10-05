@@ -21,7 +21,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/util"
 )
 
-// Antigravity reads Google Antigravity conversations (TENG-3112):
+// Antigravity reads Google Antigravity conversations:
 // <Dir>/<conversation>/.system_generated/logs/transcript_full.jsonl, one
 // step per line:
 //
@@ -188,7 +188,7 @@ var antigravitySaved = regexp.MustCompile(`The output was large and was saved to
 // antigravityFilePath is the local path a file:// link names. On Windows
 // Antigravity writes "file://C:\Users\..." (a drive, backslashes, no third
 // slash), which url.Parse reads as host "C:"; "file:///C:/Users/..." is
-// read the same way (TENG-3171).
+// read the same way.
 func antigravityFilePath(link string) (string, bool) {
 	rest, ok := strings.CutPrefix(link, "file://")
 	if !ok {

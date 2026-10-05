@@ -17,7 +17,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// R6 readers (TENG-3121): each agent needs a different way in.
+// R6 readers: each agent needs a different way in.
 
 // Windsurf reads Windsurf (Devin Desktop) conversations captured by its
 // post_cascade_response_with_transcript hook (HookCapture). With the hook
@@ -267,7 +267,7 @@ func AmpThread(id string, b []byte) (trace.Session, error) {
 // `/run <command>` the person typed is a shell call, and an applied edit is
 // an edit of that file. Project roots are found by a bounded walk of the
 // home folder, at most six levels down, skipping hidden folders, system and
-// dependency trees (TENG-3167; a fixed depth of 3 missed every project at
+// dependency trees (a fixed depth of 3 missed every project at
 // ~/Desktop/Projects/<org>/<repo>). Read from a real run (testdata/aider).
 type Aider struct {
 	Home  string
@@ -276,7 +276,7 @@ type Aider struct {
 
 // aiderSkip are folders that never hold a project's chat history: system
 // and package trees, dependency and build output, caches. Hidden folders
-// are skipped too (TENG-3167).
+// are skipped too.
 var aiderSkip = map[string]bool{"Library": true, "Applications": true, "node_modules": true, "vendor": true,
 	"venv": true, "site-packages": true, "__pycache__": true, "target": true, "dist": true, "build": true, "Pictures": true, "Movies": true, "Music": true}
 

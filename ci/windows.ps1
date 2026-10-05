@@ -1,4 +1,4 @@
-# ci/windows.ps1 - what the windows-amd64 job runs (TENG-3040).
+# ci/windows.ps1 - what the windows-amd64 job runs.
 #
 # The suite drives Unix programs (tee, cat, grep), so on Windows the packages
 # that touch no program are tested, the runner is built, and one primitive is
@@ -39,7 +39,7 @@ $failed = $false
 try {
   $env:GOWORK = "off"
   $env:GOFLAGS = "-mod=readonly"
-  # contract/ and discover/ come from the public module proxy (TENG-3180).
+  # contract/ and discover/ come from the public module proxy.
 
   Step "go version" { go version }
   Step "tests: bind, journal, satisfy" { go test ./bind ./journal ./satisfy -count=1 }
@@ -47,7 +47,7 @@ try {
   try { Step "tests: contract glob, manifest" { go test ./glob ./manifest -count=1 } } finally { Pop-Location }
   # discover reads local files only. Windows has no sqlite3 program, so its
   # store readers report themselves unavailable and their tests skip
-  # (TENG-3171).
+  #.
   Push-Location discover
   try { Step "tests: discover" { go test ./... -count=1 } } finally { Pop-Location }
   Step "build the runner" { go build -o tap.exe ./host }

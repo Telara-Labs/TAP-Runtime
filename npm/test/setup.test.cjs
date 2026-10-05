@@ -19,7 +19,7 @@ function fakePackage() {
 }
 
 // setup keeps no agent list of its own: it asks the verified runner to
-// connect every detected agent (TENG-3114).
+// connect every detected agent.
 test('setup delegates to tap install --client detected', () => {
   const dir = fakePackage();
   const calls = [];

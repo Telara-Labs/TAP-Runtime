@@ -297,7 +297,7 @@ func skillsClients() string  { return strings.Join(client.IDs(client.HasSkills),
 
 // MigrateCommand is `tap discover migrate-saved`: primitives saved as full
 // packages in agents' skills folders (before the TAP collection) move into
-// the collection and leave a pointer behind (TENG-3109).
+// the collection and leave a pointer behind.
 func MigrateCommand(out, errOut io.Writer) int {
 	home, err := os.UserHomeDir()
 	if err != nil {

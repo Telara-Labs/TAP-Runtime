@@ -1,7 +1,7 @@
 // Package satisfy decides whether a tool does what a capability's contract
 // asks, where the client gives the tool's input schema.
 //
-// The rule is doc 34 section 11.3, and it is normative:
+// The rule, which is normative:
 //
 //	Arguments, checked at admission: every argument the contract declares
 //	must be accepted by the connector, and every argument the connector
@@ -11,8 +11,8 @@
 //	Results cannot be checked at admission, so they are validated at run
 //	time against the contract.
 //
-// Ruling 30 (doc 34 section 13.16) settled what that rule left unsaid about
-// types and about a connector that describes nothing.
+// The rule also covers types and a connector that
+// describes nothing.
 package satisfy
 
 import (
@@ -27,7 +27,7 @@ import (
 )
 
 // Digest identifies a schema whatever order its keys are written in. It is
-// the `schema` of a binding (34 section 11.2): when it changes, the
+// the `schema` of a binding: when it changes, the
 // connector changed shape under the package.
 func Digest(schema map[string]any) string {
 	b, _ := json.Marshal(schema)
@@ -78,7 +78,7 @@ func types(prop any) []string {
 // accepts reports whether a connector that allows the types in have will
 // take a value of every type in want.
 //
-// Ruling 30: an integer is a number, so a contract that sends an integer is
+// An integer is a number, so a contract that sends an integer is
 // accepted where a number is. The reverse is not: a connector wanting an
 // integer is not satisfied by a contract that may send 1.5. "null" in the
 // connector's list is ignored. A side that names no type accepts anything.
@@ -106,9 +106,9 @@ func accepts(have, want []string) bool {
 func Arguments(contract, tool map[string]any) []string {
 	var p []string
 	cp, tp := properties(contract), properties(tool)
-	// Ruling 30: an empty tool schema accepts anything. A connector that
+	// An empty tool schema accepts anything. A connector that
 	// describes no arguments has said nothing a contract can be held
-	// against, so the tool binds on its name (ruling 22) and its arguments
+	// against, so the tool binds on its name and its arguments
 	// are not checked.
 	if len(tp) == 0 && len(required(tool)) == 0 {
 		// Unless it says, in so many words, that it takes no arguments.
@@ -177,7 +177,7 @@ func Result(contract map[string]any, answer string) string {
 	return ""
 }
 
-// CallArguments applies the contract at the moment of a call (TENG-3103). The
+// CallArguments applies the contract at the moment of a call. The
 // admission rule checks the connector against the contract before anything
 // runs; this checks what the program actually sends. Every argument must be
 // one the contract declares, with the type it declares, and every argument the

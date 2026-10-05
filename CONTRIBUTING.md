@@ -48,5 +48,14 @@ program, plus one primitive in the sandbox.
 
 ## Releases
 
-Maintainers release with one command (`go run ./release publish --version
-X.Y.Z`); see [AGENTS.md](AGENTS.md).
+Maintainers release with one command, run from the repository root:
+
+```
+GOWORK=off go run ./release publish --version X.Y.Z --plan   # changes nothing
+GOWORK=off go run ./release publish --version X.Y.Z
+```
+
+It commits the version bump, tags it, builds and signs the release from a
+clean export of that commit, pushes, creates the GitHub release and waits
+until npm serves the new version. It prints one JSON report, and rerunning it
+resumes from the step that failed.

@@ -47,7 +47,7 @@ func kiloOnPath(t *testing.T) string {
 	return home
 }
 
-// TENG-3131: a primitive run with --client kilo makes its pinned tool calls
+// A primitive run with --client kilo makes its pinned tool calls
 // through real Kilo. Kilo's own approval is not shown on this path, so the
 // runner's gate decides; an unpinned tool is refused with the reason.
 func TestARunCallsToolsThroughKilo(t *testing.T) {

@@ -68,7 +68,7 @@ func writeClaudeChain(t *testing.T, home string, n int) {
 	}
 }
 
-// End to end for P2 (TENG-3109): `tap discover --all` reads the history,
+// End to end for P2: `tap discover --all` reads the history,
 // accepts the recurring chain, installs its package once into the TAP
 // collection, and writes a pointer only into the detected agent that can
 // run it.
@@ -161,7 +161,7 @@ func TestDiscoverMigrateSaved(t *testing.T) {
 	}
 }
 
-// A save also migrates primitives saved the old way (TENG-3109): after the
+// A save also migrates primitives saved the old way: after the
 // next save, an old full package in ~/.claude/skills is in the collection
 // and its folder is a pointer.
 func TestSaveMigratesOldSaves(t *testing.T) {
@@ -196,7 +196,7 @@ func TestSaveMigratesOldSaves(t *testing.T) {
 	}
 }
 
-// End to end for TENG-3125: a plain VS Code install is not taken for a
+// End to end: a plain VS Code install is not taken for a
 // Copilot user, so it gets no pointer; once Copilot Chat has kept state, the
 // save points VS Code's Copilot at the primitive too.
 func TestPointersFollowCopilotChatDetection(t *testing.T) {

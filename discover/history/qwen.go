@@ -12,7 +12,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// QwenCode reads Qwen Code sessions (TENG-3117):
+// QwenCode reads Qwen Code sessions:
 // <Dir>/<sanitized project path>/chats/<sessionId>.jsonl (not *.ledger.jsonl),
 // as qwen-code 0.24 writes them (ChatRecordingService). Unlike Gemini CLI,
 // which it was forked from, each line is a record
@@ -187,7 +187,7 @@ func QwenEvents(rec QwenRecord, session string) []Event {
 				name, args := fc.Name, fc.Args
 				// Qwen Code 0.24 loads tools on demand: tool_call {name,
 				// arguments} runs the named tool, arguments as a JSON string
-				// (TENG-3162). The call is the named tool's.
+				// The call is the named tool's.
 				if inner := RawString(fc.Args["name"]); name == "tool_call" && inner != "" {
 					name, args = inner, map[string]json.RawMessage{}
 					raw := fc.Args["arguments"]

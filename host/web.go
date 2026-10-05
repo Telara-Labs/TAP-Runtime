@@ -26,7 +26,7 @@ var webRunner string
 // interpreter and the guest SDK the runner uses, and answers a primitive's
 // tool calls with the viewer's own claude.ai connectors. A chat starts a
 // primitive by adding a job to the page's database and reads the answer from
-// the same place (TENG-3056).
+// the same place.
 //
 //	host web build --out tap-worker.html pkg/recent-mail-web [more packages]
 //

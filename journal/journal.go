@@ -5,17 +5,17 @@
 // every request it already made from this record. So the record is keyed by
 // the request's own id, which the program assigns, and never by the order
 // requests arrived in: with several requests in flight, arrival order is not
-// the program's order (doc 34 sections 11.7 and 11.9).
+// the program's order.
 //
 // It is tiered. The index holds one line for the start and one for the end of
 // each request. A result too large for a line is stored once, by its digest,
 // beside the index. Nothing is ever rewritten or compacted.
 //
-// PROPOSED, not ruled: the design this implements belongs to TENG-3037. The
+// PROPOSED, not ruled: the design this implements belongs to. The
 // journal in telara-agents/tap-runtime/journal carries leases, fencing tokens
 // and idempotency keys built for manifest v2's policy store. This package
 // does not replace those; it is what the v3 runner needs to resume. The two
-// are reconciled when that code moves here (ruling 10).
+// are reconciled when that code moves here.
 package journal
 
 import (

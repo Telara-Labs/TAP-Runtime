@@ -10,7 +10,7 @@ import (
 // version that was approved, and says what the new one may do that the
 // approved one could not. Empty means it widens nothing.
 //
-// Ruling 24 (doc 34 section 13.16): a new version needs approval again only
+// A new version needs approval again only
 // if it widens. The definition applied here is that section's:
 //
 //   - a tool or capability not declared before, or a higher effect class on
@@ -23,11 +23,7 @@ import (
 //   - a move from the contained tier to the uncontained one.
 //
 // Code is not compared. A version that declares the same things and runs
-// different code widens nothing, which is the consequence of the ruling and
-// the reason a tenant may require approval of every version instead.
-//
-// That definition was written to make the ruling buildable and had not been
-// reviewed by Luis when this was written.
+// different code widens nothing, which is the reason a tenant may require approval of every version instead.
 //
 // A manifest that cannot be compared widens. Widening reads v3 declarations,
 // and an older manifest has none of them to read: two v1 manifests would

@@ -10,7 +10,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// R6 readers (TENG-3121).
+// R6 readers.
 
 func TestWindsurfReaderPrefersTheFullestCopy(t *testing.T) {
 	ss, err := Windsurf{Dirs: []string{"testdata/windsurf/windsurf-transcripts", "testdata/windsurf/tap-archive"}}.Read(time.Time{})
@@ -95,7 +95,7 @@ func TestAiderReader(t *testing.T) {
 	}
 }
 
-// TENG-3167: Aider writes its history into the project folder, and projects
+// Aider writes its history into the project folder, and projects
 // often sit 4 or more levels below home (~/Desktop/Projects/<org>/<repo>).
 // Histories 4 and 6 levels down are read.
 func TestAiderReadsProjectsDeepUnderHome(t *testing.T) {

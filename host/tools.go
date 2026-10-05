@@ -116,7 +116,7 @@ func openBridge(client string) (bridge.Bridge, error) {
 	case "":
 		return nil, fmt.Errorf("this primitive declares tools and no client was detected; pass --client claude or --client codex")
 	}
-	// Ruling 13: a client that lists its tools and cannot dispatch them.
+	// A client that lists its tools and cannot dispatch them.
 	return nil, fmt.Errorf("client %q cannot lend its connections: it gives no way to call a tool on the caller's behalf", client)
 }
 
@@ -181,7 +181,7 @@ func admit(decls []toolDecl, b bridge.Bridge, contracts ...mf.Capability) (*admi
 }
 
 // admitWith is admit with a way to settle two servers that fit equally well:
-// the choice kept on this machine, then a person to ask (TENG-3100).
+// the choice kept on this machine, then a person to ask.
 func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Bridge, contracts ...mf.Capability) (*admission, error) {
 	byLabel := map[string]*mf.Capability{}
 	for i := range contracts {
@@ -257,7 +257,7 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 				}
 			}
 		} else if bySchema {
-			// Ruling 22: the name chooses, and the schema checks. Tools are
+			// The name chooses, and the schema checks. Tools are
 			// taken in the order their names rank, and the first whose live
 			// input schema satisfies the contract binds. A tool whose name
 			// is closest and whose schema does not fit is passed over, and
@@ -340,7 +340,7 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 		}
 		if refusal == "" {
 			// A tool the person's client is set to ask about is asked about
-			// here too, whatever the primitive says it does (TENG-3101).
+			// here too, whatever the primitive says it does.
 			if ak, ok := b.(bridge.Asker); ok {
 				asks, err := ak.Asks(bd.tool)
 				if err != nil {
@@ -374,7 +374,7 @@ func rankOf(e bind.Effect) int { return bind.Rank(e) }
 // effective is the effect the gate uses. A server annotation can make an
 // effectful declaration more specific or more restrictive; it cannot make a
 // read declaration effectful (that is refused at admission). An unannotated
-// or client-asked call is at least a write (rulings 20 and TENG-3101).
+// or client-asked call is at least a write.
 func (b *binding) effective() string {
 	declared := bind.Effect(b.Declared)
 	effective := declared
@@ -471,7 +471,7 @@ func callTool(a *admission, b bridge.Bridge, rq request, approve bool, journal i
 		if why := satisfy.Result(bd.result, res); why != "" {
 			// The answer is not what the contract promises. For a read that
 			// is a failed call. For a change, the change has been made: the
-			// program and the record are told both things (34 section 11.3).
+			// program and the record are told both things.
 			landed := effect != string(bind.Read)
 			logf("  VIOLATES call %s -> %s / %s: %s (landed=%v)", rq.Alias, bd.Server, bd.Tool, why, landed)
 			record("output_schema_violation", map[string]any{"error": why, "landed": landed, "result_bytes": len(res)})

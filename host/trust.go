@@ -12,7 +12,7 @@ import (
 	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
-// tap_run takes a package path from the model (TENG-3103, threat G6). A model
+// tap_run takes a package path from the model. A model
 // that has been steered can write a primitive anywhere and ask for it to be
 // run. So the first time this machine is asked to run a particular package,
 // through a client that can ask, the person sees what it declares and says

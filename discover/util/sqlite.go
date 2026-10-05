@@ -6,7 +6,7 @@ import (
 )
 
 // SQLiteURI is the URI that opens an agent's SQLite store read-only for the
-// system sqlite3 (TENG-3129). Agents keep their stores in WAL mode, where
+// system sqlite3. Agents keep their stores in WAL mode, where
 // recent writes, and on a fresh store the whole schema, live only in the
 // -wal file until a checkpoint. immutable=1 reads the main file alone and
 // misses them, so a store with a non-empty -wal is opened mode=ro, which

@@ -440,7 +440,7 @@ func licenceIn(dir string) ([]byte, string) {
 }
 
 // signingChosen makes shipping without a signature something a person says,
-// not what happens when they forget a flag (TENG-3104, threat G12): v0.1.0 and
+// not what happens when they forget a flag: v0.1.0 and
 // v0.1.1 went out unsigned because nothing asked.
 func signingChosen(key string, unsigned bool) error {
 	switch {

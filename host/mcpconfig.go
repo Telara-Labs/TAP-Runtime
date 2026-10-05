@@ -10,7 +10,7 @@ import (
 )
 
 // Agents that keep their MCP servers in a JSON file (Cursor, Windsurf) get
-// one entry merged in by the runner (TENG-3114). Everything else in the file
+// one entry merged in by the runner. Everything else in the file
 // stays as it was: other keys keep their values and their order, the file is
 // backed up once before the first change, a file that is not JSON is left
 // alone, and writing the same entry again changes nothing.

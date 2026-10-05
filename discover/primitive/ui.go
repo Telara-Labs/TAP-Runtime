@@ -229,12 +229,6 @@ func count(n int) string {
 	return b.String()
 }
 
-// tokenCells describes a usage as total, cached share and estimated
-// input-equivalent.
-func tokenCells(u trace.Usage) (string, string, string) {
-	return tokensText(u.Total()), fmt.Sprintf("%.0f%%", cachedShare(u)), "≈" + tokensText(inputEquivalent(u))
-}
-
 func keys(s style, items ...string) string {
 	var out []string
 	for i := 0; i+1 < len(items); i += 2 {

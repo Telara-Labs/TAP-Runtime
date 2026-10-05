@@ -87,7 +87,7 @@ func TestRunProblems(t *testing.T) {
 	}
 }
 
-// Rulings 31 to 34: what a manifest may now declare.
+// What a manifest may now declare.
 func TestWildcardsThatAreAllowed(t *testing.T) {
 	for name, c := range map[string]struct{ from, to string }{
 		"one subdomain level":        {"https://api.github.com", "https://*.atlassian.net"},

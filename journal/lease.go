@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// A run has a lease (ruling 25, doc 34 section 13.16). The first process to
+// A run has a lease. The first process to
 // start or resume a run holds it. A second is refused and told which process
 // holds it. The lease expires, so a process that died without releasing it
 // does not hold the run for ever.
@@ -151,8 +151,7 @@ func (l *Lease) Release() {
 	})
 }
 
-// Sweep removes the records of runs that ended more than days ago (ruling
-// 26). A run that is held is never removed. days of 0 or less keeps
+// Sweep removes the records of runs that ended more than days ago. A run that is held is never removed. days of 0 or less keeps
 // everything. It returns how many it removed.
 func Sweep(root string, days int, now time.Time) int {
 	if days <= 0 {

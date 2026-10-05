@@ -20,7 +20,7 @@ import (
 )
 
 // A relay run is how the runner borrows the connections of a client that has
-// no call-back API but lets a hook ask it to make a tool call (TENG-3058).
+// no call-back API but lets a hook ask it to make a tool call.
 // Gemini CLI is the first: an AfterTool hook may return a tailToolCallRequest,
 // and Gemini then makes that call itself, with its own connection and its
 // own approval, and fires the hook again on its result.
@@ -115,7 +115,7 @@ func (h *relayHub) listen() error {
 		// A directory of its own, made private with a name nobody can guess:
 		// a fixed name in the shared temporary directory could be taken by
 		// another user before it is made, or be removed from under another
-		// process (TENG-3104).
+		// process.
 		d, err := os.MkdirTemp("", "tap-relay-")
 		if err != nil {
 			return err

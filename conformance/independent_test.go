@@ -9,8 +9,8 @@ import (
 )
 
 // TestIndependentCorpus runs cases written from the spec text by an author
-// who did not write the runner (TENG-3033). A failure is a disagreement
-// between doc 34 and the code, to be settled in one or the other.
+// who did not write the runner. A failure is a disagreement
+// between the specification and the code, to be settled in one or the other.
 func TestIndependentCorpus(t *testing.T) {
 	var c struct {
 		Manifest []struct {

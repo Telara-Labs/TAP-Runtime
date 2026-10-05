@@ -251,7 +251,7 @@ func TestServeAsksOncePerKindAndWritesOnYes(t *testing.T) {
 	}
 }
 
-// Doc 34 section 11.11: the approval carries the ceiling, and reaching it
+// the approval carries the ceiling, and reaching it
 // asks again.
 func TestReachingTheCeilingAsksAgain(t *testing.T) {
 	inDir(t)
@@ -354,7 +354,7 @@ tools:
 	}
 }
 
-// TENG-3103 (G6): tap_run takes a package path from the model. The first time
+// Tap_run takes a package path from the model. The first time
 // a package is run on this machine through a client that can ask, the person
 // is asked, and the answer is kept by the package's digest.
 func TestAPackageIsAskedAboutOnceAndAgainWhenItChanges(t *testing.T) {

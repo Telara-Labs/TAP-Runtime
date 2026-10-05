@@ -1,7 +1,7 @@
 {
- "rule": "doc 34 section 13.12: binding by name where the client gives no schema",
+ "rule": "binding by name where the client gives no schema",
  "floor": 0.6,
- "note": "bind null means the runner must refuse. Written by the author of the reference implementation; an independent corpus is still owed (doc 35 section 3.3).",
+ "note": "bind null means the runner must refuse. Written by the author of the reference implementation; an independent corpus is still owed.",
  "cases": [
   {
    "capability": "gmail.threads.search",
@@ -313,7 +313,7 @@
    "inventory": "inventory-codex-0.147.0.json",
    "bind": null,
    "treated_as_write": false,
-   "why": "section 4.1.1: this connector searches messages"
+   "why": "this connector searches messages"
   },
   {
    "capability": "calendar.events.list",

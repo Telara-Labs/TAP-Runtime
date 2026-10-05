@@ -1,12 +1,12 @@
 // Package rebuild checks that a primitive's program is what its source
-// builds to. Doc 34 sections 7.7 and 11.12: a wasm module is bytes nobody
+// builds to. A wasm module is bytes nobody
 // can read, so an approval that binds only its digest approves nothing. A
 // release binds source plus a reproducible build, and the publish pipeline
 // builds again and refuses if the bytes differ.
 //
 // This package is that check. Wiring it into the publish pipeline, and the
 // attestation a sealed package hands to adopters, belong to agent-service
-// and TENG-3035.
+// .
 //
 // Verify RUNS THE BUILD COMMAND THE MANIFEST NAMES. That is arbitrary code
 // chosen by the package's author. Whoever calls Verify on a package they do
@@ -173,7 +173,7 @@ func tail(s string) string {
 	return strings.Join(lines, "\n")
 }
 
-// The rebuild verdicts of a release record (doc 35 section 3.12).
+// The rebuild verdicts of a release record.
 const (
 	Reproduced    = "reproduced"
 	NotReproduced = "not_reproduced"

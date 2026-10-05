@@ -47,7 +47,7 @@ func scripted3Home(t *testing.T, agent string) string {
 	return home
 }
 
-// TENG-3124: every agent that could run here ran the scripted task three
+// Every agent that could run here ran the scripted task three
 // times, each a new session searching with a different JQL
 // (testdata/scripted3, real runs captured redacted). Discovery over one
 // agent's history alone, read through its default reader at its usual

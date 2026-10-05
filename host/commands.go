@@ -23,7 +23,7 @@ import (
 //     env: [KUBECONFIG]
 //
 // args are the arguments the program may be given, as bash-style patterns
-// (ruling 31). Each word is matched against one argument, and a final bare *
+// Each word is matched against one argument, and a final bare *
 // matches whatever remains: [get, pods, "*"] allows `kubectl get pods -n app`
 // and refuses `kubectl get secrets`. They are required: a command that
 // declares none is refused at admission.
@@ -33,19 +33,18 @@ import (
 // any value, and a flag with nothing after it takes no value.
 //
 // env names the variables of the runner's environment the program is given,
-// and a name may be a pattern such as AWS_* (ruling 32).
+// and a name may be a pattern such as AWS_*.
 
 // arbitraryCode lists invocations that run code the manifest cannot describe.
 // Whatever the author declared, these are treated as destructive. This is a
-// hand-maintained list, which doc 34 section 13.4 names as a weakness.
+// hand-maintained list, which is a known weakness.
 var arbitraryCode = [][]string{
 	{"bash"}, {"sh"}, {"zsh"}, {"env"}, {"xargs"},
 	{"docker", "run"}, {"docker", "exec"},
 	{"kubectl", "exec"}, {"kubectl", "run"},
-	// Ruling 36.
 	{"python"}, {"python3"}, {"node"}, {"deno"}, {"ruby"}, {"perl"}, {"php"},
 	{"ssh"}, {"sudo"},
-	// TENG-3103 (G5): programs that run another program or a script they are
+	// Programs that run another program or a script they are
 	// handed, and the subcommands of build tools that run a project's code.
 	{"nohup"}, {"nice"}, {"time"}, {"timeout"}, {"watch"}, {"flock"}, {"exec"}, {"eval"},
 	{"busybox"}, {"command"}, {"osascript"}, {"pwsh"}, {"powershell"}, {"cmd"}, {"lua"},
@@ -63,7 +62,7 @@ var arbitraryCode = [][]string{
 // arbitraryAnywhere lists arguments that make a program run other code
 // wherever they appear on its command line. find's -exec and its kin can
 // follow any number of paths and tests, so a prefix cannot catch them
-// (ruling 36).
+// .
 var arbitraryAnywhere = map[string][]string{
 	"find": {"-exec", "-execdir", "-ok", "-okdir"},
 	// Flags that name a program for the command to run. A flag may carry its

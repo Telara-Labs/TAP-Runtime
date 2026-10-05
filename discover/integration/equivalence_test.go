@@ -15,8 +15,8 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// scriptedReaders are the readers of the scripted task (plan §6.4) as each
-// agent that ran it for real recorded it (TENG-3124): Claude Code, OpenCode,
+// scriptedReaders are the readers of the scripted task as each
+// agent that ran it for real recorded it: Claude Code, OpenCode,
 // the Kilo CLI, Goose, Crush, Continue and the Cline CLI. Stores are rebuilt
 // and Continue's files copied under dir, so a test may change them.
 func scriptedReaders(t *testing.T, dir string) map[string]trace.Reader {
@@ -89,7 +89,7 @@ func steps(s trace.Session) []string {
 	return out
 }
 
-// Cross-client equivalence (plan §6.4): the same task, recorded by seven
+// Cross-client equivalence: the same task, recorded by seven
 // agents in seven formats, reads as the same work. After trace
 // normalization every agent gives the same steps, and discovery over the
 // seven sessions together finds one primitive whose executions come from
@@ -151,7 +151,7 @@ func TestScriptedTaskReadsTheSameInEveryAgent(t *testing.T) {
 	}
 }
 
-// The new readers work under a frozen corpus (plan §6.4): a manifest built
+// The new readers work under a frozen corpus: a manifest built
 // from their sessions reads back the same sessions through FrozenReader, and
 // a session changed after the freeze is reported, not silently re-read.
 func TestNewReadersFreeze(t *testing.T) {

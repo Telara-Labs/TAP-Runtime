@@ -15,7 +15,7 @@ import (
 )
 
 // interpreter is one entry of the pinned list. Interpreters are downloaded on
-// first use and never compiled into this binary (doc 34 section 13.9, ruling 8).
+// first use and never compiled into this binary.
 type interpreter struct {
 	Kind   string // how the host drives it: sh, py, js
 	File   string // name in the local store
@@ -123,7 +123,7 @@ func obtain(store, entrypoint string) ([]byte, interpreter, string, error) {
 	if in.SHA256 == "" {
 		// A runner built from source has no digest to check this file against.
 		// It remembers the first one it reads, and refuses the file if it
-		// changes afterwards (TENG-3104, threat G17). Rebuild the interpreter
+		// changes afterwards. Rebuild the interpreter
 		// on purpose and remove the .sha256 file beside it to accept it.
 		side := path + ".sha256"
 		switch want, err := os.ReadFile(side); {

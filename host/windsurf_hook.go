@@ -13,7 +13,7 @@ import (
 // post_cascade_response_with_transcript hook is configured, and only the 100
 // newest (docs.devin.ai/desktop/cascade/hooks). `tap hook windsurf` is that
 // hook: it copies each transcript Windsurf names on standard input to
-// ~/.tap/windsurf/transcripts, where discover reads it (TENG-3121) after
+// ~/.tap/windsurf/transcripts, where discover reads it after
 // Windsurf has pruned its own copy. It never blocks Windsurf: any problem
 // is reported on standard error and the hook exits 0.
 

@@ -127,7 +127,7 @@ func TestLiveClientAcceptanceClaudeCodeAndCodex(t *testing.T) {
 			t.Fatal("controlled-write primitive no longer has the planned read-then-comment workflow")
 		}
 	} else {
-		// The generated follow-up is a write to TENG-2581. Keep its driving list
+		// The generated follow-up is a write to. Keep its driving list
 		// empty while enabling the TENG-3159 comment-list read below.
 		if !strings.Contains(string(main), `"step_4"`) || !strings.Contains(string(main), `telara_task_create_items`) {
 			t.Fatal("expected task-create follow-up step is absent; inspect the current primitive before running")
@@ -692,7 +692,7 @@ type acceptanceClient struct {
 func startClaudeAcceptance(t *testing.T, claude, bin string, serverArgs []string, work string, log io.Writer, serverName, httpURL, authorization string) (*acceptanceClient, error) {
 	t.Helper()
 	cfg := filepath.Join(work, "mcp.json")
-	server := map[string]any{}
+	var server map[string]any
 	if httpURL != "" {
 		server = map[string]any{"type": "http", "url": httpURL, "headers": map[string]string{"Authorization": authorization}}
 	} else {

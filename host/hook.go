@@ -196,7 +196,7 @@ func llmText(raw json.RawMessage) string {
 
 // geminiUnwrap removes the one layer Gemini CLI (0.62) puts around every MCP
 // result it hands the model, <untrusted_context>\n…\n</untrusted_context>,
-// so the runner reads the tool's own text (TENG-3058, found live).
+// so the runner reads the tool's own text (found in a live run).
 func geminiUnwrap(s string) string {
 	const open, close = "<untrusted_context>\n", "\n</untrusted_context>"
 	if strings.HasPrefix(s, open) && strings.HasSuffix(s, close) && len(s) >= len(open)+len(close) {

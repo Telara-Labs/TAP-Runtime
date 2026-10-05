@@ -15,7 +15,7 @@ func testManifest() *manifest {
 	any := []string{"*"}
 	return &manifest{Commands: []command{
 		{Command: "git", Globals: []string{"-C <any>", "--no-pager"}, Args: []string{"log", "*"}, Effect: "read"},
-		// The example of ruling 31.
+		// A command's arguments as a pattern.
 		{Command: "kubectl", Globals: []string{"--context minikube", "-n <any>"}, Args: []string{"get", "pods", "*"}, Effect: "read"},
 		{Command: "kubectl", Globals: []string{"--context minikube"}, Args: []string{"delete", "pod", "tmp-*"}, Effect: "destructive"},
 		{Command: "bash", Globals: []string{"-c <any>"}, Args: any, Effect: "read"},
@@ -48,13 +48,11 @@ func TestResolve(t *testing.T) {
 		{"bash declared read is reclassified", "bash", []string{"-c", "echo"}, true, "destructive"},
 		{"docker run declared read is reclassified", "docker", []string{"run", "img"}, true, "destructive"},
 		{"docker ps stays as declared", "docker", []string{"ps"}, true, "read"},
-		// Ruling 36.
 		{"an interpreter declared read is reclassified", "python3", []string{"-c", "print(1)"}, true, "destructive"},
 		{"ssh declared read is reclassified", "ssh", []string{"host", "uptime"}, true, "destructive"},
 		{"find stays as declared", "find", []string{".", "-name", "*.go"}, true, "read"},
 		{"find -exec is reclassified, wherever it appears", "find", []string{".", "-name", "*.go", "-exec", "rm", "{}", ";"}, true, "destructive"},
 		{"find -execdir too", "find", []string{"/tmp", "-execdir", "sh", "-c", "x", ";"}, true, "destructive"},
-		// Ruling 38.
 		{"a pattern of no words allows no arguments", "date", nil, true, "read"},
 		{"and refuses any", "date", []string{"-u"}, false, ""},
 		{"with no globals declared, the patterns cover flags too", "docker", []string{"--context", "x", "ps"}, true, "read"},
@@ -117,7 +115,7 @@ func TestEnvironmentIsWithheldUnlessDeclared(t *testing.T) {
 	if !reflect.DeepEqual(names, []string{"HOME", "KUBECONFIG", "PATH"}) {
 		t.Fatalf("got %v", names)
 	}
-	// Ruling 32: a declaration may be a pattern.
+	// A declaration may be a pattern.
 	_, names = environFor(&command{Command: "aws", Env: []string{"AWS_*"}}, environ)
 	if !reflect.DeepEqual(names, []string{"AWS_REGION", "AWS_SECRET_ACCESS_KEY", "HOME", "PATH"}) {
 		t.Fatalf("AWS_* gave %v", names)
@@ -182,7 +180,7 @@ func toStrings(v any) []string {
 	return out
 }
 
-// TENG-3103 (G5). The list of invocations that run code the manifest cannot
+// The list of invocations that run code the manifest cannot
 // describe was short. A command declared with args ["*"] and effect read ran
 // `git -c alias.x=!sh ...` with no approval (threat-model probe P6).
 func TestInvocationsThatRunCodeAreRecognized(t *testing.T) {

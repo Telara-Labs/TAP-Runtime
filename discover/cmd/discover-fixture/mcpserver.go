@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-// The scripted fixture task (plan §6.4, TENG-3124) needs an MCP server whose
+// The scripted fixture task needs an MCP server whose
 // calls succeed and fail on purpose. `discover-fixture mcp` is one, over
 // stdio: search_issues returns issue keys (an id-bearing output), get_issue
 // returns an issue, or an error for a key that does not exist.

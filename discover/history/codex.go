@@ -122,7 +122,7 @@ func ReadCodexFile(path string) (res trace.Session, err error) {
 	metaSeen := false
 	automationSession := false
 	execInputs := map[string]string{}      // functions.exec source, for result attribution
-	mcpEnds := map[string]codexMCPResult{} // call_id -> the clean result Codex recorded (TENG-3160)
+	mcpEnds := map[string]codexMCPResult{} // call_id -> the clean result Codex recorded
 	curID := ""
 	// Calls under one call_id: one, or several from one exec script.
 	add := func(c trace.Call) { a.Add(ToolCall{Key: curID, Call: c}) }

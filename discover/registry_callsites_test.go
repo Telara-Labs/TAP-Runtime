@@ -12,7 +12,7 @@ import (
 
 // Every call site that takes a client name accepts every registered client:
 // it works, or it says the client lacks that capability. "unknown client"
-// would mean a call site keeps its own list again (TENG-3108).
+// would mean a call site keeps its own list again.
 func TestEveryCallSiteAcceptsEveryRegisteredClient(t *testing.T) {
 	home := t.TempDir()
 	for _, c := range client.All() {

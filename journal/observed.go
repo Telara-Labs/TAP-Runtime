@@ -14,7 +14,7 @@ import (
 // Observed is what a program saw besides the answers to its requests: the
 // clock and random bytes.
 //
-// Ruling 27 (doc 34 section 13.16): replayed steps see what they saw before,
+// Replayed steps see what they saw before,
 // and steps after the resume point see the real clock and real random bytes.
 // So every reading is recorded as it is given, a resumed program is given
 // the recorded readings in the order it took them, and once they run out it

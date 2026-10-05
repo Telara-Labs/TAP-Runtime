@@ -11,7 +11,7 @@ import (
 )
 
 // Goose keeps its MCP servers as extensions in ~/.config/goose/config.yaml
-// and has no command to add one (TENG-3116). The runner merges its entry in
+// and has no command to add one. The runner merges its entry in
 // the way setMCPEntry does for JSON: other keys keep their values, order and
 // comments, the file is backed up once before the first change, a file that
 // is not YAML is left alone, and writing the same entry again changes

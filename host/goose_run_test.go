@@ -41,7 +41,7 @@ func gooseOnPath(t *testing.T) {
 	t.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// TENG-3116: a primitive run with --client goose makes its tool calls
+// A primitive run with --client goose makes its tool calls
 // through real Goose: the search, then a lookup of the key it returned.
 // Goose annotates nothing, so each tool is gated as a write by the runner,
 // the only approval on this path.

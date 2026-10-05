@@ -48,14 +48,13 @@ var (
 	messagesTool = bind.Tool{Server: "a", Name: "search_emails", Annotated: bind.Read, Schema: schema([]string{"query"}, "query", "string", "max_results", "integer")}
 	// Nothing in its name says Gmail or search. With a schema, names do no work.
 	oddlyNamed = bind.Tool{Server: "broker", Name: "op_17", Annotated: bind.Read, Schema: schema([]string{"query"}, "query", "string", "pageSize", "integer", "pageToken", "string")}
-	writer     = bind.Tool{Server: "a", Name: "purge_threads", Annotated: bind.Destructive, Schema: schema([]string{"query"}, "query", "string", "pageSize", "integer", "pageToken", "string")}
 )
 
 func decl() []toolDecl {
 	return []toolDecl{{Alias: "search", Capability: label, Effect: "read"}}
 }
 
-// Ruling 22: the name chooses, the schema checks.
+// The name chooses, the schema checks.
 func TestTheNameChoosesAndTheSchemaChecks(t *testing.T) {
 	g := func(name string, eff bind.Effect, sc map[string]any) bind.Tool {
 		return bind.Tool{Server: "codex_apps", Name: name, Annotated: eff, Schema: sc}

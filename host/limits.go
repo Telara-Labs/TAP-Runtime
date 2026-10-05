@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// What a run is held to when its manifest says nothing (TENG-3102). A
+// What a run is held to when its manifest says nothing. A
 // primitive that declares execution.timeoutSeconds or limits.max_dispatches
 // is held to that instead.
 const (

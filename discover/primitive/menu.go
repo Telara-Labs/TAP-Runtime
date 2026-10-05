@@ -152,36 +152,6 @@ func short(op string) string {
 	return op
 }
 
-func inputNames(p Primitive) string {
-	var names []string
-	seen := map[string]bool{}
-	flags := 0
-	for _, in := range p.Inputs {
-		k := in.Key
-		if seen[k] {
-			continue
-		}
-		seen[k] = true
-		if strings.HasPrefix(k, "-") {
-			flags++
-			continue
-		}
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	if flags > 0 {
-		names = append(names, fmt.Sprintf("+%d flags", flags))
-	}
-	if len(names) == 0 {
-		return "none"
-	}
-	s := strings.Join(names, ", ")
-	if len(s) > 110 {
-		s = s[:109] + "…"
-	}
-	return s
-}
-
 // Menu starts with the summary, then lets the person approve every proposed
 // primitive at once or inspect them one by one (next, previous, accept, deny,
 // agent eval). Choices are held until a final review and submit: quitting
@@ -757,13 +727,6 @@ func agentCommand(clients, handoff string) string {
 // Fingerprintdir is a folder name for a family's handoff.
 func (f Family) Fingerprintdir() string {
 	return strings.NewReplacer("|", "-", ":", "-", "/", "-", " ", "-", "#", "-").Replace(f.Fingerprint)
-}
-
-func perRun(f Family) float64 {
-	if f.ExecutionCount == 0 {
-		return 0
-	}
-	return f.SavedTokens / float64(f.ExecutionCount)
 }
 
 // acceptFamily keeps the family and its exact chains: the chains are known

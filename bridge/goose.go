@@ -21,7 +21,7 @@ import (
 //
 // Goose runs an app tool call only in auto mode, so the bridge's session is
 // put in auto mode and Goose shows no approval of its own: the runner's
-// effect gate is the only approval (TENG-3116). A tool the user set to
+// effect gate is the only approval. A tool the user set to
 // never_allow is denied.
 type Goose struct {
 	cmd     *exec.Cmd

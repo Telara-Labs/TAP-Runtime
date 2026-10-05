@@ -19,7 +19,7 @@ import (
 
 // A primitive is saved once, to the TAP collection, and each chosen agent
 // gets a pointer: a skills folder holding only a SKILL.md that names the
-// primitive and says to run it with tap_run (D2, TENG-3109). The TAP MCP
+// primitive and says to run it with tap_run. The TAP MCP
 // server finds the primitive in the collection from every agent; the
 // pointer lets an agent notice it without searching first. A pointer holds
 // no package and no SavedMarker, so the catalog never lists it twice.
@@ -484,7 +484,7 @@ func NewDestination(saveClients string, project bool, home, projectDir string) (
 // Point writes the pointers to the package saved at pkgDir. It first moves
 // any primitive still saved the old way (a full package in an agent's skills
 // folder) into the collection, as a save is the moment the person expects
-// their saved primitives to be tidied (plan §3.2). Each move is reported as a
+// their saved primitives to be tidied. Each move is reported as a
 // line with Mode "migrated".
 func (d Destination) Point(pkgDir string) ([]PointerResult, error) {
 	var out []PointerResult

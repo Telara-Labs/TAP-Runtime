@@ -72,7 +72,7 @@ func TestAddWindsurfHookKeepsOtherHooks(t *testing.T) {
 	}
 }
 
-// End to end (TENG-3121): tap install --client windsurf sets up the MCP
+// End to end: tap install --client windsurf sets up the MCP
 // server and the transcript hook; Windsurf runs the hook; discover reads the
 // archived transcript after Windsurf has pruned its own copy.
 func TestWindsurfInstallHookAndDiscover(t *testing.T) {

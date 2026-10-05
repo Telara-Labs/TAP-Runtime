@@ -99,14 +99,6 @@ type FollowUp struct {
 	APIReason           string `json:"apiReason,omitempty"`
 }
 
-func execKey(ex Execution) string {
-	var ids []string
-	for _, c := range ex.Calls {
-		ids = append(ids, ex.Session+"/"+strconv.Itoa(c.Index))
-	}
-	return strings.Join(ids, ",")
-}
-
 // dropFragments removes a primitive when every one of its runs is part of a
 // run of a longer primitive: it is a piece of that chain, not a procedure of
 // its own.

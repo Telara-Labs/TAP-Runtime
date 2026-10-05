@@ -1,5 +1,5 @@
 // Command discover-fixture captures a reader test fixture from a real
-// session on this machine (plan §6.4, TENG-3112). It keeps a slice of the
+// session on this machine. It keeps a slice of the
 // session, redacts every string with discover/redact, replaces the home
 // directory, and writes the fixture as text: a store.db becomes the SQL that
 // rebuilds it, so no binary is checked in.

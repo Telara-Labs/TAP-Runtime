@@ -8,7 +8,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// The package was split into layered subpackages (TENG-3084). These aliases
+// The package was split into layered subpackages. These aliases
 // keep the names telara-cli imports; new code should import the subpackage
 // that owns the name. Methods that used to hang off Draft, Report and Routine
 // are now functions (SaveDraft, PackageDraft, ReportDraft, RoutineDraft, ...).

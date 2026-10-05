@@ -95,7 +95,7 @@ func Run(o model.Options) (*model.Report, error) {
 	// Identical step sequences in one agent are one piece of work run twice
 	// (a replayed test harness, a re-sent prompt), not recurrence. Two
 	// agents that ran the same steps did the work twice: neither is a copy
-	// of the other (TENG-3171; which one survived depended on the order the
+	// of the other (which one survived depended on the order the
 	// platform read them in).
 	seen := map[string]bool{}
 	var corpus []trace.NormSession

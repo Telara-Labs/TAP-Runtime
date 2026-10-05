@@ -578,7 +578,7 @@ func ResultOutcome(text string) Outcome {
 
 // ResultJSON is the JSON a tool result carries: the JSON value the text
 // starts with, else the one fenced code block in it whose content is a JSON
-// object or array (TENG-3166). An MCP server can return its data as text wrapped in
+// object or array. An MCP server can return its data as text wrapped in
 // a banner and Markdown (the Telara gateway does: "[UNTRUSTED EXTERNAL
 // DATA]", "## Action", a json block) while sending the same data as
 // structuredContent, which is what a running primitive receives (bridge

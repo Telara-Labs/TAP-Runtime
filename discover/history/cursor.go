@@ -90,7 +90,7 @@ type CursorRow struct {
 	Headers  string          `json:"headers"`
 	Text     string          `json:"text"`
 	// Size is the stored record's length in bytes: with its key, the
-	// record's identity for the source digest (TENG-3168).
+	// record's identity for the source digest.
 	Size int64 `json:"size"`
 }
 
@@ -248,7 +248,7 @@ type CursorUser struct {
 // user bubbles; inline bubbles are inside the conversation record). It does
 // not depend on what the reader's queries extract, so changing the reader
 // never reads as changed input to a frozen corpus, while an edited record
-// does (TENG-3168).
+// does.
 func (c *CursorConv) SourceDigest() string {
 	keys := make([]string, 0, len(c.Records))
 	for k := range c.Records {
@@ -291,7 +291,7 @@ func CursorEvents(row CursorRow, key string) []Event {
 		c.Tool, c.Command = "shell", RawString(args["command"])
 	case strings.HasPrefix(row.Name, "mcp-"):
 		// mcp-<server>-<tool>; the server is also params.tools[0].serverName
-		// (TENG-3163).
+		//.
 		parts := strings.Split(row.Name, "-")
 		server := row.Server
 		if server == "" && len(parts) > 2 {
@@ -314,7 +314,7 @@ func CursorEvents(row CursorRow, key string) []Event {
 
 // CursorResult is a tool's result text. Cursor records an MCP result as
 // {"result": "<the MCP {content: [...]} object, as a JSON string>"}; the
-// tool's result is the text of that content (TENG-3163). Anything else is
+// tool's result is the text of that content. Anything else is
 // the result as recorded.
 func CursorResult(raw string) string {
 	if !strings.HasPrefix(raw, `{"result":`) {

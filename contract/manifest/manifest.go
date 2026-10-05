@@ -1,6 +1,6 @@
 // Package manifest loads primitive.yaml.
 //
-// One format, two levels (ruling 21, doc 34 section 13.14). To RUN, a
+// One format, two levels. To RUN, a
 // manifest needs a name, an entrypoint and what the primitive uses. To
 // PUBLISH it must satisfy manifest.v3.schema.json in full: a description,
 // input and output schemas, a contract for every capability, provenance.
@@ -235,8 +235,8 @@ func (m *Manifest) RunProblems() []string {
 				add("commands[%d] (%s) global %q must start with a flag", i, c.Command, g)
 			}
 		}
-		// Ruling 31: what a command may be given is declared, never left
-		// open by saying nothing. Ruling 38: args: [] is a declaration, and
+		// What a command may be given is declared, never left
+		// open by saying nothing. args: [] is a declaration, and
 		// means the command takes none. What is refused is saying nothing.
 		if c.Args == nil {
 			add("commands[%d] (%s) declares no args; list the arguments it may be given, as patterns: [\"*\"] for any, [] for none", i, c.Command)
@@ -285,7 +285,7 @@ func (m *Manifest) RunProblems() []string {
 }
 
 // wildcardProblem says what is wrong with a host that uses a wildcard, or ""
-// (ruling 34). One subdomain level may be a wildcard: *.atlassian.net. Never
+// One subdomain level may be a wildcard: *.atlassian.net. Never
 // a bare *, never a wildcard anywhere but the first label, and never over a
 // public suffix: *.com and *.co.uk would match every site under them.
 func wildcardProblem(host string) string {
@@ -304,7 +304,7 @@ func wildcardProblem(host string) string {
 
 // CapabilityID is the identity of a capability: sha256 over its contract in
 // canonical form, RFC 8785. Two publishers who write the same contract get
-// the same id, whatever language they write it in (34 section 11.1).
+// the same id, whatever language they write it in.
 func CapabilityID(question string, args, result map[string]any) string {
 	// RFC 8785, so that a publisher writing in any language computes the
 	// same id for the same contract. Go's own encoder escapes < > and &,
@@ -324,7 +324,7 @@ func (m *Manifest) PublishProblems() []string {
 	p := m.RunProblems()
 	add := func(f string, a ...any) { p = append(p, fmt.Sprintf(f, a...)) }
 
-	// Ruling 7: an uncontained primitive cannot be published.
+	// An uncontained primitive cannot be published.
 	if m.Runtime() != RuntimeWasm {
 		add("execution.runtime is %s; only %s may be published, because nothing contains a subprocess", m.Runtime(), RuntimeWasm)
 	}

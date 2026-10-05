@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TENG-3103 (G9): declarations a person could not mean, and where a declared
+// Declarations a person could not mean, and where a declared
 // origin may actually be reached.
 
 func TestDeclarationsThatCannotBeMeantAreRefused(t *testing.T) {

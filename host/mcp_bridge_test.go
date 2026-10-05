@@ -15,7 +15,7 @@ import (
 
 // A primitive run with --mcp-url calls the MCP server directly, carrying the
 // header from --mcp-header-file on every request: how a service that runs
-// primitives itself hands the runner its gateway (doc 34 section 13.20).
+// primitives itself hands the runner its gateway.
 func TestARunCallsAnMCPServerDirectly(t *testing.T) {
 	store := interpreterStore(t)
 	inDir(t)

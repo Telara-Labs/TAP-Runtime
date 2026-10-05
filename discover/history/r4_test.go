@@ -16,7 +16,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
-// R4 readers (TENG-3119), on real sessions of each agent (testdata/SYNTHETIC.md
+// R4 readers, on real sessions of each agent (testdata/SYNTHETIC.md
 // "Real-run fixtures"): the scripted task ran a shell command, an MCP search
 // that returns ids, an MCP call that fails, a call on the returned key, and
 // in a second turn one more call.
@@ -154,6 +154,8 @@ func TestContinueReader(t *testing.T) {
 // were redacted at capture).
 func TestAllFixturesAreRedacted(t *testing.T) {
 	key := regexp.MustCompile(`fw_[A-Za-z0-9]{16,}`)
+	// A fixture captured on this machine would carry its home directory.
+	home, _ := os.UserHomeDir()
 	n := 0
 	err := filepath.WalkDir("testdata", func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -165,7 +167,7 @@ func TestAllFixturesAreRedacted(t *testing.T) {
 			return err
 		}
 		s := string(b)
-		if strings.Contains(s, "/Users/") || key.MatchString(s) || strings.Contains(s, "luisalcaraz") {
+		if strings.Contains(s, "/Users/") || key.MatchString(s) || (len(home) > 1 && strings.Contains(s, home)) {
 			t.Errorf("%s holds a home path or a key", p)
 		}
 		for _, line := range strings.Split(s, "\n") {
@@ -180,7 +182,7 @@ func TestAllFixturesAreRedacted(t *testing.T) {
 	}
 }
 
-// TENG-3129: an agent's store in WAL mode, still open in the agent, has its
+// An agent's store in WAL mode, still open in the agent, has its
 // schema and rows only in the -wal file. The reader sees them; immutable=1,
 // which reads the main file alone, did not.
 func TestOpenCodeReaderSeesWhatIsOnlyInTheWAL(t *testing.T) {
@@ -218,7 +220,7 @@ func TestOpenCodeReaderSeesWhatIsOnlyInTheWAL(t *testing.T) {
 }
 
 // A store without the tables a reader queries (one the agent has not set
-// up yet) is counted unreadable; the run goes on (TENG-3129).
+// up yet) is counted unreadable; the run goes on.
 func TestAStoreWithoutItsTablesIsUnreadableNotFatal(t *testing.T) {
 	bin, err := exec.LookPath("sqlite3")
 	if err != nil {

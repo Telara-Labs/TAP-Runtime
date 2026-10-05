@@ -61,7 +61,7 @@ except PermissionError:
 	}
 }
 
-// TENG-3103 (G3): the contract holds what the program sends, not only what the
+// The contract holds what the program sends, not only what the
 // connector accepts at admission.
 func TestACallIsHeldToTheContractsArguments(t *testing.T) {
 	tool := threadsTool
