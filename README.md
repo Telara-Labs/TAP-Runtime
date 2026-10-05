@@ -67,8 +67,11 @@ Each release is signed, and the install scripts check every download against
 a pinned sha256: [docs/install.md](docs/install.md).
 
 Releases are built for macOS (arm64, amd64), Linux (amd64, arm64) and
-Windows (amd64). Tests run on Linux and Windows in CI and on macOS arm64;
-macOS on Intel is built but untested.
+Windows (amd64). CI tests the source on Linux, macOS and Windows. Each release
+has a separate Launch acceptance workflow (`acceptance/launch`) for npm,
+the install scripts and `go install` on all five platforms. Check the matching
+workflow result before claiming those release installs passed. On October 5,
+v0.1.11 acceptance failed and v0.1.12 acceptance was still queued.
 
 ## Find primitives in your own history
 
