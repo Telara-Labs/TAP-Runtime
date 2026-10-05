@@ -4,9 +4,9 @@ import (
 	"math"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 func TestRunCostSavesAllButOneTurn(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // issueFlows is runs of create then the given follow-ups, n runs each.

@@ -7,17 +7,17 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+	"github.com/Telara-Labs/TAP-Runtime/discover/internal/testkit"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+	"github.com/Telara-Labs/TAP-Runtime/discover/routine"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+	"github.com/Telara-Labs/TAP-Runtime/discover/retrieval"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/discover/history"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 func TestClaudeReaderAttributesCompactionTextAsSynthetic(t *testing.T) {

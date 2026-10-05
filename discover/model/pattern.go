@@ -3,7 +3,7 @@ package model
 import (
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/util"
+	"github.com/Telara-Labs/TAP-Runtime/discover/util"
 )
 
 // Pattern is an ordered list of step labels (as ids) and the sessions that

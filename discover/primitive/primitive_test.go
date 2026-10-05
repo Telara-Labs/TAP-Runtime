@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 var t0 = time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)

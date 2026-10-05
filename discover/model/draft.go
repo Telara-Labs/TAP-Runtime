@@ -3,7 +3,7 @@ package model
 import (
 	"errors"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // DraftStep is one step as the review shows it.

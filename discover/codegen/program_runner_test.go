@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+	"github.com/Telara-Labs/TAP-Runtime/discover/codegen"
 )
 
 // This exercises a locally generated package through the shipped TAP host,

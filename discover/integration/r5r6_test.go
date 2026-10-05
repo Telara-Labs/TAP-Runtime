@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover"
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 )
 
 // End to end for R5 and R6 (TENG-3120, TENG-3121): Copilot CLI, Zed,

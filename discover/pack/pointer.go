@@ -12,9 +12,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/client"
 )
 
 // A primitive is saved once, to the TAP collection, and each chosen agent

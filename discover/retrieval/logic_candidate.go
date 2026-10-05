@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 )
 
 // GroupLogicFunnels condenses result-dependent branches across candidate

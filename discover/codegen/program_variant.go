@@ -8,10 +8,10 @@ import (
 	"sort"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
-	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/retrieval"
+	"github.com/Telara-Labs/TAP-Runtime/discover/shellparse"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // GroupProgramVariants separates incompatible invocation contracts inside one

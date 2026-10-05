@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
-	"gitlab.com/telara-labs/tap-runtime/discover/routine"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
-	"gitlab.com/telara-labs/tap-runtime/discover/util"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/retrieval"
+	"github.com/Telara-Labs/TAP-Runtime/discover/routine"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/util"
 )
 
 // RulesVersion changes whenever a rule changes, so two reports are only

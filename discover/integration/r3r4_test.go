@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover"
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 )
 
 func buildStore(t *testing.T, sqlFile, db string) {

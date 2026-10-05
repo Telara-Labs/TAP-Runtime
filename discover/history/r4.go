@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
-	"gitlab.com/telara-labs/tap-runtime/discover/util"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/util"
 )
 
 // R4 readers (TENG-3119): agents that keep sessions in a SQLite database

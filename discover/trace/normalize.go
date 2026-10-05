@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
+	"github.com/Telara-Labs/TAP-Runtime/discover/shellparse"
 )
 
 // Slot types. A primitive takes the varying slots as typed inputs; the

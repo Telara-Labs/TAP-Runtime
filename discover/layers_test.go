@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-const modPath = "gitlab.com/telara-labs/tap-runtime/discover/"
+const modPath = "github.com/Telara-Labs/TAP-Runtime/discover/"
 
 // allowed lists, for each subpackage, the sibling subpackages it may import.
 // A package may only import packages in layers below it; the compiler already

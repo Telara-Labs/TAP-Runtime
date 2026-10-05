@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/client"
 )
 
 // The registry's History flag and the reader map are two lists of one fact;

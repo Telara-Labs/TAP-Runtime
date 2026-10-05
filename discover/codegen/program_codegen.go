@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
-	"gitlab.com/telara-labs/tap-runtime/discover/routine"
-	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
+	"github.com/Telara-Labs/TAP-Runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
+	"github.com/Telara-Labs/TAP-Runtime/discover/routine"
+	"github.com/Telara-Labs/TAP-Runtime/discover/shellparse"
 )
 
 // GeneratedPackage is a private, exact draft generated without a model. The

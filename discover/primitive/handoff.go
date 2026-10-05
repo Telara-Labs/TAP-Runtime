@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/client"
-	"gitlab.com/telara-labs/tap-runtime/discover/redact"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
-	"gitlab.com/telara-labs/tap-runtime/discover/util"
+	"github.com/Telara-Labs/TAP-Runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/redact"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/util"
 )
 
 // RefinePrompt is the reusable refinement prompt every handoff carries.

@@ -3,7 +3,7 @@ package primitive
 import (
 	"fmt"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // RelationshipEvidence measures whether a continuation really acts on the

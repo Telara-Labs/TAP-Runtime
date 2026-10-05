@@ -3,7 +3,7 @@ package routine
 import (
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // An MCP tool's effect is never inferred from a verb in its name or in a

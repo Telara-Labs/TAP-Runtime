@@ -1,7 +1,7 @@
 package model
 
 import (
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // Check names, in the order they run.

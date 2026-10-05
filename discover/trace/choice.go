@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
+	"github.com/Telara-Labs/TAP-Runtime/discover/shellparse"
 )
 
 // ChoiceStats counts the plain-word values one argument took across a corpus.

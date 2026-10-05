@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // Codex reads Codex CLI rollouts: <Dir>/YYYY/MM/DD/rollout-*.jsonl.

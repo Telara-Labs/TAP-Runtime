@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/routine"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/routine"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // EpisodeClaim is the single-request judgment.

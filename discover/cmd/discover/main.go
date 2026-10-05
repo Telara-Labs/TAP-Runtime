@@ -5,7 +5,7 @@ package main
 import (
 	"os"
 
-	"gitlab.com/telara-labs/tap-runtime/discover"
+	"github.com/Telara-Labs/TAP-Runtime/discover"
 )
 
 func main() {

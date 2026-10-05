@@ -5,9 +5,9 @@ import (
 
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/retrieval"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // GraphCandidateFor selects span proposals from the sessions and returns the logic

@@ -13,8 +13,8 @@ import (
 	"regexp"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/client"
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 )
 
 // SavedMarker is the file that marks a skills folder as a saved primitive.

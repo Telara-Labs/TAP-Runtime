@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/client"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // R3 readers (TENG-3118): Cline, Roo Code and Kilo Code.

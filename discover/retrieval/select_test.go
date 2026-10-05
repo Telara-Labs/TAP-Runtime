@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+	"github.com/Telara-Labs/TAP-Runtime/discover/internal/testkit"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+	"github.com/Telara-Labs/TAP-Runtime/discover/retrieval"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // The selection pass (select.go). Each case builds sessions whose evidence

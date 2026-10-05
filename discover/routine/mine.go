@@ -5,8 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/util"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/util"
 )
 
 type MineLimits struct {

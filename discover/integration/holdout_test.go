@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+	"github.com/Telara-Labs/TAP-Runtime/discover/internal/testkit"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/eval"
+	"github.com/Telara-Labs/TAP-Runtime/discover/eval"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/discover/history"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // A new holdout must share no lineage and no template with an earlier

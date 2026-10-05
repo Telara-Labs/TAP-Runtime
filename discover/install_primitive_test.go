@@ -2,15 +2,15 @@ package discover
 
 import (
 	"fmt"
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/primitive"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/primitive"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 func TestMultiContinuationFamilyDoesNotInstallOneChain(t *testing.T) {

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/history"
-	"gitlab.com/telara-labs/tap-runtime/discover/primitive"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/discover/primitive"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // scriptedReaders are the readers of the scripted task (plan §6.4) as each

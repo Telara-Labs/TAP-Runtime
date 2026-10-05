@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/client"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // Readers maps a client ID (discover/client) to the reader of its history at

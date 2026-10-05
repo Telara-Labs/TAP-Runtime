@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/discover/history"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
+	"github.com/Telara-Labs/TAP-Runtime/discover/shellparse"
 )
 
 // The parsers read whatever agents wrote. Both crashes found on the first

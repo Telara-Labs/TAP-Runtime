@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	clientpkg "gitlab.com/telara-labs/tap-runtime/discover/client"
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+	clientpkg "github.com/Telara-Labs/TAP-Runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 )
 
 // OriginAgentAuthored marks a package a host agent wrote from a brief.

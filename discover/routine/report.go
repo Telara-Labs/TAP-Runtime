@@ -8,8 +8,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // WriteText prints a report for a person: what was read, the qualified

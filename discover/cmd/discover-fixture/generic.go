@@ -3,13 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"gitlab.com/telara-labs/tap-runtime/discover/util"
+	"github.com/Telara-Labs/TAP-Runtime/discover/util"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/redact"
+	"github.com/Telara-Labs/TAP-Runtime/discover/redact"
 )
 
 // Generic captures for agents whose sessions are SQLite tables, JSON files

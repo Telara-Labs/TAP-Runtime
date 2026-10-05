@@ -18,19 +18,19 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pipeline"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/eval"
+	"github.com/Telara-Labs/TAP-Runtime/discover/eval"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+	"github.com/Telara-Labs/TAP-Runtime/discover/routine"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/primitive"
-	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
+	"github.com/Telara-Labs/TAP-Runtime/discover/primitive"
+	"github.com/Telara-Labs/TAP-Runtime/discover/retrieval"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/history"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 func main() {

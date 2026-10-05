@@ -7,13 +7,13 @@ import (
 	"strconv"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
-	"gitlab.com/telara-labs/tap-runtime/discover/genreview"
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
-	"gitlab.com/telara-labs/tap-runtime/discover/primitive"
-	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/codegen"
+	"github.com/Telara-Labs/TAP-Runtime/discover/genreview"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
+	"github.com/Telara-Labs/TAP-Runtime/discover/primitive"
+	"github.com/Telara-Labs/TAP-Runtime/discover/retrieval"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // primitiveInstaller generates an accepted family's program from its

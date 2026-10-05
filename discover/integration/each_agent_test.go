@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/history"
-	"gitlab.com/telara-labs/tap-runtime/discover/primitive"
+	"github.com/Telara-Labs/TAP-Runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/discover/primitive"
 )
 
 // scripted3Home rebuilds one agent's captured history under a fresh home:

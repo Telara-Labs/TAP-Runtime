@@ -8,17 +8,17 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pipeline"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+	"github.com/Telara-Labs/TAP-Runtime/discover/internal/testkit"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+	"github.com/Telara-Labs/TAP-Runtime/discover/routine"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
+	"github.com/Telara-Labs/TAP-Runtime/discover/shellparse"
 )
 
 func TestAcknowledgementsAndRetriesContinueTheRequest(t *testing.T) {

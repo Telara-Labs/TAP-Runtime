@@ -1,7 +1,7 @@
 package routine
 
 import (
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 )
 
 // Outcome evidence values.

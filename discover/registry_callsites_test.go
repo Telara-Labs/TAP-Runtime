@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/author"
-	"gitlab.com/telara-labs/tap-runtime/discover/client"
-	"gitlab.com/telara-labs/tap-runtime/discover/history"
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+	"github.com/Telara-Labs/TAP-Runtime/discover/author"
+	"github.com/Telara-Labs/TAP-Runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 )
 
 // Every call site that takes a client name accepts every registered client:

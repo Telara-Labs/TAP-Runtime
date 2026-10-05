@@ -13,12 +13,12 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/redact"
-	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
-	"gitlab.com/telara-labs/tap-runtime/discover/util"
+	"github.com/Telara-Labs/TAP-Runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/redact"
+	"github.com/Telara-Labs/TAP-Runtime/discover/shellparse"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/util"
 	"gopkg.in/yaml.v3"
 )
 

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/redact"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/redact"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // R4 readers (TENG-3119), on real sessions of each agent (testdata/SYNTHETIC.md

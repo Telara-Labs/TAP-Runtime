@@ -1,11 +1,11 @@
 package discover
 
 import (
-	"gitlab.com/telara-labs/tap-runtime/discover/history"
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
-	"gitlab.com/telara-labs/tap-runtime/discover/routine"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pipeline"
+	"github.com/Telara-Labs/TAP-Runtime/discover/routine"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // The package was split into layered subpackages (TENG-3084). These aliases

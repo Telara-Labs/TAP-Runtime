@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // Thresholds, fixed before the lineage-separated holdout was labeled.

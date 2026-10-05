@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
+	"github.com/Telara-Labs/TAP-Runtime/discover/shellparse"
 )
 
 // SelectorSlot reports an argument whose value is a short plain word: an

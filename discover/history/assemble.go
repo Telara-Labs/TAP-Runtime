@@ -3,7 +3,7 @@ package history
 import (
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // A reader is a decoder plus this assembler (TENG-3111). The decoder knows

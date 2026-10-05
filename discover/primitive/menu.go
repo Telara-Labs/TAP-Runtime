@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/client"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // MenuConfig says where decisions and accepted primitives live.

@@ -10,12 +10,12 @@ import (
 	"strconv"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/history"
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/pyparse"
-	"gitlab.com/telara-labs/tap-runtime/discover/redact"
-	"gitlab.com/telara-labs/tap-runtime/discover/shellparse"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pyparse"
+	"github.com/Telara-Labs/TAP-Runtime/discover/redact"
+	"github.com/Telara-Labs/TAP-Runtime/discover/shellparse"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 type SpanNode struct {

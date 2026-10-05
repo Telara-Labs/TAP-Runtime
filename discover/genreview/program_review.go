@@ -13,9 +13,9 @@ import (
 	"sort"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+	"github.com/Telara-Labs/TAP-Runtime/discover/codegen"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 )
 
 const OriginDiscoverGenerated = "discover_generated"

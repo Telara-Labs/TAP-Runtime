@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/client"
 )
 
 // savePrimitive installs a minimal package named name at version into the

@@ -10,23 +10,23 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/client"
-	"gitlab.com/telara-labs/tap-runtime/discover/primitive"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/primitive"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pipeline"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/genreview"
+	"github.com/Telara-Labs/TAP-Runtime/discover/genreview"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/author"
+	"github.com/Telara-Labs/TAP-Runtime/discover/author"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+	"github.com/Telara-Labs/TAP-Runtime/discover/routine"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/discover/history"
 )
 
 // Command is `tap discover`: read this machine's agent session history,

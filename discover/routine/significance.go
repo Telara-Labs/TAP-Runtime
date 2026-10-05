@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"sort"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 )
 
 // NullSupport counts, for each pattern, how many sessions contain it in a

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
-	"gitlab.com/telara-labs/tap-runtime/discover/util"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/util"
 )
 
 // SecretShapes are value patterns that are credentials wherever they appear.

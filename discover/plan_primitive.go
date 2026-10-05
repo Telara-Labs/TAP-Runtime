@@ -2,14 +2,14 @@ package discover
 
 import (
 	"fmt"
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 	"os"
 	"sort"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
-	"gitlab.com/telara-labs/tap-runtime/discover/primitive"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/codegen"
+	"github.com/Telara-Labs/TAP-Runtime/discover/primitive"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // planPrimitiveFamilies checks the multi-continuation API before the menu is

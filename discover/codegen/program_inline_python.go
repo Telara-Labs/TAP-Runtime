@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
-	"gitlab.com/telara-labs/tap-runtime/discover/pyparse"
+	"github.com/Telara-Labs/TAP-Runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pyparse"
 )
 
 func SynthesizeInlineFileReplace(g *ProgramGraph, traces []ObservedTrace) {

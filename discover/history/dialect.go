@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // Tool-name dialects (plan §3.4.1, L4): how an agent records which MCP server

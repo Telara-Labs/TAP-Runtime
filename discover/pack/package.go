@@ -3,8 +3,8 @@ package pack
 import (
 	"sort"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // Package returns the draft as a gzip tar, the form a registry package and

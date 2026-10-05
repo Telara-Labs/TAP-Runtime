@@ -10,15 +10,15 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+	"github.com/Telara-Labs/TAP-Runtime/discover/internal/testkit"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/routine"
+	"github.com/Telara-Labs/TAP-Runtime/discover/routine"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // R1: a tool result that says the call was cancelled or rejected is a

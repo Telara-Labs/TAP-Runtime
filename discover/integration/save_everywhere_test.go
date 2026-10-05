@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover"
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+	"github.com/Telara-Labs/TAP-Runtime/discover"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 )
 
 // isolatedHome points HOME and the user config dir at a temp dir, so the

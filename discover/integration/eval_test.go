@@ -7,17 +7,17 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/pipeline"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pipeline"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+	"github.com/Telara-Labs/TAP-Runtime/discover/internal/testkit"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/eval"
+	"github.com/Telara-Labs/TAP-Runtime/discover/eval"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/discover/history"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 func TestFrozenReaderRefusesAChangedCorpus(t *testing.T) {

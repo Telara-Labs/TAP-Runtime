@@ -3,7 +3,7 @@ package integration
 import (
 	"bytes"
 	"encoding/json"
-	"gitlab.com/telara-labs/tap-runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/discover/history"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover"
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 )
 
 // copyTree copies the reader fixtures src into dst.

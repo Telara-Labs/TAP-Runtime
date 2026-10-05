@@ -1,4 +1,4 @@
-module gitlab.com/telara-labs/tap-runtime/discover
+module github.com/Telara-Labs/TAP-Runtime/discover
 
 // Kept small and on the same older Go as contract: telara-cli imports this
 // module for `telara tap discover`, and must not inherit the runner's
@@ -7,7 +7,7 @@ module gitlab.com/telara-labs/tap-runtime/discover
 go 1.25.0
 
 require (
-	gitlab.com/telara-labs/tap-runtime/contract v0.0.0-20261002212043-a043aaadda65
+	github.com/Telara-Labs/TAP-Runtime/contract v0.0.0-20261005135826-2282f2c74f6f
 	golang.org/x/term v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
 )

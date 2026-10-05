@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 )
 
 // CaseFile is a frozen set of cases for one package.

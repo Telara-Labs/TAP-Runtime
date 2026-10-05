@@ -3,11 +3,11 @@ package codegen_test
 import (
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+	"github.com/Telara-Labs/TAP-Runtime/discover/internal/testkit"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+	"github.com/Telara-Labs/TAP-Runtime/discover/codegen"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 func TestGroupProgramVariantsKeepsOneAndManyTogether(t *testing.T) {

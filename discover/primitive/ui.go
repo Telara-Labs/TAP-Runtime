@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // Pricing ratios used only to put token counts on one scale: a cache read

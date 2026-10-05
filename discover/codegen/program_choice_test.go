@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+	"github.com/Telara-Labs/TAP-Runtime/discover/codegen"
 )
 
 func TestCallerChoiceRunsOnlyItsResultLinkedBranch(t *testing.T) {

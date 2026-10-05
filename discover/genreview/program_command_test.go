@@ -3,15 +3,15 @@ package genreview_test
 import (
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/internal/testkit"
+	"github.com/Telara-Labs/TAP-Runtime/discover/internal/testkit"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/genreview"
+	"github.com/Telara-Labs/TAP-Runtime/discover/genreview"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+	"github.com/Telara-Labs/TAP-Runtime/discover/codegen"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 func TestGeneratedReviewOrderUsesGraphEffectsAndBindings(t *testing.T) {

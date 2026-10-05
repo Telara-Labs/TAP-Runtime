@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/model"
-	"gitlab.com/telara-labs/tap-runtime/discover/retrieval"
-	"gitlab.com/telara-labs/tap-runtime/discover/trace"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/retrieval"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // Episodes builds n sessions named prefix00.., each one request, four days apart.

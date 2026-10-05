@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/genreview"
+	"github.com/Telara-Labs/TAP-Runtime/discover/genreview"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/codegen"
+	"github.com/Telara-Labs/TAP-Runtime/discover/codegen"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 )
 
 func reviewableGraph() *codegen.ProgramGraph {

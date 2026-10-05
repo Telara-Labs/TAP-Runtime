@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/client"
 )
 
 func TestAgentCommandUsesTheRegistryLaunchLine(t *testing.T) {
