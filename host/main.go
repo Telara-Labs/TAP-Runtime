@@ -489,6 +489,14 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 		adm, err = admitWith(newFileBindings(defaultBindingsPath()), choose, m.Tools, br, m.Capabilities...)
 		if err != nil {
+			// A fresh run refused admission before any backend call began.
+			// A resumed run may already contain an unanswered write, so leave
+			// its record recoverable if admission fails again.
+			if run != nil && o.Resume == "" {
+				if recordErr := run.Finish("refused", time.Now().UTC()); recordErr != nil {
+					err = errors.Join(err, fmt.Errorf("recording admission refusal: %w", recordErr))
+				}
+			}
 			return nil, err
 		}
 		logf("client     %s %s", adm.Client, adm.Version)
