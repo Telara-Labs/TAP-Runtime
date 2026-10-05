@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
-	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
+	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
 // fakeBridge stands in for a client. It is a test double for a third party's

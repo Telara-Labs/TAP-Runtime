@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
-	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
-	"gitlab.com/telara-labs/tap-runtime/satisfy"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/satisfy"
 )
 
 // The corpus is data, so that a runner written by somebody else, in another

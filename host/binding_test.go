@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
 )
 
 // TENG-3100. The hijack of threat-model probe P4: a second server offers a tool

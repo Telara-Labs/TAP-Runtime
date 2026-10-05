@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
 )
 
 // Codex reaches Codex through its app-server protocol, the interface its own

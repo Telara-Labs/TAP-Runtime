@@ -1,3 +1,7 @@
+github.com/Telara-Labs/TAP-Runtime/contract v0.0.0-20261005135826-2282f2c74f6f h1:zkdwTAnyY2Af1mHrKGJNzJTP6lRNKzHjb2muUp1aNg0=
+github.com/Telara-Labs/TAP-Runtime/contract v0.0.0-20261005135826-2282f2c74f6f/go.mod h1:2atPpygui15lzVgkvAh6Oj2Cg1UOm8rNZghYNEjs9X4=
+github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261005135951-d92543bb4ddd h1:VaO6Wj8MrT/T+XBi9jrMn9flkB2H34Dm42aTNQr/qG4=
+github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261005135951-d92543bb4ddd/go.mod h1:jAFNwA/kUOM1xSMCvPlonzcvOeu/2gf+BG5F3Pypdu8=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=
 github.com/cenkalti/backoff/v5 v5.0.3/go.mod h1:rkhZdG3JZukswDf7f0cwqPNk4K0sa+F97BxZthm/crw=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
@@ -34,10 +38,6 @@ github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWD
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
 github.com/tetratelabs/wazero v1.12.0 h1:DuWcpNu/FzgEXgGBDp8J1Spc+CWOvvtvVyjKlaZopYU=
 github.com/tetratelabs/wazero v1.12.0/go.mod h1:LvKtzl2RqO4gyF27BiXU+nKAjcV8f38U+kP/q2vgxh0=
-gitlab.com/telara-labs/tap-runtime/contract v0.0.0-20261002212148-5fb7e189936e h1:TAwznu278IAZd2yAFK+C8grLqWvaxbWq4gmgQ2wgs+M=
-gitlab.com/telara-labs/tap-runtime/contract v0.0.0-20261002212148-5fb7e189936e/go.mod h1:RoGevLYFqRxbe2fdrM7wcB4n0SyXME4dN5nxU+AFUlA=
-gitlab.com/telara-labs/tap-runtime/discover v0.0.0-20261005022138-5fdf6bb55dde h1:ItTn9bGKLS5U0K/kQALVXazjlulITf49DfJSLT/cSOE=
-gitlab.com/telara-labs/tap-runtime/discover v0.0.0-20261005022138-5fdf6bb55dde/go.mod h1:aNIcCwGJVhzwDo/p4P7Z/G0UsgSIhNoduS2eIcpUWt8=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=
 go.opentelemetry.io/otel v1.46.0 h1:FHt5/CDyVxi/8IM1CH7VE/rRgq3kLHa2mSTVMO8AWyc=

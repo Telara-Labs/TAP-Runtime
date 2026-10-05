@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
 )
 
 // MCP reaches one MCP server directly, over streamable HTTP. It is the bridge

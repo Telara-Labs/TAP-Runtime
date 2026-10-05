@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	agents "gitlab.com/telara-labs/tap-runtime/discover/client"
-	"gitlab.com/telara-labs/tap-runtime/discover/pack"
+	agents "github.com/Telara-Labs/TAP-Runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 )
 
 // End to end for TENG-3109 through the runner's MCP server: discover saves a

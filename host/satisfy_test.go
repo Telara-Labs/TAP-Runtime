@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
-	"gitlab.com/telara-labs/tap-runtime/bridge"
-	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
+	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
 func schema(req []string, props ...string) map[string]any {

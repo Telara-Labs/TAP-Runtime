@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
+	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
 // A primitive generated from history declares write when the history could

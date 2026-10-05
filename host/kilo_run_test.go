@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/internal/mcpfixture"
+	"github.com/Telara-Labs/TAP-Runtime/internal/mcpfixture"
 )
 
 // TestKiloTrackerServer is not a test: Kilo starts the test binary with

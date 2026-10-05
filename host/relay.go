@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
-	"gitlab.com/telara-labs/tap-runtime/bridge"
-	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
+	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
 // A relay run is how the runner borrows the connections of a client that has

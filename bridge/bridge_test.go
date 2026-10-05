@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
 )
 
 func TestClaudeEffect(t *testing.T) {

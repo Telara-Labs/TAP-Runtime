@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
 )
 
 // TENG-3101: the person's own deny and ask rules, read per client. The shapes

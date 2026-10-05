@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
 )
 
 // When two connected servers offer a tool that fits one capability equally

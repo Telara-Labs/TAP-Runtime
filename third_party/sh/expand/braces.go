@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/third_party/sh/syntax"
+	"github.com/Telara-Labs/TAP-Runtime/third_party/sh/syntax"
 )
 
 // Braces performs brace expansion on a word, given that it contains any

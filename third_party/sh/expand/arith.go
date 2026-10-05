@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/third_party/sh/syntax"
+	"github.com/Telara-Labs/TAP-Runtime/third_party/sh/syntax"
 )
 
 // TODO(v4): the arithmetic APIs should return int64 for portability with 32-bit systems,

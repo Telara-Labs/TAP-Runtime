@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
-	"gitlab.com/telara-labs/tap-runtime/internal/mcpfixture"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/internal/mcpfixture"
 )
 
 // TestKiloFixtureServer is not a test: Kilo starts the test binary with

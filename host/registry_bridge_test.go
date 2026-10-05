@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	agents "gitlab.com/telara-labs/tap-runtime/discover/client"
+	agents "github.com/Telara-Labs/TAP-Runtime/discover/client"
 )
 
 // The discover registry says which agents a saved primitive can run in

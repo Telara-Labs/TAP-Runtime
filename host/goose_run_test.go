@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/internal/mcpfixture"
+	"github.com/Telara-Labs/TAP-Runtime/internal/mcpfixture"
 )
 
 // TestGooseTrackerServer is not a test: Goose starts the test binary with

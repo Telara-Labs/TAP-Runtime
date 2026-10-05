@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
-	runlog "gitlab.com/telara-labs/tap-runtime/journal"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
+	runlog "github.com/Telara-Labs/TAP-Runtime/journal"
 )
 
 const appendManifest = `apiVersion: primitives.telara.dev/v3

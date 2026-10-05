@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	agents "gitlab.com/telara-labs/tap-runtime/discover/client"
+	agents "github.com/Telara-Labs/TAP-Runtime/discover/client"
 	"io"
 	"os"
 	"os/exec"

@@ -25,8 +25,8 @@ import (
 	"strconv"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/third_party/sh/expand"
-	"gitlab.com/telara-labs/tap-runtime/third_party/sh/syntax"
+	"github.com/Telara-Labs/TAP-Runtime/third_party/sh/expand"
+	"github.com/Telara-Labs/TAP-Runtime/third_party/sh/syntax"
 )
 
 // A Runner interprets shell programs. It can be reused, but it is not safe for

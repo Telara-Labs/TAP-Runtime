@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/third_party/sh/expand"
-	"gitlab.com/telara-labs/tap-runtime/third_party/sh/syntax"
+	"github.com/Telara-Labs/TAP-Runtime/third_party/sh/expand"
+	"github.com/Telara-Labs/TAP-Runtime/third_party/sh/syntax"
 )
 
 // HandlerCtx returns the [HandlerContext] value stored in ctx,

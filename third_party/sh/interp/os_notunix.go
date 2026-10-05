@@ -9,7 +9,7 @@ import (
 	"context"
 	"fmt"
 
-	"gitlab.com/telara-labs/tap-runtime/third_party/sh/syntax"
+	"github.com/Telara-Labs/TAP-Runtime/third_party/sh/syntax"
 )
 
 func mkfifo(path string, mode uint32) error {

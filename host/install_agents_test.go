@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/bridge"
-	agents "gitlab.com/telara-labs/tap-runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
+	agents "github.com/Telara-Labs/TAP-Runtime/discover/client"
 )
 
 const cursorConfig = `{

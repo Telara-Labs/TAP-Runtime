@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
 )
 
 // VSCode reaches Visual Studio Code, and so GitHub Copilot's tools, through

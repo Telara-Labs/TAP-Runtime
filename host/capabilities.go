@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"gitlab.com/telara-labs/tap-runtime/contract/glob"
+	"github.com/Telara-Labs/TAP-Runtime/contract/glob"
 	"io"
 	"net/http"
 	"net/url"

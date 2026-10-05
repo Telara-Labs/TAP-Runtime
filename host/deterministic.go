@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/tetratelabs/wazero"
 
-	runlog "gitlab.com/telara-labs/tap-runtime/journal"
+	runlog "github.com/Telara-Labs/TAP-Runtime/journal"
 )
 
 // observed gives the program its clock and its random bytes through the

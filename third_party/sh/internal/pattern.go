@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/third_party/sh/pattern"
+	"github.com/Telara-Labs/TAP-Runtime/third_party/sh/pattern"
 )
 
 // ExtendedPatternMatcher returns a [regexp.Regexp.MatchString]-like function

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/internal/mcpfixture"
+	"github.com/Telara-Labs/TAP-Runtime/internal/mcpfixture"
 )
 
 // TestGeminiTrackerServer is not a test: Gemini CLI starts the test binary

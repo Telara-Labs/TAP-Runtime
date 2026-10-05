@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
+	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
 // tap_run takes a package path from the model (TENG-3103, threat G6). A model

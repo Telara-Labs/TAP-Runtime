@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
-	"gitlab.com/telara-labs/tap-runtime/bridge"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
 )
 
 // plainWord is a value that can name an operation: a short word, never free

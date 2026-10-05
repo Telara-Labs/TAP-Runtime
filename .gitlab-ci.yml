@@ -5,8 +5,6 @@ stages: [verify]
 variables:
   GOWORK: "off"
   GOFLAGS: "-mod=readonly"
-  GOPRIVATE: gitlab.com/telara-labs/*
-  GONOSUMDB: gitlab.com/telara-labs/*
 
 # Every job runs on Telara's own runners on GCP, never on GitLab.com's shared
 # ones (TENG-1863). Those runners are Linux.
@@ -20,8 +18,8 @@ default:
   before_script:
     - mkdir -p "${CI_PROJECT_DIR}/.tmp" "${CI_PROJECT_DIR}/.cache/go-build"
     - export TMPDIR="${CI_PROJECT_DIR}/.tmp" GOTMPDIR="${CI_PROJECT_DIR}/.tmp" GOCACHE="${CI_PROJECT_DIR}/.cache/go-build"
-    # The runner takes contract/ as a module, at a published version.
-    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf "https://gitlab.com/"
+    # contract/ and discover/ come from the public module proxy at the
+    # versions go.mod names, as for anyone building from source (TENG-3180).
 
 .suite: &suite
   - test -z "$(gofmt -l bind bridge conformance contract host journal release satisfy guest-sh)"

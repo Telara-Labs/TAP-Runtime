@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/discover/author"
+	"github.com/Telara-Labs/TAP-Runtime/discover/author"
 )
 
 // TestAuthoredPackageValidatesThroughTheRealRunner is the author path's

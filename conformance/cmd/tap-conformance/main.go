@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"gitlab.com/telara-labs/tap-runtime/conformance"
+	"github.com/Telara-Labs/TAP-Runtime/conformance"
 )
 
 func main() {

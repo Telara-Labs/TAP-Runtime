@@ -18,8 +18,8 @@ import (
 
 	"golang.org/x/term"
 
-	"gitlab.com/telara-labs/tap-runtime/third_party/sh/expand"
-	"gitlab.com/telara-labs/tap-runtime/third_party/sh/syntax"
+	"github.com/Telara-Labs/TAP-Runtime/third_party/sh/expand"
+	"github.com/Telara-Labs/TAP-Runtime/third_party/sh/syntax"
 )
 
 // TODO: given the categories below, perhaps this should be more like:

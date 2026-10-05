@@ -291,11 +291,12 @@ A runner built from source doesn't know where a release's bash interpreter
 is, so it can't download one. Put `sh.wasm` in its interpreter store
 (`tap fetch` prints where that is), or pass `--interpreters DIR`.
 
-`go install <module>/host@<version>` works only while the module is served
-from the path it declares, `gitlab.com/telara-labs/tap-runtime`. Served from
-any other address, such as a GitHub repository, Go refuses it: the module
-declares one path and was required as another. The installed program is
-named `host`.
+The module is `github.com/Telara-Labs/TAP-Runtime`, fetched through the
+public Go module proxy; no credentials are needed:
+
+    go install github.com/Telara-Labs/TAP-Runtime/host@latest
+
+The installed program is named `host`; rename it to `tap`.
 
 ## Tested on
 

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gitlab.com/telara-labs/tap-runtime/journal"
+	"github.com/Telara-Labs/TAP-Runtime/journal"
 )
 
 var searchTool = localTool("tap_search", "Search installed local TAP primitives without running them.", map[string]any{

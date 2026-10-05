@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"os"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
 )
 
 // Asker is implemented by a bridge that can read the person's own "ask me

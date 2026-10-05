@@ -39,10 +39,7 @@ $failed = $false
 try {
   $env:GOWORK = "off"
   $env:GOFLAGS = "-mod=readonly"
-  $env:GOPRIVATE = "gitlab.com/telara-labs/*"
-  $env:GONOSUMDB = "gitlab.com/telara-labs/*"
-  # The runner takes contract/ as a module, at a published version.
-  Step "git is given the job's token for the module" { git config --global url."https://gitlab-ci-token:$($env:CI_JOB_TOKEN)@gitlab.com/".insteadOf "https://gitlab.com/" }
+  # contract/ and discover/ come from the public module proxy (TENG-3180).
 
   Step "go version" { go version }
   Step "tests: bind, journal, satisfy" { go test ./bind ./journal ./satisfy -count=1 }

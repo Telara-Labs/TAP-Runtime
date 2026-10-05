@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	agents "gitlab.com/telara-labs/tap-runtime/discover/client"
+	agents "github.com/Telara-Labs/TAP-Runtime/discover/client"
 	"io"
 	"net/http"
 	"os"
@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/satisfy"
+	"github.com/Telara-Labs/TAP-Runtime/satisfy"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
-	"gitlab.com/telara-labs/tap-runtime/bridge"
-	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
+	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
 // binding is what an alias resolved to, and what the receipt says about it.

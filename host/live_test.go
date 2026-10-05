@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/bridge"
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
 )
 
 // TestLiveElicitationThroughClaudeCode runs the real runner as an MCP server

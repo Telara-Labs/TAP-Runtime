@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/contract/glob"
-	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/contract/glob"
+	"github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
 // TestIndependentCorpus runs cases written from the spec text by an author

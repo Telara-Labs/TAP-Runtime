@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
-	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
+	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
 // A call through a dispatcher takes the effect of the operation it

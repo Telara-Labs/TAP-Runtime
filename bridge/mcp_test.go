@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
 )
 
 // mcpServer is a small MCP server over streamable HTTP, run for real by

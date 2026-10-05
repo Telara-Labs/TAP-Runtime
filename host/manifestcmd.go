@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
-	"gitlab.com/telara-labs/tap-runtime/contract/rebuild"
+	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/contract/rebuild"
 )
 
 // manifestCommand is `host manifest`:

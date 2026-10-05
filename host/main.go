@@ -23,7 +23,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	agents "gitlab.com/telara-labs/tap-runtime/discover/client"
+	agents "github.com/Telara-Labs/TAP-Runtime/discover/client"
 	"io"
 	"net/url"
 	"os"
@@ -36,11 +36,11 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 
-	"gitlab.com/telara-labs/tap-runtime/bind"
-	"gitlab.com/telara-labs/tap-runtime/bridge"
-	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
-	"gitlab.com/telara-labs/tap-runtime/discover"
-	runlog "gitlab.com/telara-labs/tap-runtime/journal"
+	"github.com/Telara-Labs/TAP-Runtime/bind"
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
+	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/discover"
+	runlog "github.com/Telara-Labs/TAP-Runtime/journal"
 )
 
 // The manifest types live in package manifest. These names are how this

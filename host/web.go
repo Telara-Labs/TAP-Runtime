@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
+	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
 //go:embed webassets/worker.html
