@@ -3,10 +3,10 @@ package integration
 import (
 	"bytes"
 	"encoding/json"
+	"gitlab.com/telara-labs/tap-runtime/discover/history"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -225,10 +225,8 @@ func mustRead(path string) []byte {
 func TestDiscoverReadsR2Agents(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
-	user := filepath.Join(home, ".config", "Code", "User")
-	if runtime.GOOS == "darwin" {
-		user = filepath.Join(home, "Library", "Application Support", "Code", "User")
-	}
+	// Where VS Code keeps its user folder on this OS (APPDATA on Windows).
+	user := history.VSCodeUserDir(home)
 	copyTree(t, "../history/testdata/vscode-copilot/User", user)
 	os.MkdirAll(filepath.Join(user, "globalStorage", "github.copilot-chat"), 0o755)
 	copyTree(t, "../history/testdata/gemini-cli/tmp", filepath.Join(home, ".gemini", "tmp"))

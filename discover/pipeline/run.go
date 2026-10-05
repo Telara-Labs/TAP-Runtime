@@ -92,8 +92,11 @@ func Run(o model.Options) (*model.Report, error) {
 	}
 	sessions := trace.Normalize(raw)
 
-	// Identical step sequences are one piece of work run twice (a replayed
-	// test harness, a re-sent prompt), not recurrence.
+	// Identical step sequences in one agent are one piece of work run twice
+	// (a replayed test harness, a re-sent prompt), not recurrence. Two
+	// agents that ran the same steps did the work twice: neither is a copy
+	// of the other (TENG-3171; which one survived depended on the order the
+	// platform read them in).
 	seen := map[string]bool{}
 	var corpus []trace.NormSession
 	stats := map[string]*model.ClientStats{}
@@ -105,7 +108,7 @@ func Run(o model.Options) (*model.Report, error) {
 		for i, st := range s.Steps {
 			labels[i] = st.Label
 		}
-		k := strings.Join(labels, "\x1f")
+		k := s.Client + "\x1e" + strings.Join(labels, "\x1f")
 		cs := stats[s.Client]
 		if cs == nil {
 			// A reader returned sessions under another client's name.

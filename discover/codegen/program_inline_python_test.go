@@ -2,6 +2,7 @@ package codegen_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -139,7 +140,9 @@ func TestInlineFileReplaceRunsThroughHostAndRespectsFileReach(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if output, err := run(true, `{"file_path":"`+outside+`","old":"old","new":"new"}`); err == nil || !bytes.Contains(output, []byte("outside the files")) {
+	// Marshalled, not pasted: a Windows path's backslashes are JSON escapes.
+	outsideInput, _ := json.Marshal(map[string]string{"file_path": outside, "old": "old", "new": "new"})
+	if output, err := run(true, string(outsideInput)); err == nil || !bytes.Contains(output, []byte("outside the files")) {
 		t.Fatalf("out-of-scope path was not refused: %v\n%s", err, output)
 	}
 	if got, _ := os.ReadFile(outside); string(got) != "old" {
