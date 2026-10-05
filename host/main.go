@@ -201,6 +201,7 @@ type Result struct {
 const usageText = `usage: tap [--approve] [--resume RUN] <package-dir> [args...]
        tap discover [--client AGENTS] [--days N]
        tap setup
+       tap remove
        tap install --client <agent>|all|detected [--remove] [--print]
        tap serve
        tap trust PACKAGE-DIR
@@ -224,6 +225,11 @@ func main() {
 		// The same step the npm package runs after a global install, so
 		// every install path has it.
 		os.Exit(installCommand(append([]string{"--client", "detected"}, os.Args[2:]...), os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "remove" {
+		// The reverse of setup: disconnect the runner from every agent it
+		// can be connected to, installed or not.
+		os.Exit(installCommand(append([]string{"--client", "all", "--remove"}, os.Args[2:]...), os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "version" {
 		fmt.Println("tap", version)

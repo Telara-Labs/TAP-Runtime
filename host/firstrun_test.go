@@ -28,10 +28,11 @@ func TestFirstRunDeadEndsSayWhatToDo(t *testing.T) {
 		code int
 		want []string
 	}{
-		{[]string{"--help"}, 0, []string{"usage: tap", "tap discover", "tap setup"}},
+		{[]string{"--help"}, 0, []string{"usage: tap", "tap discover", "tap setup", "tap remove"}},
 		{[]string{"help"}, 0, []string{"usage: tap"}},
 		{nil, 2, []string{"usage: tap", "Start with: tap discover"}},
 		{[]string{"setup"}, 0, []string{"No agent TAP can connect to is installed here.", "claude-code", "then run: tap setup"}},
+		{[]string{"remove"}, 0, []string{"is not connected"}},
 		{[]string{"no-such-folder"}, 2, []string{"tap: no-such-folder is not a primitive folder", "tap discover"}},
 	} {
 		out, code := run(c.args...)

@@ -185,6 +185,7 @@ tap install --client claude-code         # --scope local|user|project
 tap install --client cursor,windsurf
 tap install --client all --print         # show what would change, change nothing
 tap install --client cursor --remove
+tap remove                               # disconnect from every agent
 ```
 
 ## When two servers offer the same tool

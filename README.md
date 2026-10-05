@@ -63,6 +63,14 @@ installs the `tap` CLI. `tap setup` then connects it, as the MCP server
 connected. (npm's install step runs the same setup, but npm hides its output
 and may skip install scripts.) `tap install --client <agent>` connects one;
 `tap install --client all --print` shows what it would change.
+
+To turn TAP off, run `tap remove`: it takes the `tap` entry out of every
+agent's configuration (and Gemini CLI's hook with it). Do this before
+`npm uninstall -g @telaralabs/tap`, which runs no cleanup of its own, or the
+agents keep an entry for a program that is gone. `tap setup` turns it back
+on. Nothing runs in the background: an agent starts `tap serve` for its own
+session and stops it when the session ends. To pause TAP for a while, switch
+the `tap` server off in the agent's own MCP settings (`/mcp` in Claude Code).
 Each release is signed, and the install scripts check every download against
 a pinned sha256: [docs/install.md](docs/install.md).
 

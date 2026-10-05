@@ -103,6 +103,10 @@ func commandName(c agents.Client) string {
 func installOne(c agents.Client, home, self, name, scope string, env envFlags, print, remove, explicit bool, stdout, stderr io.Writer) int {
 	switch c.MCP.Kind {
 	case agents.MCPExtension:
+		if remove {
+			fmt.Fprintf(stdout, "%s: connected by the TAP extension, if it is installed; uninstall the extension in %s to disconnect it.\n", c.Name, c.Name)
+			return 0
+		}
 		fmt.Fprintf(stdout, "%s: connected by the TAP extension (tap-vscode-<version>.vsix from the release); nothing to change here.\n", c.Name)
 		return 0
 	case agents.MCPYAMLFile:
@@ -124,6 +128,8 @@ func installOne(c agents.Client, home, self, name, scope string, env envFlags, p
 		case err != nil:
 			fmt.Fprintln(stderr, "not changed:", err)
 			return 1
+		case !changed && remove:
+			fmt.Fprintf(stdout, "%s: %s is not connected.\n", c.Name, name)
 		case !changed:
 			fmt.Fprintf(stdout, "%s: %s already as wanted.\n", c.Name, path)
 		case remove:
@@ -142,11 +148,16 @@ func installOne(c agents.Client, home, self, name, scope string, env envFlags, p
 				return 0
 			}
 			if remove {
-				if _, err := setMCPEntry(path, c.MCP.Key, name, nil); err != nil {
+				changed, err := removeGemini(path, name)
+				if err != nil {
 					fmt.Fprintln(stderr, "not removed:", err)
 					return 1
 				}
-				fmt.Fprintf(stdout, "%s: removed %s from %s (its hook stays until Gemini's settings are edited).\n", c.Name, name, path)
+				if changed {
+					fmt.Fprintf(stdout, "%s: removed %s and its hook from %s.\n", c.Name, name, path)
+				} else {
+					fmt.Fprintf(stdout, "%s: %s is not connected.\n", c.Name, name)
+				}
 				return 0
 			}
 			if err := addGemini(path, name, self, env); err != nil {
@@ -189,6 +200,8 @@ func installOne(c agents.Client, home, self, name, scope string, env envFlags, p
 			changed = changed || hc
 		}
 		switch {
+		case !changed && remove:
+			fmt.Fprintf(stdout, "%s: %s is not connected.\n", c.Name, name)
 		case !changed:
 			fmt.Fprintf(stdout, "%s: %s already as wanted.\n", c.Name, path)
 		case remove:
@@ -229,6 +242,21 @@ func installOne(c agents.Client, home, self, name, scope string, env envFlags, p
 			_ = exec.Command(rm[0], rm[1:]...).Run()
 		}
 	}
+	if remove {
+		// The agent's remove fails when there is nothing to remove, which is
+		// what removing everywhere expects to find on most agents.
+		out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
+		switch {
+		case err == nil:
+			fmt.Fprintf(stdout, "%s: removed %s.\n", c.Name, name)
+		case !explicit:
+			fmt.Fprintf(stdout, "%s: %s is not connected (%s).\n", c.Name, name, firstLine(out, err))
+		default:
+			fmt.Fprintf(stderr, "%s: %s\n", c.Name, firstLine(out, err))
+			return 1
+		}
+		return 0
+	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
@@ -236,6 +264,16 @@ func installOne(c agents.Client, home, self, name, scope string, env envFlags, p
 		return 1
 	}
 	return 0
+}
+
+// firstLine is the first non-empty line a command printed, or its error.
+func firstLine(out []byte, err error) string {
+	for _, l := range strings.Split(string(out), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			return l
+		}
+	}
+	return err.Error()
 }
 
 // mcpEntry is the runner's server entry for a JSON configuration.
@@ -357,6 +395,59 @@ func addGemini(path, name, self string, env envFlags) error {
 		}
 	}
 	return os.WriteFile(path, append(out, '\n'), 0o600)
+}
+
+// removeGemini takes the runner's server entry and its hook out of Gemini's
+// settings, keeping everything else. A hook left behind would run a program
+// that may no longer exist on every Gemini tool call.
+func removeGemini(path, name string) (bool, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return false, nil
+	}
+	settings := map[string]any{}
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return false, fmt.Errorf("%s is not plain JSON (%v); it was left unchanged", path, err)
+	}
+	changed := false
+	if servers, ok := settings["mcpServers"].(map[string]any); ok {
+		if _, ok := servers[name]; ok {
+			delete(servers, name)
+			changed = true
+		}
+	}
+	if hooks, ok := settings["hooks"].(map[string]any); ok {
+		groups, _ := hooks["AfterTool"].([]any)
+		kept := []any{}
+		for _, g := range groups {
+			if gm, ok := g.(map[string]any); ok {
+				if hs, ok := gm["hooks"].([]any); ok && len(hs) == 1 {
+					if h, ok := hs[0].(map[string]any); ok && h["name"] == "tap" {
+						changed = true
+						continue
+					}
+				}
+			}
+			kept = append(kept, g)
+		}
+		if changed && groups != nil {
+			hooks["AfterTool"] = kept
+		}
+	}
+	if !changed {
+		return false, nil
+	}
+	out, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return false, err
+	}
+	if err := os.WriteFile(path+".tap-backup", raw, 0o600); err != nil {
+		return false, err
+	}
+	return true, os.WriteFile(path, append(out, '\n'), 0o600)
 }
 
 func installArgv(client, scope, name, self string, env envFlags) ([]string, error) {
