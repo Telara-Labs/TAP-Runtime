@@ -113,24 +113,33 @@ function runOnce(module, argv, stdinBytes) {
 //   script    the primitive's program
 //   args      the arguments given to the program, as the runner gives them
 //   bindings  alias -> {server, tool}: what each declared tool is bound to
+//   beforeCall async (server, tool, args) -> checks permission before dispatch
 //   callTool  async (server, tool, args) -> result object
 //   onEvent   called with a line for each request, for the page's log
-export async function runPrimitive({ module, prelude, script, args = [], bindings, callTool, onEvent = () => {}, maxRuns = 200 }) {
+export async function runPrimitive({ module, prelude, script, args = [], bindings, beforeCall = () => {}, callTool, onEvent = () => {}, maxRuns = 200, maxDispatches = 1000 }) {
   const argv = ["qjs", "--module", "-e", prelude.replace("%s", JSON.stringify(script)), ...args.map(String)];
   const answers = [];
   const enc = new TextEncoder();
-  let calls = 0, refused = 0;
+  let calls = 0, refused = 0, requests = 0;
   for (let runs = 1; runs <= maxRuns; runs++) {
     const stdin = enc.encode(answers.map((a) => JSON.stringify(a) + "\n").join(""));
     const r = runOnce(module, argv, stdin);
     const lines = r.stdout.split("\n").filter(Boolean).map((l) => JSON.parse(l));
     const done = lines.find((l) => l.method === "return");
-    if (done) return { stdout: done.stdout, stderr: done.stderr, exit: done.exit, calls, refused, runs };
-    if (!r.pending) return { stdout: "", stderr: r.stderr || "the primitive ended without a result", exit: r.exit || 1, calls, refused, runs };
+    if (done) return { stdout: done.stdout, stderr: done.stderr, exit: done.exit, calls, refused, requests, runs };
+    if (!r.pending) return { stdout: "", stderr: r.stderr || "the primitive ended without a result", exit: r.exit || 1, calls, refused, requests, runs };
     // Every request past the answers already given is new. call_many sends
     // several before reading, and they are answered together, in order.
     const fresh = lines.filter((l) => l.id).slice(answers.length);
     for (const rq of fresh) {
+      // Match the native host's max_dispatches budget: every new request
+      // except tool discovery and permission queries counts, even if refused.
+      if (rq.method !== "tools" && rq.method !== "canwrite" && ++requests > maxDispatches) {
+        refused++;
+        onEvent(`REFUSED  ${rq.method}: over limits.max_dispatches = ${maxDispatches}`);
+        answers.push({ id: rq.id, refused: `the primitive has made its ${maxDispatches} requests (limits.max_dispatches)` });
+        continue;
+      }
       if (rq.method === "tools") {
         answers.push({ id: rq.id, tools: Object.keys(bindings) });
       } else if (rq.method === "call") {
@@ -141,10 +150,19 @@ export async function runPrimitive({ module, prelude, script, args = [], binding
           answers.push({ id: rq.id, refused: `tool ${rq.alias} is not declared in primitive.yaml` });
           continue;
         }
+        try {
+          await beforeCall(b.server, b.tool, rq.arguments || {});
+        } catch (e) {
+          refused++;
+          onEvent(`REFUSED  ${rq.alias}: ${e.message || e}`);
+          answers.push({ id: rq.id, refused: String(e.message || e) });
+          continue;
+        }
         onEvent(`call     ${rq.alias} -> ${b.server} / ${b.tool}`);
+        // The connector was dispatched even if the provider later rejects it.
+        calls++;
         try {
           const res = await callTool(b.server, b.tool, rq.arguments || {});
-          calls++;
           answers.push({ id: rq.id, result: JSON.stringify(res.payload ?? res) });
         } catch (e) {
           answers.push({ id: rq.id, exit: 1, stderr: `${e.code || "error"}: ${e.message || e}` });
@@ -157,5 +175,5 @@ export async function runPrimitive({ module, prelude, script, args = [], binding
       }
     }
   }
-  return { stdout: "", stderr: `stopped after ${maxRuns} runs`, exit: 1, calls, refused, runs: maxRuns };
+  return { stdout: "", stderr: `stopped after ${maxRuns} runs`, exit: 1, calls, refused, requests, runs: maxRuns };
 }

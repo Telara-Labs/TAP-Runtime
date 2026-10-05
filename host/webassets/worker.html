@@ -152,7 +152,7 @@ let db = null;
 // declared. A connector that says nothing is refused too: the runner treats a
 // tool that does not say what it does as a write, and this page has no way to
 // ask.
-async function guardedCall(mcp, server, tool, args) {
+async function guardTool(mcp, server, tool) {
   let info = null;
   try { info = await mcp.describeTool(server, tool); } catch { info = null; }
   const a = (info && info.annotations) || {};
@@ -166,6 +166,9 @@ async function guardedCall(mcp, server, tool, args) {
     e.code = "refused";
     throw e;
   }
+}
+async function guardedCall(mcp, server, tool, args) {
+  await guardTool(mcp, server, tool);
   return mcp.callTool(server, tool, args, { cache: false });
 }
 // TAP-GUARD-END
@@ -183,8 +186,9 @@ async function handleJob(id, spec) {
     const args = Array.isArray(spec.args) ? spec.args.map(String) : [];
     let inBytes = 0;
     const r = await runPrimitive({
-      module, prelude: PRELUDE, script: p.program, args, bindings: p.bindings,
-      callTool: async (server, tool, a) => { const res = await guardedCall(mcp, server, tool, a); inBytes += JSON.stringify(res.payload ?? res).length; return res; },
+      module, prelude: PRELUDE, script: p.program, args, bindings: p.bindings, maxDispatches: p.max_dispatches,
+      beforeCall: (server, tool) => guardTool(mcp, server, tool),
+      callTool: async (server, tool, a) => { const res = await mcp.callTool(server, tool, a, { cache: false }); inBytes += JSON.stringify(res.payload ?? res).length; return res; },
     });
     const result = (r.stdout || "").trimEnd();
     job.inBytes = inBytes; job.outBytes = result.length; job.state = r.exit ? "failed" : "done";

@@ -69,10 +69,11 @@ func webCommand(args []string, stdout, stderr io.Writer) int {
 
 // webPrimitive is one primitive as the page holds it.
 type webPrimitive struct {
-	Version     string                `json:"version"`
-	Description string                `json:"description,omitempty"`
-	Bindings    map[string]webBinding `json:"bindings"`
-	Program     string                `json:"program"`
+	Version       string                `json:"version"`
+	Description   string                `json:"description,omitempty"`
+	Bindings      map[string]webBinding `json:"bindings"`
+	Program       string                `json:"program"`
+	MaxDispatches int                   `json:"max_dispatches"`
 }
 
 type webBinding struct {
@@ -123,7 +124,7 @@ func buildWebPage(store string, packages []string) ([]byte, map[string]any, erro
 				return nil, nil, err
 			}
 		}
-		p := webPrimitive{Version: m.Metadata.Version, Description: m.Metadata.Description, Bindings: map[string]webBinding{}, Program: program}
+		p := webPrimitive{Version: m.Metadata.Version, Description: m.Metadata.Description, Bindings: map[string]webBinding{}, Program: program, MaxDispatches: dispatchesFor(m.Execution.Limits)}
 		for _, t := range m.Tools {
 			// The page has no approval step yet, so it makes no changes.
 			if t.Effect != "read" {
