@@ -2,6 +2,7 @@ package history
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -31,16 +32,15 @@ var errStoreSchema = errors.New("the store does not have the expected tables")
 
 // sqliteRows runs one query against a store, read-only.
 func sqliteRows(bin, db, sql string) ([]map[string]any, error) {
-	cmd := exec.Command(bin, "-readonly", "-json", util.SQLiteURI(db), sql)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteReadTimeout)
+	defer cancel()
+	out, err := util.SQLiteQuery(ctx, bin, db, sql)
 	if err != nil {
-		msg := strings.TrimSpace(stderr.String())
+		msg := err.Error()
 		if strings.Contains(msg, "no such table") || strings.Contains(msg, "no such column") {
 			return nil, fmt.Errorf("%w: %s", errStoreSchema, msg)
 		}
-		return nil, fmt.Errorf("sqlite3: %v: %s", err, msg)
+		return nil, err
 	}
 	if len(bytes.TrimSpace(out)) == 0 {
 		return nil, nil

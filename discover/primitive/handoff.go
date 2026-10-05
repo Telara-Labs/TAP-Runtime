@@ -3,6 +3,7 @@ package primitive
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
@@ -188,7 +189,9 @@ func sqliteRows(path, sql string) ([]map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sqlite3 is not installed")
 	}
-	out, err := exec.Command(bin, "-readonly", "-json", util.SQLiteURI(path), sql).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteReadTimeout)
+	defer cancel()
+	out, err := util.SQLiteQuery(ctx, bin, path, sql)
 	if err != nil {
 		return nil, err
 	}

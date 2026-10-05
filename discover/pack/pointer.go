@@ -186,6 +186,10 @@ Run it with the TAP runner's `+"`tap_run`"+` tool:
 `+"`tap_load`"+` with the same ref shows its inputs and effects; the runner asks
 you to approve any change it would make.
 
+If this digest is no longer installed, inspect the current package with
+`+"`tap_load`"+` and refresh TAP-owned pointers with
+`+"`tap discover migrate-saved`"+`. An old digest never runs different bytes.
+
 %s`, id.Name, descJSON, PointerKey, id.Ref, id.Name, id.Ref, id.Digest, where)
 }
 
@@ -382,6 +386,30 @@ func MigrateSaved(home, cwd, collection string) ([]MigrateResult, error) {
 		for _, e := range entries {
 			from := filepath.Join(root, e.Name())
 			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			if ref, pointer := IsPointer(from); pointer {
+				to := filepath.Join(collection, e.Name())
+				id, err := ReadIdentity(to)
+				if err != nil || id.Ref != ref {
+					out = append(out, MigrateResult{From: from, To: to, Mode: PointerSkipped, Reason: "the collection has no matching " + ref + "; save the intended package again"})
+					continue
+				}
+				members, err := os.ReadDir(from)
+				if err != nil {
+					return out, err
+				}
+				if len(members) != 1 {
+					out = append(out, MigrateResult{From: from, To: to, Mode: PointerSkipped, Reason: "the pointer folder has additional files; it was not replaced"})
+					continue
+				}
+				mode, reason, err := writePointer(from, PointerSkillMD(id, runsIn))
+				if err != nil {
+					return out, err
+				}
+				if mode != PointerUnchanged {
+					out = append(out, MigrateResult{From: from, To: to, Mode: mode, Reason: reason})
+				}
 				continue
 			}
 			mk, err := ReadMarker(from)

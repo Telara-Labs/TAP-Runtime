@@ -2,6 +2,7 @@ package history
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -106,13 +107,12 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 		}
 		bin = p
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteReadTimeout)
+	defer cancel()
 	query := func(sql string) ([]CursorRow, error) {
-		cmd := exec.Command(bin, "-readonly", "-json", util.SQLiteURI(r.DB), sql)
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		out, err := cmd.Output()
+		out, err := util.SQLiteQuery(ctx, bin, r.DB, sql)
 		if err != nil {
-			return nil, fmt.Errorf("cursor: sqlite3: %v: %s", err, strings.TrimSpace(stderr.String()))
+			return nil, fmt.Errorf("cursor: %w", err)
 		}
 		var rows []CursorRow
 		if len(bytes.TrimSpace(out)) == 0 {

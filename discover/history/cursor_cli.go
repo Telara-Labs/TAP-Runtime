@@ -2,6 +2,7 @@ package history
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,7 +13,6 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
@@ -99,13 +99,12 @@ type cursorCLIPart struct {
 
 // ReadCursorCLIStore reads one session's store.db with the sqlite3 at bin.
 func ReadCursorCLIStore(bin, db string) (trace.Session, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteReadTimeout)
+	defer cancel()
 	query := func(sql string) ([]map[string]string, error) {
-		cmd := exec.Command(bin, "-readonly", "-json", util.SQLiteURI(db), sql)
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		b, err := cmd.Output()
+		b, err := util.SQLiteQuery(ctx, bin, db, sql)
 		if err != nil {
-			return nil, fmt.Errorf("cursor-cli: sqlite3: %v: %s", err, strings.TrimSpace(stderr.String()))
+			return nil, fmt.Errorf("cursor-cli: %w", err)
 		}
 		var rows []map[string]string
 		if len(bytes.TrimSpace(b)) == 0 {
