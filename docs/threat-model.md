@@ -2,24 +2,32 @@
 
 Evidence baseline: the October 1 review covered v0.1.1. Sections 1–8 are
 historical, including probes superseded by later fixes. Their threat rows and
-statuses must not be read as current v0.1.13 behavior. Section 9 and the final
+statuses must not be read as current v0.1.14 behavior. Section 9 and the final
 status summary record the current controls and their evidence boundaries.
 
-On October 5, signed v0.1.13 was published from
-`a73cc076d28daa0d20ed6557096a557f24550285` to GitHub and npm. It includes the
-complete installer invocation, pointer repair and digest-scoped CLI fetch
-grants. A downloaded macOS arm64 binary completed an allowed-origin request
-through a real CONNECT proxy. Native Claude Code 2.1.289 completed one public
-GET after separate package-trust and origin forms, answered by UI automation.
-This is not human write acceptance or all-client acceptance. Current source
-after v0.1.13 checks digest-scoped package trust even when the client advertises
-no elicitation: an untrusted package requiring this check is refused before a
-run starts, an owner-pretrusted exact digest can run, and changed entrypoint
-bytes require new trust. A real external MCP stdio probe exercised all three
-paths with capabilities `{}`. This source behavior is absent from v0.1.13;
-no later binary release is claimed by that probe. The historical
-30-item report and later remediation receipts live locally under
-`dist/verification-2026-10-05/`; they are not public repository artifacts.
+Current release: signed [v0.1.14](https://github.com/Telara-Labs/TAP-Runtime/releases/tag/v0.1.14),
+from `fd5b0b82b81248de3d7c8a1b52cb87069b0f3a1d`. GitHub published it on
+October 5 at 20:56:08 UTC. npm records publication at 20:59:57.357 UTC;
+a fresh public registry check confirmed it after publication.
+
+An independently downloaded macOS arm64 v0.1.14 binary and its signed manifest
+verified against the pinned release key. External MCP stdio checks with
+capabilities `{}` refused an untrusted package before starting a run, permitted
+the owner-pretrusted exact digest, and refused its edited entrypoint digest.
+The same runner executed a Discover-generated tool-only primitive making one
+real Jira read, with no refused actions or external writes. A real HTTPS proxy
+test completed HTTP 200 through exactly one CONNECT request. These checks
+establish those released protocol paths, not GUI approval acceptance or native
+release acceptance on every platform.
+
+Earlier v0.1.13 included the complete installer invocation, pointer repair and
+digest-scoped CLI fetch grants, but skipped package-wide trust for clients
+advertising no elicitation. That gap is fixed in v0.1.14. The native Claude Code
+2.1.289 public GET and its separate package-trust and origin forms were tested
+against v0.1.13, with forms answered by UI automation; they are not a new
+v0.1.14 GUI check. Historical reports and later remediation receipts live
+locally under `dist/verification-2026-10-05/`; they are not public repository
+artifacts.
 
 This is a description of what the runner is meant to stop, what it does stop
 according to code and tests that were read and run, and what it does not stop.
@@ -348,12 +356,12 @@ ticket, and what remains. A fixed gap names the test that holds it.
 
 | ID | Status | What changed | What remains |
 |---|---|---|---|
-| G1 | Fetch gate and headless extension shipped in v0.1.13 (TENG-3099) | Every fetch, a read included, is asked of the person once per origin per run. Every full address is in the record, and a refusal is recorded too. `TestAReadFetchThatCarriesDataOutIsGatedAndRecorded`, `TestThePersonIsAskedOncePerOriginForReads` | Data can leave to an approved origin. v0.1.13 includes CLI-only --fetch-origin grants scoped to the package digest; plain package trust does not approve fetches and revokes existing grants for that digest. A downloaded v0.1.13 macOS arm64 binary completed a real CONNECT proxy request; native Claude Code completed public GET approval. v0.1.4 and v0.1.10 proxy failures are historical |
+| G1 | Fetch gate and headless extension shipped in v0.1.13 (TENG-3099) | A fetch, including a read, requires origin approval: a prompt once per origin per run, or an explicit owner CLI grant for that exact package digest. Every full address is in the record, and a refusal is recorded too. `TestAReadFetchThatCarriesDataOutIsGatedAndRecorded`, `TestThePersonIsAskedOncePerOriginForReads` | Data can leave to an approved origin. v0.1.13 includes CLI-only --fetch-origin grants scoped to the package digest; plain package trust does not approve fetches and revokes existing grants for that digest. Downloaded v0.1.13 and v0.1.14 macOS arm64 binaries completed real CONNECT proxy requests; native Claude Code completed public GET approval in v0.1.13. v0.1.4 and v0.1.10 proxy failures are historical |
 | G2 | Fixed (TENG-3102) | `timeoutSeconds` (default 10 minutes, paused while a person is asked), a 512 MiB memory ceiling, `limits.max_dispatches` (default 1000), a 16 MiB cap on one protocol line, and a cap and timeout on each host program's output. `TestAProgramThatNeverEndsIsStoppedAtItsTimeLimit`, `TestPythonCannotAllocateBeyondTheMemoryCeiling` | `max_steps`, `max_input_bytes` and `max_checkpoint_bytes` are accepted but cannot be applied by this runner; the log names them when declared. A guest can use all of the memory ceiling and the whole time limit |
 | G3 | Fixed (TENG-3103) | A call's arguments are checked against the capability's contract at call time: undeclared arguments, wrong types and missing required ones are refused before any approval. `TestACallIsHeldToTheContractsArguments` | Applies only where the manifest carries a contract for the tool |
 | G4 | Fixed (TENG-3100) | When more than one server fits a capability equally well the runner refuses, or asks the person through the client, and keeps the choice on the machine per client (`tap bind`). The manifest names no server, so a primitive stays portable. `TestTwoServersThatFitEquallyAreNotChosenBetween` | A server that fits slightly better than the real one still wins. A person can choose the wrong server when asked |
 | G5 | Partly fixed (TENG-3103) | The list now covers `git -c`, `--exec-path`, `--upload-pack`, `make`, `awk`, `npm run`, `go run` and other launchers. `TestInvocationsThatRunCodeAreRecognized` | Still a hand-maintained list: any program not on it that runs code is classed by what the manifest declares |
-| G6 | v0.1.13 gap; corrected in subsequent source (TENG-3103) | In v0.1.13, clients advertising elicitation ask before first use and edits; clients advertising no elicitation skip the package-wide question. Subsequent source checks the recorded manifest-and-entrypoint digest before deciding whether the client can ask. An external stdio MCP probe with capabilities `{}` refused an untrusted package before creating a run, ran the owner-pretrusted exact digest, and refused its changed entrypoint digest. `TestSourceNoElicitationRequiresDigestScopedOwnerTrust` | The external probe used a source-built runner; it does not establish this behavior in v0.1.13 or human approval in another client. Tool-only packages retain per-call gates. Package trust does not approve writes or fetch origins and cannot establish that a program is harmless |
+| G6 | Fixed in v0.1.14 (TENG-3103) | v0.1.13 clients advertising no elicitation skipped package-wide trust. v0.1.14 checks the recorded manifest-and-entrypoint digest before deciding whether the client can ask. An external stdio MCP probe with capabilities `{}` against the independently downloaded signed v0.1.14 macOS arm64 binary refused an untrusted package before creating a run, ran its owner-pretrusted exact digest, and refused its changed entrypoint digest. A Discover-generated tool-only primitive also performed one real Jira read | This is released protocol acceptance, not human GUI approval in another client. Tool-only packages retain per-call gates. Package trust does not approve writes or fetch origins and cannot establish that a program is harmless |
 | G7 | Fixed where the client exposes rules (TENG-3101) | Claude Code ask rules, Codex `enabled_tools`, `disabled_tools`, disabled servers and `approval_mode = "prompt"` (checked against Codex 0.147.0), Gemini `includeTools` and `excludeTools`, VS Code `chat.tools.eligibleForAutoApproval`. | VS Code gives an extension no way to read tools switched off in its picker. The direct MCP bridge has no person between it and the server. The Gemini field names were confirmed in Gemini CLI 0.62.0's bundle, and the VS Code setting's key format (`tool`, `server/tool`, `server/*`) in the shipped VS Code 1.138 source; the VS Code ask rule was run through the real extension in a real VS Code 1.140 (`go test ./bridge -run LiveVSCode -live-vscode`): a setting key `runTask` made `run_task` ask and no other tool. The match is a best match to the editor's own lookup, and an MCP server was not connected in that run |
 | G8 | VS Code source gate present; Gemini source interpretation only (TENG-3101) | **VS Code:** a live run (VS Code 1.140, a real MCP server that logs each call) showed that a call made through the extension, which has no invocation token, ran a tool that is not read-only with nobody confirming it, after a delay of 47 to 104 seconds. The runner no longer leaves approval of tool calls to VS Code; it asks the person itself, and a call with no yes is not made. `TestAToolCalledThroughVSCodeIsAskedByTheRunnerAndRefusedWithoutAYes`. The extension now gives up after 2 minutes with a message instead of 10. **Gemini:** in Gemini CLI 0.62.0's source, a hook's tail call is turned into a validating call with the session's approval mode, so it goes through the same confirmation as a call the model makes. This was read in the source, not run | Native Copilot rendered a first-trust form and a declined response; read execution passed. Its own write prompt and runner-specific two-minute stall message remain unverified. Gemini 0.62.0 returned IneligibleTierError for the existing account, so native hook/write/includeTools/excludeTools acceptance remains unverified |
 | G9 | Fixed (TENG-3103) | The file system root, paths that leave the directory, plain `http` to a remote host and link-local addresses are refused at admission. A named origin that resolves to loopback, a private address or a metadata address is not reached. `TestDeclarationsThatCannotBeMeantAreRefused`, `TestANameThatResolvesToTheMachineItselfIsNotReached` | An origin declared as a private or loopback address is allowed, on purpose |
@@ -375,17 +383,16 @@ ticket, and what remains. A fixed gap names the test that holds it.
 - Current source: Python/JavaScript/Bash memory probes, 1000-request bound,
   default 600-second timeout, status/evidence for failed and unknown-outcome
   runs, same-user/private-mode behavior, and real CONNECT proxy use passed.
-- The no-elicitation package-trust bypass exists in v0.1.13. Subsequent
-  source requires prior owner trust for packages needing package admission
-  when the client cannot ask. An external MCP stdio probe with capabilities
-  `{}` refused an untrusted package before starting a run, ran its owner-trusted
-  exact digest, and refused an edited entrypoint with a new digest. This probe
-  establishes source behavior, not behavior in the v0.1.13 binary. Tool-only
-  packages retain per-call gates.
-- Released v0.1.13 includes the complete installer invocation, explicit stale
-  pointer repair and digest-scoped CLI fetch grants. GitHub and npm serve the
-  release; package trust and fetch approval remain separate.
-- Claude Code 2.1.289 rendered separate native first-trust and origin forms;
+- Released v0.1.14 closes v0.1.13's no-elicitation package-trust bypass.
+  An independently downloaded signed macOS arm64 binary refused an untrusted
+  package before starting a run, ran its owner-pretrusted exact digest, and
+  refused its edited entrypoint with a new digest. A Discover-generated
+  tool-only primitive made one real Jira read; the real HTTPS proxy check
+  returned HTTP 200 through one CONNECT. No external writes were made.
+- The complete installer invocation, explicit stale pointer repair and
+  digest-scoped CLI fetch grants shipped in v0.1.13 and remain in v0.1.14.
+  Package trust and fetch approval remain separate.
+- In v0.1.13, Claude Code 2.1.289 rendered separate native first-trust and origin forms;
   the known public GET completed with HTTP 200, one read and zero refusals.
   UI automation answered the forms. Native Copilot read execution and a
   declined trust form were observed. Human write acceptance, change prompts,
@@ -403,6 +410,8 @@ ticket, and what remains. A fixed gap names the test that holds it.
 - v0.1.13 native release acceptance passed Windows amd64, macOS arm64 and
   amd64, and Linux arm64, including the platform install scripts. Linux amd64
   never acquired a hosted runner on two attempts, so no acceptance test ran.
+  Fresh v0.1.14 native release acceptance on all five platforms is pending;
+  its macOS arm64 external protocol proof does not replace that matrix.
   Windows ACL behavior and the complete host suite on every platform remain
   separate checks. See the
   [release workflow](https://github.com/Telara-Labs/TAP-Runtime/actions/runs/37367125042).
