@@ -78,17 +78,12 @@ func (m *machine) env() []string {
 }
 
 // systemPath is the directories of the tools a fresh machine has: node,
-// npm, go, curl, the shell. It excludes nothing tap-related because the
-// runner machine has none installed.
+// npm, go, curl, the shell. Keep directories containing an unrelated "tap"
+// command (Debian's Perl TAP harness is one): dropping /usr/bin would also
+// remove node, curl and the shell. Tests invoke the installed runner by its
+// explicit path, and machine.bin precedes these directories.
 func systemPath() []string {
-	var out []string
-	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
-		if _, err := os.Stat(filepath.Join(d, exe("tap"))); err == nil {
-			continue // a tap from somewhere else would hide the one under test
-		}
-		out = append(out, d)
-	}
-	return out
+	return filepath.SplitList(os.Getenv("PATH"))
 }
 
 func exe(name string) string {
