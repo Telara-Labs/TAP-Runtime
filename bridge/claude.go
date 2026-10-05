@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -32,12 +35,16 @@ type Claude struct {
 // NewClaude starts a second copy of Claude Code (ruling 11). extra is passed
 // to it and exists for tests.
 func NewClaude(extra ...string) (*Claude, error) {
-	v, err := exec.Command("claude", "--version").Output()
+	executable, err := ClaudeExecutable()
+	if err != nil {
+		return nil, err
+	}
+	v, err := exec.Command(executable, "--version").Output()
 	if err != nil {
 		return nil, fmt.Errorf("claude is not on this machine: %w", err)
 	}
 	args := append([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"}, extra...)
-	cmd := exec.Command("claude", args...)
+	cmd := exec.Command(executable, args...)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -58,6 +65,40 @@ func NewClaude(extra ...string) (*Claude, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+// ClaudeExecutable returns the Claude Code executable TAP should use. It
+// prefers the native per-user install and falls back to PATH, matching the
+// bridge's control-channel launcher.
+func ClaudeExecutable() (string, error) {
+	home, _ := os.UserHomeDir()
+	return resolveClaudeExecutable(home, runtime.GOOS, exec.LookPath)
+}
+
+// resolveClaudeExecutable prefers Claude Code's native per-user install and
+// then falls back to the executable discoverable on PATH. The native path is
+// used for both the version probe and the control-channel process, so a stale
+// PATH shim cannot make TAP interrogate a different installation.
+func resolveClaudeExecutable(home, goos string, lookPath func(string) (string, error)) (string, error) {
+	name := "claude"
+	if goos == "windows" {
+		name += ".exe"
+	}
+	if home != "" {
+		candidate := filepath.Join(home, ".local", "bin", name)
+		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && (goos == "windows" || info.Mode().Perm()&0111 != 0) {
+			return candidate, nil
+		}
+	}
+	pathName := "claude"
+	if goos == "windows" {
+		pathName += ".exe"
+	}
+	path, err := lookPath(pathName)
+	if err != nil {
+		return "", fmt.Errorf("Claude Code was not found at the native install path or on PATH: %w", err)
+	}
+	return path, nil
 }
 
 // read hands each response to whoever asked for it. Several requests may be

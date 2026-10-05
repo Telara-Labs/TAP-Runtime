@@ -175,16 +175,40 @@ func TestInstallIsSeenByEachAgentCLI(t *testing.T) {
 	}
 	for _, tc := range []struct{ id, bin string }{{"claude-code", "claude"}, {"codex", "codex"}, {"copilot-cli", "copilot"}} {
 		t.Run(tc.id, func(t *testing.T) {
-			if _, err := exec.LookPath(tc.bin); err != nil {
-				t.Skipf("not run: %s is not on this machine", tc.bin)
+			bin := tc.bin
+			if tc.id == "claude-code" {
+				var err error
+				bin, err = bridge.ClaudeExecutable()
+				if err != nil {
+					t.Skipf("not run: %s is not on this machine", tc.id)
+				}
+			} else if _, err := exec.LookPath(bin); err != nil {
+				t.Skipf("not run: %s is not on this machine", bin)
 			}
 			home := t.TempDir()
+			// Claude Code may populate its temporary home with read-only module
+			// cache directories. Make only this test-owned tree removable before
+			// testing.T's TempDir cleanup runs.
+			t.Cleanup(func() {
+				_ = filepath.WalkDir(home, func(path string, entry os.DirEntry, err error) error {
+					if err != nil {
+						return nil
+					}
+					if entry.IsDir() {
+						return os.Chmod(path, 0o700)
+					}
+					if entry.Type()&os.ModeSymlink == 0 {
+						return os.Chmod(path, 0o600)
+					}
+					return nil
+				})
+			})
 			t.Setenv("HOME", home)
 			var out, errOut bytes.Buffer
 			if code := installCommand([]string{"--client", tc.id}, &out, &errOut); code != 0 {
 				t.Fatalf("install exit %d: %s", code, errOut.String())
 			}
-			cmd := exec.Command(tc.bin, "mcp", "list")
+			cmd := exec.Command(bin, "mcp", "list")
 			cmd.Env = append(os.Environ(), "HOME="+home)
 			b, _ := cmd.CombinedOutput()
 			if !strings.Contains(string(b), "tap") {

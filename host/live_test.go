@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gitlab.com/telara-labs/tap-runtime/bridge"
 )
 
 // TestLiveElicitationThroughClaudeCode runs the real runner as an MCP server
@@ -22,7 +24,8 @@ import (
 // Claude Code is started headless, so its control channel stands where its
 // window would be. That a window shows the same prompt is not tested here.
 func TestLiveElicitationThroughClaudeCode(t *testing.T) {
-	if _, err := exec.LookPath("claude"); err != nil {
+	claude, err := bridge.ClaudeExecutable()
+	if err != nil {
 		t.Skip("claude is not installed")
 	}
 	store := interpreterStore(t)
@@ -51,7 +54,7 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 				"command": bin, "args": []string{"serve", "--interpreters", store, "--runs", filepath.Join(work, "runs"), "--journal", filepath.Join(work, "journal.jsonl"), "--config-dir", filepath.Join(work, "config"), "--catalog-root", catalogRoot}}}})
 			os.WriteFile(cfg, j, 0o600)
 
-			cmd := exec.Command("claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+			cmd := exec.Command(claude, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 				"--mcp-config", cfg, "--strict-mcp-config")
 			cmd.Dir = work
 			in, _ := cmd.StdinPipe()
@@ -158,15 +161,22 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 			}
 			t.Logf("Claude Code TAP search: %v", probe)
 			r, err := request("mcp_call", map[string]any{"tool": "mcp__tap__tap_run", "arguments": identity})
-			if err != nil {
+			if c.written && err != nil {
 				t.Fatal(err)
+			}
+			if !c.written && (err == nil || !strings.Contains(strings.ToLower(err.Error()), "refused")) {
+				t.Fatalf("declined write should be returned as a surfaced refusal, got result=%v error=%v", r, err)
 			}
 			body, _ := json.Marshal(r)
 			t.Logf("prompts Claude Code forwarded: %d", len(prompts))
 			for _, p := range prompts {
 				t.Logf("  %s", strings.ReplaceAll(p, "\n", " | "))
 			}
-			t.Logf("tool result: %.300s", body)
+			if err != nil {
+				t.Logf("tool refusal: %.300s", err.Error())
+			} else {
+				t.Logf("tool result: %.300s", body)
+			}
 
 			if len(prompts) != 1 {
 				t.Fatalf("the person was asked %d times, want 1", len(prompts))

@@ -29,6 +29,7 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 	otelPayloads := fs.Bool("otel-payloads", false, "with an OpenTelemetry endpoint set: also send what calls were given and what they touched")
 	mcpURL := fs.String("mcp-url", "", "call this MCP server (streamable HTTP) directly instead of borrowing the client's connections")
 	mcpHeaderFile := fs.String("mcp-header-file", "", "with --mcp-url: file of header lines to send, such as \"Authorization: Bearer ...\"")
+	mcpServerName := fs.String("mcp-server-name", "", "with --mcp-url: logical connection name used by primitive tool pins; defaults to serverInfo.name")
 	retention := fs.Int("retention-days", 30, "remove the records of runs older than this many days; 0 keeps them for ever")
 	serverName := fs.String("name", "tap", "the name the client knows this server by, as given at install")
 	vscodeSocket := fs.String("vscode-socket", "", "the TAP extension's socket, given by the extension that starts this server in VS Code")
@@ -36,6 +37,10 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 	configDir := fs.String("config-dir", "", "directory for the choices a person made (tool bindings) and the packages they trust; default is the user config directory")
 	catalogRoot := fs.String("catalog-root", "", "additional local primitive collection root")
 	allowPackagePath := fs.Bool("allow-package-path", false, "allow legacy model-supplied package paths; use only during migration")
+	httpListen := fs.String("http-listen", "", "serve Streamable HTTP at /mcp on this address instead of stdio (for example 127.0.0.1:8765)")
+	httpTokenFile := fs.String("http-token-file", "", "required with --http-listen: private file containing the incoming bearer token")
+	var httpOrigins stringList
+	fs.Var(&httpOrigins, "http-origin", "allowed HTTP Origin; repeat for each exact origin")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -52,6 +57,13 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 		journal = &lockedWriter{w: f}
 	}
 	s := &server{out: out, pending: map[int]chan rpcMessage{}, journal: journal, interpDir: *interpDir, cacheDir: *cacheDir, runsDir: *runsDir, retention: *retention, payloads: *otelPayloads, mcpURL: *mcpURL, mcpHeaderFile: *mcpHeaderFile, vscodeSocket: *vscodeSocket, noRecord: *noRecord, catalogRoot: *catalogRoot, allowPackagePath: *allowPackagePath}
+	s.mcpServerName = *mcpServerName
+	if *httpListen != "" {
+		if *mcpURL == "" {
+			return fmt.Errorf("--http-listen requires an explicitly configured --mcp-url backend")
+		}
+		return serveHTTP(*httpListen, *httpTokenFile, httpOrigins, s)
+	}
 	if dir, err := relayDir(); err == nil {
 		s.relay = newRelayHub(dir, *serverName)
 		defer s.relay.close()
@@ -114,6 +126,7 @@ type server struct {
 	cacheDir         string
 	mcpURL           string
 	mcpHeaderFile    string
+	mcpServerName    string
 	runsDir          string
 	catalogRoot      string
 	allowPackagePath bool
@@ -123,6 +136,7 @@ type server struct {
 	clientName    string
 	clientVersion string
 	canElicit     bool
+	requestCtx    context.Context // HTTP serializes requests within each client session
 
 	// relay holds the runs that wait on a client which makes tool calls
 	// when a hook asks it to (relay.go).
@@ -181,10 +195,21 @@ func (s *server) ask(method string, params any) (rpcMessage, bool) {
 	id := s.next
 	ch := make(chan rpcMessage, 1)
 	s.pending[id] = ch
+	ctx := s.requestCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.mu.Unlock()
 	s.write(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
-	m, ok := <-ch
-	return m, ok
+	select {
+	case m, ok := <-ch:
+		return m, ok
+	case <-ctx.Done():
+		s.mu.Lock()
+		delete(s.pending, id)
+		s.mu.Unlock()
+		return rpcMessage{}, false
+	}
 }
 
 // elicit asks the person at the client whether a primitive may make a kind
@@ -411,7 +436,7 @@ func (s *server) handle(m rpcMessage) {
 		o := Options{
 			Package: packagePath, ExpectedDigest: args.Digest, Args: args.Args, Journal: s.journal, Approve: approve, Choose: choose,
 			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, NoJournal: s.noRecord, TelemetryPayloads: s.payloads, Client: clientFor(name),
-			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile,
+			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile, MCPServerName: s.mcpServerName,
 		}
 		if s.vscodeSocket != "" && s.mcpURL == "" {
 			// The approval stays with this runner: VS Code runs an unconfirmed
@@ -422,7 +447,13 @@ func (s *server) handle(m rpcMessage) {
 			s.startRelay(m.ID, o, name, version, canElicit)
 			return
 		}
-		res, err := Run(context.Background(), o)
+		s.mu.Lock()
+		ctx := s.requestCtx
+		s.mu.Unlock()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		res, err := Run(ctx, o)
 		s.replyRun(m.ID, res, err, canElicit)
 	default:
 		s.fail(m.ID, -32601, "method not found")
@@ -449,7 +480,7 @@ func (s *server) replyRun(id *json.RawMessage, res *Result, err error, canElicit
 	if !canElicit && res.Refused > 0 {
 		text += "\n[this client cannot show an approval prompt, so every change was refused]"
 	}
-	s.reply(id, map[string]any{"isError": res.Exit != 0, "content": []any{map[string]any{"type": "text", "text": text}}})
+	s.reply(id, map[string]any{"isError": res.Exit != 0 || res.Refused > 0 || res.Unknown > 0, "content": []any{map[string]any{"type": "text", "text": text}}})
 }
 
 // startRelay runs a primitive whose tool calls the client makes itself when

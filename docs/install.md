@@ -5,10 +5,13 @@
 - **An agent that can lend its connections**, for a primitive that calls
   tools: Claude Code, Codex, VS Code (with the extension below), Gemini CLI
   (experimental) or Goose (experimental, see below). `tap install` also connects the TAP MCP server to Cursor,
-  Windsurf and Copilot CLI, so `tap_search` works there, but those agents
-  cannot yet run a primitive's tool calls (docs/bridge-research.md). The
-  runner also runs from a terminal with no agent, for primitives that use no
-  tools.
+  Windsurf and Copilot CLI. Registration alone does not prove execution;
+  their native connection handoff remains limited (docs/bridge-research.md).
+  The source HTTP frontend can instead use an explicitly configured generic
+  MCP backend, as described below. Claude Code, Codex and Cursor have passed
+  the same real read workflow through that frontend; controlled writes and
+  the remaining clients are still pending. The runner also runs from a
+  terminal with no agent, for primitives that use no tools.
 - **The connections a primitive uses**, already connected in that client (for
   example Gmail), and any host program it declares (`git`, `kubectl`).
 - **Network on first use**, to download interpreters. `tap fetch`
@@ -29,6 +32,61 @@ package changes, search again. Status and evidence read the local run record.
 For an additional collection root, start the server with
 `tap serve --catalog-root DIR`. This is an explicit local directory, not a
 remote registry. The runner does not publish packages through MCP.
+
+## Standard MCP execution with a configured backend
+
+Clients that cannot lend their own tool connections can use an explicitly
+configured downstream MCP server. Its inventory and calls go through the
+existing generic bridge; the primitive and its digest stay the same:
+
+```
+tap serve --mcp-url https://your-backend.example/mcp --mcp-header-file /private/backend-headers
+```
+
+The header file holds lines such as `Authorization: Bearer ...`. Keep it
+outside the project and accessible only to its owner. This does not inherit
+connections authenticated only inside another client.
+
+If a package pins the connection name configured in its original client,
+pass that same logical name with `--mcp-server-name` (for example `telara`).
+Without it, the generic bridge uses the backend's advertised `serverInfo.name`.
+This labels the configured connection; it does not rename tools or choose
+another backend.
+
+For clients using Streamable HTTP, the source build also supports:
+
+```
+tap serve --http-listen 127.0.0.1:8765 \
+  --http-token-file /private/tap-token \
+  --mcp-url https://your-backend.example/mcp \
+  --mcp-header-file /private/backend-headers
+```
+
+Connect to `/mcp` with `Authorization: Bearer <token from tap-token>`. The
+incoming token must contain at least 32 characters; its file must be private.
+Incoming and backend credentials are separate. Requests with an Origin header
+are refused unless that exact origin is supplied with `--http-origin`.
+Each client gets a separate session and approval channel. Cancellation uses
+`notifications/cancelled`; a disconnected response does not retry the workflow.
+
+Web clients additionally need a reachable HTTPS endpoint or their supported
+secure tunnel. This transport currently uses fixed bearer authentication;
+it does not provide an OAuth authorization server. A client that cannot
+send that credential or display MCP elicitation has not passed write
+acceptance. Do not expose an unauthenticated endpoint to work around it.
+
+The client acceptance gate is discovery/load, one `tap_run`, actual read and
+controlled write, declared approvals/limits/errors, and independent destination
+verification in every claimed client. A result containing refused calls or unknown
+outcomes reports an MCP error and retains those outcomes in its run record. Protocol tests and registration do not
+satisfy it. The opt-in native-client read harness is:
+
+```
+GOWORK=off go test ./host -run '^TestLiveClientAcceptanceClaudeCodeAndCodex$' -count=1 -v -live-client-acceptance
+```
+
+It uses the installed Jira primitive, disables its write follow-up, and retains
+MCP transcripts and journals in the printed temporary evidence directory.
 
 ## One instruction
 

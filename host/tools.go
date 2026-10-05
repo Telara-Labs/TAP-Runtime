@@ -120,7 +120,7 @@ func openBridge(client string) (bridge.Bridge, error) {
 
 // openMCP opens the MCP bridge. The header comes from a file, never a flag:
 // a process's arguments are readable by anyone who can list processes.
-func openMCP(url, headerFile string) (bridge.Bridge, error) {
+func openMCP(url, headerFile string, connectionName ...string) (bridge.Bridge, error) {
 	h := http.Header{}
 	if headerFile != "" {
 		raw, err := os.ReadFile(headerFile)
@@ -132,7 +132,11 @@ func openMCP(url, headerFile string) (bridge.Bridge, error) {
 			return nil, fmt.Errorf("--mcp-header-file: %w", err)
 		}
 	}
-	b, err := bridge.NewMCP(url, h)
+	name := ""
+	if len(connectionName) > 0 {
+		name = connectionName[0]
+	}
+	b, err := bridge.NewMCPWithName(url, h, name)
 	if err != nil {
 		return nil, fmt.Errorf("MCP server %s: %w", url, err)
 	}
@@ -419,7 +423,12 @@ func callTool(a *admission, b bridge.Bridge, rq request, approve bool, journal i
 		record("refused_undeclared", nil)
 		return reply{Refused: "alias not declared, or declared optional and not bound"}
 	}
-	effect, refused, nested := callEffect(bd, a.inv, rq.Arguments, b)
+	var effect, refused, nested string
+	if rq.callAssessment != nil {
+		effect, refused, nested = rq.callAssessment.effect, rq.callAssessment.refused, rq.callAssessment.nested
+	} else {
+		effect, refused, nested = callEffect(bd, a.inv, rq.Arguments, b)
+	}
 	entry["server"], entry["tool"], entry["effect"] = bd.Server, bd.Tool, effect
 	if nested != "" {
 		entry["dispatches"] = nested

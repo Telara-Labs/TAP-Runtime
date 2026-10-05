@@ -159,7 +159,7 @@ func nestedTool(args map[string]any, via bind.Tool, inv []bind.Tool) (bind.Tool,
 // A read declaration is refused when the operation is effectful; an
 // effectful declaration is promoted to the stronger observed effect.
 func callEffect(bd *binding, inv []bind.Tool, args map[string]any, br bridge.Bridge) (effect, refused, nested string) {
-	if isTelaraDispatcher(bd.tool) && bd.Declared == string(bind.Read) && !bd.Asked {
+	if isTelaraDispatcher(bd.tool) && !bd.Asked {
 		integration, action := "", ""
 		if bd.dispatch != nil && bd.dispatch.Integration != "" {
 			integration, action = bd.dispatch.Integration, bd.dispatch.Action
@@ -168,25 +168,39 @@ func callEffect(bd *binding, inv []bind.Tool, args map[string]any, br bridge.Bri
 			action, _ = args["action"].(string)
 		}
 		if integration == "" || action == "" {
-			return "", "a read through telara_execute_action needs a fixed integration and action", ""
+			if bd.Declared == string(bind.Read) {
+				return "", "a read through telara_execute_action needs a fixed integration and action", ""
+			}
+			return bd.effective(), "", ""
 		}
 		// If this client exposes the dispatched operation directly, its own
 		// annotation remains authoritative (the existing nestedTool path).
-		if inner, ok := nestedTool(args, bd.tool, inv); ok {
+		if inner, ok := nestedTool(args, bd.tool, inv); ok && inner.Annotated != bind.Unknown {
 			nested = inner.Server + " / " + inner.Name
-			if inner.Annotated != bind.Read {
+			if bd.Declared == string(bind.Read) && inner.Annotated != bind.Read {
 				return "", "the dispatched operation " + nested + " is annotated " + string(inner.Annotated) + " and the primitive declares read", nested
 			}
-			return string(bind.Read), "", nested
+			resolved := inner.Annotated
+			if resolved != bind.Read && bind.Rank(bind.Effect(bd.Declared)) > bind.Rank(resolved) {
+				resolved = bind.Effect(bd.Declared)
+			}
+			return string(resolved), "", nested
 		}
 		resolved, err := telaraActionEffect(br, bd.tool.Server, inv, integration, action)
 		if err != nil {
+			if bd.Declared != string(bind.Read) {
+				// No verified target: retain the broad dispatcher gate.
+				return bd.effective(), "", integration + "/" + action
+			}
 			return "", err.Error(), integration + "/" + action
 		}
-		if resolved != string(bind.Read) {
+		if bd.Declared == string(bind.Read) && resolved != string(bind.Read) {
 			return "", fmt.Sprintf("Telara declares %s/%s as %s; the primitive declares read", integration, action, resolved), integration + "/" + action
 		}
-		return string(bind.Read), "", integration + "/" + action
+		if resolved != string(bind.Read) && bind.Rank(bind.Effect(bd.Declared)) > bind.Rank(bind.Effect(resolved)) {
+			resolved = bd.Declared
+		}
+		return resolved, "", integration + "/" + action
 	}
 	effect = bd.effective()
 	inner, ok := nestedTool(args, bd.tool, inv)

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"gitlab.com/telara-labs/tap-runtime/bind"
 )
@@ -25,7 +26,7 @@ type MCP struct {
 	header http.Header
 	http   *http.Client
 
-	server  string // serverInfo.name, the Server of every tool
+	server  string // connection name exposed as Server for every tool
 	version string // serverInfo.version
 
 	mu      sync.Mutex
@@ -42,6 +43,17 @@ const mcpProtocolVersion = "2025-06-18"
 // NewMCP opens a session with the server at url, sending header on every
 // request.
 func NewMCP(url string, header http.Header) (*MCP, error) {
+	return NewMCPWithName(url, header, "")
+}
+
+// NewMCPWithName opens an MCP server over streamable HTTP. connectionName,
+// when nonempty, is the local connection alias used as bind.Tool.Server; the
+// endpoint's advertised tool names and all wire calls remain unchanged. An
+// empty name preserves NewMCP's serverInfo.name behavior.
+func NewMCPWithName(url string, header http.Header, connectionName string) (*MCP, error) {
+	if err := validateMCPConnectionName(connectionName); err != nil {
+		return nil, err
+	}
 	m := &MCP{url: url, header: header.Clone(), http: &http.Client{
 		Timeout: 120 * time.Second,
 		// Never follow a redirect. Go drops only Authorization, Cookie and
@@ -64,10 +76,28 @@ func NewMCP(url string, header http.Header) (*MCP, error) {
 	if m.server == "" {
 		m.server = "mcp"
 	}
+	if connectionName != "" {
+		m.server = connectionName
+	}
 	if err := m.notify("notifications/initialized"); err != nil {
 		return nil, err
 	}
 	return m, nil
+}
+
+func validateMCPConnectionName(name string) error {
+	if name == "" {
+		return nil
+	}
+	if strings.TrimSpace(name) == "" || strings.TrimSpace(name) != name {
+		return fmt.Errorf("MCP connection name must be nonempty and have no surrounding whitespace")
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("MCP connection name must not contain control characters")
+		}
+	}
+	return nil
 }
 
 // Client names the protocol rather than a product: what is on the other end

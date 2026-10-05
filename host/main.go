@@ -67,6 +67,13 @@ type request struct {
 	URL        string            `json:"url"`
 	HTTPMethod string            `json:"http_method"`
 	Headers    map[string]string `json:"headers"`
+	// Only the host may resolve a call's effect. Keep one assessment for
+	// its journal, approval and dispatch; the guest cannot supply it.
+	callAssessment *callAssessment
+}
+
+type callAssessment struct {
+	effect, refused, nested string
 }
 
 type reply struct {
@@ -138,6 +145,7 @@ type Options struct {
 	// lines sent with every request, such as its Authorization.
 	MCPURL        string
 	MCPHeaderFile string
+	MCPServerName string // caller's connection name, for packages pinning that name
 	ReceiptPath   string
 	// relay, when set, borrows the connections of a client that makes tool
 	// calls when a hook asks it to (relay.go). relayClient names that client.
@@ -228,6 +236,7 @@ func main() {
 	client := flag.String("client", "", "agent whose connections to borrow ("+strings.Join(agents.IDs(func(c agents.Client) bool { return c.Bridge }), ", ")+"); detected when empty")
 	mcpURL := flag.String("mcp-url", "", "call this MCP server (streamable HTTP) directly instead of borrowing a client's connections")
 	mcpHeaderFile := flag.String("mcp-header-file", "", "with --mcp-url: file of header lines to send, such as \"Authorization: Bearer ...\"")
+	mcpServerName := flag.String("mcp-server-name", "", "with --mcp-url: logical connection name used by primitive tool pins; defaults to serverInfo.name")
 	vscodeSocket := flag.String("vscode-socket", "", "call VS Code's tools through the TAP extension listening on this socket")
 	receiptPath := flag.String("receipt", "", "write the admission record as JSON")
 	runsDir := flag.String("runs", "", "directory holding one record per run; default is the user cache directory")
@@ -260,7 +269,7 @@ func main() {
 		Package: flag.Arg(0), Args: flag.Args()[1:], Journal: journal,
 		Approve:   askFn,
 		InterpDir: *interpDir, CacheDir: *cacheDir, PyLib: *pyLib, Client: bridgeName(*client), ReceiptPath: *receiptPath,
-		MCPURL: *mcpURL, MCPHeaderFile: *mcpHeaderFile, VSCodeSocket: *vscodeSocket,
+		MCPURL: *mcpURL, MCPHeaderFile: *mcpHeaderFile, MCPServerName: *mcpServerName, VSCodeSocket: *vscodeSocket,
 		RunsDir: *runsDir, Resume: *resume, NoJournal: *noJournal, RetentionDays: *retention, TelemetryPayloads: *otelPayloads,
 	})
 	must(err)
@@ -395,7 +404,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			defer br.Close()
 		}
 		if br == nil && o.MCPURL != "" {
-			br, err = openMCP(o.MCPURL, o.MCPHeaderFile)
+			br, err = openMCP(o.MCPURL, o.MCPHeaderFile, o.MCPServerName)
 			if err != nil {
 				return nil, err
 			}
@@ -607,6 +616,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	effectOf := func(rq request) string {
 		switch rq.Method {
 		case "call":
+			if rq.callAssessment != nil && rq.callAssessment.effect != "" {
+				return rq.callAssessment.effect
+			}
 			if adm != nil {
 				if bd := adm.byAlias[rq.Alias]; bd != nil {
 					return bd.effective()
@@ -702,9 +714,18 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	// answer produces the reply to one request: from the record when the run
 	// has answered it before, and by acting otherwise.
 	answer := func(rq request) (rp reply, replayed bool, err error) {
+		assess := func() {
+			if rq.Method == "call" && adm != nil {
+				if bd := adm.byAlias[rq.Alias]; bd != nil {
+					effect, refused, nested := callEffect(bd, adm.inv, rq.Arguments, br)
+					rq.callAssessment = &callAssessment{effect: effect, refused: refused, nested: nested}
+				}
+			}
+		}
 		// Asking whether a write is allowed changes nothing and is not
 		// recorded. Everything else is.
 		if run == nil || rq.ID == "" || rq.Method == "canwrite" {
+			assess()
 			return act(rq), false, nil
 		}
 		id := rq.ID
@@ -742,6 +763,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				return rp, false, nil
 			}
 		}
+		assess()
 		if err := run.Begin(id, rq.Method, digest, effectOf(rq), time.Now().UTC()); err != nil {
 			return reply{}, false, err
 		}
@@ -877,8 +899,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	res.Exit, res.Stdout, res.Stderr = final.Exit, final.Stdout, final.Stderr
 	outcome = "completed"
-	if res.Unknown > 0 {
+	if res.Exit != 0 {
+		outcome = "failed"
+	} else if res.Unknown > 0 {
 		outcome = "completed_with_unknown"
+	} else if res.Refused > 0 {
+		outcome = "completed_with_refusals"
 	}
 	if run != nil {
 		if err := run.Finish(outcome, time.Now().UTC()); err != nil {
