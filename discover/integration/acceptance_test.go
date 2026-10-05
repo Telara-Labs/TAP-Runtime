@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -113,15 +114,27 @@ func runDraft(t *testing.T, d *model.Draft, outputs map[string]string, args ...s
 	return out, calls, err
 }
 
-// runDraftDir is runDraft that also returns the directory the program ran in.
-func runDraftDir(t *testing.T, d *model.Draft, outputs map[string]string, args ...string) (string, string, []string, error) {
+// needPOSIXShell skips a test that runs a generated script with the host's
+// bash, a stand-in for the sandbox's shell. Windows' Git Bash is not one: it
+// reads PATH and runs scripts differently, so on Windows these skip (the
+// sandboxed shell itself is tested by the runner's suite).
+func needPOSIXShell(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("generated scripts are run with a POSIX bash here; Windows has none")
+	}
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not available")
 	}
 	if _, err := exec.LookPath("jq"); err != nil {
 		t.Skip("jq not available")
 	}
+}
+
+// runDraftDir is runDraft that also returns the directory the program ran in.
+func runDraftDir(t *testing.T, d *model.Draft, outputs map[string]string, args ...string) (string, string, []string, error) {
+	t.Helper()
+	needPOSIXShell(t)
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "bin")
 	os.MkdirAll(bin, 0o755)
@@ -329,6 +342,7 @@ func TestC06ExplicitListLoopIsAUsefulProcedure(t *testing.T) {
 	if list == nil || list.Source != routine.InputCaller {
 		t.Fatalf("the files are a caller-given list: %+v", r.Contract.Inputs)
 	}
+	needPOSIXShell(t)
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "x.txt"), []byte("x"), 0o644)
 	os.WriteFile(filepath.Join(dir, "y z.txt"), []byte("y"), 0o644)
