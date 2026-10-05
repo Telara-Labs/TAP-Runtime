@@ -59,3 +59,28 @@ It commits the version bump, tags it, builds and signs the release from a
 clean export of that commit, pushes, creates the GitHub release and waits
 until npm serves the new version. It prints one JSON report, and rerunning it
 resumes from the step that failed.
+
+### Before announcing a release
+
+Run the **Launch acceptance** workflow (Actions, Run workflow) with the new
+version. On clean macOS (arm64 and Intel), Linux (amd64 and arm64) and
+Windows machines it installs the published release from npm, the release
+install script and `go install`; runs the README's commands, the first-run
+dead ends, the example primitives and the write approval gate; verifies the
+release signature against `release/release.pub`; and checks that
+`tap discover` makes no network connections. The same test runs locally:
+
+```
+go test ./acceptance/launch -count=1 -v -launch-version X.Y.Z
+```
+
+### If a published release is broken
+
+1. Point npm back at the last good version, so new installs get it:
+   `npm dist-tag add @telaralabs/tap@<good> latest`.
+2. Deprecate the bad one, with the reason:
+   `npm deprecate @telaralabs/tap@<bad> "<what is broken>; install <good>"`.
+3. On GitHub, mark the bad release as a pre-release, so `releases/latest`
+   points at the last good one again, and add the same note to it.
+4. Fix forward with a new version through the release command. A published
+   npm version and a pushed tag are never reused.

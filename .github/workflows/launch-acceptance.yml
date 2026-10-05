@@ -1,0 +1,50 @@
+name: Launch acceptance
+
+# Checks a PUBLISHED release the way a new user meets it, on clean hosted
+# machines for every platform a release is built for: npm install, the
+# release install script, go install, the README's commands, the first-run
+# dead ends, the write approval gate, the release signature, and that
+# tap discover makes no network connections. Nothing is built from this
+# checkout; it supplies only examples, history fixtures and the release key.
+# Run it after every release, before announcing one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published version to check, e.g. 0.1.11
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  GOWORK: "off"
+
+jobs:
+  accept:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, platform: linux-amd64}
+          - {os: ubuntu-24.04-arm, platform: linux-arm64}
+          - {os: macos-latest, platform: darwin-arm64}
+          - {os: macos-15-intel, platform: darwin-amd64}
+          - {os: windows-latest, platform: windows-amd64}
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.1"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: strace, to record discover's connections
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq strace
+      - name: Accept v${{ inputs.version }}
+        run: go test ./acceptance/launch -count=1 -v -timeout 30m -launch-version "${{ inputs.version }}"

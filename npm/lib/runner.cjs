@@ -17,7 +17,11 @@ function resolveRunner(packageDir, platform = process.platform, arch = process.a
   const key = platformKey(platform, arch);
   const manifest = JSON.parse(fs.readFileSync(path.join(packageDir, 'runner-assets.json'), 'utf8'));
   const asset = manifest.assets[key];
-  if (!asset) throw new Error(`TAP has no runner for ${key}`);
+  if (!asset) {
+    const supported = Object.keys(manifest.assets).sort().join(', ');
+    throw new Error(`TAP has no prebuilt runner for ${key}. Prebuilt runners: ${supported}. ` +
+      'On another platform, build it from source: go install github.com/Telara-Labs/TAP-Runtime/host@latest (it installs as host; rename it to tap).');
+  }
   const runner = path.join(packageDir, 'assets', asset.file);
   const digest = crypto.createHash('sha256').update(fs.readFileSync(runner)).digest('hex');
   if (digest !== asset.sha256) throw new Error(`TAP runner ${asset.file} failed its SHA-256 check`);

@@ -194,7 +194,34 @@ type Result struct {
 	Admission *admission
 }
 
+// usageText is what `tap` with no arguments, and `tap help`, print.
+const usageText = `usage: tap [--approve] [--resume RUN] <package-dir> [args...]
+       tap discover [--client AGENTS] [--days N]
+       tap setup
+       tap install --client <agent>|all|detected [--remove] [--print]
+       tap serve
+       tap trust PACKAGE-DIR
+       tap bind --client NAME CAPABILITY SERVER
+       tap fetch
+       tap manifest check|complete <package-dir>
+       tap web build --out FILE <package-dir>...
+       tap hook gemini
+       tap version
+
+Start with: tap discover   (finds work you repeat in your agents' history)
+Docs: https://github.com/Telara-Labs/TAP-Runtime
+`
+
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "help" || os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "-help") {
+		fmt.Print(usageText)
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "setup" {
+		// The same step the npm package runs after a global install, so
+		// every install path has it.
+		os.Exit(installCommand(append([]string{"--client", "detected"}, os.Args[2:]...), os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "version" {
 		fmt.Println("tap", version)
 		return
@@ -227,7 +254,7 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
 		if err := serve(os.Stdin, os.Stdout, os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "host  fatal:", err)
+			fmt.Fprintln(os.Stderr, "tap:", err)
 			os.Exit(1)
 		}
 		return
@@ -251,7 +278,11 @@ func main() {
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: tap [--approve] [--resume RUN] <package-dir> [args...]\n       tap serve\n       tap trust PACKAGE-DIR\n       tap bind --client NAME CAPABILITY SERVER\n       tap install --client <agent>|all|detected [--remove]\n       tap discover [--review] [--rejected]\n       tap hook gemini\n       tap web build --out FILE <package-dir>...\n       tap fetch\n       tap manifest check|complete <package-dir>\n       tap version")
+		fmt.Fprint(os.Stderr, usageText)
+		os.Exit(2)
+	}
+	if _, err := os.Stat(filepath.Join(flag.Arg(0), "primitive.yaml")); err != nil {
+		fmt.Fprintf(os.Stderr, "tap: %s is not a primitive folder (it has no primitive.yaml).\nRun tap with no arguments for usage, or tap discover to find primitives in your agents' history.\n", flag.Arg(0))
 		os.Exit(2)
 	}
 	var journal io.Writer = io.Discard
@@ -1074,11 +1105,11 @@ func guestConfig(kind, pyLib, script string, args []string) wazero.ModuleConfig 
 	return cfg
 }
 
-func logf(f string, a ...any) { fmt.Fprintf(os.Stderr, "host  "+f+"\n", a...) }
+func logf(f string, a ...any) { fmt.Fprintf(os.Stderr, "tap  "+f+"\n", a...) }
 
 func must(err error) {
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "host  fatal:", err)
+		fmt.Fprintln(os.Stderr, "tap:", err)
 		os.Exit(1)
 	}
 }

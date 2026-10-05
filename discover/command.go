@@ -248,6 +248,11 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 		}
 		sessions = append(sessions, ss...)
 	}
+	if len(sessions) == 0 && !*asJSON {
+		progress("")
+		writeNoHistory(out, readIDs, *days)
+		return 0
+	}
 	stateDir := filepath.Join(home, ".tap", "discover")
 	known = append(known, primitive.LoadKnown(stateDir)...)
 	progress(fmt.Sprintf("Looking for repeated work in %d sessions…", len(sessions)))
@@ -288,6 +293,24 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 		return 1
 	}
 	return 0
+}
+
+// writeNoHistory says what discover looked for when it found nothing to
+// read, and what to do next, instead of an empty report.
+func writeNoHistory(out io.Writer, read []string, days int) {
+	if len(read) == 0 {
+		fmt.Fprintf(out, "No agent history found on this machine.\n\ntap discover reads the session history these agents keep: %s.\nUse one of them for your usual work, then run tap discover again.\n", historyClients())
+		return
+	}
+	window := ""
+	if days > 0 {
+		window = fmt.Sprintf(" from the last %d days", days)
+	}
+	fmt.Fprintf(out, "No sessions%s in the history of: %s.\n\nRun tap discover again after you have used these agents for your usual work", window, strings.Join(read, ", "))
+	if days > 0 {
+		fmt.Fprint(out, ", or drop --days to read all of their history")
+	}
+	fmt.Fprintf(out, ".\nTo read other agents: tap discover --client <agents> (any of: %s).\n", historyClients())
 }
 
 // historyClients and skillsClients list, from the registry, the agents whose

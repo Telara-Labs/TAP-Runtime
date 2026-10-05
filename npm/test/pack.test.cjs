@@ -68,6 +68,7 @@ test('stages all five verified binaries and embeds their hashes and release vers
   assert.ok(fs.existsSync(path.join(outputDir, 'README.md')));
   assert.match(fs.readFileSync(path.join(outputDir, 'bin/tap.cjs'), 'utf8'), /runner/);
   assert.doesNotThrow(() => resolveRunner(outputDir, 'darwin', 'arm64'));
+  assert.throws(() => resolveRunner(outputDir, 'freebsd', 'x64'), /no prebuilt runner for freebsd\/amd64\. Prebuilt runners: .*darwin\/arm64.*go install github\.com\/Telara-Labs\/TAP-Runtime\/host@latest/);
   assert.equal(platformKey('win32', 'x64'), 'windows/amd64');
   assert.equal(platformKey('win32', 'arm64'), 'windows/amd64');
 });

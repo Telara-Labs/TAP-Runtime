@@ -31,7 +31,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3 zstd
       - name: Format
-        run: test -z "$(gofmt -l bind bridge conformance contract host journal release satisfy guest-sh internal discover)"
+        run: test -z "$(gofmt -l acceptance bind bridge conformance contract host journal release satisfy guest-sh internal discover)"
       - name: Vet
         run: go vet ./... && (cd contract && go vet ./...) && (cd discover && go vet ./...)
       - name: Build the Bash interpreter

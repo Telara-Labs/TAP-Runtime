@@ -60,7 +60,7 @@ func installCommand(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(targets) == 0 {
-		fmt.Fprintln(stdout, "No agent TAP can connect to is installed here.")
+		fmt.Fprintf(stdout, "No agent TAP can connect to is installed here.\nInstall one of %s, then run: tap setup\n", strings.Join(agents.IDs(agents.HasMCP), ", "))
 		return 0
 	}
 	self, err := os.Executable()
