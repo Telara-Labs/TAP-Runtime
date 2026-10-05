@@ -15,7 +15,14 @@ Artifact and keep it open in a tab while you chat.
 2. The worker runs the primitive in a sandbox in the page. Each tool the
    program calls is answered by your own connector.
 3. The worker writes what the program printed onto the job. Your chat reads
-   it. The data the primitive read never enters the chat.
+   it. Data enters the chat if the primitive prints it; only intermediate
+   results kept out of its output stay outside the conversation.
+
+The connector guard requires `readOnlyHint: true` and refuses a tool with
+`destructiveHint: true` or missing read-only metadata. The exact guard was
+exercised with one real Gmail metadata-only search in a private Artifact on
+October 5. This does not establish compatibility with every connector, the
+complete compiled worker, or a desktop-companion connection.
 
 Measured on claude.ai with a Gmail primitive: 37 KB read from Gmail, 170 bytes
 returned to the chat, about five seconds end to end.

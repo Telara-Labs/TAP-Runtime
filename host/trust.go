@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -81,9 +83,10 @@ func defaultTrustPath() string {
 }
 
 type trusted struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
-	At   string `json:"at"`
+	Name         string   `json:"name"`
+	Path         string   `json:"path"`
+	At           string   `json:"at"`
+	FetchOrigins []string `json:"fetch_origins,omitempty"`
 }
 
 func (t *trustStore) load() map[string]trusted {
@@ -104,14 +107,14 @@ func (t *trustStore) has(digest string) bool {
 	return ok
 }
 
-func (t *trustStore) add(digest, name, path string) error {
+func (t *trustStore) add(digest, name, path string, origins ...string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.path == "" {
 		return fmt.Errorf("this machine has no user config directory to keep the answer in")
 	}
 	all := t.load()
-	all[digest] = trusted{Name: name, Path: path, At: time.Now().UTC().Format(time.RFC3339)}
+	all[digest] = trusted{Name: name, Path: path, At: time.Now().UTC().Format(time.RFC3339), FetchOrigins: origins}
 	b, _ := json.MarshalIndent(all, "", "  ")
 	if err := os.MkdirAll(filepath.Dir(t.path), 0o700); err != nil {
 		return err
@@ -143,7 +146,7 @@ func admitPackage(store *trustStore, ask Truster, dir string) (refusal string) {
 	}
 	abs, _ := filepath.Abs(dir)
 	if !ask(m.Metadata.Name, m.Metadata.Publisher, m.Metadata.Version, abs, digest[:12], declares(m)) {
-		return fmt.Sprintf("the person did not agree to run %s from %s", m.Metadata.Name, abs)
+		return fmt.Sprintf("the person did not agree to run %s from %s; in a client that cannot show this question, review the package and run: tap trust %q", m.Metadata.Name, abs, abs)
 	}
 	if err := store.add(digest, m.Metadata.Name, abs); err != nil {
 		logf("trust      could not keep the answer for %s: %v", m.Metadata.Name, err)
@@ -158,6 +161,27 @@ func newTrustStore() *trustStore { return &trustStore{path: defaultTrustPath()} 
 // script) can still run it. Found testing: with no window to answer it, the
 // question was declined and the primitive could not run at all.
 func trustCommand(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("tap trust", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var origins stringList
+	fs.Var(&origins, "fetch-origin", "also permit requests to this exact declared origin for this package digest; repeat for each origin")
+	list := fs.Bool("list", false, "list trusted packages and fetch grants")
+	forget := fs.String("forget", "", "forget a trusted digest prefix, including its fetch grants")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	args = fs.Args()
+	if *list || *forget != "" {
+		if len(args) != 0 || len(origins) != 0 || (*list && *forget != "") {
+			fmt.Fprintln(stderr, "tap trust: --list and --forget cannot be combined with a package or fetch grants")
+			return 2
+		}
+		if *list {
+			args = []string{"--list"}
+		} else {
+			args = []string{"--forget", *forget}
+		}
+	}
 	store := newTrustStore()
 	switch {
 	case len(args) == 1 && args[0] == "--list":
@@ -172,6 +196,9 @@ func trustCommand(args []string, stdout, stderr io.Writer) int {
 		sort.Strings(digests)
 		for _, d := range digests {
 			fmt.Fprintf(stdout, "%s\t%s\t%s\n", d[:12], all[d].Name, all[d].Path)
+			for _, origin := range all[d].FetchOrigins {
+				fmt.Fprintln(stdout, "  fetch:", origin)
+			}
 		}
 		return 0
 	case len(args) == 2 && args[0] == "--forget":
@@ -202,16 +229,47 @@ func trustCommand(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		abs, _ := filepath.Abs(args[0])
+		for _, origin := range origins {
+			if err := validateFetchGrant(m, origin); err != nil {
+				fmt.Fprintln(stderr, "tap trust:", err)
+				return 1
+			}
+		}
 		fmt.Fprintf(stdout, "%s v%s by %s (digest %s)\n%s\n", m.Metadata.Name, m.Metadata.Version, m.Metadata.Publisher, digest[:12], declares(m))
-		if err := store.add(digest, m.Metadata.Name, abs); err != nil {
+		if err := store.add(digest, m.Metadata.Name, abs, origins...); err != nil {
 			fmt.Fprintln(stderr, "tap trust:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "trusted: this package, as it is now, may run through a client that cannot ask. Edit it and it is asked about again.")
+		for _, origin := range origins {
+			fmt.Fprintf(stdout, "fetch approved for this digest: %s (declared methods only; URLs, headers and bodies can send data there)\n", origin)
+		}
 		return 0
 	}
-	fmt.Fprintln(stderr, "usage: tap trust PACKAGE-DIR\n       tap trust --list\n       tap trust --forget DIGEST-PREFIX")
+	fmt.Fprintln(stderr, "usage: tap trust [--fetch-origin ORIGIN] PACKAGE-DIR\n       tap trust --list\n       tap trust --forget DIGEST-PREFIX")
 	return 2
+}
+
+func validateFetchGrant(m *mf.Manifest, origin string) error {
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(u.Host, "* \t\r\n") {
+		return fmt.Errorf("fetch grant must be an exact http(s) origin without credentials, a path or wildcard: %q", origin)
+	}
+	for _, method := range []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} {
+		if fetchAllowed(m.Fetch, method, u) {
+			if p := declarationProblems(m); len(p) > 0 {
+				return fmt.Errorf("invalid declaration: %s", strings.Join(p, "; "))
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("fetch origin %q is not declared by this package", origin)
+}
+
+func (t *trustStore) fetchOrigins(digest string) []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.load()[digest].FetchOrigins...)
 }
 
 // takeConfigDir removes a leading --config-dir DIR from args and points the

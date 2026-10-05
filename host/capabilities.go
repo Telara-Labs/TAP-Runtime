@@ -298,6 +298,9 @@ func fetchOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 			if !fetchAllowed(m.Fetch, next.Method, next.URL) {
 				return fmt.Errorf("redirected to %s, which this primitive does not declare", next.URL.Host)
 			}
+			if !strings.EqualFold(next.URL.Scheme, u.Scheme) || !strings.EqualFold(next.URL.Host, u.Host) {
+				return fmt.Errorf("redirected to a different origin %s://%s; fetch that origin separately so its approval is checked", next.URL.Scheme, next.URL.Host)
+			}
 			return nil
 		},
 	}

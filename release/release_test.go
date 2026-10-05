@@ -260,8 +260,8 @@ func TestExtraFilesAreListed(t *testing.T) {
 // script defines it and never calls it.
 func TestTheInstallScriptDoesNothingIfItIsCutShort(t *testing.T) {
 	script := strings.NewReplacer("@VERSION@", "9.9.9", "@BASE@", "https://example.test", "@SUMS@", "  linux-amd64) sum=00 ;;").Replace(installSh)
-	if strings.Count(script, "\nmain() {\n") != 1 || !strings.HasSuffix(strings.TrimSpace(script), `main "$@"`) {
-		t.Fatal("the install script's body is not one function called on its last line")
+	if strings.Count(script, "\nmain() {\n") != 1 || !strings.HasSuffix(strings.TrimSpace(script), "{\n  main \"$@\"\n}") {
+		t.Fatal("the install script's body must be one function invoked by a complete final brace group")
 	}
 	// Cut anywhere after the function opens and before its call: nothing runs.
 	open := strings.Index(script, "\nmain() {\n")

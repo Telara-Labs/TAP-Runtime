@@ -130,6 +130,9 @@ type Options struct {
 	ExpectedDigest string
 	Args           []string
 	Approve        Approver
+	// FetchOrigins are owner-granted exact origins loaded from the digest's
+	// trust record by serve. MCP tap_run never accepts these as arguments.
+	FetchOrigins []string
 	// Choose settles two servers that fit one capability equally well. Nil
 	// means nobody can be asked, and the run is refused until a choice is kept
 	// (`tap bind`).
@@ -604,6 +607,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	var gateMu sync.Mutex
 	allowed := map[string]*allowance{}
+	preapproved := map[string]bool{}
+	for _, origin := range o.FetchOrigins {
+		for _, method := range []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} {
+			preapproved["send "+method+" requests to "+origin] = true
+		}
+	}
 	audit := func(outcome, kind, effect string, extra map[string]any) {
 		e := map[string]any{"ts": time.Now().UTC().Format(time.RFC3339Nano), "outcome": outcome, "kind": kind, "effect": effect}
 		for k, v := range extra {
@@ -628,7 +637,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 		if !a.declined && a.left == 0 {
 			var g Grant
-			if o.Approve != nil {
+			if preapproved[kind] {
+				g = Grant{OK: true, Limit: Unlimited}
+			} else if o.Approve != nil {
 				bud.pause()
 				g = o.Approve(Ask{Primitive: m.Metadata.Name, Effect: effect, Kind: forPrompt(kind), Example: forPrompt(example), Done: a.done})
 				bud.resume()

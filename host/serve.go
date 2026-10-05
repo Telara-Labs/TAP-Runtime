@@ -429,13 +429,23 @@ func (s *server) handle(m rpcMessage) {
 			choose = s.choose
 			truster = s.trustPackage
 		}
-		if why := admitPackage(newTrustStore(), truster, packagePath); why != "" {
+		store := newTrustStore()
+		if why := admitPackage(store, truster, packagePath); why != "" {
 			s.reply(m.ID, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": why}}})
 			return
 		}
+		digest, _, err := packageDigest(packagePath)
+		if err != nil {
+			s.toolError(m.ID, err.Error())
+			return
+		}
+		if args.Digest == "" {
+			args.Digest = digest
+		}
 		o := Options{
 			Package: packagePath, ExpectedDigest: args.Digest, Args: args.Args, Journal: s.journal, Approve: approve, Choose: choose,
-			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, NoJournal: s.noRecord, TelemetryPayloads: s.payloads, Client: clientFor(name),
+			FetchOrigins: store.fetchOrigins(args.Digest),
+			InterpDir:    s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, NoJournal: s.noRecord, TelemetryPayloads: s.payloads, Client: clientFor(name),
 			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile, MCPServerName: s.mcpServerName,
 		}
 		if s.vscodeSocket != "" && s.mcpURL == "" {

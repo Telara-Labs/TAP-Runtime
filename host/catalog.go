@@ -187,6 +187,11 @@ func resolveCatalog(entries []catalogEntry, ref, digest string) (catalogEntry, e
 	}
 	switch len(found) {
 	case 0:
+		for _, e := range entries {
+			if ref != "" && e.Ref == ref && digest != "" {
+				return catalogEntry{}, fmt.Errorf("local primitive digest is no longer installed; inspect %s with tap_load before choosing its current digest; refresh TAP-owned pointers with tap discover migrate-saved", ref)
+			}
+		}
 		return catalogEntry{}, fmt.Errorf("local primitive not found")
 	case 1:
 		return found[0], nil
