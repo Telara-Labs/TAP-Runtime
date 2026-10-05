@@ -70,8 +70,9 @@ Releases are built for macOS (arm64, amd64), Linux (amd64, arm64) and
 Windows (amd64). CI tests the source on Linux, macOS and Windows. Each release
 has a separate Launch acceptance workflow (`acceptance/launch`) for npm,
 the install scripts and `go install` on all five platforms. Check the matching
-workflow result before claiming those release installs passed. On October 5,
-v0.1.11 acceptance failed and v0.1.12 acceptance was still queued.
+workflow result before claiming those release installs passed. v0.1.12 passed
+on all five platforms
+([run](https://github.com/Telara-Labs/TAP-Runtime/actions/runs/37360314957)).
 
 ## Find primitives in your own history
 
