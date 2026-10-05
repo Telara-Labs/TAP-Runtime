@@ -1,225 +1,191 @@
-# tap-runtime
+# TAP Runtime
 
-The TAP runner.
+Run your agent's repeated work as a small program instead of a conversation.
 
-Runs a TAP primitive. A primitive is a folder with a `primitive.yaml` and one
-entrypoint: a source file: `main.sh`, `main.py`, `main.js` or `main.ts`. A compiled `.wasm`
-entrypoint is not supported yet: the request protocol it would speak is not
-published.
+A **primitive** is a folder with a `primitive.yaml` and one entrypoint
+(`main.sh`, `main.py`, `main.js` or `main.ts`). The runner executes it in a
+sandbox, borrows the tools your coding agent is already connected to (Jira,
+GitLab, Gmail, ...), and asks before anything changes. `tap discover` finds
+candidates for primitives in your own agent history, on your machine.
 
-Design: `telara-documentation/architecture/tap/34-the-baseline-primitive-is-a-program.md`
-section 13. Ticket: TENG-3031.
+```
+npm install -g @telaralabs/tap     # the tap CLI, and it connects to your agents
+tap discover                       # what you keep asking your agents to do
+```
 
-**Status: v0.1.2 release; tested on macOS arm64 and Linux (amd64, arm64).** On
-Windows (amd64) a subset runs in CI, on Windows itself: the packages that start
-no program, and one primitive in the sandbox, which reads and writes what it
-declared and is refused a write outside it. The rest of the suite drives Unix
-programs and has not run there. macOS Intel has never run.
-
-- Writing one: [docs/writing-a-primitive.md](docs/writing-a-primitive.md)
-- Installing into Claude Code or Codex: [docs/install.md](docs/install.md)
-- Running in claude.ai, in the browser: [docs/web.md](docs/web.md)
-
-## Where it runs
-
-| Client | State | How the runner borrows its tools |
-|---|---|---|
-| Claude Code | supported | Claude Code's own control channel |
-| Codex (CLI and app) | supported | Codex's app-server |
-| claude.ai (web) | preview | a page, published as an Artifact, whose code calls your connectors: [docs/web.md](docs/web.md) |
-| VS Code (GitHub Copilot) | preview | an extension that calls the editor's tools. Proven in VS Code; not yet from Copilot chat |
-| Gemini CLI | experimental | a hook that has Gemini make each call. Never run against Gemini CLI itself: Google no longer admits individual accounts to it |
-| ChatGPT (web) | not supported | the matching feature, Sites with plugins, needs a Business, Enterprise or Edu workspace. Untested |
-| Gemini, Copilot (web) | not supported | neither lets code reach its connected apps |
-| Cursor, OpenCode | not supported | they list their tools and give no way to call them |
-
+No account, registry or server is needed. MIT licensed.
 
 ## What it does
 
-- Runs the entrypoint inside a wasm sandbox with no filesystem, no network and
-  an empty environment.
-- Executes host programs the manifest declares (`kubectl`, `git`, ...) on the
-  script's behalf, one gated and journaled call at a time.
-- Refuses any command the manifest does not declare.
-- Gates `write` and `destructive` commands unless the run is approved.
+- Runs the entrypoint inside a WebAssembly sandbox with no filesystem, no
+  network and an empty environment. Everything the program does goes through
+  the runner as a request.
+- Executes only the host programs (`git`, `kubectl`, ...) and tools the
+  manifest declares, one gated and recorded call at a time. Anything else is
+  refused.
+- Asks before every `write` or `destructive` effect. Reads run without asking.
+- Records every request before acting on it, so a run that stops can resume
+  without doing anything twice.
 
-## The manifest: short to run, full to publish
+## Where it runs
 
-    host manifest check pkg/recent-mail            # may it run?
-    host manifest check --publish pkg/recent-mail  # may it be published?
-    host manifest complete pkg/recent-mail         # the publishable form
+The runner calls a primitive's tools through the agent you run it from, with
+that agent's own connections. How each agent lends them, and whose approval
+applies:
 
-To run, `primitive.yaml` needs a name, an entrypoint and what the primitive
-uses. To publish it must satisfy `contract/manifest/manifest.v3.schema.json` in full.
-`complete` derives what it can and marks with `TODO:` what a person must
-write. A field the format does not have is an error, so a misspelt bound never
-reads as no bound.
+| Agent | State | How the runner reaches its tools | Approval |
+|---|---|---|---|
+| Claude Code | supported | Claude Code's control channel | Claude Code's, plus the runner's |
+| Codex (CLI and app) | supported | Codex's app-server | Codex's, plus the runner's |
+| Gemini CLI | experimental | a hook that has Gemini make each call | Gemini's |
+| Goose | experimental | Goose's ACP tool call (marked unstable by Goose) | the runner's only |
+| Kilo CLI | experimental | `kilo serve`'s MCP call route (marked experimental by Kilo); tools must be pinned | the runner's only |
+| VS Code (GitHub Copilot) | preview | an extension that calls the editor's tools | VS Code's |
+| claude.ai (web) | preview | a page published as an Artifact: [docs/web.md](docs/web.md) | claude.ai's |
 
-## Runs are recorded, and a stopped run can continue
+Cursor, Windsurf, Copilot CLI, OpenCode, Qwen Code, Cline, Crush, Continue,
+Zed and Aider give no way for another program to make a tool call, so
+primitives that call tools cannot run inside them. `tap install` still
+connects the TAP MCP server to them where they support MCP, and primitives
+that use only host programs run anywhere. The research behind this table is
+in [docs/bridge-research.md](docs/bridge-research.md).
 
-    host pkg/recent-mail                 # prints its run id
-    host --resume <run id> pkg/recent-mail
+## Install
 
-Every request a program makes is recorded before it is acted on and again
-when it is answered. A run that stops is continued by starting the program
-again and answering what it already asked from the record, so nothing is done
-twice. A change that was in progress when the run stopped is not repeated and
-is reported as unknown for a person to check. A read is simply asked again.
+```
+npm install -g @telaralabs/tap
+```
 
-The program is given the clock readings and random bytes it took before, up
-to the point it had reached, and the real clock after. One process holds a run
-at a time: a second is refused and told which process holds it. Records are
-removed after 30 days; `--retention-days 0` keeps them for ever.
+installs the `tap` CLI and connects it, as the MCP server `tap`, to every
+supported agent installed on the machine (when npm runs install scripts;
+otherwise run `tap setup`). `tap install --client <agent>`
+connects one; `tap install --client all --print` shows what it would change.
+Each release is signed, and the install scripts check every download against
+a pinned sha256: [docs/install.md](docs/install.md).
 
-## Telemetry
-
-Off unless an endpoint is set. Configured by the standard OpenTelemetry
-variables, which are the only environment variables the runner reads for
-configuration: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`
-and the rest of that family. The protocol is OTLP over HTTP.
-
-It sends events: what ran, what was approved, how each ended. What a call was
-given and what it touched stay on the machine unless `--otel-payloads` is
-passed. A collector that cannot be reached does not stop a run.
-
-## TAP Local: your primitive collection as an MCP server
-
-    tap serve
-
-exposes five fixed tools: `tap_search`, `tap_load`, `tap_run`, `tap_status`,
-and `tap_evidence`. It finds installed v3 primitives in a bounded local
-collection, loads their declared inputs and effects, and runs an exact
-`publisher/name@version` and package digest. Run status and evidence read the
-local journal without resuming a run. The tool list does not grow with the
-number of primitives. There is no publication tool or Telara account in this
-local MCP.
-
-`tap install --client detected` connects the server to every agent installed
-here (`--client claude-code`, `codex`, `cursor`, … for one). The runner borrows that client's connections and
-checks each MCP call against its declared effect before dispatch; every
-effectful call still needs approval. Tool-only primitives do not get a second,
-whole-package prompt. Packages with local file, command, or web reach still
-need first-run package trust as well as approval for changes. A client that
-cannot show an approval prompt is never asked, and every change under it is
-refused. A remote browser chat cannot reach this stdio server without a
-supported desktop companion; the separate [web preview](docs/web.md) is not
-the local MCP.
-
-The five-tool surface has passed direct MCP and live Codex tests. Its Claude
-Code live tool-call test remains unverified because that client's control
-call did not return, including for a read-only search.
-
-The npm distribution source is `npm/`. `npm install -g @telaralabs/tap`
-installs the `tap` CLI.
-When npm permits its install script, it also registers the local MCP with
-installed Claude Code and Codex; `tap setup` performs registration explicitly
-when scripts are disabled. The CLI includes `tap discover`; the MCP keeps the
-five fixed tools above. See
-[installation](docs/install.md).
+Releases are built for macOS (arm64, amd64), Linux (amd64, arm64) and
+Windows (amd64). Tests run on Linux and Windows in CI and on macOS arm64;
+macOS on Intel is built but untested.
 
 ## Find primitives in your own history
 
-The runner's program is `tap`. `tap discover` reads the session history that
-Claude Code, Codex and Cursor keep on this machine, groups the requests you
-make again and again, and drafts each recurring one as a primitive:
+```
+tap discover               # read, narrow, and pick primitives to save
+tap discover --client codex,claude-code --days 30
+```
 
-    tap discover              # what it read, how it narrowed, the primitives
-    tap discover --rejected   # also what each check removed, and why
-    tap discover --review     # pick primitives to save for tap_run
+`tap discover` reads the session history that coding agents keep on this
+machine: Claude Code, Codex, Cursor, Gemini CLI, Qwen Code, Goose, Kilo,
+OpenCode, Cline, Crush, Continue, Copilot, Windsurf, Zed, Antigravity, Amp,
+Aider. By default it reads every agent it detects. It finds procedures you
+repeat (search, then act on what came back) and drafts each as a primitive.
+It reads local files only and sends nothing anywhere. Drafts are proposals:
+discover does not run them, so validate a draft before you rely on it.
 
-It reads local files only and sends nothing anywhere (`discover/`).
+## Write one
 
-## Build, test, release
+```
+tap pkg/recent-mail                     # run a primitive folder
+tap manifest check pkg/recent-mail      # may it run?
+tap manifest complete pkg/recent-mail   # the publishable form
+```
 
-    export GOWORK=off
-    go build -o bin/tap ./host
-    go test ./...
-    ./bin/tap pkg/deploy-check-py
-    ./bin/tap install --client claude --print
+Start with [docs/writing-a-primitive.md](docs/writing-a-primitive.md) and the
+folders in `examples/`.
 
-To release, run one command (details in `AGENTS.md`):
+To run, `primitive.yaml` needs a name, an entrypoint and what the primitive
+uses. To publish, it must satisfy
+`contract/manifest/manifest.v3.schema.json` in full. `complete` derives what
+it can and marks with `TODO:` what a person must write. A field the format
+does not have is an error, so a misspelt bound never reads as no bound.
 
-    go run ./release publish --version 0.1.5 --plan   # changes nothing
-    go run ./release publish --version 0.1.5
+## Runs are recorded, and a stopped run can continue
 
-It commits the version, tags it, builds and signs the release from a clean
-export (`~/.tap-release/release.key`), pushes `main` and the tag to GitLab and
-GitHub, creates the GitHub release, and runs `.github/workflows/release.yml`,
-which verifies the signed release and publishes `@telaralabs/tap` with npm
-Trusted Publishing. Pushing a tag alone publishes nothing: the workflow runs
-only when dispatched, because the Go tests need private GitLab modules that
-GitHub Actions cannot fetch. The pieces can still be run by hand:
+```
+tap pkg/recent-mail                     # prints its run id
+tap --resume <run id> pkg/recent-mail
+```
 
-    go run ./release build --version 0.1.5 --out dist --key ~/.tap-release/release.key \
-        --download-base https://github.com/Telara-Labs/TAP-Runtime/releases/download/v0.1.5
-    go run ./release verify --dir dist --pub release/release.pub
+A run that stops is continued by starting the program again and answering
+what it already asked from the record, so nothing is done twice. A change
+that was in progress when the run stopped is not repeated, and is reported
+as unknown for a person to check. The program gets back the clock readings
+and random bytes it took before. One process holds a run at a time. Records
+are removed after 30 days; `--retention-days 0` keeps them.
 
-A release holds the runner for five platforms, the bash-compatible
-interpreter, `install.sh` and `install.ps1`, their checksums, the signature
-and its public key, and the licence notices of everything compiled in. It is
-reproducible: the same source and toolchain give the same bytes.
+## TAP Local: your primitives as an MCP server
 
-`--download-base` is where the files will be served from. The runner is built
-knowing the address and digest of its interpreter, and each install script
-carries the digest of every runner. Without it the build is for checking only.
+`tap serve` exposes five fixed tools: `tap_search`, `tap_load`, `tap_run`,
+`tap_status` and `tap_evidence`. It finds installed primitives in a local
+collection and runs an exact `publisher/name@version` and package digest.
+The tool list does not grow with the number of primitives. A client that
+cannot show an approval prompt is never asked, and every change under it is
+refused.
 
-## Interpreters are downloaded, not bundled
+## Telemetry
 
-On first use the runner fetches the interpreter for the entrypoint's language
-into the user cache directory and checks it against a pinned sha256. A file
-that does not match is refused. The list is `host/interpreters.go`.
+Off unless an endpoint is set, through the standard OpenTelemetry variables
+(`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, ...), which are
+the only environment variables the runner reads for configuration. It sends
+events: what ran, what was approved, how each ended. What a call was given
+and what it touched stay on the machine unless `--otel-payloads` is passed.
 
-| Language | Source |
-|---|---|
-| Python | CPython 3.12.0, vmware-labs/webassembly-language-runtimes |
-| JavaScript | QuickJS-ng 0.17.0 |
-| Bash | This repository's `guest-sh`, a file of each release. A runner built from source has no address for it: `GOOS=wasip1 GOARCH=wasm go build -o <store>/sh.wasm ./guest-sh` |
+## Build from source
 
-`tap fetch` downloads every interpreter ahead of time, for a machine
-or a sandbox that will have no network when a primitive runs.
+```
+go install github.com/Telara-Labs/TAP-Runtime/host@latest   # installs as host; rename to tap
+```
 
-## The patched shell library
+or from a clone:
 
-`third_party/sh/` is a copy of `mvdan.cc/sh/v3` 3.14.1 (BSD 3-clause, licence
-included), with import paths rewritten to this module. It is kept in the tree
-because upstream does not support pipelines on wasip1, where `os.Pipe` is
-unimplemented. The changes, all in `interp/`:
+```
+go build -o bin/tap ./host
+go test ./... && (cd contract && go test ./...) && (cd discover && go test ./...)
+```
 
-- `stdin_js.go` is renamed `stdin_iopipe.go` (the `_js` suffix is itself a build constraint)
-- its constraint is `js || wasip1` instead of `js`
-- `stdin_os.go` is `!js && !wasip1` instead of `!js`
+The repository holds three Go modules: the runner (root), `contract` (the
+manifest format and its validation) and `discover`. Tests that need an
+installed agent, `sqlite3` or the network skip themselves when it is missing.
 
-If upstream accepts that change, this directory is deleted and the library
-becomes an ordinary dependency again.
+On first use the runner downloads the interpreter for the entrypoint's
+language into the user cache directory and checks it against a pinned sha256
+(`host/interpreters.go`): CPython 3.12.0 (vmware-labs
+webassembly-language-runtimes), QuickJS-ng 0.17.0, and for Bash this
+repository's `guest-sh`, which a source build does not know the address of:
+`GOOS=wasip1 GOARCH=wasm go build -o <store>/sh.wasm ./guest-sh`. `tap fetch`
+downloads them all ahead of time.
 
 ## Conformance
 
-    go run ./conformance/cmd/tap-conformance -- ./bin/tap serve
+```
+go run ./conformance/cmd/tap-conformance -- ./bin/tap serve
+```
 
 `conformance/corpus/` is data: binding, satisfaction and manifest cases with
 their required outcomes, for a runner written by anybody in any language.
-The kit tests a runner from outside, as an MCP server, with real packages and
-a real directory. `conformance/testdata/badrunner` does everything wrong on
-purpose, and a test asserts the kit fails it.
-
-`corpus/independent.json` holds 40 cases written from the specification by a
-session that did not write the runner and did not read its code. The rest of
-the corpus was written by the runner's author.
+The kit tests a runner from outside, as an MCP server, with real packages.
+`corpus/independent.json` holds 40 cases written from the specification by
+an author who had not read the runner's code.
 
 ## Known limits
 
-- The Python interpreter imports file and socket calls. It is contained because
-  the runner grants it nothing, not because the calls are absent.
+- The Python interpreter imports file and socket calls. It is contained
+  because the runner grants it nothing, not because the calls are absent.
 - From the command line `--approve` agrees to everything, and `--limit N`
-  caps each kind of change at N. Run as an MCP server (`host serve`) the
-  runner asks the person at the client about each kind of change and how many
-  to allow, and asks again when that number is reached.
-- Bash sends one request at a time: the sandbox has one thread. Python and
-  JavaScript can send several together with `tap.call_many` / `tap.callMany`.
-- Codex accepts several calls at once and runs them one after another.
+  caps each kind of change at N. As an MCP server the runner asks the person
+  at the client about each kind of change.
+- Bash sends one request at a time. Python and JavaScript can send several
+  together with `tap.call_many` / `tap.callMany`.
+- A compiled `.wasm` entrypoint is not supported yet.
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report a vulnerability as described
+in [SECURITY.md](SECURITY.md), not in a public issue.
 
 ## Licence
 
-MIT, in [LICENSE](LICENSE). `third_party/sh/` keeps its own BSD 3-clause
-licence. A release carries both, with the licences of everything compiled in,
-in `THIRD_PARTY_NOTICES.txt`.
+MIT, in [LICENSE](LICENSE). `third_party/sh/`, a copy of `mvdan.cc/sh/v3`
+3.14.1 patched to run pipelines on wasip1, keeps its BSD 3-clause licence. A
+release carries both, with the licences of everything compiled in, in
+`THIRD_PARTY_NOTICES.txt`.

@@ -1,0 +1,63 @@
+name: CI
+
+# Builds and tests the runner and its two modules (contract, discover) on
+# every push and pull request, from public sources only (TENG-3181).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GOWORK: "off"
+  GOFLAGS: "-mod=readonly"
+
+jobs:
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.1"
+      - name: Tools the store readers use (sqlite3, zstd)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3 zstd
+      - name: Format
+        run: test -z "$(gofmt -l bind bridge conformance contract host journal release satisfy guest-sh internal discover)"
+      - name: Vet
+        run: go vet ./... && (cd contract && go vet ./...) && (cd discover && go vet ./...)
+      - name: Build the Bash interpreter
+        run: GOOS=wasip1 GOARCH=wasm go build -o /dev/null ./guest-sh
+      - name: Test contract
+        run: cd contract && go test ./... -count=1
+      - name: Test discover
+        run: cd discover && go test ./... -count=1
+      - name: Test the runner
+        run: go test ./bind ./bridge ./conformance ./host ./journal ./release ./satisfy -count=1
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.1"
+      # The runner's suite drives Unix programs; on Windows the packages that
+      # start none run, the runner and the interpreter build, and contract and
+      # discover run in full.
+      - name: Test contract and discover
+        shell: bash
+        run: (cd contract && go test ./... -count=1) && (cd discover && go test ./... -count=1)
+      - name: Test the runner's portable packages
+        run: go test ./bind ./journal ./satisfy -count=1
+      - name: Build the runner and the Bash interpreter
+        shell: bash
+        run: go build -o tap.exe ./host && GOOS=wasip1 GOARCH=wasm go build -o sh.wasm ./guest-sh
