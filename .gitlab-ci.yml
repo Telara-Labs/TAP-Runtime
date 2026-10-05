@@ -22,11 +22,13 @@ default:
     # versions go.mod names, as for anyone building from source.
 
 .suite: &suite
-  - test -z "$(gofmt -l bind bridge conformance contract host journal release satisfy guest-sh)"
+  - test -z "$(gofmt -l acceptance bind bridge conformance contract host journal release satisfy guest-sh)"
   - go vet ./bind ./bridge ./conformance/... ./host ./journal ./release ./satisfy ./guest-sh
   - (cd contract && go vet ./... && go test ./... -count=1)
   - GOOS=wasip1 GOARCH=wasm go build -o /dev/null ./guest-sh
-  - go test ./bind ./bridge ./conformance ./host ./journal ./release ./satisfy -count=1
+  # Shared runners can run several times slower when busy; host and the
+  # conformance kit take about five minutes on an idle one.
+  - go test ./bind ./bridge ./conformance ./host ./journal ./release ./satisfy -count=1 -timeout 20m
   # discover reads agents' stores with the sqlite3 and zstd programs; with
   # them installed its store readers are tested, not skipped.
   - command -v sqlite3 >/dev/null && command -v zstd >/dev/null || (apt-get update -qq && apt-get install -y -qq sqlite3 zstd >/dev/null)

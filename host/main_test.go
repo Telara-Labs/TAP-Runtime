@@ -5,6 +5,9 @@ import (
 	"testing"
 )
 
+// tapMainArg makes the test binary act as the runner.
+const tapMainArg = "-tap-run-main"
+
 // No test may read or write the real user's configuration: it holds the
 // choices a person made (tap bind) and the packages they trust.
 func TestMain(m *testing.M) {
@@ -13,6 +16,14 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	userConfigDir = func() (string, error) { return dir, nil }
+	// A test that needs the runner as a separate process runs this test
+	// binary with tapMainArg first, rather than building the runner again.
+	if len(os.Args) > 1 && os.Args[1] == tapMainArg {
+		os.Args = append([]string{"tap"}, os.Args[2:]...)
+		main()
+		os.RemoveAll(dir)
+		os.Exit(0)
+	}
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

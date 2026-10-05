@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -12,18 +11,13 @@ import (
 // The first commands a new user types, on a machine with no agents and no
 // history, each end with a next step rather than an internal error.
 func TestFirstRunDeadEndsSayWhatToDo(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "tap")
-	if runtime.GOOS == "windows" {
-		bin += ".exe"
-	}
-	build := exec.Command("go", "build", "-o", bin, "./host")
-	build.Dir = repoRoot
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("building the runner: %v\n%s", err, out)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
 	}
 	home := t.TempDir()
 	run := func(args ...string) (string, int) {
-		cmd := exec.Command(bin, args...)
+		cmd := exec.Command(self, append([]string{tapMainArg}, args...)...)
 		cmd.Env = []string{"HOME=" + home, "USERPROFILE=" + home, "APPDATA=" + home, "LOCALAPPDATA=" + home, "PATH=" + t.TempDir()}
 		cmd.Dir = t.TempDir()
 		out, _ := cmd.CombinedOutput()
