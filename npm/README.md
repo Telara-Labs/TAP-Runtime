@@ -4,22 +4,13 @@ Install TAP globally on macOS, Linux, or Windows:
 
 ```sh
 npm install --global @telaralabs/tap
+tap setup        # connect TAP to the agents installed here
+tap discover     # find the work you keep asking your agents to do
 ```
 
-The package contains the signed TAP runner release for each supported platform. When npm permits the package's install script, a global install verifies the runner and registers TAP with installed Claude Code and Codex clients. npm 12 and later may require explicitly allowing the package script:
+The package contains the signed TAP runner release for each supported platform, and checks the runner's sha256 before every run. `tap setup` connects TAP, as the MCP server `tap`, to every supported agent installed here (`tap install --client detected`) and says what it connected; restart the agent afterwards. npm's install step runs the same setup, but npm hides its output and may skip install scripts. No Telara account is needed.
 
-```sh
-npm install --global --allow-scripts=@telaralabs/tap @telaralabs/tap
-```
-
-If install scripts are disabled, run `tap setup` after installation to verify the runner and connect it to every agent installed here (`tap install --client detected`). Restart the agent, then call the TAP MCP tools. No Telara account is needed.
-
-The same `tap` command exposes the runner CLI, including primitive discovery:
-
-```sh
-tap discover --review
-tap --help
-```
+`tap --help` lists every command.
 
 For a project-local npm dependency, install the package and opt into user-level client registration explicitly:
 
@@ -28,4 +19,4 @@ npm install @telaralabs/tap
 npm exec -- tap setup
 ```
 
-Setup connects Claude Code, Codex, Copilot CLI, Cursor, Windsurf and Gemini CLI (experimental) when they are installed. VS Code uses the separate TAP extension. To connect one agent later: `tap install --client <agent>`.
+Setup connects every supported agent it finds installed and names each one; `tap install --client all --print` shows what it would change without changing anything. VS Code uses the separate TAP extension. To connect one agent later: `tap install --client <agent>`.

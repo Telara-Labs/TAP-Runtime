@@ -9,7 +9,8 @@ GitLab, Gmail, ...), and asks before anything changes. `tap discover` finds
 candidates for primitives in your own agent history, on your machine.
 
 ```
-npm install -g @telaralabs/tap     # the tap CLI, and it connects to your agents
+npm install -g @telaralabs/tap     # the tap CLI
+tap setup                          # connect it to the agents installed here
 tap discover                       # what you keep asking your agents to do
 ```
 
@@ -23,7 +24,8 @@ No account, registry or server is needed. MIT licensed.
 - Executes only the host programs (`git`, `kubectl`, ...) and tools the
   manifest declares, one gated and recorded call at a time. Anything else is
   refused.
-- Asks before every `write` or `destructive` effect. Reads run without asking.
+- Asks before `write` or `destructive` effects and before sending a fetch to
+  a declared origin. Local file and tool reads run without an effect prompt.
 - Records every request before acting on it, so a run that stops can resume
   without doing anything twice.
 
@@ -40,15 +42,15 @@ applies:
 | Gemini CLI | experimental | a hook that has Gemini make each call | Gemini's |
 | Goose | experimental | Goose's ACP tool call (marked unstable by Goose) | the runner's only |
 | Kilo CLI | experimental | `kilo serve`'s MCP call route (marked experimental by Kilo); tools must be pinned | the runner's only |
-| VS Code (GitHub Copilot) | preview | an extension that calls the editor's tools | VS Code's |
-| claude.ai (web) | preview | a page published as an Artifact: [docs/web.md](docs/web.md) | claude.ai's |
+| VS Code (GitHub Copilot) | preview | an extension that calls the editor's tools | the runner's; visible Copilot elicitation remains unverified |
+| claude.ai (web) | preview | a page published as an Artifact: [docs/web.md](docs/web.md) | only connector tools annotated read-only are permitted |
 
-Cursor, Windsurf, Copilot CLI, OpenCode, Qwen Code, Cline, Crush, Continue,
-Zed and Aider give no way for another program to make a tool call, so
-primitives that call tools cannot run inside them. `tap install` still
-connects the TAP MCP server to them where they support MCP, and primitives
-that use only host programs run anywhere. The research behind this table is
-in [docs/bridge-research.md](docs/bridge-research.md).
+Other agents can connect to the local MCP server where they support MCP.
+Tool execution depends on a supported bridge, an experimental relay, or an
+explicit direct MCP backend; registration alone does not prove execution or
+approval support. Headless clients may need explicit trust, fetch grants and
+tool bindings. See [docs/bridge-research.md](docs/bridge-research.md) and
+[docs/headless-and-sharing.md](docs/headless-and-sharing.md).
 
 ## Install
 
@@ -56,10 +58,11 @@ in [docs/bridge-research.md](docs/bridge-research.md).
 npm install -g @telaralabs/tap
 ```
 
-installs the `tap` CLI and connects it, as the MCP server `tap`, to every
-supported agent installed on the machine (when npm runs install scripts;
-otherwise run `tap setup`). `tap install --client <agent>`
-connects one; `tap install --client all --print` shows what it would change.
+installs the `tap` CLI. `tap setup` then connects it, as the MCP server
+`tap`, to every supported agent installed on the machine and says what it
+connected. (npm's install step runs the same setup, but npm hides its output
+and may skip install scripts.) `tap install --client <agent>` connects one;
+`tap install --client all --print` shows what it would change.
 Each release is signed, and the install scripts check every download against
 a pinned sha256: [docs/install.md](docs/install.md).
 
@@ -122,18 +125,26 @@ The tool list does not grow with the number of primitives. A client that
 cannot show an approval prompt is never asked, and every change under it is
 refused.
 
-A headless client (`claude -p`, a script) cannot answer the first-run question
-for a package that reaches outside the tool broker, so that package is declined
-until you run `tap trust PACKAGE-DIR` (`tap trust --list`, `tap trust --forget
-DIGEST-PREFIX`). Checked with Claude Code 2.1.287 and the published v0.1.4
+The first time a package runs, the person is asked whether it may, unless the
+package only calls tools (each of those calls has its own gate). A headless
+client (`claude -p`, a script) cannot ask, so a package that uses files, host
+programs, the web, or no tools at all is declined there until you run `tap
+trust PACKAGE-DIR` (`tap trust --list`, `tap trust --forget DIGEST-PREFIX`).
+Trusting a package lets it start; every write it makes is still refused
+unless someone approves it. Fetch approval is separate: current source supports
+`tap trust --fetch-origin https://example.com PACKAGE-DIR` for an exact
+declared origin and package digest. The grant is lost when package bytes
+change. This option needs a release containing this remediation.
+Checked with Claude Code 2.1.287 and the published v0.1.4
 binary: a model searched, ran and read the status of a primitive through the
 five tools.
 
 ## Telemetry
 
 Off unless an endpoint is set, through the standard OpenTelemetry variables
-(`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, ...), which are
-the only environment variables the runner reads for configuration. It sends
+(`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, ...). Fetches
+also honor the standard `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` settings;
+TAP introduces no separate proxy setting. It sends
 events: what ran, what was approved, how each ended. What a call was given
 and what it touched stay on the machine unless `--otel-payloads` is passed.
 

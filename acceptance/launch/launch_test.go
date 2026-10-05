@@ -164,11 +164,9 @@ func npmTap(t *testing.T, m *machine, v string) string {
 	}
 	prefix := filepath.Join(m.home, "npm-global")
 	r := m.run("", npm, "install", "-g", "--prefix", prefix, pkg+"@"+v)
+	// npm runs the package's setup step but hides its output, so the README
+	// tells people to run tap setup themselves; that is checked below.
 	want(t, r, 0)
-	// npm's global postinstall connects every detected agent; there are none.
-	if !strings.Contains(r.out, "No agent TAP can connect to is installed here.") {
-		t.Errorf("the install step did not report its setup\n%s", r.out)
-	}
 	bin := filepath.Join(prefix, "bin")
 	tap := filepath.Join(bin, "tap")
 	if runtime.GOOS == "windows" {
@@ -313,6 +311,9 @@ func TestGoInstall(t *testing.T) {
 // (Linux), and require the same result.
 func TestDiscoverMakesNoNetworkConnections(t *testing.T) {
 	v := version(t)
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("checked on macOS and Linux")
+	}
 	m := newMachine(t)
 	tap := npmTap(t, m, v)
 	copyTree(t, filepath.Join(root, "discover", "history", "testdata", "scripted3", "codex", "home", ".codex"), filepath.Join(m.home, ".codex"))
@@ -332,7 +333,7 @@ func TestDiscoverMakesNoNetworkConnections(t *testing.T) {
 			t.Fatal("strace is needed to record connections")
 		}
 		trace := filepath.Join(t.TempDir(), "strace.log")
-		traced := m.run("", "strace", "-f", "-qq", "-e", "trace=connect,sendto,sendmsg", "-o", trace, runner, "discover", "--client", "codex", "--json")
+		traced := m.run("", "strace", "-f", "-qq", "-e", "trace=connect,sendto,sendmsg", "-e", "signal=none", "-o", trace, runner, "discover", "--client", "codex", "--json")
 		want(t, traced, 0)
 		log, _ := os.ReadFile(trace)
 		inet := regexp.MustCompile(`AF_INET6?`)
@@ -343,8 +344,6 @@ func TestDiscoverMakesNoNetworkConnections(t *testing.T) {
 		if jsonPart(traced.out) != jsonPart(open.out) {
 			t.Errorf("under strace, discover gave a different result")
 		}
-	default:
-		t.Skip("checked on macOS and Linux")
 	}
 }
 
