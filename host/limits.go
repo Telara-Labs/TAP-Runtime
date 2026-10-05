@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -117,7 +118,7 @@ func dispatchesFor(limits map[string]int) int {
 	return defaultDispatches
 }
 
-var errLineTooLong = errors.New("the program wrote a line longer than the runner accepts")
+var errLineTooLong = errors.New("the program's output is larger than the runner accepts; return less of it")
 
 // readLine reads one line, refusing one longer than max. A guest that never
 // writes a newline would otherwise grow the runner's memory without bound.
@@ -165,3 +166,20 @@ func (c *cappedBuffer) String() string { return c.buf.String() }
 
 // WriteString adds the runner's own note, which the cap does not drop.
 func (c *cappedBuffer) WriteString(s string) { c.buf.WriteString(s) }
+
+// clipLines keeps the first n lines of a text and says how many it left out.
+// A guest that runs out of memory writes its whole runtime state, which is no
+// help to anyone reading a log.
+func clipLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[:n], "\n") + fmt.Sprintf("\n... (%d more lines)", len(lines)-n)
+}
+
+// outOfMemory reports whether a guest's error output says it ran out of memory
+// (the Go runtime of the bash interpreter and CPython both say so).
+func outOfMemory(stderr string) bool {
+	return strings.Contains(stderr, "out of memory") || strings.Contains(stderr, "MemoryError")
+}

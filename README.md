@@ -122,6 +122,13 @@ The tool list does not grow with the number of primitives. A client that
 cannot show an approval prompt is never asked, and every change under it is
 refused.
 
+A headless client (`claude -p`, a script) cannot answer the first-run question
+for a package that reaches outside the tool broker, so that package is declined
+until you run `tap trust PACKAGE-DIR` (`tap trust --list`, `tap trust --forget
+DIGEST-PREFIX`). Checked with Claude Code 2.1.287 and the published v0.1.4
+binary: a model searched, ran and read the status of a primitive through the
+five tools.
+
 ## Telemetry
 
 Off unless an endpoint is set, through the standard OpenTelemetry variables

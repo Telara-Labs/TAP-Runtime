@@ -1,9 +1,11 @@
 package main
 
 import (
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -76,5 +78,38 @@ func TestARunWithAnUnmeantDeclarationIsRefusedBeforeItStarts(t *testing.T) {
 	_, err := runLimited(t, "main.sh", "files:\n  - {path: /, access: read}\n", "echo hi\n", Options{})
 	if err == nil || !strings.Contains(err.Error(), "root of the file system") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// Found testing: the guard set the proxy to nil, so a primitive behind a
+// corporate proxy could not fetch at all. A proxy from the environment is used,
+// and a name that this machine resolves to its own network is still refused.
+func TestAFetchGoesThroughAProxyTheEnvironmentNames(t *testing.T) {
+	var proxied []string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxied = append(proxied, r.Method+" "+r.URL.String())
+		w.Write([]byte("via proxy"))
+	}))
+	defer proxy.Close()
+	pu, _ := url.Parse(proxy.URL)
+	tr := guardedTransportVia(func(*http.Request) (*url.URL, error) { return pu, nil })
+	client := &http.Client{Transport: tr}
+	resp, err := client.Get("http://origin.invalid/data")
+	if err != nil {
+		t.Fatalf("a request through a proxy failed: %v", err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if string(b) != "via proxy" || len(proxied) != 1 || !strings.Contains(proxied[0], "origin.invalid/data") {
+		t.Fatalf("got %q, proxy saw %v", b, proxied)
+	}
+}
+
+func TestAProxyDoesNotLetAnOriginBeAMetadataAddress(t *testing.T) {
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("the proxy was asked for a metadata address") }))
+	defer proxy.Close()
+	pu, _ := url.Parse(proxy.URL)
+	client := &http.Client{Transport: guardedTransportVia(func(*http.Request) (*url.URL, error) { return pu, nil })}
+	if _, err := client.Get("http://169.254.169.254/latest/meta-data/"); err == nil {
+		t.Fatal("a metadata address was fetched through a proxy")
 	}
 }

@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -150,3 +152,76 @@ func admitPackage(store *trustStore, ask Truster, dir string) (refusal string) {
 }
 
 func newTrustStore() *trustStore { return &trustStore{path: defaultTrustPath()} }
+
+// trustCommand is `tap trust`: agree, ahead of time, to run a package, so a
+// client that cannot show the first-run question (a headless `claude -p`, a
+// script) can still run it. Found testing: with no window to answer it, the
+// question was declined and the primitive could not run at all.
+func trustCommand(args []string, stdout, stderr io.Writer) int {
+	store := newTrustStore()
+	switch {
+	case len(args) == 1 && args[0] == "--list":
+		all := store.load()
+		if len(all) == 0 {
+			fmt.Fprintln(stdout, "no packages are trusted")
+		}
+		var digests []string
+		for d := range all {
+			digests = append(digests, d)
+		}
+		sort.Strings(digests)
+		for _, d := range digests {
+			fmt.Fprintf(stdout, "%s\t%s\t%s\n", d[:12], all[d].Name, all[d].Path)
+		}
+		return 0
+	case len(args) == 2 && args[0] == "--forget":
+		store.mu.Lock()
+		all := store.load()
+		removed := 0
+		for d := range all {
+			if strings.HasPrefix(d, args[1]) {
+				delete(all, d)
+				removed++
+			}
+		}
+		if removed > 0 {
+			b, _ := json.MarshalIndent(all, "", "  ")
+			if err := os.WriteFile(store.path, append(b, '\n'), 0o600); err != nil {
+				store.mu.Unlock()
+				fmt.Fprintln(stderr, "tap trust:", err)
+				return 1
+			}
+		}
+		store.mu.Unlock()
+		fmt.Fprintf(stdout, "forgot %d package(s)\n", removed)
+		return 0
+	case len(args) == 1 && !strings.HasPrefix(args[0], "-"):
+		digest, m, err := packageDigest(args[0])
+		if err != nil {
+			fmt.Fprintln(stderr, "tap trust:", err)
+			return 1
+		}
+		abs, _ := filepath.Abs(args[0])
+		fmt.Fprintf(stdout, "%s v%s by %s (digest %s)\n%s\n", m.Metadata.Name, m.Metadata.Version, m.Metadata.Publisher, digest[:12], declares(m))
+		if err := store.add(digest, m.Metadata.Name, abs); err != nil {
+			fmt.Fprintln(stderr, "tap trust:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "trusted: this package, as it is now, may run through a client that cannot ask. Edit it and it is asked about again.")
+		return 0
+	}
+	fmt.Fprintln(stderr, "usage: tap trust PACKAGE-DIR\n       tap trust --list\n       tap trust --forget DIGEST-PREFIX")
+	return 2
+}
+
+// takeConfigDir removes a leading --config-dir DIR from args and points the
+// runner's configuration at DIR, as `tap serve --config-dir` does, so `tap
+// trust` and `tap bind` can write to the configuration a server reads.
+func takeConfigDir(args []string) []string {
+	if len(args) >= 2 && args[0] == "--config-dir" {
+		dir := args[1]
+		userConfigDir = func() (string, error) { return dir, nil }
+		return args[2:]
+	}
+	return args
+}

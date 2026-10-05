@@ -155,3 +155,14 @@ func TestDefaultsApplyWhenTheManifestSaysNothing(t *testing.T) {
 		t.Fatal("dispatchesFor")
 	}
 }
+
+func TestAGuestThatRunsOutOfMemorySaysSoAndDoesNotFloodTheLog(t *testing.T) {
+	_, err := runLimited(t, "main.sh", "", `x=a; i=0; while [ $i -lt 40 ]; do x="$x$x"; i=$((i+1)); done; echo built
+`, Options{})
+	if err == nil || !strings.Contains(err.Error(), "ran out of memory") {
+		t.Fatalf("a guest that ran out of memory ended with: %v", err)
+	}
+	if got := clipLines(strings.Repeat("line\n", 100), 12); strings.Count(got, "\n") > 13 || !strings.Contains(got, "89 more lines") {
+		t.Errorf("clipLines: %q", got)
+	}
+}

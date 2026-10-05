@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -436,5 +438,39 @@ func TestAClientThatCannotAskRunsAPackageAsBefore(t *testing.T) {
 	out := c.run(writePackage(t, writeManifest, writeScript))
 	if len(c.trust) != 0 || out == "" {
 		t.Fatalf("a client with no elicitation was sent a question: %v", c.trust)
+	}
+}
+
+func TestTapTrustLetsAClientThatCannotAskRunAPackageItDeclined(t *testing.T) {
+	inDir(t)
+	c := startServer(t, true, accept) // sets this test's config directory
+	c.noTrust = true
+	pkg := writePackage(t, writeManifest, writeScript)
+	var out, errb bytes.Buffer
+	if code := trustCommand([]string{pkg}, &out, &errb); code != 0 {
+		t.Fatalf("trust: %d %s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "files: out (write)") || !strings.Contains(out.String(), "trusted") {
+		t.Fatalf("the command did not say what it trusted: %q", out.String())
+	}
+	// A client that can ask, and says no to every question, now runs it: the
+	// first-run question is not asked.
+	r := c.call("tools/call", map[string]any{"name": "tap_run", "arguments": c.stagePackage(pkg)})
+	if body := fmt.Sprint(r["content"]); !strings.Contains(body, "a written") {
+		t.Fatalf("a trusted package did not run: %v", r)
+	}
+	if len(c.trust) != 0 {
+		t.Fatalf("a trusted package was asked about again: %v", c.trust)
+	}
+	out.Reset()
+	trustCommand([]string{"--list"}, &out, &errb)
+	if !strings.Contains(out.String(), "writer") {
+		t.Fatalf("list: %q", out.String())
+	}
+	d, _, _ := packageDigest(pkg)
+	out.Reset()
+	trustCommand([]string{"--forget", d[:8]}, &out, &errb)
+	if !strings.Contains(out.String(), "forgot 1") {
+		t.Fatalf("forget: %q", out.String())
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -88,15 +89,45 @@ func reachable(host string, ip net.IP) error {
 
 // guardedTransport dials only addresses reachable allows. It resolves the name
 // itself and dials the address it checked, so what was checked is what is
-// connected to.
-func guardedTransport() *http.Transport {
+// connected to. A proxy from the environment is honored, as it is for every
+// other program on the machine: the connection to the proxy is allowed, and
+// the origin is checked as far as this machine can see it, because the proxy
+// resolves the name where it runs (TENG-3099, found testing a proxy).
+func guardedTransport() *http.Transport { return guardedTransportVia(http.ProxyFromEnvironment) }
+
+func guardedTransportVia(proxyFor func(*http.Request) (*url.URL, error)) *http.Transport {
 	d := &net.Dialer{Timeout: 30 * time.Second}
 	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.Proxy = nil // a proxy would be reached instead of the origin
+	var proxies sync.Map // hosts this transport was told to reach as proxies
+	t.Proxy = func(req *http.Request) (*url.URL, error) {
+		pu, err := proxyFor(req)
+		if err != nil || pu == nil {
+			return pu, err
+		}
+		proxies.Store(strings.ToLower(pu.Hostname()), true)
+		// The proxy will resolve the origin. Check what this machine resolves it
+		// to; a name this machine cannot resolve is left to the proxy.
+		host := req.URL.Hostname()
+		if net.ParseIP(host) == nil {
+			if ips, lerr := net.LookupIP(host); lerr == nil {
+				for _, ip := range ips {
+					if rerr := reachable(host, ip); rerr != nil {
+						return nil, rerr
+					}
+				}
+			}
+		} else if rerr := reachable(host, net.ParseIP(host)); rerr != nil {
+			return nil, rerr
+		}
+		return pu, nil
+	}
 	t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
 			return nil, err
+		}
+		if _, isProxy := proxies.Load(strings.ToLower(host)); isProxy {
+			return d.DialContext(ctx, network, addr)
 		}
 		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 		if err != nil {

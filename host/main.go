@@ -204,8 +204,11 @@ func main() {
 		// primitives. Local only; needs no Telara.
 		os.Exit(discover.Command(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "trust" {
+		os.Exit(trustCommand(takeConfigDir(os.Args[2:]), os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "bind" {
-		os.Exit(bindCommand(os.Args[2:], os.Stdout, os.Stderr))
+		os.Exit(bindCommand(takeConfigDir(os.Args[2:]), os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "install" {
 		os.Exit(installCommand(os.Args[2:], os.Stdout, os.Stderr))
@@ -248,7 +251,7 @@ func main() {
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: tap [--approve] [--resume RUN] <package-dir> [args...]\n       tap serve\n       tap bind --client NAME CAPABILITY SERVER\n       tap install --client <agent>|all|detected [--remove]\n       tap discover [--review] [--rejected]\n       tap hook gemini\n       tap web build --out FILE <package-dir>...\n       tap fetch\n       tap manifest check|complete <package-dir>\n       tap version")
+		fmt.Fprintln(os.Stderr, "usage: tap [--approve] [--resume RUN] <package-dir> [args...]\n       tap serve\n       tap trust PACKAGE-DIR\n       tap bind --client NAME CAPABILITY SERVER\n       tap install --client <agent>|all|detected [--remove]\n       tap discover [--review] [--rejected]\n       tap hook gemini\n       tap web build --out FILE <package-dir>...\n       tap fetch\n       tap manifest check|complete <package-dir>\n       tap version")
 		os.Exit(2)
 	}
 	var journal io.Writer = io.Discard
@@ -907,10 +910,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		logf("guest exit %v", err)
 	}
 	if guestErr.Len() > 0 {
-		logf("guest stderr:\n%s", strings.TrimRight(guestErr.String(), "\n"))
+		logf("guest stderr:\n%s", clipLines(strings.TrimRight(guestErr.String(), "\n"), 12))
 	}
 	logf("%d call(s) and command(s) run, %d refused, in %s", res.Ran, res.Refused, time.Since(t0).Round(time.Millisecond))
 	if final == nil {
+		if outOfMemory(guestErr.String()) {
+			return nil, fmt.Errorf("the primitive ran out of memory (the limit is %d MiB)", guestMemoryPages*64/1024)
+		}
 		return nil, fmt.Errorf("the primitive ended without a result")
 	}
 	res.Exit, res.Stdout, res.Stderr = final.Exit, final.Stdout, final.Stderr
