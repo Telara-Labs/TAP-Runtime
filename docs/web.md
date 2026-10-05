@@ -1,9 +1,10 @@
 # Running primitives in claude.ai
 
 **Preview.** A primitive can run inside claude.ai, in the browser, using the
-connectors your claude.ai account already has. Nothing is installed and no
-credentials are handled: claude.ai makes each connector call for the page, as
-you.
+connectors your claude.ai account already has. The tested path publishes a
+worker as an Artifact and makes connector calls through claude.ai's account
+connections; no runner installation or manual credential entry was needed for
+those checks.
 
 ## How it works
 
@@ -20,12 +21,19 @@ Artifact and keep it open in a tab while you chat.
 
 The connector guard requires `readOnlyHint: true` and refuses a tool with
 `destructiveHint: true` or missing read-only metadata. The exact guard was
-exercised with one real Gmail metadata-only search in a private Artifact on
-October 5. This does not establish compatibility with every connector, the
-complete compiled worker, or a desktop-companion connection.
+exercised by signed v0.1.15 compiled worker jobs with Gmail search_threads,
+Calendar search_events, Drive search_files and Telara telara_tool_describe.
+Rendered rows and terminal database records agreed. These four representative
+reads do not establish every connector/tool or a desktop-companion connection.
 
-Measured on claude.ai with a Gmail primitive: 37 KB read from Gmail, 170 bytes
-returned to the chat, about five seconds end to end.
+Published v0.1.15 undercounted failed provider attempts and did not forward the
+manifest's request budget to the browser worker. Corrected source `2f707f8`
+counts actual dispatch attempts, including provider errors, and applies
+`execution.limits.max_dispatches` (default 1000). A private developer Artifact
+recorded one failed provider attempt as one call and zero refusals; a batch
+with a two-request budget made two calls and refused the third. This correction
+was verified in a developer Artifact; the signed v0.1.15 baseline predates
+these fixes. Those developer checks do not establish signed-release acceptance.
 
 ## Build the page
 
@@ -80,10 +88,12 @@ With the worker open in a tab, ask Claude in any claude.ai chat:
 
 ## Limits
 
-- The worker must be open in a tab. It keeps working in a background tab.
-- claude.ai paid plans, where Artifacts can use connectors.
+- The worker must stay open in a tab. Background-tab execution has not been
+  verified.
+- An account where Artifacts can use connectors is required.
+- The browser worker does not inherit the native runner's 512 MiB memory
+  setting, `timeoutSeconds` or 16 MiB protocol-line cap. The request-budget
+  correction above does not establish full limit parity.
 - One worker page serves the primitives it was built with. Build it again to
   add one.
-- ChatGPT has a similar feature (Sites with plugins) on Business, Enterprise
-  and Edu workspaces. It has not been tested. Gemini and Copilot on the web
-  offer nothing comparable.
+- Other web clients have not been verified.
