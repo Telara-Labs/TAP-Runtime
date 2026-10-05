@@ -39,6 +39,20 @@ linux-amd64:
   image: golang:1.26
   script: *suite
 
+# Published-artifact acceptance on the existing native GCP runner, when
+# GitHub's hosted runner pool cannot supply an amd64 machine. The package
+# version is set by the release command; no separate CI version setting.
+published-acceptance-linux-amd64:
+  stage: verify
+  image: golang:1.26
+  when: manual
+  allow_failure: true
+  timeout: 30m
+  script:
+    - uname -m
+    - apt-get update -qq && apt-get install -y -qq nodejs npm strace busybox
+    - go test ./acceptance/launch -count=1 -v -timeout 25m -launch-version "$(node -p "require('./npm/package.json').version")"
+
 linux-arm64:
   stage: verify
   image: golang:1.26
