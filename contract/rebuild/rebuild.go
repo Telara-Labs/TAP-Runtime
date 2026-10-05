@@ -28,7 +28,7 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/telara-labs/tap-runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
 // Result is what a rebuild found.

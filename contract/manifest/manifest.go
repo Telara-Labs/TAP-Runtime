@@ -24,9 +24,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Telara-Labs/TAP-Runtime/contract/canon"
+	"github.com/Telara-Labs/TAP-Runtime/contract/glob"
 	"github.com/santhosh-tekuri/jsonschema/v5"
-	"gitlab.com/telara-labs/tap-runtime/contract/canon"
-	"gitlab.com/telara-labs/tap-runtime/contract/glob"
 	"golang.org/x/net/publicsuffix"
 	"gopkg.in/yaml.v3"
 )

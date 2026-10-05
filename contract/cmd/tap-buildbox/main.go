@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"gitlab.com/telara-labs/tap-runtime/contract/buildbox"
+	"github.com/Telara-Labs/TAP-Runtime/contract/buildbox"
 )
 
 func main() {

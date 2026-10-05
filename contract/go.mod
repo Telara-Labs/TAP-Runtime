@@ -1,4 +1,4 @@
-module gitlab.com/telara-labs/tap-runtime/contract
+module github.com/Telara-Labs/TAP-Runtime/contract
 
 // Kept small and on an older Go on purpose: Telara's services import this
 // module to check what is published, and must not inherit the runner's
