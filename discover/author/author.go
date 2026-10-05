@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -343,6 +344,9 @@ func BriefCommand(args []string, home string, out, errOut io.Writer) int {
 	source := fs.Int("source", 0, "with --candidate: which of its source requests to brief from")
 	dir := fs.String("out", "", "directory to write brief.json and BRIEF.md into (private)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	given := 0

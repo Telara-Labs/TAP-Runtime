@@ -201,6 +201,9 @@ func SaveCommand(args []string, home string, out, errOut io.Writer) int {
 	project := fs.Bool("project", false, "write pointers into this project's skills folders instead of your home's")
 	pos, flags := SplitPositional(args)
 	if err := fs.Parse(flags); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	pos = append(pos, fs.Args()...)

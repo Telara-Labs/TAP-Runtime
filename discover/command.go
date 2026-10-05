@@ -2,6 +2,7 @@ package discover
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -97,6 +98,9 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	fs.Float64Var(&d.Alpha, "fdr", d.Alpha, "false discovery rate")
 	fs.Int64Var(&d.Seed, "seed", d.Seed, "seed for the shuffles, so a run can be repeated")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	d.Patterns = *patterns
@@ -198,6 +202,9 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 	saveProject := fs.Bool("save-project", false, "write pointers into this project's skills folders instead of your home's")
 	asJSON := fs.Bool("json", false, "print the condensed result as JSON instead of the menu")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	home, err := os.UserHomeDir()

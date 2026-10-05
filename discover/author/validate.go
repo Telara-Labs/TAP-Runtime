@@ -605,6 +605,9 @@ func ValidateCommand(args []string, out, errOut io.Writer) int {
 	outFile := fs.String("out", "", "write the receipts here")
 	pkgArgs, flagArgs := SplitPositional(args)
 	if err := fs.Parse(flagArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	pkgArgs = append(pkgArgs, fs.Args()...)
