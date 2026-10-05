@@ -74,21 +74,31 @@ async function answer(req) {
     }
     case "call": {
       const cts = new vscode.CancellationTokenSource();
-      // VS Code asks the person to confirm a tool that is not marked read-only,
-      // in a chat. A call made from here has no chat to show it in, so it waits
-      // (seen in VS Code 1.140 with an MCP tool). Say so instead of waiting ten
-      // minutes.
+      // A confirmation can wait with no chat showing it. Cancellation alone
+      // does not settle invokeTool, so the deadline must settle our answer too.
+      // VS Code 1.140 checks the token after confirmation, before dispatch. A
+      // tool already running can ignore cancellation; its outcome stays unknown.
       const limit = 2 * 60 * 1000;
       let timedOut = false;
-      const timer = setTimeout(() => { timedOut = true; cts.cancel(); }, limit);
+      let timer;
+      const timeoutError = new Error(`VS Code did not return a result for ${req.name} within 2 minutes. TAP cancelled the request. It may have been waiting for confirmation or already running; check whether any change happened before retrying.`);
+      const deadline = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          reject(timeoutError);
+          cts.cancel();
+        }, limit);
+      });
       try {
-        const r = await vscode.lm.invokeTool(req.name, { input: req.input || {}, toolInvocationToken: undefined }, cts.token);
+        const invocation = vscode.lm.invokeTool(req.name, { input: req.input || {}, toolInvocationToken: undefined }, cts.token);
+        const r = await Promise.race([invocation, deadline]);
         return { text: resultText(r) };
       } catch (e) {
-        if (timedOut) throw new Error(`VS Code did not run ${req.name} within 2 minutes. It is most likely waiting for a person to confirm it in a chat, and no chat is showing the question.`);
+        if (timedOut) throw timeoutError;
         throw e;
       } finally {
         clearTimeout(timer);
+        cts.dispose();
       }
     }
   }

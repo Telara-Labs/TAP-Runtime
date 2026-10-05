@@ -27,6 +27,12 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26.1"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Test the VS Code extension
+        run: node --test vscode/extension.test.js
       - name: Tools the store readers use (sqlite3, zstd)
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3 zstd
@@ -53,6 +59,12 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26.1"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Test the VS Code extension
+        run: node --test vscode/extension.test.js
       # The runner's suite drives Unix programs, and contract's build box and
       # rebuild are the Linux build sandbox: on Windows the portable packages
       # run, discover runs in full, and the runner and interpreter build (as
