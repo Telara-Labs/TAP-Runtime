@@ -48,6 +48,11 @@ try {
   Step "tests: bind, journal, satisfy" { go test ./bind ./journal ./satisfy -count=1 }
   Push-Location contract
   try { Step "tests: contract glob, manifest" { go test ./glob ./manifest -count=1 } } finally { Pop-Location }
+  # discover reads local files only. Windows has no sqlite3 program, so its
+  # store readers report themselves unavailable and their tests skip
+  # (TENG-3171).
+  Push-Location discover
+  try { Step "tests: discover" { go test ./... -count=1 } } finally { Pop-Location }
   Step "build the runner" { go build -o tap.exe ./host }
 
   $env:GOOS = "wasip1"; $env:GOARCH = "wasm"
