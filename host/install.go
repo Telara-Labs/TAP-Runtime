@@ -158,6 +158,9 @@ func installOne(c agents.Client, home, self, name, scope string, env envFlags, p
 			return 0
 		}
 		entry := mcpEntry(self, name, env)
+		if c.MCP.Local {
+			entry = localMCPEntry(self, name, env)
+		}
 		if print {
 			verb := "add to"
 			if remove {
@@ -246,6 +249,17 @@ func mcpEntry(self, name string, env envFlags) map[string]any {
 			vars[k] = v
 		}
 		entry["env"] = vars
+	}
+	return entry
+}
+
+// localMCPEntry is the runner's server entry in the OpenCode family's
+// configuration (Kilo CLI, OpenCode): a local server whose command is one
+// array, with its environment under "environment" (TENG-3131).
+func localMCPEntry(self, name string, env envFlags) map[string]any {
+	entry := map[string]any{"type": "local", "command": []any{self, "serve", "--name", name}, "enabled": true}
+	if e, ok := mcpEntry(self, name, env)["env"]; ok {
+		entry["environment"] = e
 	}
 	return entry
 }

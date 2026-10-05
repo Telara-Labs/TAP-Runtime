@@ -36,6 +36,7 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 
+	"gitlab.com/telara-labs/tap-runtime/bind"
 	"gitlab.com/telara-labs/tap-runtime/bridge"
 	mf "gitlab.com/telara-labs/tap-runtime/contract/manifest"
 	"gitlab.com/telara-labs/tap-runtime/discover"
@@ -420,6 +421,21 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				return nil, err
 			}
 			defer br.Close()
+			// A client that cannot list its tools (Kilo) is given the
+			// primitive's pinned tools, as the Gemini relay is.
+			if pb, ok := br.(bridge.PinnedOnly); ok {
+				var pins []bind.Tool
+				for _, d := range m.Tools {
+					if d.Pin == nil {
+						if !d.Optional {
+							return nil, fmt.Errorf("tool %q: %s does not tell the runner which tools it has, so each tool must be pinned, as pin: {server: <server>, tool: <tool>}", d.Alias, c)
+						}
+						continue
+					}
+					pins = append(pins, bind.Tool{Server: d.Pin.Server, Name: d.Pin.Tool, Annotated: bind.Unknown})
+				}
+				pb.UsePins(pins)
+			}
 		}
 		adm, err = admitWith(newFileBindings(defaultBindingsPath()), o.Choose, m.Tools, br, m.Capabilities...)
 		if err != nil {

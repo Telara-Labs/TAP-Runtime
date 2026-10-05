@@ -40,6 +40,7 @@ var tested = map[string][]string{
 	"claude-code": {"2.1.284"},
 	"codex":       {"0.147.0"},
 	"goose":       {"1.53.0"},
+	"kilo":        {"7.8.3"},
 }
 
 // Tested reports whether this runner was run against the client version.

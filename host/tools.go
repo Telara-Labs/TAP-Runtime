@@ -97,7 +97,7 @@ func bridgeName(name string) string {
 // discover registry's Bridge flag must agree (TestRegistryBridgeMatchesRunner).
 func lendsConnections(client string) bool {
 	switch client {
-	case "claude", "codex", "goose":
+	case "claude", "codex", "goose", "kilo":
 		return true
 	}
 	return relayClient(client)
@@ -111,6 +111,8 @@ func openBridge(client string) (bridge.Bridge, error) {
 		return bridge.NewCodex()
 	case "goose":
 		return bridge.NewGoose()
+	case "kilo":
+		return bridge.NewKilo()
 	case "":
 		return nil, fmt.Errorf("this primitive declares tools and no client was detected; pass --client claude or --client codex")
 	}

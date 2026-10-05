@@ -4,7 +4,7 @@
 
 - **An agent that can lend its connections**, for a primitive that calls
   tools: Claude Code, Codex, VS Code (with the extension below), Gemini CLI
-  (experimental) or Goose (experimental, see below). `tap install` also connects the TAP MCP server to Cursor,
+  (experimental), Goose or the Kilo CLI (both experimental, see below). `tap install` also connects the TAP MCP server to Cursor,
   Windsurf and Copilot CLI. Registration alone does not prove execution;
   their native connection handoff remains limited (docs/bridge-research.md).
   The source HTTP frontend can instead use an explicitly configured generic
@@ -143,6 +143,7 @@ named `tap` to every agent installed here:
 | Windsurf | one entry merged into `~/.codeium/windsurf/mcp_config.json` |
 | Gemini CLI | `~/.gemini/settings.json`, with the hook its bridge needs |
 | Goose | one extension merged into `~/.config/goose/config.yaml` |
+| Kilo CLI, OpenCode | one `mcp` entry merged into `~/.config/kilo/kilo.json` or `~/.config/opencode/opencode.json` |
 | VS Code | the TAP extension below |
 
 A JSON or YAML file is changed only by adding (or, with `--remove`,
@@ -159,6 +160,18 @@ The runner's own gate still applies. Goose annotates no tool, so each one is
 treated as a write and needs the runner's approval, which `tap serve` asks
 for through the agent. A tool set to `never_allow` in Goose is refused.
 Tested with Goose 1.53.0.
+
+**Kilo CLI: the runner is the only approval, and tools are pinned.** For a
+primitive's tool calls the runner starts its own `kilo serve` (with Kilo's
+experimental flag and a one-time password, on that server only) and calls
+`POST /experimental/mcp/call-tool`, which runs the tool through Kilo's own
+MCP connection with no model turn and no Kilo approval prompt. Kilo
+annotates nothing, so each call needs the runner's approval. Kilo lists no
+MCP server's tools, so a primitive run through Kilo must pin each tool it
+uses (`pin: {server, tool}`), as for Gemini CLI. A tool switched off
+(`tools: {"server_tool": false}`) or denied (`permission: {"server_tool":
+"deny"}`) in Kilo's configuration is refused. The Kilo Code VS Code
+extension cannot lend its connections. Tested with Kilo CLI 7.8.3.
 
 Options: `--client AGENTS|none` and `--dir DIR` (default `~/.local/bin`).
 Windows takes `-Client` and `-Dir`, and installs to

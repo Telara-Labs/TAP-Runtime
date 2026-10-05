@@ -34,7 +34,7 @@ prompts are model turns.
 | Qwen Code | Hooks return `permissionDecision`, `updatedInput`, `additionalContext` (PreToolUse) and `decision`, `reason`, `additionalContext` (PostToolUse); no chained tool call like Gemini CLI's `tailToolCallRequest` | **no** (vendor docs; source not read) | QwenLM/qwen-code `docs/users/features/hooks.md` |
 | Roo Code | Exported `RooCodeAPI`: `startNewTask`, `resumeTask`, `sendMessage`, button presses, settings. Every path goes through the model (`use_mcp_tool`) | **no** | RooCodeInc/Roo-Code `packages/types/src/api.ts` |
 | Cline (extension and CLI) | Extension exports only `startNewTask`, `sendMessage`, `pressPrimaryButton`, `pressSecondaryButton` (model turns); its `cline.McpService` gRPC methods manage servers and call none. CLI hub commands (`session.*`, `run.*`, `task.*`, `approval.respond`, `capability.*`) have no MCP call; `--acp` has no extension methods; hooks return `cancel`, `review`, `contextModification`, `overrideInput`, `errorMessage` (rewrite or block, never add a call) | **no** | `saoudrizwan.claude-dev-4.1.22` `dist/extension.js`; `cline` 3.0.68 `@cline/core/dist/hub/index.js`, `@cline/core/dist/extensions/mcp/manager.d.ts`, read 2026-10-02 |
-| Kilo CLI | `kilo serve` route `POST /experimental/mcp/call-tool` `{server, name, arguments}` (query `directory`) calls the server's own live MCP client and returns `{content, isError, structuredContent}`, with no model turn. 404 unless Kilo's own experimental flag (`KILO_EXPERIMENTAL_MCP_APPS`, or `KILO_EXPERIMENTAL`) is on in the serve process. It skips Kilo's permission prompt and plugin hooks, so as with Goose the runner's gate would be the only approval | **bridge candidate, verified live** (Kilo CLI 7.8.3, fixture tracker: search returned ABC-12/13, ABC-99 came back `isError`); build needs a decision (TENG-3131) | `@kilocode/cli` 7.8.3 binary (`McpHttpApi.callTool`); live probe 2026-10-02 |
+| Kilo CLI | `kilo serve` route `POST /experimental/mcp/call-tool` `{server, name, arguments}` (query `directory`) calls the server's own live MCP client and returns `{content, isError, structuredContent}`, with no model turn. 404 unless Kilo's own experimental flag (`KILO_EXPERIMENTAL_MCP_APPS`, or `KILO_EXPERIMENTAL`) is on in the serve process. It skips Kilo's permission prompt and plugin hooks, so as with Goose the runner's gate would be the only approval | **bridge** (built, TENG-3131; live-tested on Kilo CLI 7.8.3; pinned tools only, the runner's gate is the only approval; docs/install.md) | `@kilocode/cli` 7.8.3 binary (`McpHttpApi.callTool`); live probe 2026-10-02 |
 | Kilo Code (extension) | Starts its own `kilo serve --port 0` with a random `KILO_SERVER_PASSWORD`, so no outside program knows the port or password; it is not documented to turn the experimental flag on | **no** (from Kilo's docs, extension not installed here) | Kilo-Org/kilocode `packages/kilo-vscode/AGENTS.md` |
 | Zed | As an ACP client Zed answers file, terminal, permission and elicitation requests only; external agents get the MCP server configs and connect themselves; the MCP extension API only supplies a launch command. No method runs one of Zed's context-server tools | **no** (source read; Zed not installed here) | zed-industries/zed `crates/agent_servers/src/acp.rs`; zed.dev/docs/extensions/mcp-extensions, read 2026-10-02 |
 | Crush | One `PreToolUse` hook returning `decision`, `updated_input`, `context` | **no** (vendor docs) | charmbracelet/crush `docs/hooks/README.md` |
@@ -64,9 +64,10 @@ test in the shape of `bridge/live_test.go`:
    client calls itself `goose-cli` and sends `server/discover` before
    `initialize`.
 
-3. **Kilo CLI**: `kilo serve` `POST /experimental/mcp/call-tool`, verified
-   live. Same approval model as Goose (the runner's gate only), and the serve
-   process needs Kilo's experimental flag: TENG-3131 waits on that decision.
+3. **Kilo CLI**: `kilo serve` `POST /experimental/mcp/call-tool`. Built
+   (TENG-3131) with Goose's approval model; Kilo lists no MCP tools, so
+   tools are pinned. `kilo` is a launcher: the bridge kills the server's
+   whole process group, or the server outlives the run.
 
 Amp's `amp tools use` may be a fourth once it is shown to reach MCP tools;
 that needs an Amp sign-in.
