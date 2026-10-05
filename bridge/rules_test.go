@@ -90,3 +90,19 @@ func TestClaudeRulesAreSplitIntoDenyAndAsk(t *testing.T) {
 		t.Fatal("a server-wide ask rule did not cover its tool")
 	}
 }
+
+// Found testing a real Claude Code with two servers named probe-a and probe-b: a
+// hyphen was turned into an underscore, so the call went to a server that does
+// not exist ("MCP server not connected: probe_b").
+func TestClaudeKeepsHyphensInAServerName(t *testing.T) {
+	for server, want := range map[string]string{
+		"probe-b":          "mcp__probe-b__search_items",
+		"claude-in-chrome": "mcp__claude-in-chrome__search_items",
+		"claude.ai Gmail":  "mcp__claude_ai_Gmail__search_items",
+		"under_score":      "mcp__under_score__search_items",
+	} {
+		if got := claudeName(server, "search_items"); got != want {
+			t.Errorf("%q: %q, want %q", server, got, want)
+		}
+	}
+}

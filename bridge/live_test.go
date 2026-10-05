@@ -217,3 +217,90 @@ const liveMCPServer = `let buf="";process.stdin.on("data",d=>{buf+=d;let i;while
 if(m.method==="initialize")r({protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:"probe",version:"1"}});
 else if(m.method==="tools/list")r({tools:[{name:"search_issues",description:"x",inputSchema:{type:"object",properties:{}},annotations:{readOnlyHint:true}},{name:"create_issue",description:"y",inputSchema:{type:"object",properties:{}}}]});
 else if(m.id!==undefined)r({});}});`
+
+// TENG-3101: an "ask" rule, given to one Claude Code process, is read from its
+// own list of permission rules and puts a call in front of the person.
+func TestLiveClaudeAskRulesAreReported(t *testing.T) {
+	if _, err := exec.LookPath("claude"); err != nil {
+		t.Skip("claude is not installed")
+	}
+	c, err := NewClaude("--settings", `{"permissions":{"ask":["mcp__probe__ask_me","mcp__wholeserver"]}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for _, tc := range []struct {
+		server, name string
+		want         bool
+	}{
+		{"probe", "ask_me", true},
+		{"probe", "other", false},
+		{"wholeserver", "anything", true}, // a server-wide rule
+		{"elsewhere", "ask_me", false},
+	} {
+		got, err := c.Asks(bind.Tool{Server: tc.server, Name: tc.name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != tc.want {
+			t.Errorf("%s / %s: asks = %v, want %v (ask rules seen: %v)", tc.server, tc.name, got, tc.want, c.ask)
+		}
+	}
+	if denied, _ := c.Denied(bind.Tool{Server: "probe", Name: "ask_me"}); denied {
+		t.Error("an ask rule was read as a deny rule")
+	}
+}
+
+// TENG-3101: Codex's own configuration, read through its real app-server, says
+// which MCP tools are switched off and which always prompt. The configuration is
+// a throwaway CODEX_HOME, so no real setting is touched.
+func TestLiveCodexRulesFromAConfigFile(t *testing.T) {
+	if _, err := exec.LookPath("codex"); err != nil {
+		t.Skip("codex is not installed")
+	}
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte(`
+[mcp_servers.probe]
+command = "true"
+enabled_tools = ["search", "ask_me"]
+
+[mcp_servers.probe.tools.ask_me]
+approval_mode = "prompt"
+
+[mcp_servers.probe.tools.search]
+approval_mode = "approve"
+
+[mcp_servers.gone]
+command = "true"
+enabled = false
+`), 0o600)
+	t.Setenv("CODEX_HOME", home)
+	c, err := NewCodex()
+	if err != nil {
+		t.Skipf("codex would not start with a bare CODEX_HOME: %v", err)
+	}
+	defer c.Close()
+	for _, tc := range []struct {
+		server, name string
+		denied, asks bool
+	}{
+		{"probe", "search", false, false},
+		{"probe", "ask_me", false, true},
+		{"probe", "delete_all", true, false}, // not in enabled_tools
+		{"gone", "anything", true, false},    // the server is switched off
+		{"other", "anything", false, false},
+	} {
+		tool := bind.Tool{Server: tc.server, Name: tc.name}
+		denied, err := c.Denied(tool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		asks, err := c.Asks(tool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if denied != tc.denied || asks != tc.asks {
+			t.Errorf("%s / %s: denied=%v asks=%v, want denied=%v asks=%v", tc.server, tc.name, denied, asks, tc.denied, tc.asks)
+		}
+	}
+}

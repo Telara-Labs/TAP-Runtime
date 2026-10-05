@@ -94,7 +94,10 @@ func codexEffect(a map[string]any) bind.Effect {
 func claudeName(server, tool string) string {
 	b := make([]rune, 0, len(server))
 	for _, r := range server {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+		// Letters, digits, underscore and hyphen are kept: Claude Code names a
+		// tool of a server called claude-in-chrome mcp__claude-in-chrome__x.
+		// Everything else, a space or a dot, becomes an underscore.
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
 			b = append(b, r)
 		} else {
 			b = append(b, '_')
