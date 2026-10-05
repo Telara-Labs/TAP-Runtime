@@ -155,7 +155,12 @@ func TestContinueReader(t *testing.T) {
 func TestAllFixturesAreRedacted(t *testing.T) {
 	key := regexp.MustCompile(`fw_[A-Za-z0-9]{16,}`)
 	// A fixture captured on this machine would carry its home directory.
+	// Only a personal home (/home/<user>) says whose machine it was; a
+	// container's /root is a common path in the fixtures themselves.
 	home, _ := os.UserHomeDir()
+	if strings.Count(filepath.ToSlash(home), "/") < 2 {
+		home = ""
+	}
 	n := 0
 	err := filepath.WalkDir("testdata", func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -167,7 +172,7 @@ func TestAllFixturesAreRedacted(t *testing.T) {
 			return err
 		}
 		s := string(b)
-		if strings.Contains(s, "/Users/") || key.MatchString(s) || (len(home) > 1 && strings.Contains(s, home)) {
+		if strings.Contains(s, "/Users/") || key.MatchString(s) || (home != "" && strings.Contains(s, home)) {
 			t.Errorf("%s holds a home path or a key", p)
 		}
 		for _, line := range strings.Split(s, "\n") {
