@@ -50,9 +50,14 @@ check and save one. A `tap-author` folder TAP did not write is kept, and
 When `tap_search` finds no saved primitive, it says whether the person asked
 for that kind of task in an earlier session. When the agent connects, `tap
 serve` reads that agent's own history from the last 30 days on this machine,
-in the background, and compares the search words with earlier user requests;
-values such as commits and versions are ignored. Nothing is sent anywhere and
-nothing is written. Only a task asked for before is offered for saving. Run it again after adding a client. It preserves
+in the background, and compares the search words with the request that opened
+each earlier session; values such as commits and versions are ignored, and two
+shared words must be uncommon in that history. Nothing is sent anywhere. To
+avoid re-reading a long history on every start, the words of each opening
+request and a 120-character excerpt are kept in a private file
+(`tap-runtime/requests-<agent>.json` in the user cache directory, mode 0600);
+later starts read only the session files changed since. Only a task asked for
+before is offered for saving. Run it again after adding a client. It preserves
 foreign skill folders, reports collisions, and refreshes TAP-owned pointers
 without duplicating executable packages. `tap install --client <agent>` does
 the same reconciliation for that client; `--print` changes nothing and

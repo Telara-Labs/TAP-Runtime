@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +104,56 @@ func TestAgentPhrasingDoesNotHideARecurrence(t *testing.T) {
 func TestOneSharedWordIsNotARecurrence(t *testing.T) {
 	past := []pastRequest{req("s1", 0, "Can you check whether GitLab Runner commit 3c39fceb is ready to release after v19.4.0?")}
 	if rec := findRecurrence("check staging deploy status", past); rec.Sessions != 0 {
+		t.Fatalf("recurrence = %+v", rec)
+	}
+}
+
+// writeClaudeSession writes a Claude Code transcript under home: a session
+// that opens with first, makes one tool call, then gets a follow-up.
+func writeClaudeSession(t *testing.T, home, id string, at time.Time, first, followUp string) {
+	t.Helper()
+	dir := filepath.Join(home, ".claude", "projects", "work")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ts := func(d time.Duration) string { return at.Add(d).UTC().Format(time.RFC3339) }
+	lines := []string{
+		fmt.Sprintf(`{"type":"user","sessionId":%q,"timestamp":%q,"message":{"role":"user","content":%q}}`, id, ts(0), first),
+		fmt.Sprintf(`{"type":"assistant","sessionId":%q,"timestamp":%q,"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git status"}}]}}`, id, ts(time.Second)),
+		fmt.Sprintf(`{"type":"user","sessionId":%q,"timestamp":%q,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}`, id, ts(2*time.Second)),
+		fmt.Sprintf(`{"type":"user","sessionId":%q,"timestamp":%q,"message":{"role":"user","content":%q}}`, id, ts(3*time.Second), followUp),
+	}
+	if err := os.WriteFile(filepath.Join(dir, id+".jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Only the request that opens a session is compared; the cache is private,
+// and a later read finds a session added after the first read.
+func TestHistoryReadsOpeningRequestsAndCachesThem(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	writeClaudeSession(t, home, "s1", time.Now().Add(-48*time.Hour), "Can you check whether GitLab Runner commit 3c39fceb is ready to release after v19.4.0?", "ok go one by one")
+	past := readHistory("claude-code")
+	if len(past) != 1 || !strings.Contains(past[0].text, "GitLab Runner") || past[0].ref != "claude-code/s1/0" {
+		t.Fatalf("past = %+v", past)
+	}
+	info, err := os.Stat(requestCachePath("claude-code"))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("cache %v %v", info, err)
+	}
+	writeClaudeSession(t, home, "s2", time.Now().Add(-time.Minute), "Summarize the billing tickets", "thanks")
+	if past = readHistory("claude-code"); len(past) != 2 {
+		t.Fatalf("second read = %+v", past)
+	}
+}
+
+// A long message shares a few words with almost anything; that is not the
+// same task.
+func TestALongUnrelatedMessageDoesNotRecur(t *testing.T) {
+	past := append(background(), req("s1", 1, "I am wondering how big of an ask it would be to remove projects from our scopes, currently we check every project before we release anything and the session only shows a few"))
+	if rec := findRecurrence("check commit release readiness after tag", past); rec.Sessions != 0 {
 		t.Fatalf("recurrence = %+v", rec)
 	}
 }

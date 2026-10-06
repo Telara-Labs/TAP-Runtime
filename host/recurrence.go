@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -45,7 +48,9 @@ type recurrence struct {
 }
 
 // readHistory returns the user requests of the named agent from the last
-// recurrenceDays.
+// recurrenceDays. A full read of a long history takes seconds (12.5 s for 283
+// sessions measured), so what was read is kept in a private cache and each
+// later read parses only the session files changed since.
 var readHistory = func(clientName string) []pastRequest {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -59,9 +64,22 @@ var readHistory = func(clientName string) []pastRequest {
 	if err != nil {
 		return nil
 	}
-	sessions, _ := r.Read(time.Now().AddDate(0, 0, -recurrenceDays))
-	var out []pastRequest
+	path := requestCachePath(c.ID)
+	cache := loadRequestCache(path)
+	now := time.Now()
+	window := now.AddDate(0, 0, -recurrenceDays)
+	since := window
+	if cache.ReadAt.After(window) {
+		// A session file written during the last read may have been read
+		// half-written; read anything touched shortly before it again.
+		since = cache.ReadAt.Add(-time.Hour)
+	}
+	sessions, err := r.Read(since)
+	if err != nil && len(sessions) == 0 {
+		return cache.requests(c.ID, window)
+	}
 	for _, s := range sessions {
+		cs := cachedSession{Start: s.Start}
 		for i, text := range s.Requests {
 			if i < len(s.RequestRoles) && s.RequestRoles[i] != "" && s.RequestRoles[i] != "user" {
 				continue
@@ -69,8 +87,107 @@ var readHistory = func(clientName string) []pastRequest {
 			if strings.TrimSpace(text) == "" {
 				continue
 			}
-			ref := fmt.Sprintf("%s/%s/%d", c.ID, s.ID, i)
-			out = append(out, pastRequest{ref: ref, session: s.ID, at: s.Start, text: text, words: wordSet(text)})
+			words := make([]string, 0, 8)
+			for w := range wordSet(text) {
+				words = append(words, w)
+			}
+			sort.Strings(words)
+			// A task someone repeats is what they open a session with;
+			// the later messages are replies within that task.
+			cs.Requests = append(cs.Requests, cachedRequest{Index: i, Words: words, Example: shorten(text, 120)})
+			break
+		}
+		cache.Sessions[s.ID] = cs
+	}
+	cache.ReadAt = now
+	for id, cs := range cache.Sessions {
+		if cs.Start.Before(window) {
+			delete(cache.Sessions, id)
+		}
+	}
+	saveRequestCache(path, cache)
+	return cache.requests(c.ID, window)
+}
+
+// requestCache is what earlier reads found: per session, each user
+// request's words and a short excerpt, never the whole text.
+type requestCache struct {
+	Version  int                      `json:"version"`
+	ReadAt   time.Time                `json:"read_at"`
+	Sessions map[string]cachedSession `json:"sessions"`
+}
+
+type cachedSession struct {
+	Start    time.Time       `json:"start"`
+	Requests []cachedRequest `json:"requests"`
+}
+
+type cachedRequest struct {
+	Index   int      `json:"index"`
+	Words   []string `json:"words"`
+	Example string   `json:"example"`
+}
+
+const requestCacheVersion = 2
+
+func requestCachePath(client string) string {
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(base, "tap-runtime", "requests-"+client+".json")
+}
+
+func loadRequestCache(path string) requestCache {
+	empty := requestCache{Version: requestCacheVersion, Sessions: map[string]cachedSession{}}
+	if path == "" {
+		return empty
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return empty
+	}
+	var c requestCache
+	if json.Unmarshal(b, &c) != nil || c.Version != requestCacheVersion || c.Sessions == nil {
+		return empty
+	}
+	return c
+}
+
+// saveRequestCache writes the cache privately and atomically: several agent
+// sessions, each with its own tap serve, may write it at once.
+func saveRequestCache(path string, c requestCache) {
+	if path == "" {
+		return
+	}
+	b, err := json.Marshal(c)
+	if err != nil || os.MkdirAll(filepath.Dir(path), 0o700) != nil {
+		return
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".requests-*")
+	if err != nil {
+		return
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(b); err != nil || tmp.Chmod(0o600) != nil || tmp.Close() != nil {
+		tmp.Close()
+		return
+	}
+	os.Rename(tmp.Name(), path)
+}
+
+func (c requestCache) requests(client string, window time.Time) []pastRequest {
+	var out []pastRequest
+	for id, cs := range c.Sessions {
+		if cs.Start.Before(window) {
+			continue
+		}
+		for _, rq := range cs.Requests {
+			words := make(map[string]bool, len(rq.Words))
+			for _, w := range rq.Words {
+				words[w] = true
+			}
+			out = append(out, pastRequest{ref: fmt.Sprintf("%s/%s/%d", client, id, rq.Index), session: id, at: cs.Start, text: rq.Example, words: words})
 		}
 	}
 	return out
@@ -146,6 +263,13 @@ func findRecurrence(query string, past []pastRequest) recurrence {
 			df[w]++
 		}
 	}
+	// Two shared words must be rare in this history (in at most a tenth of
+	// its requests, or two on a short history): words most requests use,
+	// such as "check" or "what", do not make two requests the same task.
+	rareLimit := len(past) / 10
+	if rareLimit < 2 {
+		rareLimit = 2
+	}
 	// Smoothed, so that on a short history, where every word is in every
 	// request, the weights fall back to plain overlap instead of zero.
 	weight := func(w string) float64 { return 1 + math.Log(float64(len(past)+1)/float64(df[w]+1)) }
@@ -165,13 +289,18 @@ func findRecurrence(query string, past []pastRequest) recurrence {
 	var rec recurrence
 	var earliest time.Time
 	for _, p := range past {
-		shared, count := 0.0, 0
+		shared, count, rare := 0.0, 0, 0
 		for w := range q {
 			if p.words[w] {
 				shared, count = shared+weight(w), count+1
+				if df[w] <= rareLimit {
+					rare++
+				}
 			}
 		}
-		if shared/total < recurrenceScore || 2*count < len(q) {
+		// The overlap must also be a real part of the earlier request: a long
+		// message shares some words with almost anything.
+		if shared/total < recurrenceScore || 2*count < len(q) || rare < 2 || 10*count < 3*len(p.words) {
 			continue
 		}
 		sessions[p.session] = true
