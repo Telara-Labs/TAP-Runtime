@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	github.com/Telara-Labs/TAP-Runtime/contract v0.0.0-20261005135826-0e41a67c9fdd
-	github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261005185946-58df7ef2ab8c
+	github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261005222205-40bd6f08c998
 	github.com/evanw/esbuild v0.25.10
 	github.com/itchyny/gojq v0.12.19
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
