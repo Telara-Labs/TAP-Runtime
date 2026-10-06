@@ -508,6 +508,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			if c == "" {
 				c = detectClient()
 			}
+			if c == "codex" && os.Getenv("CODEX_SANDBOX_NETWORK_DISABLED") == "1" {
+				// Started from a command in Codex's sandbox: the runner cannot
+				// reach Codex's app-server, or the network, from there.
+				return nil, fmt.Errorf("this command runs inside Codex's sandbox, which has no network, so the runner cannot borrow Codex's connections from here; save the package (tap discover save, approved to run outside the sandbox) and run it with the tap_run tool")
+			}
 			br, err = openBridge(c)
 			if err != nil {
 				return nil, err
@@ -1114,6 +1119,9 @@ class _Tap:
         if r.get("refused"): raise self._err(PermissionError, "refused", r["refused"])
         return r
 tap = _Tap()
+# Programs write "import tap" (Codex and Claude both did); the runner's SDK is
+# that module, so the import finds it instead of failing.
+sys.modules["tap"] = tap
 _buf, _err, _exit = io.StringIO(), io.StringIO(), 0
 sys.stdout, sys.stderr = _buf, _err
 try:

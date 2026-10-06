@@ -56,7 +56,7 @@ var readHistory = func(clientName string) []pastRequest {
 	if err != nil {
 		return nil
 	}
-	c, ok := agents.Lookup(clientName)
+	c, ok := historyClient(clientName)
 	if !ok {
 		return nil
 	}
@@ -191,6 +191,16 @@ func (c requestCache) requests(client string, window time.Time) []pastRequest {
 		}
 	}
 	return out
+}
+
+// historyClient is the agent whose history to read, from the name it gave
+// when it connected: Claude Code says "claude-code", but Codex says
+// "codex-mcp-client" and Gemini CLI "gemini-cli-mcp-client" (clientFor).
+func historyClient(name string) (agents.Client, bool) {
+	if c, ok := agents.Lookup(name); ok {
+		return c, true
+	}
+	return agents.Lookup(clientFor(name))
 }
 
 // historyLoad is a history read started when the agent connected. Its
@@ -337,6 +347,23 @@ func noMatchNote(query string, h *historyLoad) string {
 	if rec.Sessions == 0 {
 		return "No saved primitive fits, and nothing like this was asked in earlier sessions. Do the task as usual."
 	}
-	return fmt.Sprintf("No saved primitive fits, but the person asked for this kind of task in %d earlier session(s), starting with %q. Do the task, then offer in one line to save it as a TAP primitive so it runs as one step next time. Do not save it unless they agree. If they do, the tap-author skill says how; start from the earlier request with: tap discover brief --task %s --out <folder>",
-		rec.Sessions, rec.Example, rec.Ref)
+	return fmt.Sprintf("No saved primitive fits, but the person asked for this kind of task in %d earlier session(s), starting with %q. Do the task, then offer in one line to save it as a TAP primitive so it runs as one step next time. Do not save it unless they agree. If they do, the tap-author skill says how; start from the earlier request with: %s discover brief --task %s --out <folder>",
+		rec.Sessions, rec.Example, runnerCommand(), rec.Ref)
+}
+
+// runnerCommand is how to start this runner from a shell. An agent's shell
+// may not have the npm bin folder on PATH (Codex runs commands in a login
+// shell), so the note names the program this server is running from.
+func runnerCommand() string {
+	self, err := os.Executable()
+	if err != nil {
+		return "tap"
+	}
+	if resolved, err := filepath.EvalSymlinks(self); err == nil {
+		self = resolved
+	}
+	if strings.ContainsAny(self, " '\"") {
+		return fmt.Sprintf("%q", self)
+	}
+	return self
 }

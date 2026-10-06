@@ -375,7 +375,7 @@ func (s *server) handle(m rpcMessage) {
 	case "ping":
 		s.reply(m.ID, map[string]any{})
 	case "tools/list":
-		tools := []any{searchTool, loadTool, runTool, statusTool, evidenceTool}
+		tools := []any{searchTool, loadTool, runTool, statusTool, evidenceTool, saveTool}
 		s.mu.Lock()
 		name := s.clientName
 		s.mu.Unlock()
@@ -404,6 +404,10 @@ func (s *server) handle(m rpcMessage) {
 				return
 			}
 			s.replyResult(m.ID, args.Run, canElicit)
+			return
+		}
+		if p.Name == "tap_save" {
+			s.handleSave(m.ID, p.Arguments, canElicit)
 			return
 		}
 		if p.Name != "tap_run" {

@@ -226,11 +226,11 @@ var (
 	empty = func(map[string]any) map[string]any { return map[string]any{"action": "accept"} }
 )
 
-func TestServeListsFiveLocalTools(t *testing.T) {
+func TestServeListsSixLocalTools(t *testing.T) {
 	c := startServer(t, true, accept)
 	r := c.call("tools/list", map[string]any{})
 	tools, _ := r["tools"].([]any)
-	if len(tools) != 5 || tools[0].(map[string]any)["name"] != "tap_search" || tools[4].(map[string]any)["name"] != "tap_evidence" {
+	if len(tools) != 6 || tools[0].(map[string]any)["name"] != "tap_search" || tools[4].(map[string]any)["name"] != "tap_evidence" || tools[5].(map[string]any)["name"] != "tap_save" {
 		t.Fatalf("tools = %v", r)
 	}
 }

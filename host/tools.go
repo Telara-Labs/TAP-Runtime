@@ -72,7 +72,9 @@ func detectClient() string {
 	switch {
 	case os.Getenv("CLAUDECODE") != "":
 		return "claude"
-	case os.Getenv("CODEX_SANDBOX") != "":
+	case os.Getenv("CODEX_SANDBOX") != "", os.Getenv("CODEX_THREAD_ID") != "", os.Getenv("CODEX_VERSION") != "":
+		// CODEX_SANDBOX is set only under macOS seatbelt; every command
+		// Codex runs carries its thread id and version.
 		return "codex"
 	}
 	return ""

@@ -12,7 +12,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/journal"
 )
 
-var searchTool = localTool("tap_search", "Find installed reusable workflows matching the user task before rebuilding repeated tool calls. The user does not need to mention TAP. Searching does not run anything.", map[string]any{
+var searchTool = localTool("tap_search", "Call this first, before starting any task that will take several tool calls, with a few words describing the task (not its specific values). It returns a saved primitive that does the task in one step, or says whether the person has asked for this kind of task before. The user does not need to mention TAP. Read-only and fast; it runs nothing.", map[string]any{
 	"query": map[string]any{"type": "string", "description": "Words in the primitive reference or description."},
 	"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
 }, nil, true)

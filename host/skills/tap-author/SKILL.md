@@ -1,6 +1,6 @@
 ---
 name: tap-author
-description: "Turn a multi-step procedure the person keeps asking for into a saved TAP primitive, so the next request runs it as code with new inputs. Use after finishing such a task when tap_search found nothing and the same kind of request has come before or the person says it recurs. Not for one-off requests."
+description: "Use at the start of any task that will take several tool calls: call tap_search first, with a few words describing the task, to find a saved TAP primitive that does it in one step. Afterwards, if tap_search said the person asked for this kind of task before, offer to save the procedure as a primitive. Not for one-off requests."
 tap-owned: tap-author
 ---
 
@@ -75,6 +75,9 @@ that `tap_search`'s note names:
 tap discover brief --task <client/session/request> --out ~/tap-drafts/<name>-brief
 ```
 
+If `tap` is not on your shell's PATH, use the program path the note gives in
+its place, here and in every command below.
+
 `BRIEF.md` in that folder shows the earlier request and the calls that
 answered it, and says what to establish. Write the package from it, then put
 `AUTHORING.json` in the package as `BRIEF.md` step 3 describes, with
@@ -86,8 +89,14 @@ value nothing established; ask the person.
 ```
 tap manifest check <dir>                        # may it run?
 tap --approve <dir> '{"project": "...", ...}'   # run it once from the shell
-tap discover save <dir>                         # after the person agrees
+tap discover save <dir>                         # or the tap_save tool, after the person agrees
 ```
+
+To save, prefer the `tap_save` tool with the package's absolute path: the
+person is asked to agree in a prompt, and it works where your shell cannot
+write outside the workspace (Codex runs commands in a sandbox with no network
+that writes only inside the workspace, so a draft cannot be tried from that
+shell either). Then try the saved primitive with `tap_run`.
 
 When the procedure can run on local fixtures (files, a git repository),
 validate it first as `BRIEF.md` steps 4 and 5 describe and save with

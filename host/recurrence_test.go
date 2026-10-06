@@ -157,3 +157,27 @@ func TestALongUnrelatedMessageDoesNotRecur(t *testing.T) {
 		t.Fatalf("recurrence = %+v", rec)
 	}
 }
+
+// Each agent's MCP client name finds that agent's history. Found testing
+// Codex: it connects as "codex-mcp-client", and no history was read.
+func TestEveryBridgeClientNameFindsItsHistory(t *testing.T) {
+	for name, want := range map[string]string{
+		"claude-code": "claude-code", "codex-mcp-client": "codex", "gemini-cli-mcp-client": "gemini-cli", "goose-cli": "goose",
+	} {
+		c, ok := historyClient(name)
+		if !ok || c.ID != want {
+			t.Errorf("%s: got %q %v, want %s", name, c.ID, ok, want)
+		}
+	}
+}
+
+// Codex sets CODEX_SANDBOX only under macOS seatbelt; on Linux its commands
+// carry CODEX_THREAD_ID and CODEX_VERSION.
+func TestCodexIsDetectedWithoutSeatbelt(t *testing.T) {
+	t.Setenv("CLAUDECODE", "")
+	t.Setenv("CODEX_SANDBOX", "")
+	t.Setenv("CODEX_THREAD_ID", "01a112ed")
+	if got := detectClient(); got != "codex" {
+		t.Fatalf("detected %q", got)
+	}
+}

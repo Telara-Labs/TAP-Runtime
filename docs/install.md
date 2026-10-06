@@ -31,7 +31,8 @@ package changes, search again. Status and evidence read the local run record.
 
 For an additional collection root, start the server with
 `tap serve --catalog-root DIR`. This is an explicit local directory, not a
-remote registry. The runner does not publish packages through MCP.
+remote registry. The runner does not publish packages through MCP; `tap_save` only saves
+a package into the local collection, after the person agrees in a prompt.
 
 ## Ordinary requests and saved skills
 

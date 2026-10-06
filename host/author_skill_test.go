@@ -85,7 +85,7 @@ func TestEmptySearchSaysWhetherTheTaskRecurs(t *testing.T) {
 	if m, _ := search["matches"].([]any); len(m) != 0 {
 		t.Fatalf("matches = %#v", m)
 	}
-	if note, _ := search["note"].(string); !strings.Contains(note, "1 earlier session") || !strings.Contains(note, "tap-author") || !strings.Contains(note, "--task claude-code/earlier/0") {
+	if note, _ := search["note"].(string); !strings.Contains(note, "1 earlier session") || !strings.Contains(note, "tap-author") || !strings.Contains(note, "discover brief --task claude-code/earlier/0") || !strings.Contains(note, runnerCommand()) {
 		t.Fatalf("recurring task note: %#v", search)
 	}
 	search = toolObject(t, c.call("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "draft a launch email"}}))

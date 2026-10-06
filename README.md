@@ -180,9 +180,12 @@ are removed after 30 days; `--retention-days 0` keeps them.
 
 ## TAP Local: your primitives as an MCP server
 
-`tap serve` exposes five fixed tools: `tap_search`, `tap_load`, `tap_run`,
-`tap_status` and `tap_evidence`. It finds installed primitives in a local
-collection and runs an exact `publisher/name@version` and package digest.
+`tap serve` exposes six fixed tools: `tap_search`, `tap_load`, `tap_run`,
+`tap_status`, `tap_evidence` and `tap_save`. It finds installed primitives in a
+local collection and runs an exact `publisher/name@version` and package digest.
+`tap_save` saves a package an agent wrote into the local collection after the
+person agrees in a prompt; it exists because an agent's shell may be sandboxed
+away from the collection (Codex), and it never publishes anywhere.
 The tool list does not grow with the number of primitives. A client that
 cannot show an approval prompt receives no implicit approval. Package trust,
 fetch grants and tool bindings are separate owner decisions.
