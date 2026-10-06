@@ -26,15 +26,26 @@ func (r ClaudeCode) Read(since time.Time) ([]trace.Session, error) {
 }
 
 func (r ClaudeCode) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, error) {
+	return r.read(since, nil)
+}
+
+// ReadProgress is Read, reporting each session file read.
+func (r ClaudeCode) ReadProgress(since time.Time, p trace.Progress) ([]trace.Session, error) {
+	ss, _, err := r.read(since, p)
+	return ss, err
+}
+
+func (r ClaudeCode) read(since time.Time, p trace.Progress) ([]trace.Session, trace.ReadStats, error) {
 	var st trace.ReadStats
 	files, err := filepath.Glob(filepath.Join(r.Dir, "*", "*.jsonl"))
 	if err != nil {
 		return nil, st, err
 	}
 	var out []trace.Session
-	for _, f := range files {
-		if info, err := os.Stat(f); err != nil || info.ModTime().Before(since) {
-			continue
+	files = changedSince(files, since)
+	for i, f := range files {
+		if p != nil {
+			p(i, len(files))
 		}
 		s, err := ReadClaudeFile(f)
 		if err != nil {
@@ -46,6 +57,9 @@ func (r ClaudeCode) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadS
 		}
 		s.SourceDigest = FileDigest(f)
 		out = append(out, s)
+	}
+	if p != nil {
+		p(len(files), len(files))
 	}
 	return out, st, nil
 }

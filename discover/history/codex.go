@@ -30,6 +30,16 @@ func (r Codex) Read(since time.Time) ([]trace.Session, error) {
 }
 
 func (r Codex) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, error) {
+	return r.read(since, nil)
+}
+
+// ReadProgress is Read, reporting each session file read.
+func (r Codex) ReadProgress(since time.Time, p trace.Progress) ([]trace.Session, error) {
+	ss, _, err := r.read(since, p)
+	return ss, err
+}
+
+func (r Codex) read(since time.Time, p trace.Progress) ([]trace.Session, trace.ReadStats, error) {
 	var st trace.ReadStats
 	var files []string
 	err := filepath.WalkDir(r.Dir, func(p string, d os.DirEntry, err error) error {
@@ -52,9 +62,10 @@ func (r Codex) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats,
 	}
 	var out []trace.Session
 	ids := map[string]bool{}
-	for _, f := range files {
-		if info, err := os.Stat(f); err != nil || info.ModTime().Before(since) {
-			continue
+	files = changedSince(files, since)
+	for i, f := range files {
+		if p != nil {
+			p(i, len(files))
 		}
 		s, err := ReadCodexFile(f)
 		if err != nil {
@@ -76,6 +87,9 @@ func (r Codex) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats,
 		}
 		ids[s.ID] = true
 		out = append(out, s)
+	}
+	if p != nil {
+		p(len(files), len(files))
 	}
 	return out, st, nil
 }

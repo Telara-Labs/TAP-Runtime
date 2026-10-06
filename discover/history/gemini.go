@@ -30,6 +30,16 @@ func (r GeminiCLI) Read(since time.Time) ([]trace.Session, error) {
 }
 
 func (r GeminiCLI) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, error) {
+	return r.read(since, nil)
+}
+
+// ReadProgress is Read, reporting each session file read.
+func (r GeminiCLI) ReadProgress(since time.Time, p trace.Progress) ([]trace.Session, error) {
+	ss, _, err := r.read(since, p)
+	return ss, err
+}
+
+func (r GeminiCLI) read(since time.Time, p trace.Progress) ([]trace.Session, trace.ReadStats, error) {
 	var st trace.ReadStats
 	var files []string
 	for _, pat := range []string{"session-*.jsonl", "session-*.json"} {
@@ -40,9 +50,10 @@ func (r GeminiCLI) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSt
 		files = append(files, m...)
 	}
 	var out []trace.Session
-	for _, f := range files {
-		if info, err := os.Stat(f); err != nil || info.ModTime().Before(since) {
-			continue
+	files = changedSince(files, since)
+	for i, f := range files {
+		if p != nil {
+			p(i, len(files))
 		}
 		s, err := ReadGeminiFile(f)
 		if err != nil {
@@ -56,6 +67,9 @@ func (r GeminiCLI) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSt
 		out = append(out, s)
 	}
 	sortSessions(out)
+	if p != nil {
+		p(len(files), len(files))
+	}
 	return out, st, nil
 }
 

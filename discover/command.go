@@ -28,6 +28,8 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 
 	"github.com/Telara-Labs/TAP-Runtime/discover/history"
+
+	"github.com/Telara-Labs/TAP-Runtime/discover/termart"
 )
 
 // Command is `tap discover`: read this machine's agent session history,
@@ -239,23 +241,39 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 		since = time.Now().AddDate(0, 0, -*days)
 	}
 	// Progress on a terminal: reading and analysing take several seconds.
+	// A wide terminal gets the animated logo over one row per agent.
 	progress := func(string) {}
+	var board *readBoard
 	if f, ok := errOut.(*os.File); ok {
 		if fi, err := f.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 && !*asJSON {
 			progress = func(msg string) { fmt.Fprint(errOut, "\r\x1b[K"+msg) }
+			if termart.Wide(errOut) {
+				board = newReadBoard(errOut, readIDs, true)
+				progress = func(string) {}
+			}
 		}
 	}
 	progress("Reading your agent history…")
 	var sessions []trace.Session
-	for _, r := range readers {
-		ss, err := r.Read(since)
+	for i, r := range readers {
+		board.reading(i)
+		var ss []trace.Session
+		var err error
+		if pr, ok := r.(trace.ProgressReader); ok && board != nil {
+			ss, err = pr.ReadProgress(since, board.progress(i))
+		} else {
+			ss, err = r.Read(since)
+		}
 		if err != nil {
+			board.stop()
 			fmt.Fprintf(errOut, "discover: %s: %v\n", r.Client(), err)
 			return 1
 		}
+		board.read(i, len(ss))
 		sessions = append(sessions, ss...)
 	}
 	if len(sessions) == 0 && !*asJSON {
+		board.stop()
 		progress("")
 		writeNoHistory(out, readIDs, *days)
 		return 0
@@ -263,8 +281,16 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 	stateDir := filepath.Join(home, ".tap", "discover")
 	known = append(known, primitive.LoadKnown(stateDir)...)
 	progress(fmt.Sprintf("Looking for repeated work in %d sessions…", len(sessions)))
-	res := primitive.Discover(sessions, known)
+	board.analysing(len(sessions))
+	var stage primitive.Stage
+	if board != nil {
+		stage = board.step
+	}
+	res := primitive.DiscoverStages(sessions, known, stage)
+	board.step("checking follow-up steps", 0, 0)
 	planPrimitiveFamilies(&res, sessions)
+	board.analysed(len(res.Families))
+	board.stop()
 	progress("")
 	if *asJSON {
 		enc := json.NewEncoder(out)

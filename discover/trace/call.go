@@ -483,6 +483,17 @@ type Reader interface {
 	Read(since time.Time) ([]Session, error)
 }
 
+// Progress is told, while a reader works, how many of its session files it
+// has read and how many it will read.
+type Progress func(done, total int)
+
+// ProgressReader is a Reader that can report Progress while it reads. Readers
+// that read their store in one query do not implement it.
+type ProgressReader interface {
+	Reader
+	ReadProgress(since time.Time, p Progress) ([]Session, error)
+}
+
 // JsonPaths locates each id in a JSON result: its jq path when it is a
 // string or number value at exactly one place, "*" when at several, "".
 func JsonPaths(text string, ids []string) []string {

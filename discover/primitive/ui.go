@@ -2,6 +2,7 @@ package primitive
 
 import (
 	"fmt"
+	"github.com/Telara-Labs/TAP-Runtime/discover/termart"
 	"io"
 	"math"
 	"sort"
@@ -52,7 +53,7 @@ func (s style) wrap(code, t string) string {
 	}
 	return "\x1b[" + code + "m" + t + "\x1b[0m"
 }
-func (s style) accent(t string) string { return s.wrap("38;5;209", t) }
+func (s style) accent(t string) string { return s.wrap(termart.AccentSGR, t) }
 func (s style) dim(t string) string    { return s.wrap("2", t) }
 func (s style) bold(t string) string   { return s.wrap("1", t) }
 func (s style) good(t string) string   { return s.wrap("32", t) }

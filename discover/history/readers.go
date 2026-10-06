@@ -1,9 +1,11 @@
 package history
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/Telara-Labs/TAP-Runtime/discover/client"
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
@@ -141,4 +143,16 @@ func CursorStateDB(home string) string {
 	default:
 		return filepath.Join(home, ".config", "Cursor", "User", "globalStorage", "state.vscdb")
 	}
+}
+
+// changedSince keeps the files modified at or after since: a session file
+// not written since then cannot hold a session that started since then.
+func changedSince(files []string, since time.Time) []string {
+	var out []string
+	for _, f := range files {
+		if info, err := os.Stat(f); err == nil && !info.ModTime().Before(since) {
+			out = append(out, f)
+		}
+	}
+	return out
 }

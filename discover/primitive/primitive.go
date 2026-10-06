@@ -227,11 +227,25 @@ type edge struct {
 
 // Discover condenses sessions into primitives.
 func Discover(ss []trace.Session, known []Known) Result {
+	return DiscoverStages(ss, known, nil)
+}
+
+// Stage is told which step Discover is on. A step that goes session by
+// session also says how many sessions it has done of total; other steps
+// pass a total of 0.
+type Stage func(name string, done, total int)
+
+// DiscoverStages is Discover, reporting each step to stage (nil for none).
+func DiscoverStages(ss []trace.Session, known []Known, stage Stage) Result {
+	if stage == nil {
+		stage = func(string, int, int) {}
+	}
 	cp := append([]trace.Session(nil), ss...)
 	for i := range cp {
 		cp[i].Calls = append([]trace.Call(nil), cp[i].Calls...)
 	}
 	trace.DropCopiedCalls(cp)
+	stage("normalizing calls", 0, 0)
 	norm := trace.Normalize(cp)
 	byKey := map[string]*trace.NormSession{}
 	for i := range norm {
@@ -243,6 +257,7 @@ func Discover(ss []trace.Session, known []Known) Result {
 
 	graphs := make([][]node, len(cp))
 	for si := range cp {
+		stage("building call graphs", si, len(cp))
 		s := &cp[si]
 		res.Summary.ToolCalls += len(s.Calls)
 		if !s.Start.IsZero() && (res.Summary.First.IsZero() || s.Start.Before(res.Summary.First)) {
@@ -291,6 +306,7 @@ func Discover(ss []trace.Session, known []Known) Result {
 		graphs[si] = nodes
 		res.Summary.Operations += len(nodes)
 	}
+	stage("building call graphs", len(cp), len(cp))
 	res.Summary.SettingsAsInput = assignChoices(graphs)
 	ops := map[string]bool{}
 	for _, g := range graphs {
@@ -299,8 +315,10 @@ func Discover(ss []trace.Session, known []Known) Result {
 		}
 	}
 	res.Summary.DistinctOps = len(ops)
+	stage("grouping repeated chains", 0, 0)
 	res.Primitives = condense(cp, graphs)
 	compose(res.Primitives, graphs, known)
+	stage("ranking candidates", 0, 0)
 	for i := range res.Primitives {
 		res.Primitives[i].Confidence = score(res.Primitives[i])
 	}

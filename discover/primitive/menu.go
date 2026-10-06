@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/Telara-Labs/TAP-Runtime/discover/termart"
 	"io"
 	"os"
 	"path/filepath"
@@ -115,7 +116,7 @@ func mark(s style) string {
 	if !s.on {
 		return "[TAP]"
 	}
-	return s.wrap("1;7;38;5;209", " TAP ")
+	return s.wrap("1;7;"+termart.AccentSGR, " TAP ")
 }
 
 func header(out io.Writer, s style, res Result, clients string) {
