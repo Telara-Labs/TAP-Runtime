@@ -156,22 +156,68 @@ func dedupeCatalog(in []catalogEntry) []catalogEntry {
 	return out
 }
 
+// searchCatalog finds the primitives a few words describe. An agent searches
+// in its own words ("release readiness check commit after tag"), so an entry
+// matches when its reference or description holds the query as written (and
+// then only such entries are returned), or else shares at least half of the
+// query's words (wordSet: values such as versions
+// left out, words cut to five letters). Entries sharing more words rank first.
 func searchCatalog(entries []catalogEntry, query string, limit int) []catalogEntry {
 	query = strings.ToLower(strings.TrimSpace(query))
 	if limit <= 0 {
 		return []catalogEntry{}
 	}
-	var matches []catalogEntry
+	q := wordSet(query)
+	type scored struct {
+		e     catalogEntry
+		score int
+	}
+	var matches []scored
 	for _, e := range entries {
-		if query == "" || strings.Contains(strings.ToLower(e.Ref+" "+e.Description), query) {
-			matches = append(matches, e)
+		text := strings.ToLower(e.Ref + " " + e.Description)
+		score := 0
+		if query == "" || strings.Contains(text, query) {
+			score = len(q) + 1
+		} else {
+			words := wordSet(text)
+			for w := range q {
+				if words[w] {
+					score++
+				}
+			}
+			if len(q) == 0 || 2*score < len(q) {
+				continue
+			}
+		}
+		matches = append(matches, scored{e, score})
+	}
+	// A query found as written is a precise lookup ("probe-24"): only those
+	// entries are returned, not every entry sharing its words.
+	if query != "" {
+		var exact []scored
+		for _, m := range matches {
+			if m.score == len(q)+1 {
+				exact = append(exact, m)
+			}
+		}
+		if len(exact) > 0 {
+			matches = exact
 		}
 	}
-	sort.Slice(matches, func(i, j int) bool { return matches[i].Ref < matches[j].Ref })
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].score != matches[j].score {
+			return matches[i].score > matches[j].score
+		}
+		return matches[i].e.Ref < matches[j].e.Ref
+	})
 	if len(matches) > limit {
 		matches = matches[:limit]
 	}
-	return matches
+	out := make([]catalogEntry, len(matches))
+	for i, m := range matches {
+		out[i] = m.e
+	}
+	return out
 }
 
 func resolveCatalog(entries []catalogEntry, ref, digest string) (catalogEntry, error) {

@@ -167,3 +167,22 @@ execution: {entrypoint: main.sh}
 		t.Fatalf("mismatched saved skill entered catalog: %#v", entries)
 	}
 }
+
+// The search the agent ran in the clean-machine test, against the primitive
+// it had just saved: its own words, not the description verbatim.
+func TestSearchMatchesTheAgentsOwnWords(t *testing.T) {
+	entries := []catalogEntry{
+		{Ref: "local.me/runner-release-check@0.1.0", Digest: "a", Description: "Check whether a GitLab Runner stable-branch commit is ready to release after a given tag: release status, pipeline, what changed since the tag, and CHANGELOG rewrites of already-released versions."},
+		{Ref: "dev.example/recent-mail@1.0.0", Digest: "b", Description: "List recent mail threads"},
+	}
+	got := searchCatalog(entries, "release readiness check commit after tag", 10)
+	if len(got) != 1 || got[0].Digest != "a" {
+		t.Fatalf("search returned %#v", got)
+	}
+	if got := searchCatalog(entries, "deploy kubernetes rollout", 10); len(got) != 0 {
+		t.Fatalf("unrelated search returned %#v", got)
+	}
+	if got := searchCatalog(entries, "runner-release-check", 10); len(got) != 1 {
+		t.Fatalf("name search returned %#v", got)
+	}
+}
