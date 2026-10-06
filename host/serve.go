@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
 // serve runs the runner as an MCP server over standard input and output, so
@@ -336,7 +338,7 @@ var runTool = map[string]any{
 		"properties": map[string]any{
 			"ref":    map[string]any{"type": "string", "description": "Exact publisher/name@version returned by tap_search."},
 			"digest": map[string]any{"type": "string", "description": "Exact package digest returned by tap_search."},
-			"args":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Arguments passed to the program."},
+			"args":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Arguments passed to the program. A primitive whose inputSchema (see tap_load) names fields takes exactly one: its input object as a JSON string, e.g. [\"{\\\"candidate\\\": \\\"abc\\\"}\"]."},
 		},
 		"required":             []string{"ref", "digest"},
 		"additionalProperties": false,
@@ -432,6 +434,12 @@ func (s *server) handle(m rpcMessage) {
 		if err != nil {
 			s.toolError(m.ID, err.Error())
 			return
+		}
+		if loaded, err := mf.Load(packagePath); err == nil {
+			if why := checkRunArgs(loaded, args.Args); why != "" {
+				s.toolError(m.ID, why)
+				return
+			}
 		}
 		var approve Approver
 		var choose Chooser

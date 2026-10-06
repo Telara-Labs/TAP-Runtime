@@ -180,9 +180,14 @@ func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMe
 			return
 		}
 		m := e.Manifest
-		s.toolJSON(id, map[string]any{"ref": e.Ref, "digest": e.Digest, "description": e.Description,
+		loaded := map[string]any{"ref": e.Ref, "digest": e.Digest, "description": e.Description,
 			"interface": m.Interface, "capabilities": m.Capabilities, "tools": m.Tools,
-			"commands": m.Commands, "files": m.Files, "fetch": m.Fetch})
+			"commands": m.Commands, "files": m.Files, "fetch": m.Fetch}
+		if checkRunArgs(m, nil) != "" {
+			loaded["args"] = "tap_run args: one element, the input object as a JSON string, for example [\"" +
+				strings.ReplaceAll(exampleInput(inputProps(m), schemaStrings(m.Interface.InputSchema["required"])), `"`, `\"`) + "\"]"
+		}
+		s.toolJSON(id, loaded)
 	case "tap_status", "tap_evidence":
 		var a struct {
 			RunID string `json:"run_id"`
