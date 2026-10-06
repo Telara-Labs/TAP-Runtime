@@ -43,14 +43,17 @@ func Terminal(w io.Writer) bool {
 	return ok && term.IsTerminal(int(f.Fd()))
 }
 
-// Wide reports whether w is a terminal wide enough for the logo.
-func Wide(w io.Writer) bool {
+// Wide reports whether w is a terminal wide enough for the TAP logo.
+func Wide(w io.Writer) bool { return WideFor(w, logoWidth) }
+
+// WideFor reports whether w is a terminal at least cols wide.
+func WideFor(w io.Writer, cols int) bool {
 	f, ok := w.(*os.File)
 	if !ok {
 		return false
 	}
-	cols, _, err := term.GetSize(int(f.Fd()))
-	return err == nil && cols >= logoWidth
+	got, _, err := term.GetSize(int(f.Fd()))
+	return err == nil && got >= cols
 }
 
 // Paint wraps t in an SGR code when on.
@@ -67,15 +70,19 @@ func Good(on bool, t string) string   { return Paint(on, "32", t) }
 func Bad(on bool, t string) string    { return Paint(on, "31", t) }
 
 // Logo is the block-letter TAP logo with the version beside its last line.
-func Logo(version string, color bool) string {
+func Logo(version string, color bool) string { return Art(logo, version, color) }
+
+// Art is block art in the accent color, with the version beside its last
+// line, framed by a blank line above and below.
+func Art(art []string, version string, color bool) string {
 	if version == "dev" {
 		version = ""
 	}
 	var b strings.Builder
 	b.WriteString("\n")
-	for i, l := range logo {
+	for i, l := range art {
 		b.WriteString(" " + Accent(color, l))
-		if i == len(logo)-1 && version != "" {
+		if i == len(art)-1 && version != "" {
 			b.WriteString(" " + Dim(color, "v"+strings.TrimPrefix(version, "v")))
 		}
 		b.WriteString("\n")
@@ -98,30 +105,32 @@ func Spin(frame int) string {
 	return Spinner[frame%len(Spinner)]
 }
 
-// LogoFrame is one frame of the animated logo: for the first frames it
-// draws in from the left, then a light band sweeps across it. The Final
-// frame, and any frame without color, is the still logo.
+// LogoFrame is one frame of the animated TAP logo; see ArtFrame.
 func LogoFrame(version string, color bool, frame int) []string {
+	return ArtFrame(logo, version, color, frame)
+}
+
+// ArtFrame is one frame of animated block art: for the first frames it draws
+// in from the left, then a light band sweeps across it. The Final frame, and
+// any frame without color, is the still art.
+func ArtFrame(art []string, version string, color bool, frame int) []string {
 	if version == "dev" {
 		version = ""
 	}
 	if !color || frame == Final {
-		if color {
-			return strings.Split(strings.TrimSuffix(strings.TrimPrefix(Logo(version, true), "\n"), "\n"), "\n")
-		}
-		return strings.Split(strings.TrimSuffix(strings.TrimPrefix(Logo(version, false), "\n"), "\n"), "\n")
+		return strings.Split(strings.TrimSuffix(strings.TrimPrefix(Art(art, version, color), "\n"), "\n"), "\n")
 	}
-	cols := len([]rune(logo[0]))
+	cols := len([]rune(art[0]))
 	shown := cols
 	if frame < revealFrames {
 		shown = (frame + 1) * cols / revealFrames
 	}
 	// The band moves one column a frame and repeats with a pause after it
-	// leaves the logo; it leans so the sweep reads as a shine, not a cursor.
+	// leaves the art; it leans so the sweep reads as a shine, not a cursor.
 	period := cols + 24
 	band := (frame - revealFrames) % period
-	lines := make([]string, 0, len(logo)+1)
-	for i, l := range logo {
+	lines := make([]string, 0, len(art)+1)
+	for i, l := range art {
 		var b strings.Builder
 		b.WriteString(" ")
 		for j, r := range []rune(l) {
@@ -136,7 +145,7 @@ func LogoFrame(version string, color bool, frame int) []string {
 				b.WriteString(Paint(true, accent, string(r)))
 			}
 		}
-		if i == len(logo)-1 && version != "" && shown == cols {
+		if i == len(art)-1 && version != "" && shown == cols {
 			b.WriteString(" " + Dim(true, "v"+strings.TrimPrefix(version, "v")))
 		}
 		lines = append(lines, b.String())
