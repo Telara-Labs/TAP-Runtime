@@ -73,14 +73,24 @@ func TestSetupKeepsAForeignSkillNamedTapAuthor(t *testing.T) {
 	}
 }
 
-func TestEmptySearchPointsToAuthoring(t *testing.T) {
+func TestEmptySearchSaysWhetherTheTaskRecurs(t *testing.T) {
+	// The history read starts when the agent connects; an earlier session
+	// asked for the same kind of task with other values.
+	stubHistory(t, []pastRequest{
+		req("earlier", 2, "Can you check whether GitLab Runner commit 3c39fceb is ready to release after v19.4.0?"),
+		req("other", 1, "Summarize the open Jira tickets for the billing team"),
+	})
 	c := startServer(t, true, accept)
-	search := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "gitlab release"}}))
+	search := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "gitlab runner commit release readiness"}}))
 	if m, _ := search["matches"].([]any); len(m) != 0 {
 		t.Fatalf("matches = %#v", m)
 	}
-	if note, _ := search["note"].(string); !strings.Contains(note, "tap-author") {
-		t.Fatalf("empty search gave no authoring note: %#v", search)
+	if note, _ := search["note"].(string); !strings.Contains(note, "1 earlier session") || !strings.Contains(note, "tap-author") {
+		t.Fatalf("recurring task note: %#v", search)
+	}
+	search = toolObject(t, c.call("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "draft a launch email"}}))
+	if note, _ := search["note"].(string); !strings.Contains(note, "Do the task as usual") || strings.Contains(note, "tap-author") {
+		t.Fatalf("first-time task offered for saving: %#v", search)
 	}
 	pkg := writePackage(t, `apiVersion: primitives.telara.dev/v3
 kind: Primitive
@@ -90,6 +100,6 @@ execution: {entrypoint: main.sh}
 	c.stagePackage(pkg)
 	search = toolObject(t, c.call("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "greet"}}))
 	if _, ok := search["note"]; ok {
-		t.Fatalf("a search with matches carries the authoring note: %#v", search)
+		t.Fatalf("a search with matches carries a note: %#v", search)
 	}
 }

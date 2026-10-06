@@ -136,7 +136,10 @@ type server struct {
 	clientName    string
 	clientVersion string
 	canElicit     bool
-	requestCtx    context.Context // HTTP serializes requests within each client session
+	// history is the agent's earlier requests, read in the background from
+	// initialize so a search can say whether its task recurs (recurrence.go).
+	history    *historyLoad
+	requestCtx context.Context // HTTP serializes requests within each client session
 
 	// relay holds the runs that wait on a client which makes tool calls
 	// when a hook asks it to (relay.go).
@@ -144,6 +147,11 @@ type server struct {
 	// vscodeSocket reaches the TAP extension in VS Code (bridge/vscode.go).
 	vscodeSocket string
 }
+
+// serverInstructions reach the agent with the server's tools. They make a
+// search the first step of multi-step work, which is how a saved primitive is
+// found and how a recurring task is noticed.
+const serverInstructions = "TAP runs saved primitives: programs for procedures this person asks for repeatedly. Before a task that takes several tool calls, call tap_search with a few words describing the task (not its specific values); it is read-only and fast. If it returns a match, tap_load and tap_run it instead of redoing the steps. If it returns a note, follow the note."
 
 func (s *server) write(v any) {
 	b, _ := json.Marshal(v)
@@ -351,12 +359,16 @@ func (s *server) handle(m rpcMessage) {
 		s.mu.Lock()
 		s.clientName, s.clientVersion = p.ClientInfo.Name, p.ClientInfo.Version
 		_, s.canElicit = p.Capabilities["elicitation"]
+		if s.history == nil {
+			s.history = loadHistory(p.ClientInfo.Name)
+		}
 		s.mu.Unlock()
 		logf("client     %s %s, elicitation=%v", p.ClientInfo.Name, p.ClientInfo.Version, s.canElicit)
 		s.reply(m.ID, map[string]any{
 			"protocolVersion": p.ProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "tap-runtime", "version": version},
+			"instructions":    serverInstructions,
 		})
 	case "ping":
 		s.reply(m.ID, map[string]any{})

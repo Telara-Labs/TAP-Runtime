@@ -45,7 +45,14 @@ already in the collection. It also writes a `tap-author` skill into each
 connected client's skills folder; it tells the agent to offer a primitive only
 for a recurring multi-step procedure, to ask before saving, and how to write,
 check and save one. A `tap-author` folder TAP did not write is kept, and
-`tap remove` deletes only the one it wrote. Run it again after adding a client. It preserves
+`tap remove` deletes only the one it wrote.
+
+When `tap_search` finds no saved primitive, it says whether the person asked
+for that kind of task in an earlier session. When the agent connects, `tap
+serve` reads that agent's own history from the last 30 days on this machine,
+in the background, and compares the search words with earlier user requests;
+values such as commits and versions are ignored. Nothing is sent anywhere and
+nothing is written. Only a task asked for before is offered for saving. Run it again after adding a client. It preserves
 foreign skill folders, reports collisions, and refreshes TAP-owned pointers
 without duplicating executable packages. `tap install --client <agent>` does
 the same reconciliation for that client; `--print` changes nothing and

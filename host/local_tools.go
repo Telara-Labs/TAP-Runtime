@@ -12,10 +12,6 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/journal"
 )
 
-// noMatchNote is what an empty search says: do the task, and if it is a
-// recurring multi-step procedure, offer to save it (the tap-author skill).
-const noMatchNote = "No saved primitive fits. Do the task as usual. If it is a multi-step procedure the person asks for repeatedly, afterwards offer to save it as a primitive; the tap-author skill says when and how."
-
 var searchTool = localTool("tap_search", "Find installed reusable workflows matching the user task before rebuilding repeated tool calls. The user does not need to mention TAP. Searching does not run anything.", map[string]any{
 	"query": map[string]any{"type": "string", "description": "Words in the primitive reference or description."},
 	"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
@@ -158,7 +154,10 @@ func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMe
 		}
 		reply := map[string]any{"matches": hits}
 		if len(hits) == 0 {
-			reply["note"] = noMatchNote
+			s.mu.Lock()
+			h := s.history
+			s.mu.Unlock()
+			reply["note"] = noMatchNote(a.Query, h)
 		}
 		s.toolJSON(id, reply)
 	case "tap_load":
