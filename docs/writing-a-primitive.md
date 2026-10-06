@@ -124,7 +124,12 @@ The runner does not hold a credential. It finds, among the tools the client
 capability, by name first and then by its argument schema. `alias` is the name
 the program uses. `optional: true` means the primitive still runs when nothing
 fits; `tap.tools()` says what was bound. `pin: {server: ..., tool: ...}` names
-the exact tool when matching is not enough.
+the exact tool when matching is not enough. Server names are chosen by whoever
+connected the server, so the same server can be `telara` on one machine and
+`claude.ai Telara` on another. When no server with the pinned name is
+connected, the pinned tool binds on the one server that offers it, and the run
+record shows both names; when several offer it, the person chooses once with
+`tap bind --client <agent> server:<pinned name> <server>`.
 
 `effect` is `read`, `write`, `destructive`, `financial` or `identity-admin`.
 Anything but `read` is asked of the person before it happens. A tool whose

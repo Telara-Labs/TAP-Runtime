@@ -34,8 +34,11 @@ func findTool(inv []bind.Tool, server, name string) (bind.Tool, bool) {
 	return bind.Tool{}, false
 }
 
+// isTelaraDispatcher is matched by tool name: Telara's server is named by
+// whoever connected it ("telara", "claude.ai Telara"). Every dispatched read
+// is still confirmed against that same server's telara_tool_search catalog.
 func isTelaraDispatcher(t bind.Tool) bool {
-	return t.Server == "telara" && t.Name == "telara_execute_action"
+	return t.Name == "telara_execute_action"
 }
 
 // telaraActionFromPin translates an action-specific Telara tool name into the

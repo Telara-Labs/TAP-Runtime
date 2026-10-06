@@ -34,6 +34,9 @@ type binding struct {
 	// tool. The runner asks too, as it does for a write.
 	Asked  bool `json:"client_asks,omitempty"`
 	Pinned bool `json:"pinned"`
+	// PinnedServer is the server name the manifest pins when this client
+	// connects that server under another name (Server).
+	PinnedServer string `json:"pinned_server,omitempty"`
 	// ContractChecked says the tool's input schema was checked against the
 	// capability's contract at admission. ResultChecked says each answer is
 	// checked against the contract as it arrives. Schema is the digest of
@@ -226,12 +229,31 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 					bd.tool, found = t, true
 				}
 			}
-			if !found {
+			pinServer := d.Pin.Server
+			if !found && !hasServer(inv, pinServer) {
+				// The pinned server is connected here under another name, or
+				// not at all. The same tool on exactly one server binds; more
+				// than one is the person's choice.
+				server, why := renamedPinServer(d, inv, store, choose, name)
+				if why != "" {
+					refusal = why
+				} else {
+					pinServer, bd.PinnedServer = server, d.Pin.Server
+					bd.tool, found = findTool(inv, server, d.Pin.Tool)
+					if found {
+						logf("binding    %-10s pinned server %q is %q on this client", d.Alias, d.Pin.Server, server)
+					}
+				}
+			}
+			if !found && refusal == "" {
 				if integration, action, ok := telaraActionFromPin(d.Pin.Server, d.Pin.Tool); ok {
-					if dispatcher, exists := findTool(inv, d.Pin.Server, "telara_execute_action"); exists {
+					if dispatcher, exists := findTool(inv, pinServer, "telara_execute_action"); exists {
 						bd.tool, found = dispatcher, true
 						bd.dispatch = &telaraDispatch{Integration: integration, Action: action, WrapArgs: true}
 						bd.Adapter, bd.Operation = "telara_execute_action", integration+"/"+action
+						if pinServer != d.Pin.Server {
+							logf("binding    %-10s pinned server %q is %q on this client", d.Alias, d.Pin.Server, pinServer)
+						}
 					}
 				}
 			}
@@ -242,8 +264,9 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 				}
 			}
 			switch {
+			case refusal != "":
 			case !found:
-				refusal = fmt.Sprintf("the pinned tool %s / %s is not on this client", d.Pin.Server, d.Pin.Tool)
+				refusal = fmt.Sprintf("the pinned tool %s / %s is not on this client; connect the MCP server that provides %s to %s", d.Pin.Server, d.Pin.Tool, d.Pin.Tool, name)
 			case d.Effect == string(bind.Read) && bd.tool.Annotated != bind.Unknown && bd.tool.Annotated != bind.Read && !isTelaraDispatcher(bd.tool):
 				refusal = fmt.Sprintf("the pinned tool is annotated %s and the primitive declares %s", bd.tool.Annotated, d.Effect)
 			}
