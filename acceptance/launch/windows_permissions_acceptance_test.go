@@ -5,6 +5,7 @@ package launch
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"unsafe"
 
@@ -28,10 +29,21 @@ func windowsDefaultTokenOwner(t *testing.T) *windows.SID {
 		t.Fatal(err)
 	}
 	sid := *(**windows.SID)(unsafe.Pointer(&b[0]))
-	if sid == nil {
-		t.Fatal("default token owner has no SID")
+	if sid == nil || !sid.IsValid() {
+		t.Fatal("default token owner has no valid SID")
 	}
-	return sid
+	// GetTokenInformation embeds a native pointer into b. Escape analysis
+	// cannot follow that pointer, so b may be stack allocated. Copy the SID
+	// before returning instead of returning a pointer to the expired buffer.
+	owned, err := sid.Copy()
+	runtime.KeepAlive(b)
+	if err != nil {
+		t.Fatalf("copy default token owner SID: %v", err)
+	}
+	if owned == nil || !owned.IsValid() || owned.String() == "" {
+		t.Fatal("copied default token owner has no valid SID")
+	}
+	return owned
 }
 
 // Inspect native DACLs rather than Go's Unix-style mode bits. This checks the
@@ -87,6 +99,22 @@ func TestWindowsPrivateACLMatchesDefaultTokenOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	windowsPrivateACL(t, path)
+}
+
+func TestWindowsTokenOwnerCopySurvivesGC(t *testing.T) {
+	var owners []*windows.SID
+	var names []string
+	for range 32 {
+		owner := windowsDefaultTokenOwner(t)
+		owners = append(owners, owner)
+		names = append(names, owner.String())
+	}
+	runtime.GC()
+	for i, owner := range owners {
+		if !owner.IsValid() || owner.String() != names[i] {
+			t.Fatalf("copied owner %d changed after GC: %q, want %q", i, owner.String(), names[i])
+		}
+	}
 }
 
 func TestPublishedWindowsOutputACL(t *testing.T) {
