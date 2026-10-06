@@ -74,6 +74,8 @@ jobs:
         run: (cd contract && go test ./glob ./manifest -count=1) && (cd discover && go test ./... -count=1)
       - name: Test the runner's portable packages
         run: go test ./bind ./journal ./satisfy -count=1
+      - name: Test native Windows acceptance helpers
+        run: go test ./acceptance/launch -count=1
       - name: Test the Windows dialing guard
         run: go test ./host -count=1 -run '^(TestDeclarationsThatCannotBeMeantAreRefused|TestANameThatResolvesToTheMachineItselfIsNotReached|TestADeclaredLoopbackOriginStillWorks|TestAFetchGoesThroughAProxyTheEnvironmentNames|TestAProxyDoesNotLetAnOriginBeAMetadataAddress)$'
       - name: Build the runner and the Bash interpreter
