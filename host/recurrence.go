@@ -146,9 +146,14 @@ func findRecurrence(query string, past []pastRequest) recurrence {
 	// Smoothed, so that on a short history, where every word is in every
 	// request, the weights fall back to plain overlap instead of zero.
 	weight := func(w string) float64 { return 1 + math.Log(float64(len(past)+1)/float64(df[w]+1)) }
+	// Words the history never uses are the agent's phrasing of the search,
+	// not evidence either way, so they carry no weight. A past request must
+	// still share at least half of the query's words.
 	total := 0.0
 	for w := range q {
-		total += weight(w)
+		if df[w] > 0 {
+			total += weight(w)
+		}
 	}
 	if total <= 0 {
 		return recurrence{}
@@ -157,13 +162,13 @@ func findRecurrence(query string, past []pastRequest) recurrence {
 	var rec recurrence
 	var earliest time.Time
 	for _, p := range past {
-		shared := 0.0
+		shared, count := 0.0, 0
 		for w := range q {
 			if p.words[w] {
-				shared += weight(w)
+				shared, count = shared+weight(w), count+1
 			}
 		}
-		if shared/total < recurrenceScore {
+		if shared/total < recurrenceScore || 2*count < len(q) {
 			continue
 		}
 		sessions[p.session] = true

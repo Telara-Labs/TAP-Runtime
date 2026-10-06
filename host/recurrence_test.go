@@ -87,3 +87,20 @@ func TestASlowHistoryDoesNotHoldTheSearchForever(t *testing.T) {
 		t.Fatal("an unfinished read reported ready")
 	}
 }
+
+// The query Claude Code sent on the second ask in the clean-machine test: two
+// of its words are its own phrasing and appear in no earlier request.
+func TestAgentPhrasingDoesNotHideARecurrence(t *testing.T) {
+	past := []pastRequest{req("s1", 0, "Can you check whether GitLab Runner commit 3c39fcebf73d01d464db3dee8a5267155273a6c5 is ready to release after v19.4.0?")}
+	if rec := findRecurrence("check commit release readiness after tag", past); rec.Sessions != 1 {
+		t.Fatalf("recurrence = %+v", rec)
+	}
+}
+
+// One shared everyday word is not the same kind of request.
+func TestOneSharedWordIsNotARecurrence(t *testing.T) {
+	past := []pastRequest{req("s1", 0, "Can you check whether GitLab Runner commit 3c39fceb is ready to release after v19.4.0?")}
+	if rec := findRecurrence("check staging deploy status", past); rec.Sessions != 0 {
+		t.Fatalf("recurrence = %+v", rec)
+	}
+}
