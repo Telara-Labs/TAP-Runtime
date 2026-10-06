@@ -90,6 +90,11 @@ func installCommand(args []string, stdout, stderr io.Writer) int {
 		if rc == 0 && !*remove && agents.HasSkills(c) && c.Bridge && (*print || c.Connected(home, *name)) {
 			pointerTargets = append(pointerTargets, pack.Target{Client: c})
 		}
+		if rc == 0 && agents.HasSkills(c) && c.Bridge {
+			if rc := syncAuthorSkill(c, home, *print, *remove, stdout, stderr); rc > code {
+				code = rc
+			}
+		}
 	}
 	if !*remove && len(pointerTargets) > 0 {
 		collection, err := pack.CollectionDir()

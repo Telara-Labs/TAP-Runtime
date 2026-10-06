@@ -100,7 +100,10 @@ installs the `tap` CLI. `tap setup` then connects it, as the MCP server
 connected. It also refreshes discoverable skill pointers for saved primitives
 in the shared TAP collection, so normal task requests can find them without
 naming TAP. Save packages with `tap discover save <package-dir>`; setup does not
-import arbitrary project folders. (npm's install step runs the same setup, but npm hides its output
+import arbitrary project folders. Setup also gives each agent a `tap-author`
+skill: when a multi-step procedure keeps coming back and no saved primitive
+fits it, the agent offers to write one, checks it with the runner and saves it
+once the person agrees. (npm's install step runs the same setup, but npm hides its output
 and may skip install scripts.) `tap install --client <agent>` connects one;
 `tap install --client all --print` shows what it would change.
 

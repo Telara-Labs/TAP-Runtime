@@ -41,7 +41,11 @@ for connected supported clients. A package merely sitting in a project folder
 is not installed globally; setup does not scan arbitrary project directories.
 
 `tap setup` connects detected clients and reconciles pointers for primitives
-already in the collection. Run it again after adding a client. It preserves
+already in the collection. It also writes a `tap-author` skill into each
+connected client's skills folder; it tells the agent to offer a primitive only
+for a recurring multi-step procedure, to ask before saving, and how to write,
+check and save one. A `tap-author` folder TAP did not write is kept, and
+`tap remove` deletes only the one it wrote. Run it again after adding a client. It preserves
 foreign skill folders, reports collisions, and refreshes TAP-owned pointers
 without duplicating executable packages. `tap install --client <agent>` does
 the same reconciliation for that client; `--print` changes nothing and

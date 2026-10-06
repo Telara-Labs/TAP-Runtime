@@ -25,13 +25,21 @@ func TestInstallArgv(t *testing.T) {
 }
 
 func TestInstallPrintChangesNothing(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	var out, errb bytes.Buffer
 	if code := installCommand([]string{"--client", "claude", "--print"}, &out, &errb); code != 0 {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
-	if !strings.HasPrefix(out.String(), "claude mcp add --scope user tap -- ") || !strings.HasSuffix(strings.TrimSpace(out.String()), " serve") {
+	first, rest, _ := strings.Cut(out.String(), "\n")
+	if !strings.HasPrefix(first, "claude mcp add --scope user tap -- ") || !strings.HasSuffix(first, " serve") {
 		t.Fatalf("printed %q", out.String())
+	}
+	if !strings.Contains(rest, "would write the authoring skill") {
+		t.Fatalf("print does not say it would write the authoring skill: %q", rest)
+	}
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+		t.Fatalf("--print wrote into HOME: %v", entries)
 	}
 }
 
