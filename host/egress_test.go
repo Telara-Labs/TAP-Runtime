@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,7 @@ import (
 // origin may actually be reached.
 
 func TestDeclarationsThatCannotBeMeantAreRefused(t *testing.T) {
-	for _, c := range []struct {
+	cases := []struct {
 		name string
 		m    manifest
 		want string // empty: accepted
@@ -31,7 +32,24 @@ func TestDeclarationsThatCannotBeMeantAreRefused(t *testing.T) {
 		{"the unspecified address", manifest{Fetch: []fetchDecl{{Origin: "https://0.0.0.0"}}}, "no primitive may reach"},
 		{"an https host", manifest{Fetch: []fetchDecl{{Origin: "https://api.github.com"}}}, ""},
 		{"a wildcard host", manifest{Fetch: []fetchDecl{{Origin: "https://*.atlassian.net"}}}, ""},
-	} {
+	}
+	if runtime.GOOS == "windows" {
+		for _, path := range []string{`C:\`, `C:/`, `\\server\share`, `//server/share`, `\\server\share\`, `\\?\C:\`, `\\.\C:\`} {
+			cases = append(cases, struct {
+				name string
+				m    manifest
+				want string
+			}{"Windows volume root " + path, manifest{Files: []fileDecl{{Path: path, Access: "read"}}}, "root of the file system"})
+		}
+		for _, path := range []string{`C:\reports`, `\\server\share\reports`, `\\?\C:\reports`, `C:reports`} {
+			cases = append(cases, struct {
+				name string
+				m    manifest
+				want string
+			}{"Windows directory " + path, manifest{Files: []fileDecl{{Path: path, Access: "read"}}}, ""})
+		}
+	}
+	for _, c := range cases {
 		got := strings.Join(declarationProblems(&c.m), "; ")
 		if c.want == "" && got != "" || c.want != "" && !strings.Contains(got, c.want) {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)

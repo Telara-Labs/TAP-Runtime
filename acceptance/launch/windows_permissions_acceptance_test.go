@@ -11,6 +11,29 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// TokenOwner is the account Windows uses as owner for newly created files.
+// For an elevated administrator it can be Administrators rather than TokenUser.
+func windowsDefaultTokenOwner(t *testing.T) *windows.SID {
+	t.Helper()
+	var size uint32
+	token := windows.GetCurrentProcessToken()
+	if err := windows.GetTokenInformation(token, windows.TokenOwner, nil, 0, &size); err != windows.ERROR_INSUFFICIENT_BUFFER {
+		t.Fatalf("query default token owner size: %v", err)
+	}
+	if size < uint32(unsafe.Sizeof(uintptr(0))) {
+		t.Fatalf("default token owner buffer too small: %d", size)
+	}
+	b := make([]byte, size)
+	if err := windows.GetTokenInformation(token, windows.TokenOwner, &b[0], size, &size); err != nil {
+		t.Fatal(err)
+	}
+	sid := *(**windows.SID)(unsafe.Pointer(&b[0]))
+	if sid == nil {
+		t.Fatal("default token owner has no SID")
+	}
+	return sid
+}
+
 // Inspect native DACLs rather than Go's Unix-style mode bits. This checks the
 // actual owner and the broad well-known Windows groups; it does not claim a
 // second-account logon or protection from administrators/System.
@@ -28,14 +51,16 @@ func windowsPrivateACL(t *testing.T, path string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !owner.Equals(user.User.Sid) {
-		t.Fatalf("%s owner %s differs from runner user %s", path, owner.String(), user.User.Sid.String())
+	defaultOwner := windowsDefaultTokenOwner(t)
+	t.Logf("native owner %s: file=%s token-owner=%s token-user=%s", path, owner.String(), defaultOwner.String(), user.User.Sid.String())
+	t.Logf("native ACL %s: %s", path, sd.String())
+	if !owner.Equals(defaultOwner) {
+		t.Fatalf("%s owner %s differs from token default owner %s", path, owner.String(), defaultOwner.String())
 	}
 	dacl, _, err := sd.DACL()
 	if err != nil || dacl == nil {
 		t.Fatalf("%s has no restricting native DACL: %v", path, err)
 	}
-	t.Logf("native ACL %s: %s", path, sd.String())
 	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, i, &ace); err != nil {
@@ -54,6 +79,14 @@ func windowsPrivateACL(t *testing.T, path string) {
 			t.Errorf("%s grants broad group %s content or permission access: %#x", path, sid.String(), access)
 		}
 	}
+}
+
+func TestWindowsPrivateACLMatchesDefaultTokenOwner(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "owned.txt")
+	if err := os.WriteFile(path, []byte("owned default-token-owner fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	windowsPrivateACL(t, path)
 }
 
 func TestPublishedWindowsOutputACL(t *testing.T) {

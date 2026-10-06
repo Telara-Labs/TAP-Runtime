@@ -21,8 +21,11 @@ func declarationProblems(m *manifest) []string {
 	var p []string
 	for _, f := range m.Files {
 		clean := filepath.Clean(f.Path)
+		volume := filepath.VolumeName(clean)
 		switch {
-		case clean == string(filepath.Separator) || clean == filepath.VolumeName(clean)+string(filepath.Separator):
+		case clean == string(filepath.Separator) || clean == volume+string(filepath.Separator) || (filepath.IsAbs(clean) && clean == volume):
+			// A Windows UNC share can be an absolute volume root without a
+			// trailing separator (\\server\share), unlike a Unix root.
 			p = append(p, fmt.Sprintf("files: %q is the root of the file system; name the directory the primitive needs", f.Path))
 		case clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)):
 			p = append(p, fmt.Sprintf("files: %q leaves the directory the primitive runs in", f.Path))

@@ -4,6 +4,7 @@ package launch
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,35 @@ import (
 
 	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
+
+func TestPublishedWindowsVolumeRootsAreRefused(t *testing.T) {
+	v := version(t)
+	m := newMachine(t)
+	tap := npmTap(t, m, v)
+	for i, path := range []string{`//`, `\\server\share`} {
+		primitive := filepath.Join(m.home, fmt.Sprintf("root-fixture-%d", i))
+		if err := os.Mkdir(primitive, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		quoted, err := json.Marshal(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest := "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.example, name: root-fixture, version: 0.1.0}\nexecution: {entrypoint: main.py}\nfiles:\n  - {path: " + string(quoted) + ", access: read}\n"
+		for name, body := range map[string]string{"primitive.yaml": manifest, "main.py": "print(\"ROOT_PRIMITIVE_EXECUTED\")\n"} {
+			if err := os.WriteFile(filepath.Join(primitive, name), []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		r := m.run("", tap, primitive)
+		want(t, r, 1, "root of the file system")
+		for _, forbidden := range []string{"ROOT_PRIMITIVE_EXECUTED", "RESULT (exit", "compiled interpreter", "fetching"} {
+			if strings.Contains(r.out, forbidden) {
+				t.Errorf("root %q reached execution before refusal: %s", path, r.out)
+			}
+		}
+	}
+}
 
 func TestPublishedWindowsConfigRoundtrip(t *testing.T) {
 	v := version(t)
