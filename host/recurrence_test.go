@@ -14,7 +14,7 @@ func stubHistory(t *testing.T, past []pastRequest) {
 }
 
 func req(session string, daysAgo int, text string) pastRequest {
-	return pastRequest{session: session, at: time.Now().AddDate(0, 0, -daysAgo), text: text, words: wordSet(text)}
+	return pastRequest{ref: "claude-code/" + session + "/0", session: session, at: time.Now().AddDate(0, 0, -daysAgo), text: text, words: wordSet(text)}
 }
 
 // Unrelated history around the requests under test, as a real history has.

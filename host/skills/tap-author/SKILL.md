@@ -68,11 +68,31 @@ interface:
 
 ## Checking and saving it
 
+A saved primitive records where it came from. Start from the earlier request
+that `tap_search`'s note names:
+
+```
+tap discover brief --task <client/session/request> --out ~/tap-drafts/<name>-brief
+```
+
+`BRIEF.md` in that folder shows the earlier request and the calls that
+answered it, and says what to establish. Write the package from it, then put
+`AUTHORING.json` in the package as `BRIEF.md` step 3 describes, with
+`"selection": "selected_task"`, the `sources` ref and `brief_digest` the
+brief printed, and every contract field with what established it (the
+earlier calls, this session's calls, or the person's words). Do not invent a
+value nothing established; ask the person.
+
 ```
 tap manifest check <dir>                        # may it run?
 tap --approve <dir> '{"project": "...", ...}'   # run it once from the shell
 tap discover save <dir>                         # after the person agrees
 ```
+
+When the procedure can run on local fixtures (files, a git repository),
+validate it first as `BRIEF.md` steps 4 and 5 describe and save with
+`--receipts`. A primitive that reads a live service cannot be checked on
+fixtures; it is saved as `validation: not_run`. Say so to the person.
 
 Run from Claude Code's or Codex's shell, the draft borrows that agent's own
 tool connections; `--approve` lets it reach its declared origins and make its

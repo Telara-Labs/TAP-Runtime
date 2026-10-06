@@ -29,6 +29,7 @@ const (
 
 // pastRequest is one user request from the agent's history.
 type pastRequest struct {
+	ref     string // client/session/request, as tap discover brief --task takes it
 	session string
 	at      time.Time
 	text    string
@@ -40,6 +41,7 @@ type recurrence struct {
 	Sessions int       // distinct sessions with a similar request
 	Latest   time.Time // the most recent of them
 	Example  string    // the earliest similar request, shortened
+	Ref      string    // the most recent similar request, for tap discover brief --task
 }
 
 // readHistory returns the user requests of the named agent from the last
@@ -67,7 +69,8 @@ var readHistory = func(clientName string) []pastRequest {
 			if strings.TrimSpace(text) == "" {
 				continue
 			}
-			out = append(out, pastRequest{session: s.ID, at: s.Start, text: text, words: wordSet(text)})
+			ref := fmt.Sprintf("%s/%s/%d", c.ID, s.ID, i)
+			out = append(out, pastRequest{ref: ref, session: s.ID, at: s.Start, text: text, words: wordSet(text)})
 		}
 	}
 	return out
@@ -172,8 +175,8 @@ func findRecurrence(query string, past []pastRequest) recurrence {
 			continue
 		}
 		sessions[p.session] = true
-		if p.at.After(rec.Latest) {
-			rec.Latest = p.at
+		if p.at.After(rec.Latest) || rec.Ref == "" {
+			rec.Latest, rec.Ref = p.at, p.ref
 		}
 		if earliest.IsZero() || p.at.Before(earliest) {
 			earliest, rec.Example = p.at, shorten(p.text, 120)
@@ -205,6 +208,6 @@ func noMatchNote(query string, h *historyLoad) string {
 	if rec.Sessions == 0 {
 		return "No saved primitive fits, and nothing like this was asked in earlier sessions. Do the task as usual."
 	}
-	return fmt.Sprintf("No saved primitive fits, but the person asked for this kind of task in %d earlier session(s), starting with %q. Do the task, then offer in one line to save it as a TAP primitive so it runs as one step next time; the tap-author skill says how. Do not save it unless they agree.",
-		rec.Sessions, rec.Example)
+	return fmt.Sprintf("No saved primitive fits, but the person asked for this kind of task in %d earlier session(s), starting with %q. Do the task, then offer in one line to save it as a TAP primitive so it runs as one step next time. Do not save it unless they agree. If they do, the tap-author skill says how; start from the earlier request with: tap discover brief --task %s --out <folder>",
+		rec.Sessions, rec.Example, rec.Ref)
 }
