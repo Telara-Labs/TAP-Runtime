@@ -40,7 +40,14 @@ const command=process.env.PATH.split(p.delimiter).map(d=>p.join(d,name)).find(f=
 if(!command)throw new Error('npx did not provide tap');
 const manifest=p.join(p.dirname(command),'..','@telaralabs','tap','package.json');
 console.log(JSON.stringify({command,version:JSON.parse(fs.readFileSync(manifest,'utf8')).version}));`
-	r := run("node", "-e", probe)
+	// npx.cmd forwards through cmd.exe on Windows, where multiline -e
+	// arguments can stop after the first line. A fixture file preserves the
+	// exact same probe on every platform.
+	probePath := filepath.Join(work, "npx-resolution.cjs")
+	if err := os.WriteFile(probePath, []byte(probe), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := run("node", probePath)
 	want(t, r, 0)
 	var resolved struct {
 		Command string `json:"command"`
