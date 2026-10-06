@@ -305,7 +305,15 @@ func main() {
 	if *limit > 0 {
 		grant.Limit = *limit
 	}
-	askFn := Approver(func(Ask) Grant { return grant })
+	askFn := Approver(func(a Ask) Grant {
+		// Interactive callers may grant more when a kind's allowance runs
+		// out. The CLI cannot ask again: --limit is its total consent for
+		// that kind, rather than an allowance to renew on every ask.
+		if grant.Limit != Unlimited && a.Done >= grant.Limit {
+			return Grant{}
+		}
+		return grant
+	})
 	// A call made through VS Code is asked here like any other change. VS Code
 	// does not confirm it: called with no invocation token, it ran a tool
 	// that is not read-only with nobody asked (live, VS Code 1.140).

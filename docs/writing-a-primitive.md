@@ -201,6 +201,13 @@ tap --approve pkg/deploy-check-py  # changes are allowed, all of them
 tap --approve --limit 3 pkg/x      # at most 3 changes of each kind
 ```
 
+A positive limit is total consent for each kind in that CLI invocation.
+Invoking `--resume` with `--approve --limit N` grants up to N new changes
+of each kind; replayed requests are not made again. Version
+0.1.17 mistakenly renewed depleted CLI allowances and exceeded this limit.
+The built-CLI regression test exercises the correction; TENG-3036 records
+the source and released verification separately.
+
 Through Claude Code or Codex, the runner is the MCP tool `tap_run`, and each
 kind of change is asked of the person in the client. A client that cannot show
 that prompt has every change refused.
