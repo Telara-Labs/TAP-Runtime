@@ -1,8 +1,11 @@
 # Headless runs and output sharing
 
-These workflows describe current source. The fetch grant and pointer repair
-need a release containing the October 5 remediation; v0.1.4 and v0.1.10 do
-not contain it.
+Digest-scoped fetch grants and stale-pointer repair shipped in v0.1.13;
+v0.1.4 and v0.1.10 do not contain them. Use v0.1.14 or later for headless
+package admission: v0.1.13 skipped package-wide trust when the client lacked
+elicitation. Signed v0.1.15 checks verified exact-digest trust, changed-digest
+refusal and real proxy fetching; see the version-qualified
+[threat model](threat-model.md).
 
 ## Approve a package before a headless run
 
@@ -16,7 +19,7 @@ tap trust --list
 The grant names the manifest and entrypoint digest. Relocating the package or
 updating a SKILL.md does not change it. Editing either executable input
 requires a new grant. `tap trust --forget DIGEST-PREFIX` removes the trust
-record and any fetch grants. Trust alone does not approve file writes, host
+record and any fetch grants. Trust alone does not approve file writes, effectful host
 commands, effectful tools or network requests.
 
 For a fetch, explicitly name each origin you approve:
@@ -67,8 +70,9 @@ its pointers as part of the normal save workflow.
 
 ## Share an output deliberately
 
-Primitive outputs are created with mode 0600 and new directories with 0700.
-Another OS user cannot read them; this protects tool results and local data.
+On Unix, primitive outputs are created with mode 0600 and new directories
+with 0700. Those modes refuse another OS user access to the output; this
+protects tool results and local data.
 Run CI producer and consumer steps under the same user where possible.
 
 For a deliberate handoff, let the owning user copy only the reviewed output
@@ -86,11 +90,13 @@ access behavior.
 
 ## Standard corporate proxy settings
 
-Current source honors `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` through Go's
-standard HTTP transport. These are existing conventions, not new TAP
-variables. Leave them unset on machines that do not use a proxy. The
-published v0.1.4 and v0.1.10 runners bypassed the proxy in the verification;
-use a release that includes the source fix before relying on it.
+The proxy bypass was fixed in v0.1.13; independently downloaded signed
+v0.1.15 completed HTTP 200 through one real HTTPS proxy CONNECT. The runner
+honors `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` through Go's standard HTTP
+transport. These are existing conventions, not new TAP variables. Leave them
+unset on machines that do not use a proxy. The published v0.1.4 and v0.1.10
+runners bypassed the proxy in verification; those historical failures do not
+establish the behavior of a fixed release.
 
 ## A stalled Discover reader
 
