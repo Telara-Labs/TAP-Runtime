@@ -5,7 +5,7 @@ historical, including probes superseded by later fixes. Their threat rows and
 statuses must not be read as current release behavior. Section 9 and the final
 status summary record the current controls and their evidence boundaries.
 
-Most recent verified release baseline: signed [v0.1.15](https://github.com/Telara-Labs/TAP-Runtime/releases/tag/v0.1.15),
+Earlier verification snapshot: signed [v0.1.15](https://github.com/Telara-Labs/TAP-Runtime/releases/tag/v0.1.15),
 from `0198ea3e0935cccfcc9d286a1b7aab5932b1de71`, published October 5 at
 21:29:08 UTC. All five downloaded platform binaries matched the checksum
 manifest authenticated with the repository's pinned public key. A downloaded
@@ -13,6 +13,14 @@ macOS arm64 binary passed no-elicitation package trust/refusal/changed-digest
 checks, one Discover-generated real Jira read and an HTTP 200 fetch through
 one real proxy CONNECT. These focused checks do not establish a full native
 v0.1.15 launch matrix.
+
+Later signed v0.1.18 corrects finite CLI approval ceilings: an actual downloaded
+macOS arm64 runner stopped owned writes at limits of 1 and 2. All five binary
+hashes verified against the authenticated manifest. The built-CLI regression
+and owning host suite also passed. A subsequent native Windows source check
+found that bare UNC volume roots escaped declaration refusal; its correction
+and native verification are tracked in TENG-3104. These checks do not establish
+complete Windows security acceptance.
 
 Earlier release evidence: signed [v0.1.14](https://github.com/Telara-Labs/TAP-Runtime/releases/tag/v0.1.14),
 from `fd5b0b82b81248de3d7c8a1b52cb87069b0f3a1d`. GitHub published it on
