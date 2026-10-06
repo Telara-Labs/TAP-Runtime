@@ -388,12 +388,21 @@ ticket, and what remains. A fixed gap names the test that holds it.
 | G13 | Fixed (TENG-3104) | A long relay socket path falls back to a private directory made with a random name | |
 | G14 | Fixed (TENG-3104) | Text a program wrote is shown to the person with control characters replaced and cut to 300 characters | The text is still the program's |
 | G15 | Mostly fixed (TENG-3104) | `tap serve --no-record` keeps no record; fetch addresses are logged without their query; a command is logged as the program, its first two arguments and a count. `TestACommandIsLoggedWithoutItsTrailingArguments` | The record still holds whole command lines and results, 30 days by default |
-| G16 | Private modes verified (TENG-3104) | Files a primitive writes are created 0600 and their directories 0700. Same-user consumption passed; a distinct Linux UID was refused | Cross-user CI must deliberately copy reviewed output into a separately managed shared directory. Windows ACL behavior is unverified |
+| G16 | Native private-output checks passed on v0.1.19 (TENG-3104) | Actual published outputs are 0600 with directories 0700 on both Linux and macOS architectures. On both Linux architectures a distinct UID was denied the private original and could read a reviewed owner-managed copy. Native Windows checked the default token owner and found no content grants to Everyone, Authenticated Users and Users; same-owner output and trust/bind/config round trips passed | Cross-user CI must deliberately copy reviewed output into a separately managed shared directory. The Windows checks use the hosted runner account and native DACL inspection; they do not establish a second-account logon or isolation from administrators/System |
 | G17 | Mostly fixed (TENG-3104) | The interpreter store is 0700 and its files 0600. A runner built from source remembers the digest of the bash interpreter it first reads and refuses a changed file. `TestASourceBuiltInterpreterThatChangesAfterFirstUseIsRefused` | Releases pin the bash interpreter by digest, so every shipped binary is checked. Only a runner built from source trusts its first read, and says so in the log on every run |
 | G18 | Representative compiled Artifact reads passed on signed v0.1.15 (TENG-3104) | The page refuses a connector tool unless readOnlyHint is true and destructiveHint is not true. Actual compiled worker jobs completed Gmail search_threads, Calendar search_events, Drive search_files and Telara telara_tool_describe reads; rendered rows and terminal database records agreed. The initial Drive query error was preserved before the corrected fixture passed. Published v0.1.15 undercounted failed provider attempts and did not forward limits.max_dispatches to the browser worker. Corrected source 2f707f8 counts dispatched attempts even when the provider fails and forwards the manifest request budget (default 1000). A private developer Artifact recorded one failed provider attempt as calls1/refused0 and a cap2 batch as calls2/refused1; the cited accounting/budget checks used a corrected developer Artifact, and the signed v0.1.15 baseline predates these fixes | Annotations remain the connector's own claim. These four representative reads do not establish every tool/connector or desktop-companion support. The developer counter/budget proof is not signed-release acceptance or native memory/time/line parity |
 
 ## Summary of current status
 
+- Published v0.1.19 passed the complete applicable launch acceptance package on
+  all five platforms in [the native matrix](https://github.com/Telara-Labs/TAP-Runtime/actions/runs/37399257001).
+  This includes actual Unix private output modes and native Windows output ACL,
+  package trust, binding and configuration checks. A separate focused source
+  suite passed dialing checks on every platform, including Intel macOS; it
+  exercises root refusal, DNS self-address refusal, declared loopback access,
+  standard proxy use and metadata-address refusal. Windows volume-root refusal
+  also passed against the published binary. These are bounded checks, not the
+  complete adversarial host suite or a second-account Windows logon.
 - Downloaded v0.1.4: fetch refusal/explicit approval, real output-line limit,
   Bash/Python/TypeScript examples, signed checksum manifest and all five asset
   hashes were exercised. This is not a complete adversarial security proof.
@@ -435,8 +444,9 @@ ticket, and what remains. A fixed gap names the test that holds it.
   [workflow](https://github.com/Telara-Labs/TAP-Runtime/actions/runs/37373338835).
   Its complete Apple Silicon launch package passed locally with isolated HOME
   and PATH and existing Go caches; the hosted job was cancelled before steps.
-  These results do not establish the complete host suite, Windows ACL behavior
-  or a five-platform v0.1.15 native launch matrix.
+  Those historical results did not establish the complete host suite, Windows
+  ACL behavior or a five-platform v0.1.15 native launch matrix. The current
+  v0.1.19 platform checks are recorded above.
 - Full unchanged frozen-corpus Discover parity remains incomplete: the latest
   recovery audit has 39 missing original source sessions. Four exact frozen
   prefixes were recovered; paired synthetic cases do not replace the corpus.
