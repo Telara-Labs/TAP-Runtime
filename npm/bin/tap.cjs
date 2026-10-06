@@ -2,4 +2,4 @@
 'use strict';
 
 const { run } = require('../lib/runner.cjs');
-process.exitCode = run(process.argv.slice(2));
+Promise.resolve(run(process.argv.slice(2))).then((code) => { process.exitCode = code; });

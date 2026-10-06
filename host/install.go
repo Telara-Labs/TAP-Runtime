@@ -6,6 +6,7 @@ import (
 	"fmt"
 	agents "github.com/Telara-Labs/TAP-Runtime/discover/client"
 	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
+	"github.com/Telara-Labs/TAP-Runtime/discover/termart"
 	"io"
 	"os"
 	"os/exec"
@@ -34,6 +35,12 @@ var version = "dev"
 // and shows what it would do. With all or detected, an agent whose program
 // is not on this machine is reported and skipped.
 func installCommand(args []string, stdout, stderr io.Writer) int {
+	return install(args, stdout, stderr, false)
+}
+
+// install is installCommand; animate draws the setup diagram when stdout is a
+// wide terminal and the run changes something.
+func install(args []string, stdout, stderr io.Writer, animate bool) int {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	client := fs.String("client", "", "agents to connect: "+strings.Join(agents.IDs(agents.HasMCP), ", ")+", all, or detected (installed here)")
@@ -82,8 +89,13 @@ func installCommand(args []string, stdout, stderr io.Writer) int {
 	}
 	code := 0
 	var pointerTargets []pack.Target
-	for _, c := range targets {
-		rc := installOne(c, home, self, *name, *scope, env, *print, *remove, explicit, stdout, stderr)
+	var board *setupBoard
+	if animate && !*print && !*remove && termart.Terminal(stdout) && termart.Wide(stdout) {
+		board = newSetupBoard(stdout, targets)
+	}
+	for i, c := range targets {
+		out, errs := board.begin(i, stdout, stderr)
+		rc := installOne(c, home, self, *name, *scope, env, *print, *remove, explicit, out, errs)
 		if rc > code {
 			code = rc
 		}
@@ -91,11 +103,17 @@ func installCommand(args []string, stdout, stderr io.Writer) int {
 			pointerTargets = append(pointerTargets, pack.Target{Client: c})
 		}
 		if rc == 0 && agents.HasSkills(c) && c.Bridge {
-			if rc := syncAuthorSkill(c, home, *print, *remove, stdout, stderr); rc > code {
-				code = rc
+			src := syncAuthorSkill(c, home, *print, *remove, out, errs)
+			if src > code {
+				code = src
+			}
+			if src > rc {
+				rc = src
 			}
 		}
+		board.end(i, rc)
 	}
+	board.stop(stdout, stderr)
 	if !*remove && len(pointerTargets) > 0 {
 		collection, err := pack.CollectionDir()
 		if err != nil {

@@ -252,7 +252,7 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "setup" {
 		// The same step the npm package runs after a global install, so
 		// every install path has it.
-		os.Exit(installCommand(append([]string{"--client", "detected"}, os.Args[2:]...), os.Stdout, os.Stderr))
+		os.Exit(install(append([]string{"--client", "detected"}, os.Args[2:]...), os.Stdout, os.Stderr, true))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "remove" {
 		// The reverse of setup: disconnect the runner from every agent it
@@ -272,6 +272,7 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "discover" {
 		// Find recurring work in this machine's agent history and draft it as
 		// primitives. Local only; needs no Telara.
+		discover.Version = version
 		os.Exit(discover.Command(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "trust" {

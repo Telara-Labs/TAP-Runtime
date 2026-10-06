@@ -3,7 +3,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn: spawnAsync, spawnSync } = require('node:child_process');
 
 function platformKey(platform = process.platform, arch = process.arch) {
   const normalizedPlatform = platform === 'win32' ? 'windows' : platform === 'darwin' ? 'darwin' : platform === 'linux' ? 'linux' : platform;
@@ -51,10 +51,75 @@ function newer(a, b) {
   return false;
 }
 
+const paint = (on, code, t) => (on ? `\x1b[${code}m${t}\x1b[0m` : t);
+const GLASS_ROWS = 4;
+
+// faucetFrame is one frame of the upgrade animation: the old version on a
+// faucet dripping into a glass that fills toward the new version. fill is how
+// many of the glass's rows hold water.
+function faucetFrame(frame, from, to, fill, color = true) {
+  const tap = (t) => paint(color, '38;5;99', t); // Telara violet, as termart.AccentSGR
+  const water = (t) => paint(color, '36', t);
+  const dim = (t) => paint(color, '2', t);
+  const label = ` ${from} `.padEnd(9, ' ');
+  const lines = [
+    `      ${tap('┌─────────┐')}`,
+    ` ${tap('═════╡')}${paint(color, '1', label)}${tap('╞═══╗')}`,
+    `      ${tap('└─────────┘')}   ${tap('║')}`,
+    `                   ${tap('═╩═')}`,
+  ];
+  const dropping = fill < GLASS_ROWS;
+  for (let row = 0; row < 3; row++) {
+    lines.push(dropping && frame >= 0 && frame % 4 === row ? `                    ${water('●')}` : '');
+  }
+  lines.push(`               ${dim('╭─────────╮')}`);
+  for (let row = 0; row < GLASS_ROWS; row++) {
+    const level = GLASS_ROWS - row; // 4 is the top row
+    let inside = '         ';
+    if (level <= fill) inside = level === fill && fill < GLASS_ROWS ? water('≈≈≈≈≈≈≈≈≈') : water('█████████');
+    lines.push(`               ${dim('│')}${inside}${dim('│')}`);
+  }
+  lines.push(`               ${dim('╰─────────╯')} ${fill >= GLASS_ROWS ? paint(color, '1', to) : dim(to)}`);
+  return lines;
+}
+
+// animate redraws frames in place on a terminal until the returned stop is
+// called; stop draws the last frame and leaves it on screen.
+function animate(stream, render) {
+  let drawn = 0;
+  let frame = 0;
+  const draw = (f) => {
+    const lines = render(f);
+    let out = drawn ? `\r\x1b[${drawn}A` : '';
+    for (const l of lines) out += `\r\x1b[K${l}\n`;
+    drawn = lines.length;
+    stream.write(out);
+  };
+  draw(frame++);
+  const timer = setInterval(() => draw(frame++), 90);
+  return () => {
+    clearInterval(timer);
+    draw(-1);
+  };
+}
+
+function runAsync(cmd, args, opts) {
+  return new Promise((resolve) => {
+    const child = spawnAsync(cmd, args, { ...opts, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { out += d; });
+    child.on('error', (error) => resolve({ error, output: out }));
+    child.on('close', (status) => resolve({ status, output: out }));
+  });
+}
+
 // upgrade replaces the global install with the newest published version, then
 // runs the new runner's setup itself: npm hides the postinstall output and may
-// skip install scripts, so agents would otherwise keep the old runner.
-function upgrade(packageDir, { output = console.log, spawn = spawnSync } = {}) {
+// skip install scripts, so agents would otherwise keep the old runner. On a
+// terminal npm works quietly behind the faucet; its output is shown only if
+// it fails.
+async function upgrade(packageDir, { output = console.log, spawn = spawnSync, exec = runAsync, stream = process.stderr } = {}) {
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const shell = process.platform === 'win32';
   const current = JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8')).version;
@@ -66,10 +131,33 @@ function upgrade(packageDir, { output = console.log, spawn = spawnSync } = {}) {
     output(`tap ${current} is the latest version.`);
     return 0;
   }
-  output(`Upgrading tap ${current} to ${latest}`);
-  const install = spawn(npm, ['install', '--global', `@telaralabs/tap@${latest}`], { stdio: 'inherit', shell });
-  if (install.error) throw install.error;
-  if (install.status !== 0) throw new Error(`npm install failed (exit ${install.status})`);
+  const installArgs = ['install', '--global', `@telaralabs/tap@${latest}`];
+  if (stream.isTTY && (stream.columns || 80) >= 40) {
+    let fill = 0;
+    let filled = false;
+    const started = Date.now();
+    const stop = animate(stream, (f) => {
+      if (!filled) fill = Math.min(GLASS_ROWS - 1, Math.floor((Date.now() - started) / 1500));
+      return faucetFrame(f, current, latest, fill);
+    });
+    const install = await exec(npm, installArgs, { shell });
+    if (!install.error && install.status === 0) {
+      filled = true;
+      fill = GLASS_ROWS;
+    }
+    stop();
+    if (install.error) throw install.error;
+    if (install.status !== 0) {
+      stream.write(install.output);
+      throw new Error(`npm install failed (exit ${install.status})`);
+    }
+    output(` ${paint(true, '32', '✓')} tap ${latest} installed`);
+  } else {
+    output(`Upgrading tap ${current} to ${latest}`);
+    const install = spawn(npm, installArgs, { stdio: 'inherit', shell });
+    if (install.error) throw install.error;
+    if (install.status !== 0) throw new Error(`npm install failed (exit ${install.status})`);
+  }
   const root = spawn(npm, ['root', '--global'], { encoding: 'utf8', shell });
   if (root.error) throw root.error;
   if (root.status !== 0) throw new Error(`could not find the global npm folder (exit ${root.status})`);
@@ -81,12 +169,10 @@ function upgrade(packageDir, { output = console.log, spawn = spawnSync } = {}) {
 function run(argv, packageDir = path.resolve(__dirname, '..')) {
   const args = argv.slice();
   if (args[0] === 'upgrade' || args[0] === 'update') {
-    try {
-      return upgrade(packageDir);
-    } catch (error) {
+    return upgrade(packageDir).catch((error) => {
       console.error(`tap upgrade: ${error.message}`);
       return 1;
-    }
+    });
   }
   if (args[0] === 'setup') {
     try {
@@ -112,4 +198,4 @@ function run(argv, packageDir = path.resolve(__dirname, '..')) {
   return result.status === null ? 1 : result.status;
 }
 
-module.exports = { platformKey, resolveRunner, run, setup, upgrade };
+module.exports = { faucetFrame, platformKey, resolveRunner, run, setup, upgrade };
