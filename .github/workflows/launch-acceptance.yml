@@ -4,8 +4,9 @@ name: Launch acceptance
 # machines for every platform a release is built for: npm install, the
 # release install script, go install, the README's commands, the first-run
 # dead ends, the write approval gate, the release signature, and that
-# tap discover makes no network connections. Nothing is built from this
-# checkout; it supplies only examples, history fixtures and the release key.
+# tap discover makes no network connections. The published-artifact suite
+# builds no runner; the checkout supplies examples, fixtures and the trusted key.
+# A separate focused source guard suite exercises native dialing on every OS.
 # Run it after every release, before announcing one.
 
 on:
@@ -48,3 +49,5 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq strace busybox
       - name: Accept v${{ inputs.version }}
         run: go test ./acceptance/launch -count=1 -v -timeout 30m -launch-version "${{ inputs.version }}"
+      - name: Test the native dialing guard (source)
+        run: go test ./host -count=1 -v -run '^(TestDeclarationsThatCannotBeMeantAreRefused|TestANameThatResolvesToTheMachineItselfIsNotReached|TestADeclaredLoopbackOriginStillWorks|TestAFetchGoesThroughAProxyTheEnvironmentNames|TestAProxyDoesNotLetAnOriginBeAMetadataAddress)$'
