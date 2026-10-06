@@ -33,7 +33,10 @@ func TestFirstRunDeadEndsSayWhatToDo(t *testing.T) {
 		{nil, 2, []string{"usage: tap", "Start with: tap discover"}},
 		{[]string{"setup"}, 0, []string{"No agent TAP can connect to is installed here.", "claude-code", "then run: tap setup"}},
 		{[]string{"remove"}, 0, []string{"is not connected"}},
-		{[]string{"no-such-folder"}, 2, []string{"tap: no-such-folder is not a primitive folder", "tap discover"}},
+		{[]string{"no-such-folder"}, 2, []string{`tap: unknown command "no-such-folder"`, "usage: tap", "tap discover"}},
+		{[]string{"upgrade"}, 2, []string{"npm install -g @telaralabs/tap@latest", "Restart your agents"}},
+		{[]string{"update"}, 2, []string{"npm install -g @telaralabs/tap@latest"}},
+		{[]string{"./no-such-folder"}, 2, []string{"tap: ./no-such-folder is not a primitive folder", "tap discover"}},
 	} {
 		out, code := run(c.args...)
 		if code != c.code {

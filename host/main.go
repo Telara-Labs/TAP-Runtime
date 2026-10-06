@@ -210,11 +210,30 @@ const usageText = `usage: tap [--approve] [--resume RUN] <package-dir> [args...]
        tap manifest check|complete <package-dir>
        tap web build --out FILE <package-dir>...
        tap hook gemini
+       tap upgrade
        tap version
 
 Start with: tap discover   (finds work you repeat in your agents' history)
 Docs: https://github.com/Telara-Labs/TAP-Runtime
 `
+
+// upgradeText is what `tap upgrade` prints when the runner was not started
+// by the npm package, which is the only install that can replace itself.
+const upgradeText = `tap upgrade replaces an npm install of TAP. This runner was not started by npm.
+Installed with npm:      npm install -g @telaralabs/tap@latest && tap setup
+Built from source:       go install github.com/Telara-Labs/TAP-Runtime/host@latest
+Restart your agents afterwards so they start the new runner.
+`
+
+// unknownCommand reports whether arg reads as a mistyped command rather than
+// a package path: a bare word with no path separator that names nothing here.
+func unknownCommand(arg string) bool {
+	if strings.ContainsAny(arg, `/\.`) {
+		return false
+	}
+	_, err := os.Stat(arg)
+	return os.IsNotExist(err)
+}
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "help" || os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "-help") {
@@ -230,6 +249,12 @@ func main() {
 		// The reverse of setup: disconnect the runner from every agent it
 		// can be connected to, installed or not.
 		os.Exit(installCommand(append([]string{"--client", "all", "--remove"}, os.Args[2:]...), os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && (os.Args[1] == "upgrade" || os.Args[1] == "update") {
+		// The npm package handles this before the runner starts; this runner
+		// was started some other way, so it can only say how to replace it.
+		fmt.Fprint(os.Stderr, upgradeText)
+		os.Exit(2)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "version" {
 		fmt.Println("tap", version)
@@ -291,6 +316,10 @@ func main() {
 		os.Exit(2)
 	}
 	if _, err := os.Stat(filepath.Join(flag.Arg(0), "primitive.yaml")); err != nil {
+		if unknownCommand(flag.Arg(0)) {
+			fmt.Fprintf(os.Stderr, "tap: unknown command %q, and there is no primitive folder by that name.\n\n%s", flag.Arg(0), usageText)
+			os.Exit(2)
+		}
 		fmt.Fprintf(os.Stderr, "tap: %s is not a primitive folder (it has no primitive.yaml).\nRun tap with no arguments for usage, or tap discover to find primitives in your agents' history.\n", flag.Arg(0))
 		os.Exit(2)
 	}

@@ -42,8 +42,52 @@ function setup(packageDir, { output = console.log, spawn = spawnSync } = {}) {
   return result.status;
 }
 
+function newer(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  }
+  return false;
+}
+
+// upgrade replaces the global install with the newest published version, then
+// runs the new runner's setup itself: npm hides the postinstall output and may
+// skip install scripts, so agents would otherwise keep the old runner.
+function upgrade(packageDir, { output = console.log, spawn = spawnSync } = {}) {
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const shell = process.platform === 'win32';
+  const current = JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8')).version;
+  const view = spawn(npm, ['view', '@telaralabs/tap', 'version'], { encoding: 'utf8', shell });
+  if (view.error) throw view.error;
+  if (view.status !== 0) throw new Error(`could not read the latest version from npm (exit ${view.status})`);
+  const latest = String(view.stdout).trim();
+  if (!newer(latest, current)) {
+    output(`tap ${current} is the latest version.`);
+    return 0;
+  }
+  output(`Upgrading tap ${current} to ${latest}`);
+  const install = spawn(npm, ['install', '--global', `@telaralabs/tap@${latest}`], { stdio: 'inherit', shell });
+  if (install.error) throw install.error;
+  if (install.status !== 0) throw new Error(`npm install failed (exit ${install.status})`);
+  const root = spawn(npm, ['root', '--global'], { encoding: 'utf8', shell });
+  if (root.error) throw root.error;
+  if (root.status !== 0) throw new Error(`could not find the global npm folder (exit ${root.status})`);
+  setup(path.join(String(root.stdout).trim(), '@telaralabs', 'tap'), { output, spawn });
+  output(`tap ${latest} is installed. Restart your agents so they start the new runner.`);
+  return 0;
+}
+
 function run(argv, packageDir = path.resolve(__dirname, '..')) {
   const args = argv.slice();
+  if (args[0] === 'upgrade' || args[0] === 'update') {
+    try {
+      return upgrade(packageDir);
+    } catch (error) {
+      console.error(`tap upgrade: ${error.message}`);
+      return 1;
+    }
+  }
   if (args[0] === 'setup') {
     try {
       setup(packageDir);
@@ -68,4 +112,4 @@ function run(argv, packageDir = path.resolve(__dirname, '..')) {
   return result.status === null ? 1 : result.status;
 }
 
-module.exports = { platformKey, resolveRunner, run, setup };
+module.exports = { platformKey, resolveRunner, run, setup, upgrade };
