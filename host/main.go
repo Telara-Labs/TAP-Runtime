@@ -225,6 +225,15 @@ Built from source:       go install github.com/Telara-Labs/TAP-Runtime/host@late
 Restart your agents afterwards so they start the new runner.
 `
 
+// isVersionArg accepts the spellings people try first after an install.
+func isVersionArg(arg string) bool {
+	switch arg {
+	case "version", "--version", "-version", "-v", "-V":
+		return true
+	}
+	return false
+}
+
 // unknownCommand reports whether arg reads as a mistyped command rather than
 // a package path: a bare word with no path separator that names nothing here.
 func unknownCommand(arg string) bool {
@@ -256,7 +265,7 @@ func main() {
 		fmt.Fprint(os.Stderr, upgradeText)
 		os.Exit(2)
 	}
-	if len(os.Args) > 1 && os.Args[1] == "version" {
+	if len(os.Args) > 1 && isVersionArg(os.Args[1]) {
 		fmt.Println("tap", version)
 		return
 	}
@@ -310,6 +319,8 @@ func main() {
 	otelPayloads := flag.Bool("otel-payloads", false, "with an OpenTelemetry endpoint set: also send what calls were given and what they touched")
 	retention := flag.Int("retention-days", 30, "remove the records of runs older than this many days; 0 keeps them for ever")
 	pyLib := flag.String("pylib", "", "python standard library directory, mounted read-only")
+	// A mistyped flag gets the usage people read, not Go's flag dump.
+	flag.Usage = func() { fmt.Fprint(flag.CommandLine.Output(), "\n"+usageText) }
 	flag.Parse()
 	if flag.NArg() < 1 {
 		fmt.Fprint(os.Stderr, usageText)

@@ -36,6 +36,10 @@ func TestFirstRunDeadEndsSayWhatToDo(t *testing.T) {
 		{[]string{"no-such-folder"}, 2, []string{`tap: unknown command "no-such-folder"`, "usage: tap", "tap discover"}},
 		{[]string{"upgrade"}, 2, []string{"npm install -g @telaralabs/tap@latest", "Restart your agents"}},
 		{[]string{"update"}, 2, []string{"npm install -g @telaralabs/tap@latest"}},
+		{[]string{"--version"}, 0, []string{"tap "}},
+		{[]string{"-v"}, 0, []string{"tap "}},
+		{[]string{"version"}, 0, []string{"tap "}},
+		{[]string{"--no-such-flag"}, 2, []string{"flag provided but not defined: -no-such-flag", "usage: tap", "tap discover"}},
 		{[]string{"./no-such-folder"}, 2, []string{"tap: ./no-such-folder is not a primitive folder", "tap discover"}},
 	} {
 		out, code := run(c.args...)
@@ -47,7 +51,7 @@ func TestFirstRunDeadEndsSayWhatToDo(t *testing.T) {
 				t.Errorf("tap %v: output lacks %q\n%s", c.args, w, out)
 			}
 		}
-		if strings.Contains(out, "host ") || strings.Contains(out, "panic") {
+		if strings.Contains(out, "host ") || strings.Contains(out, "panic") || strings.Contains(out, "Usage of") {
 			t.Errorf("tap %v: output shows an internal name or a panic\n%s", c.args, out)
 		}
 	}
