@@ -82,6 +82,17 @@ applies:
 | VS Code (GitHub Copilot) | preview | an extension using tools exposed by VS Code; Local chat MCP reads exercised, Copilot SDK visibility limited | the runner's; native trust and fetch forms exercised; extension write/stall release acceptance remains separate |
 | claude.ai (web) | preview | a page published as an Artifact: [docs/web.md](docs/web.md) | only connector tools annotated read-only are permitted |
 
+What has been run end to end, on a clean Linux machine with nothing saved,
+asking only the task and never naming TAP: in Claude Code and in Codex the
+agent searched TAP, answered a first-time task without offering anything,
+offered to save the task when it came back in a new session, wrote and saved
+the primitive once the person agreed, and ran it in the next new session.
+Claude Code completed every round (4 of 4); Codex completed 2 of 3 on v0.1.27,
+and in the third it answered a repeated task without offering to save it, though
+TAP had said the task was asked before. The agent decides whether to offer.
+macOS and Windows pass the install and runner tests in CI; that agent flow has
+not been run on them yet.
+
 Other agents can connect to the local MCP server where they support MCP.
 Tool execution depends on a supported bridge, an experimental relay, or an
 explicit direct MCP backend; registration alone does not prove execution or
@@ -264,6 +275,12 @@ an author who had not read the runner's code.
 - Bash sends one request at a time. Python and JavaScript can send several
   together with `tap.call_many` / `tap.callMany`.
 - A compiled `.wasm` entrypoint is not supported yet.
+- Each run compiles its interpreter (about 2 seconds); `--cache DIR` keeps
+  compiled code between runs, but cached code is not re-checked against the
+  interpreter's pinned digest, so it is off unless you ask for it.
+- Through Codex, starting its app-server adds about 4 seconds to each run.
+  A run still going after 20 seconds is handed back and finished through
+  `tap_result`.
 
 ## TAP and Telara
 
