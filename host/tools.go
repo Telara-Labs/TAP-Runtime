@@ -186,21 +186,41 @@ func admit(decls []toolDecl, b bridge.Bridge, contracts ...mf.Capability) (*admi
 // admitWith is admit with a way to settle two servers that fit equally well:
 // the choice kept on this machine, then a person to ask.
 func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Bridge, contracts ...mf.Capability) (*admission, error) {
+	a, missing, err := admitOnce(store, choose, decls, b, contracts...)
+	// Claude Code lists claude.ai connectors only after it starts answering.
+	// A tool that is missing may be on one of them: wait for them, then look
+	// again, once. A run whose tools are all present never waits.
+	if missing {
+		if late, ok := b.(bridge.LateServers); ok && late.AwaitLateServers(lateServerWait) {
+			a, _, err = admitOnce(store, choose, decls, b, contracts...)
+		}
+	}
+	return a, err
+}
+
+// lateServerWait is how long admission waits for servers a client connects
+// late before refusing a tool none of the listed servers offers.
+const lateServerWait = 15 * time.Second
+
+// admitOnce resolves every declaration against the client's current
+// inventory. missing says a tool was refused or skipped because no listed
+// server offers it.
+func admitOnce(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Bridge, contracts ...mf.Capability) (a *admission, missing bool, err error) {
 	byLabel := map[string]*mf.Capability{}
 	for i := range contracts {
 		byLabel[contracts[i].Label] = &contracts[i]
 	}
 	name, version := b.Client()
-	a := &admission{Client: name, Version: version, Tested: bridge.Tested(name, version), byAlias: map[string]*binding{}}
+	a = &admission{Client: name, Version: version, Tested: bridge.Tested(name, version), byAlias: map[string]*binding{}}
 	seen := map[string]bool{}
 	for _, d := range decls {
 		switch {
 		case d.Alias == "":
-			return nil, fmt.Errorf("a tool has no alias")
+			return nil, false, fmt.Errorf("a tool has no alias")
 		case seen[d.Alias]:
-			return nil, fmt.Errorf("alias %q is declared twice", d.Alias)
+			return nil, false, fmt.Errorf("alias %q is declared twice", d.Alias)
 		case !validEffect(d.Effect):
-			return nil, fmt.Errorf("tool %q declares effect %q; it must be read, write, destructive, financial or identity-admin", d.Alias, d.Effect)
+			return nil, false, fmt.Errorf("tool %q declares effect %q; it must be read, write, destructive, financial or identity-admin", d.Alias, d.Effect)
 		}
 		seen[d.Alias] = true
 	}
@@ -208,12 +228,12 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 	// package is refused the same way whatever the client holds.
 	inv, err := b.Inventory()
 	if err != nil {
-		return nil, fmt.Errorf("reading the client's tools: %w", err)
+		return nil, false, fmt.Errorf("reading the client's tools: %w", err)
 	}
 	a.inv = inv
 	for _, d := range decls {
 		bd := binding{Alias: d.Alias, Capability: d.Capability, Declared: d.Effect}
-		refusal := ""
+		refusal, absent := "", false
 		contract := byLabel[d.Capability]
 		if contract != nil {
 			// Whatever the client, an answer can be held to the contract.
@@ -234,9 +254,9 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 				// The pinned server is connected here under another name, or
 				// not at all. The same tool on exactly one server binds; more
 				// than one is the person's choice.
-				server, why := renamedPinServer(d, inv, store, choose, name)
+				server, why, none := renamedPinServer(d, inv, store, choose, name)
 				if why != "" {
-					refusal = why
+					refusal, absent = why, none
 				} else {
 					pinServer, bd.PinnedServer = server, d.Pin.Server
 					bd.tool, found = findTool(inv, server, d.Pin.Tool)
@@ -266,6 +286,7 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 			switch {
 			case refusal != "":
 			case !found:
+				absent = true
 				refusal = fmt.Sprintf("the pinned tool %s / %s is not on this client; connect the MCP server that provides %s to %s", d.Pin.Server, d.Pin.Tool, d.Pin.Tool, name)
 			case d.Effect == string(bind.Read) && bd.tool.Annotated != bind.Unknown && bd.tool.Annotated != bind.Read && !isTelaraDispatcher(bd.tool):
 				refusal = fmt.Sprintf("the pinned tool is annotated %s and the primitive declares %s", bd.tool.Annotated, d.Effect)
@@ -287,7 +308,7 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 			// the receipt says so.
 			c, ranked := bind.Candidates(mf.CapabilityName(d.Capability), bind.Effect(d.Effect), inv)
 			if c.Bound == nil {
-				refusal = c.Refused
+				refusal, absent = c.Refused, true
 			}
 			var passed []string
 			found := false
@@ -334,7 +355,7 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 				bd.RunnerUp, bd.RunnerUpScore = c.RunnerUp.Server+" / "+c.RunnerUp.Name, c.RunnerUpScore
 			}
 			if c.Bound == nil {
-				refusal = c.Refused
+				refusal, absent = c.Refused, true
 			} else {
 				bd.tool, bd.Score, bd.Gated = *c.Bound, c.Score, c.Gated
 				if servers := tiedServers(ranked); len(servers) > 1 {
@@ -355,7 +376,7 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 		if refusal == "" {
 			denied, err := b.Denied(bd.tool)
 			if err != nil {
-				return nil, fmt.Errorf("reading the user's permission rules: %w", err)
+				return nil, false, fmt.Errorf("reading the user's permission rules: %w", err)
 			}
 			if denied {
 				refusal = fmt.Sprintf("the user has denied %s / %s in their client", bd.tool.Server, bd.tool.Name)
@@ -367,18 +388,19 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 			if ak, ok := b.(bridge.Asker); ok {
 				asks, err := ak.Asks(bd.tool)
 				if err != nil {
-					return nil, fmt.Errorf("reading the user's permission rules: %w", err)
+					return nil, false, fmt.Errorf("reading the user's permission rules: %w", err)
 				}
 				bd.Asked = asks
 			}
 		}
 		if refusal != "" {
+			missing = missing || absent
 			if d.Optional {
 				a.Skipped = append(a.Skipped, d.Alias)
 				logf("optional   %-10s not bound: %s", d.Alias, refusal)
 				continue
 			}
-			return nil, fmt.Errorf("tool %q (%s): %s", d.Alias, d.Capability, refusal)
+			return nil, missing || absent, fmt.Errorf("tool %q (%s): %s", d.Alias, d.Capability, refusal)
 		}
 		bd.Server, bd.Tool, bd.Annotated = bd.tool.Server, bd.tool.Name, string(bd.tool.Annotated)
 		if bd.dispatch != nil && bd.dispatch.Integration != "" {
@@ -389,7 +411,7 @@ func admitWith(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 	for i := range a.Bindings {
 		a.byAlias[a.Bindings[i].Alias] = &a.Bindings[i]
 	}
-	return a, nil
+	return a, missing, nil
 }
 
 func rankOf(e bind.Effect) int { return bind.Rank(e) }

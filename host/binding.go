@@ -135,7 +135,7 @@ func hasServer(inv []bind.Tool, server string) bool {
 // config, "claude.ai Telara" as a claude.ai connector). A Telara pin is also
 // served by a server offering Telara's verified dispatcher. One such server
 // binds; several are settled once per pinned server name, like any tie.
-func renamedPinServer(d toolDecl, inv []bind.Tool, store bindingStore, choose Chooser, client string) (server, refusal string) {
+func renamedPinServer(d toolDecl, inv []bind.Tool, store bindingStore, choose Chooser, client string) (server, refusal string, none bool) {
 	_, _, telaraPin := telaraActionFromPin(d.Pin.Server, d.Pin.Tool)
 	var servers []string
 	seen := map[string]bool{}
@@ -153,12 +153,13 @@ func renamedPinServer(d toolDecl, inv []bind.Tool, store bindingStore, choose Ch
 	switch len(servers) {
 	case 0:
 		return "", fmt.Sprintf("the pinned tool %s / %s is not on this client and no connected server offers %s; connect the MCP server that provides it to %s",
-			d.Pin.Server, d.Pin.Tool, d.Pin.Tool, client)
+			d.Pin.Server, d.Pin.Tool, d.Pin.Tool, client), true
 	case 1:
-		return servers[0], ""
+		return servers[0], "", false
 	}
 	sort.Strings(servers)
-	return settle(Pick{Alias: d.Alias, Capability: "server:" + d.Pin.Server, Client: client, Servers: servers}, store, choose)
+	server, refusal = settle(Pick{Alias: d.Alias, Capability: "server:" + d.Pin.Server, Client: client, Servers: servers}, store, choose)
+	return server, refusal, false
 }
 
 // settle decides between servers that fit equally well. It returns the server

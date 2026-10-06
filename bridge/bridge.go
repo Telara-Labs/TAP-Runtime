@@ -12,11 +12,19 @@ package bridge
 
 import (
 	"strings"
+	"time"
 
 	"github.com/Telara-Labs/TAP-Runtime/bind"
 )
 
 // Bridge is the whole of what the runner needs from a client.
+// LateServers is a Bridge whose client connects some servers after it has
+// started answering. AwaitLateServers waits, at most d, for them to be listed
+// and connected, and reports whether the inventory is worth reading again.
+type LateServers interface {
+	AwaitLateServers(d time.Duration) bool
+}
+
 type Bridge interface {
 	// Client names the client and its version, as the client reports them.
 	Client() (name, version string)

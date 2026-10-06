@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Telara-Labs/TAP-Runtime/bind"
 	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
@@ -105,5 +106,45 @@ func TestRenamedPinStillChecksTheAnnotation(t *testing.T) {
 	}}
 	if _, err := admit(telaraPin("telara_gitlab_get_commit"), br); err == nil {
 		t.Fatal("a declared read bound to a destructive tool on a renamed server")
+	}
+}
+
+// lateBridge lists its claude.ai connectors only after AwaitLateServers, as
+// Claude Code does when mcp_status is read right after it starts.
+type lateBridge struct {
+	fakeBridge
+	late   []bind.Tool
+	waited int
+}
+
+func (l *lateBridge) AwaitLateServers(time.Duration) bool {
+	l.waited++
+	l.inv = append(l.inv, l.late...)
+	return len(l.late) > 0
+}
+
+func TestAdmissionWaitsForLateConnectorsBeforeRefusing(t *testing.T) {
+	br := &lateBridge{fakeBridge: fakeBridge{deny: map[string]bool{}, inv: []bind.Tool{
+		{Server: "tap", Name: "tap_search", Annotated: bind.Read},
+	}}, late: []bind.Tool{{Server: "claude.ai Telara", Name: "telara_gitlab_get_commit", Annotated: bind.Read}}}
+	a, err := admit(telaraPin("telara_gitlab_get_commit"), br)
+	if err != nil || br.waited != 1 || a.byAlias["commit"].Server != "claude.ai Telara" {
+		t.Fatalf("late connector not awaited: waited %d, %v", br.waited, err)
+	}
+}
+
+func TestAdmissionDoesNotWaitWhenEveryToolIsListed(t *testing.T) {
+	br := &lateBridge{fakeBridge: fakeBridge{deny: map[string]bool{}, inv: []bind.Tool{
+		{Server: "telara", Name: "telara_gitlab_get_commit", Annotated: bind.Read},
+	}}}
+	if _, err := admit(telaraPin("telara_gitlab_get_commit"), br); err != nil || br.waited != 0 {
+		t.Fatalf("waited %d with every tool listed: %v", br.waited, err)
+	}
+}
+
+func TestAdmissionStillRefusesWhenNoLateServerOffersTheTool(t *testing.T) {
+	br := &lateBridge{fakeBridge: fakeBridge{deny: map[string]bool{}}}
+	if _, err := admit(telaraPin("telara_gitlab_get_commit"), br); err == nil || br.waited != 1 {
+		t.Fatalf("waited %d, err %v", br.waited, err)
 	}
 }

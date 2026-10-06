@@ -208,6 +208,38 @@ func (c *Claude) Inventory() ([]bind.Tool, error) {
 	return out, nil
 }
 
+// AwaitLateServers waits for the claude.ai connectors. Claude Code fetches
+// them from the account after it starts answering, so an early mcp_status can
+// list only local servers. It returns once a claude.ai server is listed and
+// none is pending, or at d; true means the inventory is worth reading again.
+func (c *Claude) AwaitLateServers(d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for {
+		r, err := c.request("mcp_status", nil)
+		if err != nil {
+			return false
+		}
+		servers, _ := r["mcpServers"].([]any)
+		pending, connectors := false, false
+		for _, s := range servers {
+			sm, _ := s.(map[string]any)
+			if sm["status"] == "pending" {
+				pending = true
+			}
+			if name, _ := sm["name"].(string); strings.HasPrefix(name, "claude.ai ") {
+				connectors = true
+			}
+		}
+		if connectors && !pending {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return connectors
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 // loadRules reads the user's permission rules once.
 func (c *Claude) loadRules() error {
 	c.mu.Lock()
