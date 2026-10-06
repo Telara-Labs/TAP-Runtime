@@ -20,8 +20,21 @@ of the conversation only when the program does not print it.
   approval itself; extension-dispatched calls cannot rely on VS Code's native
   confirmation.
 
-macOS and Linux. On Windows VS Code's extensions speak named pipes, which the
+macOS and Linux preview. On Windows VS Code's extensions speak named pipes, which the
 runner does not reach yet.
+
+Download `tap-vscode-X.Y.Z.vsix` from a release that includes it on the
+[GitHub releases page](https://github.com/Telara-Labs/TAP-Runtime/releases).
+Verify its entry in the release's signed `SHA256SUMS` with the runner's release
+verification procedure, then install the downloaded file:
+
+```sh
+code --install-extension ./tap-vscode-X.Y.Z.vsix
+```
+
+Replace `X.Y.Z` with that release's version. Install the matching TAP runner
+separately; the VSIX does not bundle it. This delivery path uses a release asset
+and does not require a Marketplace listing.
 
 Commands: **TAP: Run a primitive...** runs one outside chat, and **TAP: Show
 the tools a primitive can use** lists what VS Code can call.

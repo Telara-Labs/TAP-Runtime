@@ -10,6 +10,8 @@
   "categories": ["AI", "Other"],
   "main": "./extension.js",
   "activationEvents": ["onStartupFinished"],
+  "files": ["extension.js", "package.json", "README.md", "LICENSE"],
+  "devDependencies": { "@vscode/vsce": "4.0.0" },
   "contributes": {
     "mcpServerDefinitionProviders": [
       { "id": "tap-runtime.servers", "label": "TAP Runtime" }

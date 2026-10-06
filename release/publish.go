@@ -227,7 +227,7 @@ func (p *Publisher) Publish() Report {
 	case published:
 		add("github release", "skipped", "npm already has "+p.Version)
 	case p.Plan:
-		add("github release", "planned", "build and sign "+tag+" from a clean export, verify it, create the release on "+p.GitHubRepo)
+		add("github release", "planned", "build the versioned VSIX with pinned official vsce; build and sign "+tag+" from a clean export including the VSIX, verify it, create the release on "+p.GitHubRepo)
 	default:
 		out, err := os.MkdirTemp("", "tap-release-")
 		if err != nil {
@@ -329,6 +329,10 @@ func short(sha string) string {
 // clean export of that commit, so nothing uncommitted in the checkout can
 // reach it.
 func buildFromExport(dir, key, githubRepo string) func(tag, out string) error {
+	return buildFromExportWithRunner(dir, key, githubRepo, run)
+}
+
+func buildFromExportWithRunner(dir, key, githubRepo string, command releaseCommand) func(tag, out string) error {
 	return func(tag, out string) error {
 		src, err := os.MkdirTemp("", "tap-release-src-")
 		if err != nil {
@@ -354,10 +358,14 @@ func buildFromExport(dir, key, githubRepo string) func(tag, out string) error {
 		}
 		version := strings.TrimPrefix(tag, "v")
 		base := "https://github.com/" + githubRepo + "/releases/download/" + tag
-		if _, err := run(src, []string{"GOWORK=off"}, "go", "run", "./release", "build", "--version", version, "--out", out, "--key", key, "--download-base", base); err != nil {
+		vsix, err := packageVSIX(src, out, version, command)
+		if err != nil {
+			return fmt.Errorf("package VS Code extension: %w", err)
+		}
+		if _, err := command(src, []string{"GOWORK=off"}, "go", "run", "./release", "build", "--version", version, "--out", out, "--key", key, "--download-base", base, "--extra", vsix); err != nil {
 			return err
 		}
-		_, err = run(src, []string{"GOWORK=off"}, "go", "run", "./release", "verify", "--dir", out, "--pub", "release/release.pub")
+		_, err = command(src, []string{"GOWORK=off"}, "go", "run", "./release", "verify", "--dir", out, "--pub", "release/release.pub")
 		return err
 	}
 }
