@@ -146,6 +146,9 @@ type server struct {
 	// relay holds the runs that wait on a client which makes tool calls
 	// when a hook asks it to (relay.go).
 	relay *relayHub
+	// held are runs whose tap_run call returned before they ended
+	// (handoff.go); tap_result waits on them.
+	held heldRuns
 	// vscodeSocket reaches the TAP extension in VS Code (bridge/vscode.go).
 	vscodeSocket string
 }
@@ -375,13 +378,7 @@ func (s *server) handle(m rpcMessage) {
 	case "ping":
 		s.reply(m.ID, map[string]any{})
 	case "tools/list":
-		tools := []any{searchTool, loadTool, runTool, statusTool, evidenceTool, saveTool}
-		s.mu.Lock()
-		name := s.clientName
-		s.mu.Unlock()
-		if relayClient(clientFor(name)) {
-			tools = append(tools, resultTool)
-		}
+		tools := []any{searchTool, loadTool, runTool, statusTool, evidenceTool, saveTool, resultTool}
 		s.reply(m.ID, map[string]any{"tools": tools})
 	case "tools/call":
 		var p struct {
@@ -487,8 +484,7 @@ func (s *server) handle(m rpcMessage) {
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		res, err := Run(ctx, o)
-		s.replyRun(m.ID, res, err, canElicit)
+		s.runWithHandoff(m.ID, ctx, o, canElicit)
 	default:
 		s.fail(m.ID, -32601, "method not found")
 	}
@@ -565,7 +561,14 @@ func clientApprovesCalls(inner Approver) Approver {
 
 // replyResult answers tap_result: how the relay run ended.
 func (s *server) replyResult(id *json.RawMessage, run string, canElicit bool) {
-	r := s.relay.get(run)
+	if h := s.held.get(run); h != nil {
+		s.replyHeld(id, run, h, canElicit)
+		return
+	}
+	var r *relayRun
+	if s.relay != nil {
+		r = s.relay.get(run)
+	}
 	if r == nil {
 		s.reply(id, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "no run " + run + " is known here"}}})
 		return
@@ -577,7 +580,7 @@ func (s *server) replyResult(id *json.RawMessage, run string, canElicit bool) {
 
 var resultTool = map[string]any{
 	"name":        "tap_result",
-	"description": "The answer of a TAP primitive that ran through this client. The tap hook calls it at the end of a run; you do not need to.",
+	"description": "The result of a TAP run that tap_run handed back while it was still running: call it with the run tap_run named. It waits up to 20 seconds and says to call again if the run has not ended. (In Gemini CLI the tap hook calls it for you.)",
 	"inputSchema": map[string]any{
 		"type":       "object",
 		"properties": map[string]any{"run": map[string]any{"type": "string", "description": "The run's id."}},

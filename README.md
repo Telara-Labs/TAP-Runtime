@@ -180,12 +180,16 @@ are removed after 30 days; `--retention-days 0` keeps them.
 
 ## TAP Local: your primitives as an MCP server
 
-`tap serve` exposes six fixed tools: `tap_search`, `tap_load`, `tap_run`,
-`tap_status`, `tap_evidence` and `tap_save`. It finds installed primitives in a
+`tap serve` exposes seven fixed tools: `tap_search`, `tap_load`, `tap_run`,
+`tap_status`, `tap_evidence`, `tap_save` and `tap_result`. It finds installed primitives in a
 local collection and runs an exact `publisher/name@version` and package digest.
 `tap_save` saves a package an agent wrote into the local collection after the
 person agrees in a prompt; it exists because an agent's shell may be sandboxed
-away from the collection (Codex), and it never publishes anywhere.
+away from the collection (Codex), and it never publishes anywhere. A run still
+going after 20 seconds keeps running and `tap_run` returns a handle;
+`tap_result` waits on it, because clients stop waiting for one tool call (Codex
+at about 30 seconds). A question the run asks after that is refused if nobody
+answers it within two minutes.
 The tool list does not grow with the number of primitives. A client that
 cannot show an approval prompt receives no implicit approval. Package trust,
 fetch grants and tool bindings are separate owner decisions.
