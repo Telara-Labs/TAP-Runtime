@@ -177,3 +177,28 @@ func TestSyncCollectionPointersReachesEachSupportedSkillClient(t *testing.T) {
 		}
 	}
 }
+
+// On a terminal, setup says once how many saved primitives it linked, and
+// lists only pointers that changed or were skipped.
+func TestSyncPointersSummaryListsOnlyChanges(t *testing.T) {
+	home := t.TempDir()
+	collection := filepath.Join(t.TempDir(), "primitives")
+	saveSetupPrimitive(t, collection)
+	codex, _ := agents.Lookup("codex")
+	claude, _ := agents.Lookup("claude-code")
+	targets := []pack.Target{{Client: codex}, {Client: claude}}
+	var first, second, errOut bytes.Buffer
+	if rc := syncPointers(home, collection, targets, false, true, &first, &errOut); rc != 0 {
+		t.Fatalf("%d: %s", rc, errOut.String())
+	}
+	if !strings.Contains(first.String(), "1 saved primitive linked into 2 agents · 2 refreshed") || !strings.Contains(first.String(), "written") {
+		t.Fatalf("first run summary:\n%s", first.String())
+	}
+	if rc := syncPointers(home, collection, targets, false, true, &second, &errOut); rc != 0 {
+		t.Fatalf("%d: %s", rc, errOut.String())
+	}
+	got := second.String()
+	if strings.Contains(got, "unchanged") || strings.Count(strings.TrimSpace(got), "\n") != 0 || !strings.Contains(got, "1 saved primitive linked into 2 agents") {
+		t.Fatalf("an unchanged run should be one summary line:\n%s", got)
+	}
+}

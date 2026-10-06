@@ -32,7 +32,7 @@ func TestSetupOutcomeAndSummary(t *testing.T) {
 // Drawing the diagram while agents connect keeps one line per agent, and a
 // failed agent's full message is printed once the diagram is done.
 func TestSetupBoardDrawsEveryAgentAndKeepsFailures(t *testing.T) {
-	var screen, errs bytes.Buffer
+	var errs bytes.Buffer
 	b := &setupBoard{names: []string{"Claude Code", "Codex", "Cursor"}, state: make([]int, 3), said: make([]*bytes.Buffer, 3)}
 	for i, msg := range []string{"Claude Code: added tap.\n", "not changed: denied\nfull reason\n", "Cursor: skipped, cursor is not on this machine.\n"} {
 		out, _ := b.begin(i, nil, nil)
@@ -56,11 +56,10 @@ func TestSetupBoardDrawsEveryAgentAndKeepsFailures(t *testing.T) {
 		}
 	}
 	b.live = nil
-	stopFailures(b, &screen, &errs)
+	if !stopFailures(b, &errs) {
+		t.Error("a connected agent was not reported")
+	}
 	if !strings.Contains(errs.String(), "full reason") {
 		t.Errorf("failure detail not printed: %q", errs.String())
-	}
-	if !strings.Contains(screen.String(), "Start a new session") {
-		t.Errorf("no restart hint after a connected agent: %q", screen.String())
 	}
 }

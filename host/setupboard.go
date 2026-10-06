@@ -59,16 +59,17 @@ func (b *setupBoard) end(i, rc int) {
 }
 
 // stop leaves the final diagram on screen, then prints in full what any
-// failed agent said, so nothing a line had to shorten is lost.
-func (b *setupBoard) stop(stdout, stderr io.Writer) {
+// failed agent said, so nothing a line had to shorten is lost. It reports
+// whether any agent was connected, for the hint the caller prints last.
+func (b *setupBoard) stop(stderr io.Writer) bool {
 	if b == nil {
-		return
+		return false
 	}
 	b.live.Stop()
-	stopFailures(b, stdout, stderr)
+	return stopFailures(b, stderr)
 }
 
-func stopFailures(b *setupBoard, stdout, stderr io.Writer) {
+func stopFailures(b *setupBoard, stderr io.Writer) bool {
 	connected := false
 	for i, s := range b.state {
 		if s == 4 {
@@ -76,9 +77,7 @@ func stopFailures(b *setupBoard, stdout, stderr io.Writer) {
 		}
 		connected = connected || s == 2
 	}
-	if connected {
-		io.WriteString(stdout, " Start a new session in each agent to use TAP.\n")
-	}
+	return connected
 }
 
 // setupOutcome reads how connecting one agent ended from its exit code and

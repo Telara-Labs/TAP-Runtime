@@ -38,7 +38,8 @@ function setup(packageDir, { output = console.log, spawn = spawnSync } = {}) {
   const result = spawn(runner, ['setup'], { stdio: 'inherit' });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`TAP could not connect to every agent installed here (exit ${result.status})`);
-  output('To connect another agent later and refresh saved primitive skills: tap setup');
+  // On a terminal the runner's own diagram already says what to do next.
+  if (!process.stdout.isTTY) output('To connect another agent later and refresh saved primitive skills: tap setup');
   return result.status;
 }
 
@@ -132,7 +133,8 @@ async function upgrade(packageDir, { output = console.log, spawn = spawnSync, ex
     return 0;
   }
   const installArgs = ['install', '--global', `@telaralabs/tap@${latest}`];
-  if (stream.isTTY && (stream.columns || 80) >= 40) {
+  const animated = Boolean(stream.isTTY && (stream.columns || 80) >= 40);
+  if (animated) {
     let fill = 0;
     let filled = false;
     const started = Date.now();
@@ -162,7 +164,8 @@ async function upgrade(packageDir, { output = console.log, spawn = spawnSync, ex
   if (root.error) throw root.error;
   if (root.status !== 0) throw new Error(`could not find the global npm folder (exit ${root.status})`);
   setup(path.join(String(root.stdout).trim(), '@telaralabs', 'tap'), { output, spawn });
-  output(`tap ${latest} is installed. Restart your agents so they start the new runner.`);
+  // After the animation, setup's diagram ends with the restart hint.
+  if (!animated) output(`tap ${latest} is installed. Restart your agents so they start the new runner.`);
   return 0;
 }
 

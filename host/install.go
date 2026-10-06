@@ -113,7 +113,7 @@ func install(args []string, stdout, stderr io.Writer, animate bool) int {
 		}
 		board.end(i, rc)
 	}
-	board.stop(stdout, stderr)
+	connected := board.stop(stderr)
 	if !*remove && len(pointerTargets) > 0 {
 		collection, err := pack.CollectionDir()
 		if err != nil {
@@ -124,6 +124,9 @@ func install(args []string, stdout, stderr io.Writer, animate bool) int {
 			code = rc
 		}
 	}
+	if connected {
+		fmt.Fprintln(stdout, " Start a new session in each agent to use TAP.")
+	}
 	return code
 }
 
@@ -131,6 +134,26 @@ func install(args []string, stdout, stderr io.Writer, animate bool) int {
 // collection is the only package source; arbitrary project folders and
 // foreign skill folders are never imported or overwritten by setup.
 func syncCollectionPointers(home, collection string, targets []pack.Target, print bool, stdout, stderr io.Writer) int {
+	return syncPointers(home, collection, targets, print, !print && termart.Terminal(stdout), stdout, stderr)
+}
+
+// syncPointers is syncCollectionPointers; summary prints one line for the
+// whole collection and lists only pointers that were written or skipped,
+// instead of one line per primitive per agent.
+func syncPointers(home, collection string, targets []pack.Target, print, summary bool, stdout, stderr io.Writer) int {
+	primitives, written, skipped := 0, 0, 0
+	defer func() {
+		if summary && primitives > 0 {
+			line := fmt.Sprintf(" %s %s linked into %s", termart.Good(true, "✓"), plural(primitives, "saved primitive"), plural(len(targets), "agent"))
+			if written > 0 {
+				line += fmt.Sprintf(" · %d refreshed", written)
+			}
+			if skipped > 0 {
+				line += fmt.Sprintf(" · %d skipped", skipped)
+			}
+			fmt.Fprintln(stdout, line)
+		}
+	}()
 	entries, err := os.ReadDir(collection)
 	if os.IsNotExist(err) {
 		return 0
@@ -173,6 +196,22 @@ func syncCollectionPointers(home, collection string, targets []pack.Target, prin
 			continue
 		}
 		results, err := pack.WritePointers(dir, targets, false, home, "")
+		primitives++
+		if summary {
+			var changed []pack.PointerResult
+			for _, r := range results {
+				switch r.Mode {
+				case pack.PointerUnchanged:
+					continue
+				case pack.PointerWritten:
+					written++
+				case pack.PointerSkipped:
+					skipped++
+				}
+				changed = append(changed, r)
+			}
+			results = changed
+		}
 		fmt.Fprint(stdout, pack.FormatPointers(results))
 		if err != nil {
 			fmt.Fprintf(stderr, "saved primitive %s: %v\n", entry.Name(), err)
@@ -620,4 +659,11 @@ func maskEnvArgs(argv []string) []string {
 		}
 	}
 	return out
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
