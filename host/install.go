@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	agents "github.com/Telara-Labs/TAP-Runtime/discover/client"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 	"io"
 	"os"
 	"os/exec"
@@ -80,9 +81,79 @@ func installCommand(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	code := 0
+	var pointerTargets []pack.Target
 	for _, c := range targets {
-		if rc := installOne(c, home, self, *name, *scope, env, *print, *remove, explicit, stdout, stderr); rc > code {
+		rc := installOne(c, home, self, *name, *scope, env, *print, *remove, explicit, stdout, stderr)
+		if rc > code {
 			code = rc
+		}
+		if rc == 0 && !*remove && agents.HasSkills(c) && c.Bridge && (*print || c.Connected(home, *name)) {
+			pointerTargets = append(pointerTargets, pack.Target{Client: c})
+		}
+	}
+	if !*remove && len(pointerTargets) > 0 {
+		collection, err := pack.CollectionDir()
+		if err != nil {
+			fmt.Fprintln(stderr, "saved primitive pointers:", err)
+			return 1
+		}
+		if rc := syncCollectionPointers(home, collection, pointerTargets, *print, stdout, stderr); rc > code {
+			code = rc
+		}
+	}
+	return code
+}
+
+// Reconnect existing saved primitives when a new client is installed. The
+// collection is the only package source; arbitrary project folders and
+// foreign skill folders are never imported or overwritten by setup.
+func syncCollectionPointers(home, collection string, targets []pack.Target, print bool, stdout, stderr io.Writer) int {
+	entries, err := os.ReadDir(collection)
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "saved primitive pointers:", err)
+		return 1
+	}
+	code := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dir := filepath.Join(collection, entry.Name())
+		if _, err := os.Stat(filepath.Join(dir, pack.SavedMarker)); os.IsNotExist(err) {
+			continue
+		}
+		marker, err := pack.ReadMarker(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "saved primitive %s: %v\n", entry.Name(), err)
+			code = 1
+			continue
+		}
+		id, err := pack.ReadIdentity(dir)
+		if err != nil || marker.Name != strings.Split(id.Ref, "@")[0] {
+			fmt.Fprintf(stderr, "saved primitive %s: invalid identity or marker (%v)\n", entry.Name(), err)
+			code = 1
+			continue
+		}
+		if print {
+			for _, target := range targets {
+				root, err := target.Client.SkillsDir(false, home, "")
+				if err != nil {
+					fmt.Fprintln(stderr, err)
+					code = 1
+					continue
+				}
+				fmt.Fprintf(stdout, "%s: would reconcile saved primitive %s at %s\n", target.Client.Name, id.Ref, filepath.Join(root, id.Name))
+			}
+			continue
+		}
+		results, err := pack.WritePointers(dir, targets, false, home, "")
+		fmt.Fprint(stdout, pack.FormatPointers(results))
+		if err != nil {
+			fmt.Fprintf(stderr, "saved primitive %s: %v\n", entry.Name(), err)
+			code = 1
 		}
 	}
 	return code

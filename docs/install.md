@@ -33,6 +33,27 @@ For an additional collection root, start the server with
 `tap serve --catalog-root DIR`. This is an explicit local directory, not a
 remote registry. The runner does not publish packages through MCP.
 
+## Ordinary requests and saved skills
+
+Save a primitive with `tap discover save <package-dir>`. Saving installs one
+package in the shared TAP collection and creates discoverable skill pointers
+for connected supported clients. A package merely sitting in a project folder
+is not installed globally; setup does not scan arbitrary project directories.
+
+`tap setup` connects detected clients and reconciles pointers for primitives
+already in the collection. Run it again after adding a client. It preserves
+foreign skill folders, reports collisions, and refreshes TAP-owned pointers
+without duplicating executable packages. `tap install --client <agent>` does
+the same reconciliation for that client; `--print` changes nothing and
+`--remove` does not create or refresh pointers.
+
+With the saved skill available, ask the normal task question without naming
+TAP. Skill selection and `tap_search` let the agent find an applicable
+primitive, inspect it and execute its exact ref/digest. The client's model
+still chooses tools; verify actual `tap_run` receipts before claiming it used
+one. Clients without a supported tool-connection bridge are not made runnable
+by registration alone. Start a fresh client session after setup.
+
 ## Standard MCP execution with a configured backend
 
 Clients that cannot lend their own tool connections can use an explicitly

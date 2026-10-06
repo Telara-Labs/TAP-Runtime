@@ -30,14 +30,15 @@ function resolveRunner(packageDir, platform = process.platform, arch = process.a
 
 // setup connects the runner to every agent installed here. The list of
 // agents, and how each is connected, lives in the runner (discover's agent
-// registry), not here: `tap install --client detected` skips the
+// registry), not here: native `tap setup` connects detected clients and
+// reconciles saved primitive skill pointers. It skips the
 // ones that are not installed and says what it did for each.
 function setup(packageDir, { output = console.log, spawn = spawnSync } = {}) {
   const runner = resolveRunner(packageDir);
-  const result = spawn(runner, ['install', '--client', 'detected'], { stdio: 'inherit' });
+  const result = spawn(runner, ['setup'], { stdio: 'inherit' });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`TAP could not connect to every agent installed here (exit ${result.status})`);
-  output('To connect another agent later: tap install --client <agent>');
+  output('To connect another agent later and refresh saved primitive skills: tap setup');
   return result.status;
 }
 

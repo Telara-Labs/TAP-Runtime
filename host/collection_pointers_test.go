@@ -17,6 +17,7 @@ import (
 // it by that identity. A primitive saved the old way (a full package in
 // ~/.claude/skills) is listed once before and after migration.
 func TestSavedOncePointedEverywhereListedOnceAndRunnable(t *testing.T) {
+	interpreterStore(t) // Keep the Go module cache outside the fixture HOME.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	c := startServer(t, true, accept)

@@ -20,7 +20,7 @@ function fakePackage() {
 
 // setup keeps no agent list of its own: it asks the verified runner to
 // connect every detected agent.
-test('setup delegates to tap install --client detected', () => {
+test('setup delegates connection and saved skill reconciliation to native tap setup', () => {
   const dir = fakePackage();
   const calls = [];
   const lines = [];
@@ -31,8 +31,8 @@ test('setup delegates to tap install --client detected', () => {
   assert.equal(status, 0);
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], path.join(dir, 'assets', 'tap'));
-  assert.deepEqual(calls[0][1], ['install', '--client', 'detected']);
-  assert.match(lines.join('\n'), /tap install --client <agent>/);
+  assert.deepEqual(calls[0][1], ['setup']);
+  assert.match(lines.join('\n'), /tap setup/);
 });
 
 test('setup reports a failed install', () => {

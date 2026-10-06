@@ -25,6 +25,7 @@ func TestInstallArgv(t *testing.T) {
 }
 
 func TestInstallPrintChangesNothing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	var out, errb bytes.Buffer
 	if code := installCommand([]string{"--client", "claude", "--print"}, &out, &errb); code != 0 {
 		t.Fatalf("exit %d: %s", code, errb.String())
