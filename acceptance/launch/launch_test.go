@@ -266,18 +266,25 @@ func TestReleaseSignature(t *testing.T) {
 		t.Skip("checked once, on Linux and macOS")
 	}
 	dir := t.TempDir()
-	var rel struct {
-		Assets []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
+	base := fmt.Sprintf("%s/releases/download/v%s", repo, v)
+	for _, name := range []string{"SHA256SUMS", "SHA256SUMS.sig", "SHA256SUMS.pub"} {
+		download(t, base+"/"+name, filepath.Join(dir, name))
 	}
-	getJSON(t, fmt.Sprintf("https://api.github.com/repos/Telara-Labs/TAP-Runtime/releases/tags/v%s", v), &rel)
-	if len(rel.Assets) == 0 {
-		t.Fatal("the release has no assets")
+	read := func(path string) []byte {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
 	}
-	for _, a := range rel.Assets {
-		download(t, a.URL, filepath.Join(dir, a.Name))
+	// Enumerate authenticated contents, without the rate-limited GitHub API.
+	assets, err := signedReleaseAssets(v, read(filepath.Join(dir, "SHA256SUMS")),
+		read(filepath.Join(dir, "SHA256SUMS.sig")), read(filepath.Join(root, "release", "release.pub")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range assets {
+		download(t, base+"/"+name, filepath.Join(dir, name))
 	}
 	cmd := exec.Command("go", "run", "./release", "verify", "--dir", dir, "--pub", "release/release.pub")
 	cmd.Dir = root
@@ -388,22 +395,6 @@ func copyTree(t *testing.T, from, to string) {
 }
 
 var client = &http.Client{Timeout: 2 * time.Minute}
-
-func getJSON(t *testing.T, url string, v any) {
-	t.Helper()
-	resp, err := client.Get(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		t.Fatalf("%s: %s\n%s", url, resp.Status, b)
-	}
-	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
-		t.Fatal(err)
-	}
-}
 
 func download(t *testing.T, url, to string) {
 	t.Helper()
