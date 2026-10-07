@@ -61,6 +61,8 @@ func Command(args []string, in io.Reader, out, errOut io.Writer) int {
 	} else {
 		// The author path (author.go, validate.go, save.go).
 		switch args[0] {
+		case "build":
+			return author.BuildCommand(args[1:], out, errOut)
 		case "generate":
 			return genreview.GenerateCommand(args[1:], in, out, errOut)
 		case "brief", "save":

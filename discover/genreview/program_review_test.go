@@ -183,3 +183,34 @@ func TestProgramSelectionDecisionKeepsKnownCallerRoleSelection(t *testing.T) {
 		t.Fatalf("pre-existing caller item role was treated as an unknown future-list decision: %s", got)
 	}
 }
+
+func TestChangedGeneratedRevisionCannotAskForAcceptanceUnderSameVersion(t *testing.T) {
+	graph := reviewableGraph()
+	root, state := t.TempDir(), t.TempDir()
+	var out bytes.Buffer
+	if err := genreview.ReviewGenerated(strings.NewReader("accept\n"), &out, graph, root, state); err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := codegen.GenerateProgramPackage(graph)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed := filepath.Join(root, pkg.Manifest.Metadata.Name)
+	before, err := pack.ContentDigest(installed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph.Steps[0].Effect = "write"
+	out.Reset()
+	err = genreview.ReviewGenerated(strings.NewReader("accept\n"), &out, graph, root, state)
+	if err == nil || !strings.Contains(err.Error(), "changed under version") {
+		t.Fatalf("%v", err)
+	}
+	if strings.Contains(out.String(), "[a]ccept privately") {
+		t.Fatal("offered acceptance for invalid revision")
+	}
+	after, _ := pack.ContentDigest(installed)
+	if after != before {
+		t.Fatal("changed installed version")
+	}
+}

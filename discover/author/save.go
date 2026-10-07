@@ -109,7 +109,7 @@ func ValidationFor(rec *Receipts, digest string) (string, error) {
 
 // SavePackage installs an authored package directory into root.
 func SavePackage(pkgDir, root string, rec *Receipts, receiptsDigest string) (path, validation string, unchanged bool, err error) {
-	a, err := ReadAuthoring(pkgDir)
+	a, err := CheckPackage(pkgDir, root)
 	if err != nil {
 		return "", "", false, err
 	}
@@ -131,8 +131,29 @@ func SavePackage(pkgDir, root string, rec *Receipts, receiptsDigest string) (pat
 	if rec != nil {
 		m.Cases = len(rec.Cases)
 	}
-	path, unchanged, err = pack.Install(root, a.Name, pkg, m, AuthoredSkillMD(a, m, filepath.Join(root, a.Name)))
+	path, unchanged, err = pack.InstallVersioned(root, a.Name, pkg, m, AuthoredSkillMD(a, m, filepath.Join(root, a.Name)))
 	return path, validation, unchanged, err
+}
+
+// CheckPackage is also used by MCP before asking the person to save.
+func CheckPackage(pkgDir, root string) (*Authoring, error) {
+	a, err := ReadAuthoring(pkgDir)
+	if err != nil {
+		return nil, err
+	}
+	m, err := pack.CheckLifecycle(pkgDir, root)
+	if err != nil {
+		return nil, err
+	}
+	if a.Name != m.Metadata.Name || a.Publisher != m.Metadata.Publisher {
+		return nil, fmt.Errorf("AUTHORING.json name/publisher must match primitive.yaml")
+	}
+	if marks, err := FindPlaceholders(pkgDir); err != nil {
+		return nil, err
+	} else if len(marks) > 0 {
+		return nil, fmt.Errorf("the package is not finished: %s", strings.Join(marks, "; "))
+	}
+	return a, nil
 }
 
 func AuthoredSkillMD(a *Authoring, m pack.Marker, dir string) string {

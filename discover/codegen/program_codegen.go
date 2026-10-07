@@ -639,6 +639,7 @@ func GenerateProgramPackage(g *ProgramGraph) (*GeneratedPackage, error) {
 		}
 	}
 	files := map[string][]byte{"primitive.yaml": m.YAML(), "main.py": []byte(code.String()), "README.md": []byte(readme.String())}
+	files["CHANGELOG.md"] = pack.InitialChangelog(m.Metadata.Version)
 	_, digest, err := pack.PackFiles(files, func(string) bool { return false })
 	if err != nil {
 		return nil, err

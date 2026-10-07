@@ -12,3 +12,13 @@ Work from the questions first. Each names the step and argument, the evidence le
 Keep the reusable execution chunk: variable resource values become typed invocation inputs or values from earlier results. Preserve the source and relationship of each input, operation order, loops and stop conditions. Do not turn a result-dependent step into an unrelated caller input, guess an unobserved branch, or merge different tool bindings merely because their labels sound alike. Resolve each uncertainty with trace evidence or ask the user for the missing decision.
 
 Produce a contained TAP package with declared tool and effect reach. Show the user the changed inputs, ordered calls, effects, outputs, full code and manifest, and the exact new package digest. Compare reach and behavior with the original proposal. Run the relevant TAP manifest and real-runner checks on fresh values before claiming it works. An edited package needs a new user decision; this skill does not authorize installation or publication.
+
+Before saving a refinement, update `primitive.yaml` to a higher semantic
+version and add a matching nonempty entry in `CHANGELOG.md`, describing the
+code, interface or permission changes. Keep AUTHORING identity aligned when
+using the agent-authored save path. Different content under an installed
+version and lower versions are refused. For `.wasm`, include source and
+provenance, review the build recipe and explicitly run
+`tap discover build --approve-build <package>` before validation and saving.
+This refreshes the compiled program and `BUILD.json`; save and run do not
+compile. Store validation cases and receipts outside the package.

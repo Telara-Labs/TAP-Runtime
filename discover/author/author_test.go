@@ -348,7 +348,7 @@ func authoredPackage(t *testing.T) string {
 		Agent: "claude-code", Selection: author.SelectedTask, Sources: []string{"src_0123456789ab"}, BriefDigest: "sha256:00",
 		Contract: contract, Interface: json.RawMessage(`{"args":[{"name":"script","type":"path"}]}`)}
 	b, _ := json.MarshalIndent(a, "", "  ")
-	testkit.WriteFiles(t, dir, map[string]string{"AUTHORING.json": string(b), "primitive.yaml": "x: 1\n", "main.py": "print(1)\n"})
+	testkit.WriteFiles(t, dir, map[string]string{"AUTHORING.json": string(b), "primitive.yaml": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.local, name: repo-changes, version: 0.1.0}\nexecution: {entrypoint: main.py}\n", "main.py": "print(1)\n", "CHANGELOG.md": "# Changelog\n\n## 0.1.0\n\n- Initial authored procedure.\n"})
 	return dir
 }
 

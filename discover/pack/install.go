@@ -57,7 +57,7 @@ func SaveDraft(d *model.Draft, root string) (path string, unchanged bool, err er
 		return "", false, err
 	}
 	m := Marker{Name: d.Publisher + "/" + d.Name, Digest: digest, Validation: model.ValidationNotRun}
-	return Install(root, d.Name, pkg, m, SavedSkillMD(d, filepath.Join(root, d.Name)))
+	return InstallVersioned(root, d.Name, pkg, m, SavedSkillMD(d, filepath.Join(root, d.Name)))
 }
 
 // Install unpacks pkg into root/name with its SKILL.md and marker. A folder

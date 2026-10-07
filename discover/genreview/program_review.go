@@ -44,6 +44,9 @@ func ReviewGeneratedTo(in io.Reader, out io.Writer, graph *codegen.ProgramGraph,
 		return fmt.Errorf("no program graph")
 	}
 	pkg, generateErr := codegen.GenerateProgramPackage(graph)
+	if pkg != nil && generateErr == nil {
+		generateErr = pack.CheckFiles(pkg.Files, skillRoot)
+	}
 	selectionDecision := ProgramSelectionDecision(graph)
 	digest := ""
 	if pkg != nil {
@@ -186,7 +189,7 @@ func ReviewGeneratedTo(in io.Reader, out io.Writer, graph *codegen.ProgramGraph,
 	if selectionDecision != "" {
 		fmt.Fprintf(out, "Needs decision: %s\n", selectionDecision)
 	}
-	if pkg == nil || selectionDecision != "" {
+	if pkg == nil || generateErr != nil || selectionDecision != "" {
 		fmt.Fprint(out, "\nChoose [d]eny, [r]efine with my coding agent, or [q]uit > ")
 	} else {
 		fmt.Fprint(out, "\nChoose [a]ccept privately, [d]eny, [r]efine with my coding agent, or [q]uit > ")
@@ -200,6 +203,9 @@ func ReviewGeneratedTo(in io.Reader, out io.Writer, graph *codegen.ProgramGraph,
 	case "a", "accept":
 		if pkg == nil {
 			return fmt.Errorf("cannot accept an unresolved program")
+		}
+		if generateErr != nil {
+			return fmt.Errorf("cannot accept this revision: %w", generateErr)
 		}
 		if selectionDecision != "" {
 			return fmt.Errorf("cannot accept a task with an undetermined result selection: %s", selectionDecision)
@@ -343,7 +349,7 @@ func SaveGeneratedPackage(p *codegen.GeneratedPackage, root string) (string, boo
 		Validation: model.ValidationNotRun, Origin: OriginDiscoverGenerated}
 	desc, _ := json.Marshal("Locally generated TAP program; review its calls and effects before each run")
 	skill := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n# %s\n\nGenerated locally by TAP Discover. Package digest: %s.\n\nRead README.md, primitive.yaml and main.py before use. Run this folder through tap_run with one JSON object argument. The TAP runner checks declared tools and commands and gates effects.\n", name, desc, name, digest)
-	return pack.Install(root, name, archive, marker, skill)
+	return pack.InstallVersioned(root, name, archive, marker, skill)
 }
 
 func ReadGeneratedDecisions(dir string) ([]GeneratedDecision, error) {

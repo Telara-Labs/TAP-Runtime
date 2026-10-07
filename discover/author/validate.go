@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 )
@@ -147,6 +148,9 @@ func FindPlaceholders(dir string) ([]string, error) {
 		if err != nil {
 			return err
 		}
+		if !utf8.Valid(b) {
+			return nil
+		} // compiled artifacts are not authoring text
 		rel, _ := filepath.Rel(dir, p)
 		for i, line := range strings.Split(string(b), "\n") {
 			for _, m := range Placeholders {

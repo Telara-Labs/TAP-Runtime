@@ -83,6 +83,7 @@ print(json.dumps({'path': inputs['file_path'], 'replacements': before.count(inpu
 		readme += "\nEvery supporting snippet was embedded in a larger shell call; only the inner file transform is generated.\n"
 	}
 	files := map[string][]byte{"primitive.yaml": m.YAML(), "main.py": []byte(code), "README.md": []byte(readme)}
+	files["CHANGELOG.md"] = pack.InitialChangelog(m.Metadata.Version)
 	_, digest, err := pack.PackFiles(files, func(string) bool { return false })
 	if err != nil {
 		return nil, err

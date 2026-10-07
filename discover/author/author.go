@@ -550,7 +550,13 @@ func (b *Brief) Markdown() string {
 	   be automated. Turn changing values into runtime arguments or values derived
 	   by earlier steps, rather than copying an example's concrete values.
 2. Write the package as docs/writing-a-primitive.md describes: primitive.yaml declaring every
-   command, file and tool it uses, and one program. No TODO: or REPLACE_ markers may remain.
+   command, file and tool it uses, and one program. Include CHANGELOG.md with a nonempty
+   entry for metadata.version. On a revision, advance the semantic version and update
+   both the manifest and changelog. Source entrypoints are their executable. A compiled
+   .wasm package must include source, provenance.toolchain and provenance.build; explicitly
+   review and run ` + "`tap discover build --approve-build <package>`" + ` before validation
+   or saving. It builds twice from the same inputs and records BUILD.json. Save and run
+   never compile. No TODO: or REPLACE_ markers may remain.
    Check it with ` + "`tap manifest check <package>`" + `.
 3. Put AUTHORING.json in the package:
    {"kind": "tap.authoring/v1", "name": ..., "publisher": ..., "author": "host-agent",
