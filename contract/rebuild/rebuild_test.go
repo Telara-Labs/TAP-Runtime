@@ -1,12 +1,39 @@
 package rebuild
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestRebuildSnapshotPreservesExecutableSource(t *testing.T) {
+	from, to := t.TempDir(), t.TempDir()
+	os.WriteFile(filepath.Join(from, "build-script"), []byte("#!/bin/sh\n"), 0755)
+	if err := copyTree(from, to); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(to, "build-script"))
+	if err != nil || info.Mode()&0111 == 0 {
+		t.Fatalf("executable source lost: %v %v", info, err)
+	}
+}
+
+func TestCanceledBuildBoundsInheritedOutputPipes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := (Here{}).Run(ctx, t.TempDir(), "sleep 5 & wait")
+	if err == nil || ctx.Err() == nil {
+		t.Fatalf("canceled build succeeded: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 4*time.Second {
+		t.Fatalf("inherited output pipes held canceled build for %s", elapsed)
+	}
+}
 
 const build = "GOOS=wasip1 GOARCH=wasm go build -trimpath -buildvcs=false -ldflags=-buildid= -o p.wasm ./src"
 

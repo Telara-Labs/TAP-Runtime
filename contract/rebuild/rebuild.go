@@ -71,7 +71,11 @@ func copyTree(from, to string) error {
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(dst, b, 0o644)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dst, b, info.Mode().Perm())
 	})
 }
 
@@ -91,6 +95,9 @@ func (Here) Run(ctx context.Context, dir, command string) ([]byte, error) {
 	home := filepath.Join(dir, ".home")
 	os.MkdirAll(home, 0o755)
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	// A compiler subprocess may inherit the shell's output pipes. Bound
+	// draining those pipes after cancellation instead of waiting indefinitely.
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = dir
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "TMPDIR=" + os.TempDir(),
 		"GOWORK=off", "GOFLAGS=-mod=mod", "CGO_ENABLED=0"}
