@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -52,6 +53,11 @@ type Client struct {
 	// Launch is the argv that starts the agent on a prompt (the prompt is
 	// appended), or nil when it has no command line.
 	Launch []string
+	// Program is the agent's command on PATH. An agent installed and never
+	// run has none of its Markers yet, and setup skipped it (found testing
+	// Goose, Gemini CLI and Crush on a clean machine); its program on PATH
+	// counts as installed too. It is looked up, never run.
+	Program string
 }
 
 // SkillsPaths are the agent's skills folders: Global under home, Project
@@ -99,12 +105,12 @@ var registry = []Client{
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history and MCP (claude mcp add): on disk 2026-10-02",
 		Markers: []string{".claude"}, History: true, Transcript: ".claude/projects/*/{session}.jsonl",
 		Skills: SkillsPaths{Global: ".claude/skills", Project: ".claude/skills"},
-		MCP:    MCPConfig{Kind: MCPCommand, Path: ".claude.json", Key: "mcpServers"}, Bridge: true, Launch: []string{"claude"}},
+		MCP:    MCPConfig{Kind: MCPCommand, Path: ".claude.json", Key: "mcpServers"}, Bridge: true, Launch: []string{"claude"}, Program: "claude"},
 	{ID: "codex", Name: "Codex",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history and MCP (codex mcp add): on disk 2026-10-02",
 		Markers: []string{".codex"}, History: true, Transcript: ".codex/sessions/*/*/*/*{session}.jsonl",
 		Skills: SkillsPaths{Global: ".codex/skills", Project: ".agents/skills"},
-		MCP:    MCPConfig{Kind: MCPCommand, Path: ".codex/config.toml", Key: "mcp_servers"}, Bridge: true, Launch: []string{"codex"}},
+		MCP:    MCPConfig{Kind: MCPCommand, Path: ".codex/config.toml", Key: "mcp_servers"}, Bridge: true, Launch: []string{"codex"}, Program: "codex"},
 	{ID: "cursor", Aliases: []string{"cursor-ide"}, Name: "Cursor",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history globalStorage/state.vscdb and MCP ~/.cursor/mcp.json (mcpServers): on disk 2026-10-02",
 		Markers: []string{"Library/Application Support/Cursor", ".config/Cursor", "$APPDATA/Cursor"}, History: true,
@@ -115,7 +121,7 @@ var registry = []Client{
 		Markers: []string{".cursor/chats"}, History: true, Transcript: ".cursor/chats/*/{session}/store.db",
 		Skills: SkillsPaths{Global: ".cursor/skills", Project: ".agents/skills"},
 		MCP:    MCPConfig{Kind: MCPJSONFile, Path: ".cursor/mcp.json", Key: "mcpServers"},
-		Launch: []string{"cursor-agent"}},
+		Launch: []string{"cursor-agent"}, Program: "cursor-agent"},
 	{ID: "antigravity", Name: "Antigravity",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history brain/ and conversations/: on disk 2026-10-02; hooks: contract in the shipped language_server",
 		Markers: []string{".gemini/antigravity"}, History: true, Transcript: ".gemini/antigravity/brain/{session}/.system_generated/logs/transcript_full.jsonl",
@@ -125,11 +131,11 @@ var registry = []Client{
 		Markers: []string{".gemini/tmp", ".gemini/settings.json"}, History: true,
 		Skills: SkillsPaths{Global: ".gemini/skills", Project: ".agents/skills"},
 		MCP:    MCPConfig{Kind: MCPJSONFile, Path: ".gemini/settings.json", Key: "mcpServers"},
-		Bridge: true, Launch: []string{"gemini", "-i"}},
+		Bridge: true, Launch: []string{"gemini", "-i"}, Program: "gemini"},
 	{ID: "qwen-code", Aliases: []string{"qwen"}, Name: "Qwen Code",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history: Gemini CLI fork format per vshulcz/deja-vu docs/registry/qwen.md (not seen on disk)",
 		Markers: []string{".qwen"}, History: true, Transcript: ".qwen/projects/*/chats/{session}.jsonl",
-		Skills: SkillsPaths{Global: ".qwen/skills", Project: ".qwen/skills"}},
+		Skills: SkillsPaths{Global: ".qwen/skills", Project: ".qwen/skills"}, Program: "qwen"},
 	{ID: "vscode-copilot", Aliases: []string{"vscode", "github-copilot"}, Name: "GitHub Copilot in VS Code",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs) (github-copilot skills); marker globalStorage/github.copilot-chat and history chatSessions: on disk 2026-10-02 + microsoft/vscode chatService.ts",
 		Markers: []string{"Library/Application Support/Code/User/globalStorage/github.copilot-chat", ".config/Code/User/globalStorage/github.copilot-chat", "$APPDATA/Code/User/globalStorage/github.copilot-chat"}, History: true,
@@ -139,7 +145,7 @@ var registry = []Client{
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs) (shares ~/.copilot); history session-state/<id>/events.jsonl: github/copilot-cli issues; MCP ~/.copilot/mcp-config.json: GitHub Copilot CLI docs (not seen on disk)",
 		Markers: []string{".copilot/session-state"}, History: true,
 		Skills: SkillsPaths{Global: ".copilot/skills", Project: ".agents/skills"},
-		MCP:    MCPConfig{Kind: MCPCommand, Path: ".copilot/mcp-config.json", Key: "mcpServers"}},
+		MCP:    MCPConfig{Kind: MCPCommand, Path: ".copilot/mcp-config.json", Key: "mcpServers"}, Program: "copilot"},
 	{ID: "windsurf", Name: "Windsurf",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); MCP ~/.codeium/windsurf/mcp_config.json and transcript hook: docs.devin.ai/desktop (not installed here)",
 		Markers: []string{".codeium/windsurf", ".windsurf/transcripts", ".tap/windsurf"}, History: true,
@@ -161,13 +167,13 @@ var registry = []Client{
 		// /experimental/mcp/call-tool. The Kilo Code extension
 		// starts its own server on a random port and is not reachable.
 		MCP:    MCPConfig{Kind: MCPJSONFile, Path: ".config/kilo/kilo.json", Key: "mcp", Local: true},
-		Bridge: true, Launch: []string{"kilo", "run"}},
+		Bridge: true, Launch: []string{"kilo", "run"}, Program: "kilo"},
 	{ID: "opencode", Name: "OpenCode",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history opencode.db: schema seen on disk (empty) + vshulcz/deja-vu opencode.go",
 		Markers: []string{".config/opencode", ".local/share/opencode"}, History: true,
 		Skills: SkillsPaths{Global: ".config/opencode/skills", Project: ".agents/skills"},
 		MCP:    MCPConfig{Kind: MCPJSONFile, Path: ".config/opencode/opencode.json", Key: "mcp", Local: true},
-		Launch: []string{"opencode", "run"}},
+		Launch: []string{"opencode", "run"}, Program: "opencode"},
 	{ID: "zed", Name: "Zed",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history threads.db: zed source crates/agent/src/db.rs (not installed here)",
 		Markers: []string{"Library/Application Support/Zed", ".config/zed", ".local/share/zed", "$LOCALAPPDATA/Zed"}, History: true,
@@ -179,11 +185,13 @@ var registry = []Client{
 		// Goose has no command to add an extension; the runner writes its
 		// config.yaml. Its bridge is ACP _goose/unstable/tools/call.
 		MCP:    MCPConfig{Kind: MCPYAMLFile, Path: ".config/goose/config.yaml", Key: "extensions"},
-		Bridge: true, Launch: []string{"goose", "run", "-t"}},
+		Bridge: true, Launch: []string{"goose", "run", "-t"}, Program: "goose"},
 	{ID: "crush", Name: "Crush",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history crush.db: crush source initial migration (not installed here)",
 		Markers: []string{".config/crush", ".local/share/crush"}, History: true,
-		Skills: SkillsPaths{Global: ".config/crush/skills", Project: ".crush/skills"}},
+		Skills: SkillsPaths{Global: ".config/crush/skills", Project: ".crush/skills"},
+		// Crush reads MCP servers from crush.json "mcp" (stdio by default).
+		MCP: MCPConfig{Kind: MCPJSONFile, Path: ".config/crush/crush.json", Key: "mcp"}, Program: "crush"},
 	{ID: "continue", Name: "Continue",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history ~/.continue/sessions: vshulcz/deja-vu registry (not installed here)",
 		Markers: []string{".continue"}, History: true,
@@ -191,13 +199,13 @@ var registry = []Client{
 	{ID: "amp", Name: "Amp",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history: amp threads export, vshulcz/deja-vu amp.go (not installed here)",
 		Markers: []string{".config/amp", ".local/share/amp"}, History: true,
-		Skills: SkillsPaths{Global: ".config/agents/skills", Project: ".agents/skills"}},
+		Skills: SkillsPaths{Global: ".config/agents/skills", Project: ".agents/skills"}, Program: "amp"},
 	{ID: "aider", Name: "Aider",
 		Source: "markers .aider.chat.history.md / .aider.conf.yml: aider source io.py; aider reads no skills folder (npx skills lists the separate AiderDesk)",
 		// The history sits at project roots: looked for at the same fixed
 		// depths the reader uses, and where uv or pipx install aider.
 		Markers: []string{".aider.chat.history.md", ".aider.conf.yml", "*/.aider.chat.history.md", "*/*/.aider.chat.history.md", "*/*/*/.aider.chat.history.md",
-			".local/share/uv/tools/aider-chat", ".local/pipx/venvs/aider-chat"}, History: true},
+			".local/share/uv/tools/aider-chat", ".local/pipx/venvs/aider-chat"}, History: true, Program: "aider"},
 }
 
 // All returns every known client, in registry order.
@@ -238,8 +246,17 @@ func (c Client) InstalledUnder(home string) bool {
 			return true
 		}
 	}
+	if c.Program != "" {
+		if _, err := LookPath(c.Program); err == nil {
+			return true
+		}
+	}
 	return false
 }
+
+// LookPath finds an agent's program on PATH; a variable so tests can say
+// what is installed.
+var LookPath = exec.LookPath
 
 // MarkerPath resolves a marker: under home, or under the Windows roaming or
 // local application data folder for $APPDATA/ and $LOCALAPPDATA/.
