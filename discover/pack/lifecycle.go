@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Telara-Labs/TAP-Runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/discover/model"
 	"golang.org/x/mod/semver"
 )
 
@@ -242,6 +243,14 @@ func InstallVersioned(root, name string, pkg []byte, m Marker, skill string) (st
 	if _, err := os.Stat(old); err == nil {
 		if _, err := os.Stat(filepath.Join(old, SavedMarker)); err != nil {
 			return "", false, &ErrNotSaved{Path: old}
+		}
+		// Omitting new receipts cannot erase evidence for identical bytes.
+		// A supplied passed/failed verdict may still update that evidence.
+		have, markerErr := ReadMarker(old)
+		if markerErr == nil && have.Name == m.Name && have.Digest == m.Digest &&
+			m.Validation == model.ValidationNotRun &&
+			(have.Validation == model.ValidationPassed || have.Validation == model.ValidationFailed) {
+			return old, true, nil
 		}
 		prior, err := manifest.Load(old)
 		if err != nil {

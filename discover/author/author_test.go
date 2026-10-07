@@ -381,9 +381,23 @@ func TestSavePackageBindsValidationToTheDigest(t *testing.T) {
 	if _, _, unchanged, _ := author.SavePackage(pkg, root, pass, "sha256:r"); !unchanged {
 		t.Error("saving the same package with the same receipts must change nothing")
 	}
+	if _, v, unchanged, err = author.SavePackage(pkg, root, nil, ""); err != nil || v != model.ValidationPassed || !unchanged {
+		t.Fatalf("identical save erased passing evidence: %q %v %v", v, unchanged, err)
+	}
+	kept, err := pack.ReadMarker(path)
+	if err != nil || kept != m {
+		t.Fatalf("receipt/validation metadata changed: %+v %v", kept, err)
+	}
+	keptSkill, _ := os.ReadFile(filepath.Join(path, "SKILL.md"))
+	if string(keptSkill) != string(skill) {
+		t.Fatal("identical save rewrote validation skill")
+	}
 	fail := &author.Receipts{PackageDigest: digest, AllPassed: false, Cases: make([]author.CaseReceipt, 5)}
 	if _, v, _, _ := author.SavePackage(pkg, root, fail, "sha256:f"); v != model.ValidationFailed {
 		t.Errorf("failing receipts must mark it failed, got %q", v)
+	}
+	if _, v, unchanged, err = author.SavePackage(pkg, root, nil, ""); err != nil || v != model.ValidationFailed || !unchanged {
+		t.Fatalf("identical save erased failed evidence: %q %v %v", v, unchanged, err)
 	}
 }
 

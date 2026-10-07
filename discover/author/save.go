@@ -132,6 +132,11 @@ func SavePackage(pkgDir, root string, rec *Receipts, receiptsDigest string) (pat
 		m.Cases = len(rec.Cases)
 	}
 	path, unchanged, err = pack.InstallVersioned(root, a.Name, pkg, m, AuthoredSkillMD(a, m, filepath.Join(root, a.Name)))
+	if err == nil && unchanged {
+		if installed, readErr := pack.ReadMarker(path); readErr == nil {
+			validation = installed.Validation
+		}
+	}
 	return path, validation, unchanged, err
 }
 
