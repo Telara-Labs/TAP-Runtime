@@ -112,12 +112,16 @@ func startServerArgs(t *testing.T, elicitation bool, answer func(map[string]any)
 		caps["elicitation"] = map[string]any{"form": map[string]any{}}
 	}
 	c.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": caps,
-		"clientInfo": map[string]any{"name": "test-client", "version": "1"}})
+		"clientInfo": map[string]any{"name": testClientName, "version": "1"}})
 	t.Cleanup(func() { cw.Close(); <-c.done })
 	return c
 }
 
 var nextID = 1000
+
+// testClientName is the name startServer's client gives; a test may stand in
+// for a particular agent.
+var testClientName = "test-client"
 
 func (c *client) send(v any) {
 	b, _ := json.Marshal(v)

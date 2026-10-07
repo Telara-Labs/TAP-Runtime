@@ -451,9 +451,25 @@ func (s *server) handle(m rpcMessage) {
 			truster = s.trustPackage
 		}
 		store := newTrustStore()
-		if why := admitPackage(store, truster, packagePath); why != "" {
-			s.reply(m.ID, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": why}}})
-			return
+		// An agent that cannot show a prompt runs a reads-only primitive when
+		// its own configuration already lets its model read the web unasked
+		// (autotrust.go). Decided each run and never kept.
+		var autoKinds []string
+		autoTrusted := false
+		if !canElicit {
+			if _, pm, err := packageDigest(packagePath); err == nil {
+				home, _ := os.UserHomeDir()
+				if ok, because := autoTrustReads(pm, name, home); ok {
+					autoTrusted, autoKinds = true, readFetchKinds(pm)
+					logf("trust      %s runs without a prompt: it only reads, and %s", pm.Metadata.Name, because)
+				}
+			}
+		}
+		if !autoTrusted {
+			if why := admitPackage(store, truster, packagePath); why != "" {
+				s.reply(m.ID, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": why}}})
+				return
+			}
 		}
 		digest, _, err := packageDigest(packagePath)
 		if err != nil {
@@ -465,8 +481,13 @@ func (s *server) handle(m rpcMessage) {
 		}
 		o := Options{
 			Package: packagePath, ExpectedDigest: args.Digest, Args: args.Args, Journal: s.journal, Approve: approve, Choose: choose,
-			FetchOrigins: store.fetchOrigins(args.Digest),
-			InterpDir:    s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, NoJournal: s.noRecord, TelemetryPayloads: s.payloads, Client: clientFor(name),
+			FetchOrigins: store.fetchOrigins(args.Digest), FetchGrants: append(store.fetchGrants(args.Digest), autoKinds...),
+			RememberGrant: func(kind string) {
+				if err := store.addFetchGrant(args.Digest, kind); err != nil {
+					logf("trust      could not keep the approval %q: %v", kind, err)
+				}
+			},
+			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, NoJournal: s.noRecord, TelemetryPayloads: s.payloads, Client: clientFor(name),
 			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile, MCPServerName: s.mcpServerName,
 		}
 		if s.vscodeSocket != "" && s.mcpURL == "" {

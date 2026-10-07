@@ -133,6 +133,10 @@ type Options struct {
 	// FetchOrigins are owner-granted exact origins loaded from the digest's
 	// trust record by serve. MCP tap_run never accepts these as arguments.
 	FetchOrigins []string
+	// FetchGrants are read fetch kinds the person approved earlier for this
+	// exact digest; RememberGrant keeps a read fetch approved in a prompt.
+	FetchGrants   []string
+	RememberGrant func(kind string)
 	// Choose settles two servers that fit one capability equally well. Nil
 	// means nobody can be asked, and the run is refused until a choice is kept
 	// (`tap bind`).
@@ -695,6 +699,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			preapproved["send "+method+" requests to "+origin] = true
 		}
 	}
+	for _, kind := range o.FetchGrants {
+		if readFetchKind(kind) {
+			preapproved[kind] = true
+		}
+	}
 	audit := func(outcome, kind, effect string, extra map[string]any) {
 		e := map[string]any{"ts": time.Now().UTC().Format(time.RFC3339Nano), "outcome": outcome, "kind": kind, "effect": effect}
 		for k, v := range extra {
@@ -725,6 +734,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				bud.pause()
 				g = o.Approve(Ask{Primitive: m.Metadata.Name, Effect: effect, Kind: forPrompt(kind), Example: forPrompt(example), Done: a.done})
 				bud.resume()
+			}
+			// A read fetch the person approved is kept for this version, so
+			// its next run does not ask again; a change is asked each run.
+			if g.OK && !preapproved[kind] && readFetchKind(kind) && o.RememberGrant != nil {
+				o.RememberGrant(kind)
 			}
 			switch {
 			case !g.OK:
@@ -1221,4 +1235,9 @@ func must(err error) {
 		fmt.Fprintln(os.Stderr, "tap:", err)
 		os.Exit(1)
 	}
+}
+
+// readFetchKind is a gate kind for a fetch that changes nothing.
+func readFetchKind(kind string) bool {
+	return strings.HasPrefix(kind, "send GET requests to ") || strings.HasPrefix(kind, "send HEAD requests to ")
 }

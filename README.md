@@ -60,7 +60,8 @@ This is an example of a primitive you could build. The folders in
   manifest declares. Each request is checked, gated and recorded; undeclared
   requests are refused. Independent requests can run concurrently.
 - Gates `write` and `destructive` effects. Fetches require origin approval,
-  through a prompt or an explicit owner grant for the exact package digest.
+  through a prompt or an explicit owner grant for the exact package digest; an
+  approved read origin is kept for that version, so later runs do not ask.
   Local file reads need no effect prompt; tool reads still follow the client's
   ask rules and the server's annotations.
 - Replays recorded responses when a run resumes. An interrupted change with
@@ -94,14 +95,16 @@ yes); ask 3, in another new session, should run the saved primitive.
 | Codex (GPT) | yes | pass 3/3 | 2 of 3 offered; saved | pass 2/2 |
 | Goose, interactive (DeepSeek V4.1 Flash) | yes | pass | pass | pass |
 | Goose, `goose run` | no | pass | pass | refused: no terminal for the prompt |
-| OpenCode (DeepSeek V4.1 Flash) | no | pass | pass (saved from its shell) | refused until `tap trust` |
-| Kilo CLI (DeepSeek V4.1 Flash) | no | pass | pass | refused until `tap trust` |
+| OpenCode (DeepSeek V4.1 Flash) | no | pass | pass (saved from its shell) | refused until `tap trust` (v0.2.5; reads run since v0.2.6) |
+| Kilo CLI (DeepSeek V4.1 Flash) | no | pass | pass | refused until `tap trust` (v0.2.5; reads run since v0.2.6) |
 | Gemini CLI, `-p` (Gemini) | no | pass | offered; its headless policy blocked the save | not reached |
 | Crush (DeepSeek V4.1 Flash) | no | answered without calling TAP | same | same |
 
-An agent that cannot show a prompt is never given an approval: the runner
-refuses a primitive that needs one until the person runs `tap trust` for it
-(`--fetch-origin` for web reads). Whether to offer saving is the agent's call;
+An agent that cannot show a prompt is never given an approval for a change.
+Since v0.2.6 a primitive that only reads runs there when the agent's own
+settings already let its model read the web without asking (OpenCode, Kilo,
+Crush with `fetch` allowed, Goose in `auto` mode); anything else still needs
+`tap trust`. Whether to offer saving is the agent's call;
 TAP tells it when a task has come before. macOS and Windows pass the install
 and runner tests in CI; this agent flow has not been run on them yet.
 
@@ -253,8 +256,10 @@ attestation or a guarantee that a result is correct. See [run evidence](docs/evi
 
 The first time a package runs, the person is asked whether it may, unless the
 package only calls tools (each of those calls has its own gate). If the client
-cannot present that question, a package that uses files, host programs, the
-web, or no tools at all is declined until you run `tap trust PACKAGE-DIR` (`tap trust --list`, `tap trust --forget DIGEST-PREFIX`).
+cannot present that question, a package that only reads runs when the agent's
+own settings let its model read the web unasked; one that writes files, runs
+host programs or sends anything but `GET`/`HEAD` is declined until you run
+`tap trust PACKAGE-DIR` (`tap trust --list`, `tap trust --forget DIGEST-PREFIX`).
 Trusting a package lets it start; every write it makes is still refused
 unless someone approves it. Fetch approval is separate: the released runner
 supports `tap trust --fetch-origin https://example.com PACKAGE-DIR` for an exact

@@ -7,6 +7,16 @@ elicitation. Signed v0.1.15 checks verified exact-digest trust, changed-digest
 refusal and real proxy fetching; see the version-qualified
 [threat model](threat-model.md).
 
+## Reads-only primitives in agents that cannot prompt
+
+Since v0.2.6, a primitive whose manifest declares only reads (fetch `GET` or
+`HEAD`, files `read`, tools `read`, no host programs) runs without `tap trust`
+in an agent that cannot show a prompt, when that agent's own settings already
+let its model fetch the web without asking: OpenCode and Kilo with
+`permission.webfetch` allowed or unset, Crush with `fetch` in
+`permissions.allowed_tools`, Goose with `GOOSE_MODE: auto`. It is decided on each
+run and not stored. Anything else follows the rest of this page.
+
 ## Approve a package before a headless run
 
 Review its manifest and entrypoint, then run the CLI yourself:

@@ -95,3 +95,37 @@ func TestStaleCatalogDigestGivesRepairGuidanceAndNeverResolves(t *testing.T) {
 		t.Fatalf("stale identity: %+v %v", got, err)
 	}
 }
+
+// A read fetch the person approved in a prompt is kept for that version:
+// Goose asked to approve gitlab.com on every run of the same primitive.
+// An edited package is a new version and asks again.
+func TestAnApprovedReadFetchIsNotAskedAgainForTheSameVersion(t *testing.T) {
+	inDir(t)
+	c := startServer(t, true, accept)
+	var seen atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { seen.Add(1); fmt.Fprint(w, "read-ok") }))
+	defer srv.Close()
+	pkg := writePackage(t, "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.test, name: remembered, version: 1.0.0}\nexecution: {entrypoint: main.sh}\nfetch:\n  - {origin: "+srv.URL+"}\n", "tap fetch "+srv.URL+"/probe\n")
+	fetchAsks := func() int {
+		n := 0
+		for _, a := range c.asked {
+			if strings.Contains(a, "send GET requests to "+srv.URL) {
+				n++
+			}
+		}
+		return n
+	}
+	if out := c.run(pkg); !strings.Contains(out, "read-ok") || fetchAsks() != 1 {
+		t.Fatalf("first run: %s asks=%v", out, c.asked)
+	}
+	if out := c.run(pkg); !strings.Contains(out, "read-ok") || fetchAsks() != 1 || seen.Load() != 2 {
+		t.Fatalf("second run asked again: %s asks=%v", out, c.asked)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "main.sh"), []byte("tap fetch "+srv.URL+"/probe\n# changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c.run(pkg)
+	if fetchAsks() != 2 {
+		t.Fatalf("an edited package inherited the approval: asks=%v", c.asked)
+	}
+}

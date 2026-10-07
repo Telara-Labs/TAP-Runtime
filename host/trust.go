@@ -87,6 +87,10 @@ type trusted struct {
 	Path         string   `json:"path"`
 	At           string   `json:"at"`
 	FetchOrigins []string `json:"fetch_origins,omitempty"`
+	// FetchGrants are read fetches the person approved in a prompt for this
+	// digest, kept so a later run of the same version does not ask again
+	// ("send GET requests to https://gitlab.com"). A new version asks anew.
+	FetchGrants []string `json:"fetch_grants,omitempty"`
 }
 
 func (t *trustStore) load() map[string]trusted {
@@ -195,6 +199,9 @@ func trustCommand(args []string, stdout, stderr io.Writer) int {
 			for _, origin := range all[d].FetchOrigins {
 				fmt.Fprintln(stdout, "  fetch:", origin)
 			}
+			for _, kind := range all[d].FetchGrants {
+				fmt.Fprintln(stdout, "  approved:", kind)
+			}
 		}
 		return 0
 	case len(args) == 2 && args[0] == "--forget":
@@ -260,6 +267,38 @@ func validateFetchGrant(m *mf.Manifest, origin string) error {
 		}
 	}
 	return fmt.Errorf("fetch origin %q is not declared by this package", origin)
+}
+
+// addFetchGrant keeps a read fetch the person approved for digest.
+func (t *trustStore) addFetchGrant(digest, kind string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.path == "" {
+		return fmt.Errorf("this machine has no user config directory to keep the answer in")
+	}
+	all := t.load()
+	e := all[digest]
+	for _, k := range e.FetchGrants {
+		if k == kind {
+			return nil
+		}
+	}
+	if e.At == "" {
+		e.At = time.Now().UTC().Format(time.RFC3339)
+	}
+	e.FetchGrants = append(e.FetchGrants, kind)
+	all[digest] = e
+	b, _ := json.MarshalIndent(all, "", "  ")
+	if err := os.MkdirAll(filepath.Dir(t.path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(t.path, append(b, '\n'), 0o600)
+}
+
+func (t *trustStore) fetchGrants(digest string) []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.load()[digest].FetchGrants...)
 }
 
 func (t *trustStore) fetchOrigins(digest string) []string {

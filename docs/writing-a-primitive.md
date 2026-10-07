@@ -182,8 +182,10 @@ outside them can be read or written. A fetch origin is a scheme and a host,
 with no path. One leading wildcard label is allowed, never over a public suffix
 such as `*.com`. The person is asked before a primitive first reaches an
 origin, even for a `GET`, because an address and its headers can carry data off
-the machine; they are asked once per origin in a run, and every full address is
-in the record. A write, or any method but `GET` and `HEAD`, is asked of the
+the machine; once they approve a `GET` origin it is kept for that exact version,
+so later runs do not ask, and every full address is in the record. An agent
+that cannot show a prompt runs a primitive that only reads when its own
+settings let its model read the web unasked. A write, or any method but `GET` and `HEAD`, is asked of the
 person each time it is a new kind of change. From the command line, add
 `--approve` to let a primitive that fetches run.
 
