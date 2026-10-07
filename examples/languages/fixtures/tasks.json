@@ -1,0 +1,5 @@
+[
+  {"id":"TAP-1","title":"Record terminal evidence","status":"open"},
+  {"id":"TAP-2","title":"Verify a declared file read","status":"done"},
+  {"id":"TAP-3","title":"Review extraction output","status":"open"}
+]

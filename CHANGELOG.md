@@ -6,6 +6,19 @@ release is compatible. For the complete source change, follow each compare
 link. Runner versions, primitive versions, and the manifest API are distinct;
 see [version review](docs/versioning.md).
 
+## 0.2.10
+
+- Discover and agent-authored saves require a versioned changelog, reject
+  changed bytes under an existing version and version regressions, and retain
+  prior versions for explicit reuse. `tap_save` checks a frozen package before
+  asking for consent. Initial generated packages include a changelog.
+- Compiled WASI Preview 1 `.wasm` packages use the existing permission broker,
+  approvals, contracts and journal. Authors explicitly build before saving;
+  `tap discover build --approve-build` verifies repeatable output and records
+  freshness against source, manifest and changelog. Save and run never compile.
+- The release publisher extracts its clean source archive from a temporary file,
+  avoiding a pipe teardown hang during signed release preparation.
+
 ## 0.2.6
 
 - `tap_load` now returns a bounded flat preview of possible host connections

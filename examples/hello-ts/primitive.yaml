@@ -1,4 +1,4 @@
 apiVersion: primitives.telara.dev/v3
 kind: Primitive
-metadata: {publisher: dev.example, name: hello-ts, version: 0.1.0}
+metadata: {publisher: dev.example, name: hello-ts, version: 0.1.1}
 execution: {entrypoint: main.ts}

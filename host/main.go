@@ -457,13 +457,23 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return nil, fmt.Errorf("a run cannot be resumed without its record")
 	}
 
-	store, err := storeDir(o.InterpDir)
-	if err != nil {
-		return nil, err
-	}
-	wasmBytes, in, sum, err := obtain(store, m.Execution.Entrypoint)
-	if err != nil {
-		return nil, err
+	var wasmBytes []byte
+	var in interpreter
+	var sum string
+	if filepath.Ext(m.Execution.Entrypoint) == ".wasm" {
+		// The package already contains the compiled program. Building source
+		// belongs to authoring; run grants no compiler or native subprocess.
+		wasmBytes, sum = script, digest(script)
+		in = interpreter{Kind: "wasm", File: m.Execution.Entrypoint, SHA256: sum}
+	} else {
+		store, err := storeDir(o.InterpDir)
+		if err != nil {
+			return nil, err
+		}
+		wasmBytes, in, sum, err = obtain(store, m.Execution.Entrypoint)
+		if err != nil {
+			return nil, err
+		}
 	}
 	kind := in.Kind
 	if kind == "ts" {
@@ -478,8 +488,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		journal = io.Discard
 	}
 
-	logf("package    %s  entrypoint %s (source, not compiled)", m.Metadata.Name, m.Execution.Entrypoint)
-	logf("interpreter %s (%d bytes) sha256:%s", in.File, len(wasmBytes), sum[:12])
+	if kind == "wasm" {
+		logf("package    %s  entrypoint %s (compiled WASI)", m.Metadata.Name, m.Execution.Entrypoint)
+		logf("module     %s (%d bytes) sha256:%s", in.File, len(wasmBytes), sum[:12])
+	} else {
+		logf("package    %s  entrypoint %s (source, not compiled)", m.Metadata.Name, m.Execution.Entrypoint)
+		logf("interpreter %s (%d bytes) sha256:%s", in.File, len(wasmBytes), sum[:12])
+	}
 	if in.SHA256 == "" {
 		logf("WARNING    this interpreter has no pinned digest (a runner built from source); it is trusted from the first read. Releases pin it.")
 	}
@@ -646,7 +661,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	logf("compiled interpreter in %s", time.Since(t0).Round(time.Millisecond))
+	logf("compiled WebAssembly in %s", time.Since(t0).Round(time.Millisecond))
 
 	// OS pipes, not io.Pipe: io.Pipe is unbuffered, so a guest flushing stdout
 	// while the host writes its reply deadlocks both sides.
@@ -1213,6 +1228,8 @@ func quote(s string) string { b, _ := json.Marshal(s); return string(b) }
 func guestConfig(kind, pyLib, script string, args []string) wazero.ModuleConfig {
 	cfg := wazero.NewModuleConfig().WithSysWalltime().WithSysNanotime()
 	switch kind {
+	case "wasm":
+		cfg = cfg.WithArgs(append([]string{"primitive"}, args...)...)
 	case "py":
 		fsc := wazero.NewFSConfig()
 		if pyLib != "" {

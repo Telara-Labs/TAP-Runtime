@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 )
 
 // catalogEntry is a primitive available to this local TAP installation.
@@ -52,7 +53,7 @@ func localCatalog(extraRoots ...string) ([]catalogEntry, error) {
 			return nil, fmt.Errorf("read local primitive root %s: %w", root.path, err)
 		}
 		for _, item := range items {
-			if !item.IsDir() {
+			if !item.IsDir() || strings.HasPrefix(item.Name(), ".") {
 				continue
 			}
 			p := filepath.Join(root.path, item.Name())
@@ -71,8 +72,52 @@ func localCatalog(extraRoots ...string) ([]catalogEntry, error) {
 			}
 			entries = append(entries, entry)
 		}
+		if root.source == "tap" || root.source == "catalog-root" {
+			entries = append(entries, retainedCatalog(root.path, root.source)...)
+		}
 	}
 	return dedupeCatalog(entries), nil
+}
+
+// Saved version history has exactly two levels under the known collection.
+// Temporary stages and unrelated hidden directories are never catalog roots.
+func retainedCatalog(root, source string) []catalogEntry {
+	history := filepath.Join(root, ".versions")
+	st, err := os.Lstat(history)
+	if err != nil || !st.IsDir() {
+		return nil
+	}
+	identities, err := os.ReadDir(history)
+	if err != nil {
+		return nil
+	}
+	var out []catalogEntry
+	for _, identity := range identities {
+		if !identity.IsDir() || strings.HasPrefix(identity.Name(), ".") {
+			continue
+		}
+		group := filepath.Join(history, identity.Name())
+		versions, err := os.ReadDir(group)
+		if err != nil {
+			continue
+		}
+		for _, version := range versions {
+			if !version.IsDir() || strings.HasPrefix(version.Name(), ".") {
+				continue
+			}
+			dir := filepath.Join(group, version.Name())
+			entry, err := readCatalogEntry(dir, source)
+			if err != nil || !validSavedMarker(dir, entry.Ref) {
+				continue
+			}
+			md := entry.Manifest.Metadata
+			if group != pack.VersionHistoryDir(root, md.Publisher, md.Name) || version.Name() != md.Version {
+				continue
+			}
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 func readCatalogEntry(dir, source string) (catalogEntry, error) {

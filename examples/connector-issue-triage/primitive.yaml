@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: dev.telara
   name: connector-issue-triage
-  version: 0.2.0
+  version: 0.2.1
   description: Summarize a bounded Jira JQL result set for human triage.
   output_description: At most ten Jira issue keys, summaries, statuses and priorities; no issue creation or update.
 interface:

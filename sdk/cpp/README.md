@@ -1,0 +1,5 @@
+# TAP C++ SDK
+
+`tap.hpp` is a small header-only client for compiled WASI Preview1 guests. `Client::request(method, fields, reply, error)` supports `tools`, `call`, `exec`, `read`, `write`, and `fetch`; it creates and matches request IDs and preserves the runner's result, stdout/stderr, exit, HTTP status, refusal, violation/landed, unknown, and gated fields. `Client::call(alias, arguments, reply, error)` is a connector-call convenience and treats a nonzero call exit as failure. `Client::read` returns file contents and treats a nonzero read exit as failure; `Client::finish` sends the final guest result.
+
+`tap::ErrorCode` distinguishes protocol, refused, violation, unknown, and failed calls/reads. Unknown outcome takes precedence over the accompanying refused message. Generic command exit and HTTP status remain caller-owned in `tap::Reply`, including nonzero `write` exits; callers must check `reply.exit` before treating a write as successful. The SDK performs no filesystem, network, subprocess, or environment access. The C++ language example vendors this header and its pinned JSON dependency.

@@ -11,6 +11,7 @@ import (
 	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 	"github.com/Telara-Labs/TAP-Runtime/discover"
 	"github.com/Telara-Labs/TAP-Runtime/discover/author"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 )
 
 // saveTool saves a package an agent wrote into the person's TAP collection.
@@ -19,7 +20,7 @@ import (
 // a read-only file system. This server is started by the client outside that
 // sandbox, so it saves, but only after the person agrees in the client's own
 // prompt; a client that cannot show one is told to run tap discover save.
-var saveTool = localTool("tap_save", "Save a primitive package folder you wrote (primitive.yaml, program, AUTHORING.json) to the person's TAP collection, so later sessions find and run it. The person is asked to agree first. Use it when the tap-author skill says to save, and always where your shell cannot write outside the workspace.", map[string]any{
+var saveTool = localTool("tap_save", "Save a primitive package folder you wrote (primitive.yaml, versioned CHANGELOG.md, program, AUTHORING.json; compiled packages also need current BUILD.json) to the person's TAP collection, so later sessions find and run it. The person is asked to agree first. Use it when the tap-author skill says to save, and always where your shell cannot write outside the workspace.", map[string]any{
 	"package": map[string]any{"type": "string", "description": "Absolute path of the package folder."},
 }, []string{"package"}, false)
 
@@ -36,19 +37,35 @@ func (s *server) handleSave(id *json.RawMessage, raw json.RawMessage, canElicit 
 		s.toolError(id, "tap_save needs an absolute package path")
 		return
 	}
-	m, err := mf.Load(dir)
+	// Freeze the reviewed bytes before asking. An agent editing its draft while
+	// the prompt is open must not silently replace the approved program.
+	archive, _, err := author.PackageDir(dir)
 	if err != nil {
-		s.toolError(id, fmt.Sprintf("%s is not a primitive package: %v", dir, err))
+		s.toolError(id, err.Error())
 		return
 	}
-	if _, err := os.Stat(filepath.Join(dir, "AUTHORING.json")); err != nil {
-		s.toolError(id, "the package has no AUTHORING.json; the tap-author skill says how to write it from tap discover brief")
+	snapshot, err := os.MkdirTemp("", "tap-save-review-")
+	if err != nil {
+		s.toolError(id, err.Error())
 		return
 	}
-	// Checked before the person is asked, so they are never asked to agree
-	// to a save that then fails (Codex's first save did).
-	if _, err := author.ReadAuthoring(dir); err != nil {
+	defer os.RemoveAll(snapshot)
+	if err := pack.Unpack(archive, snapshot); err != nil {
+		s.toolError(id, err.Error())
+		return
+	}
+	root, err := pack.CollectionDir()
+	if err != nil {
+		s.toolError(id, err.Error())
+		return
+	}
+	if _, err := author.CheckPackage(snapshot, root); err != nil {
 		s.toolError(id, err.Error()+"; fix it and call tap_save again")
+		return
+	}
+	m, err := mf.Load(snapshot)
+	if err != nil {
+		s.toolError(id, err.Error())
 		return
 	}
 	ref := m.Metadata.Publisher + "/" + m.Metadata.Name + "@" + m.Metadata.Version
@@ -61,7 +78,7 @@ func (s *server) handleSave(id *json.RawMessage, raw json.RawMessage, canElicit 
 		return
 	}
 	var out, errOut bytes.Buffer
-	code := discover.Command([]string{"save", dir}, strings.NewReader(""), &out, &errOut)
+	code := discover.Command([]string{"save", snapshot}, strings.NewReader(""), &out, &errOut)
 	text := strings.TrimSpace(out.String() + "\n" + errOut.String())
 	if code != 0 {
 		s.toolError(id, "saving failed: "+text)
@@ -77,7 +94,7 @@ func (s *server) confirmSave(ref, dir, declared string) bool {
 		declared = "nothing beyond computing its output"
 	}
 	m, ok := s.ask("elicitation/create", map[string]any{
-		"message": fmt.Sprintf("Save the primitive %s from %s to your TAP collection, so later sessions can find and run it? It declares:\n\n%s\n\nRunning it later still asks before any change it makes.", ref, dir, declared),
+		"message": fmt.Sprintf("Save the primitive %s from a reviewed snapshot of %s to your TAP collection, so later sessions can find and run it? It declares:\n\n%s\n\nRunning it later still asks before any change it makes.", ref, dir, declared),
 		"requestedSchema": map[string]any{
 			"type":       "object",
 			"properties": map[string]any{"approve": map[string]any{"type": "boolean", "title": "Save this primitive", "default": false}},

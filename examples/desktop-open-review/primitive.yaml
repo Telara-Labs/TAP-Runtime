@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: examples.telara.dev
   name: desktop-open-review
-  version: 0.1.0
+  version: 0.1.1
   description: Ask macOS Finder to reveal one chosen folder for a human review.
   license: MIT
 interface:
@@ -23,4 +23,4 @@ interface:
 execution: {entrypoint: main.py}
 provenance: {source: main.py, toolchain: "TAP CPython 3.12 WASM", build: "none: Python source runs in the TAP sandbox"}
 commands:
-  - {command: open, args: [-R, "*"], effect: write}
+  - {command: open, args: [-R, "/*"], effect: write}

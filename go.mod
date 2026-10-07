@@ -3,8 +3,8 @@ module github.com/Telara-Labs/TAP-Runtime
 go 1.26.1
 
 require (
-	github.com/Telara-Labs/TAP-Runtime/contract v0.0.0-20261005135826-0e41a67c9fdd
-	github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261007060236-724fdf18c7ec
+	github.com/Telara-Labs/TAP-Runtime/contract v0.0.0-20261007213151-eea16c9fb501
+	github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261007213316-fb8a7a2dbdff
 	github.com/evanw/esbuild v0.25.10
 	github.com/itchyny/gojq v0.12.19
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
@@ -37,6 +37,7 @@ require (
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect
+	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260819154853-08b0e4226688 // indirect

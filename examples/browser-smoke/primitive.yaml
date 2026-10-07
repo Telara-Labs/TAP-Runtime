@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: examples.telara.dev
   name: browser-smoke
-  version: 0.1.0
+  version: 0.1.1
   description: Navigate a local fixture and verify its rendered heading.
   license: MIT
 interface:

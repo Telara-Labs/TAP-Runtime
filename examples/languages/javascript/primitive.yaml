@@ -1,0 +1,38 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata:
+  publisher: examples.telara.dev
+  name: task-summary-javascript
+  version: 0.1.0
+  description: Read a declared task file and extract rows matching the chosen status.
+  license: MIT
+execution: {entrypoint: main.js}
+files:
+  - {path: examples/languages/fixtures/tasks.json, access: read}
+interface:
+  inputSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      status: {type: string, enum: [open, done]}
+    required: [status]
+  outputSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      status: {type: string, enum: [open, done]}
+      count: {type: integer, minimum: 0}
+      items:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          properties:
+            id: {type: string}
+            title: {type: string}
+          required: [id, title]
+    required: [status, count, items]
+provenance:
+  source: main.js
+  toolchain: TAP sandboxed source interpreter
+  build: none; source runs in the TAP sandbox

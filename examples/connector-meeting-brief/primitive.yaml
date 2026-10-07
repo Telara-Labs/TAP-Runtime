@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: dev.telara
   name: connector-meeting-brief
-  version: 0.2.0
+  version: 0.2.1
   description: Pair a bounded Google Calendar window with a bounded Gmail search count.
   output_description: Agenda items and a count of matching messages; no email bodies or attendee addresses are printed.
 interface:

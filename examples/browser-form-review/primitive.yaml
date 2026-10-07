@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: examples.telara.dev
   name: browser-form-review
-  version: 0.1.0
+  version: 0.1.1
   description: Fill and review a form in a disposable local fixture.
   license: MIT
 interface:

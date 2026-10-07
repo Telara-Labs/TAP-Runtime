@@ -30,6 +30,7 @@ func authoredDraft(t *testing.T) string {
 		"AUTHORING.json": string(b),
 		"primitive.yaml": "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: local.me, name: release-check, version: 0.1.0, description: Check a release candidate}\nexecution: {entrypoint: main.sh}\n",
 		"main.sh":        "echo saved-and-ran\n",
+		"CHANGELOG.md":   "## 0.1.0\n\n- Initial authored release check.\n",
 	}
 	for name, body := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {

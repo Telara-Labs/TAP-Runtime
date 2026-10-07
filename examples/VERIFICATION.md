@@ -32,7 +32,7 @@ source-built runner was based on commit
 
 ## Gateway operation binding (TENG-3261)
 
-The three connector packages are now version 0.2.0 and declare unpinned
+The three connector packages introduced operation binding in version 0.2.0 (current revision 0.2.1 adds the authoring changelog) and declare unpinned
 operations with parameter/result contracts. Guest arguments use the operation's
 normal names, rather than Telara's `params_` transport names. The host discovers
 the connected gateway's catalog metadata and wraps the selected operation.
@@ -81,3 +81,68 @@ python3 -B -m unittest discover -s examples/connector-issue-triage -v
 
 Follow each package's README for live execution. Review inputs and effects
 before granting approval; account writes are separate from these unit checks.
+
+## Source-language showcase and onboarding corrections (TENG-3259)
+
+The [language examples](languages/) were run with the actual public signed
+macOS arm64 TAP 0.2.8 binary, rather than a global install or a substitute
+interpreter. Bash, Python, JavaScript and TypeScript each read the declared
+task fixture and returned the same selected IDs/titles/count for both `open`
+and `done` inputs. Each successful run made one broker read and had zero
+refusals. The real-runner test suite passed four tests comprising 24 guest
+invocations, including malformed-input/data failures and refusal when the read
+declaration is removed. All 27 example manifests passed `manifest check`.
+
+Successful open-input receipts: Bash `20261007T195802Z-e383f52f`, Python
+`20261007T195804Z-a8d8f4f1`, JavaScript `20261007T195807Z-7ed1b261`, and
+TypeScript `20261007T195808Z-d77031da`. The language source is new local work;
+these runs establish compatibility with the released runner, not inclusion of
+the new examples in a published release.
+
+The corrected desktop manifests (version 0.1.1) allow one absolute path in
+their final argument, replacing the final bare `*` that also allowed multiple
+files or no path. The Go regression test confirms additional paths, missing
+paths and relative paths are denied for all four manifests. Actual inventory,
+image and document reads passed on disposable macOS files: respectively
+`20261007T195808Z-e71ec73f`, `20261007T195809Z-2035d249`, and
+`20261007T195810Z-b02747a4`. Finder without approval was refused with zero
+commands dispatched (`20261007T195811Z-2485a17c`). This new check did not open
+Finder. The existing 27 Python example unit tests also passed.
+
+The corrected approved public API recipe passed with two GET requests and
+zero refusals (`20261007T195812Z-860b9439`); its output reported TAP v0.2.8 and
+four successful sampled check runs. This remains evidence rather than a
+release-readiness verdict. The gallery's old save recipe was actually tested
+and failed because `AUTHORING.json` was absent. The guidance now requires an
+adapted, provenance-backed authored package instead of claiming a gallery
+folder can be saved as-is.
+
+## Compiled-language authoring and execution (TENG-3059, TENG-3275)
+
+The updated source runner executes packaged WASI Preview 1 modules directly.
+Go and C++ now implement the same task extraction as the four source languages.
+The six-language suite executes 36 real guests: twelve successful changed-input
+runs, twelve invalid inputs rejected before reading, six malformed-data failures,
+and six undeclared-read refusals. This verifies these toolchains and protocol
+paths; it does not establish compatibility with every language or library.
+
+Both compiled packages were built through explicit `discover build` operations,
+which compare independent builds and write source/artifact receipts. Fresh
+packages passed validation and saving; source edits invalidated the receipt and
+were refused before replacing the installed bytes. Tests also cover rewritten
+compiler inputs, old build receipts, consent snapshots, immutable versions,
+retained exact-version execution, guest filesystem/environment isolation, tool
+refusals, approved writes and CPU cancellation.
+
+A real Go guest using an unpinned `jira.issue.get` declaration executed through
+Codex 0.147.0 and Telara's gateway. Receipt `20261007T210703Z-cdc7b85a` records
+one Jira read, zero refusals, exit 0, with the operation mapped to the gateway's
+execute-action transport. No account write was attempted. This verifies the
+configured gateway/account and operation, not arbitrary MCP implementations.
+
+The complete host suite passed in 715.131 seconds; the complete release suite
+passed in 230.564 seconds after fixing its clean archive export hang. The Go
+and C++ SDK tests cover combined unknown/refused frames and failed connector
+calls. The independent Opus 5.5 review findings were corrected before release.
+Releases through TAP 0.2.9 predate this compiled path and refuse `.wasm`
+entrypoints. Compiled examples require TAP 0.2.10 or this updated source runner.

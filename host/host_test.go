@@ -137,9 +137,9 @@ func TestADownloadRefusedByCodexSaysSo(t *testing.T) {
 
 // The docs once offered a compiled .wasm entrypoint that no
 // interpreter list could run. It says so now, in words a person can act on.
-func TestACompiledWasmEntrypointSaysItIsNotSupportedYet(t *testing.T) {
+func TestACompiledWasmEntrypointIsNotAnInterpreter(t *testing.T) {
 	_, _, _, err := obtain(t.TempDir(), "main.wasm")
-	if err == nil || !strings.Contains(err.Error(), "not supported yet") || !strings.Contains(err.Error(), "main.py") {
+	if err == nil || !strings.Contains(err.Error(), "Run loads it directly") {
 		t.Fatalf("got %v", err)
 	}
 }

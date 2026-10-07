@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: dev.telara
   name: api-release-brief
-  version: 0.1.0
+  version: 0.1.1
   description: Summarize a public GitHub release and its check runs for a tag.
   output_description: Bounded release and check-run status with source URLs; this is evidence, not a release approval.
 interface:

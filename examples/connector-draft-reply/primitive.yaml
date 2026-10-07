@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: dev.telara
   name: connector-draft-reply
-  version: 0.2.0
+  version: 0.2.1
   description: Create one unsent Gmail draft from caller-supplied content.
   output_description: Draft id and status only; this primitive never sends email.
 interface:

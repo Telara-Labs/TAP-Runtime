@@ -164,7 +164,7 @@ func syncPointers(home, collection string, targets []pack.Target, print, summary
 	}
 	code := 0
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
 		dir := filepath.Join(collection, entry.Name())

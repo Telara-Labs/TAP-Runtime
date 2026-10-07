@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: examples.telara.dev
   name: browser-links
-  version: 0.1.0
+  version: 0.1.1
   description: Follow a same-origin local link and verify the destination.
   license: MIT
 interface:

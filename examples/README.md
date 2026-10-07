@@ -59,10 +59,14 @@ READMEs distinguish tested behavior from remaining connected-account checks.
 
 ## Save your tool for an agent
 
-After reviewing and testing a package:
+These gallery folders can run directly. Saving through `discover save` also
+requires an `AUTHORING.json` with real source and contract provenance; the
+gallery does not supply invented history. Ask your agent to adapt the example
+to your recurring task using its installed `tap-author` skill,
+then review and test the authored package before saving it:
 
 ```sh
-tap discover save examples/api-release-brief --client detected
+tap discover save <your-authored-package> --client detected
 ```
 
 This saves one executable package and creates supported client pointers.
@@ -70,6 +74,11 @@ Then ask your agent the ordinary task. Which tool it selects depends on the
 agent and its connected host; registration is separate from successful reuse.
 
 ## Small building blocks
+
+[The language showcase](languages/) runs the same useful file-summary tool in
+Bash, Python, JavaScript and TypeScript, with the same declared read and JSON
+interface. Its support table distinguishes these runnable source languages
+from the compiled Go/C++ execution path still being added.
 
 The existing [hello Python](hello-py/), [hello TypeScript](hello-ts/) and
 [hello shell](hello-sh/) packages show the smallest executable package.

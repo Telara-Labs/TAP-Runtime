@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: examples.telara.dev
   name: desktop-image-inspect
-  version: 0.1.0
+  version: 0.1.1
   description: Read pixel dimensions and format from one chosen image using macOS sips.
   license: MIT
 interface:
@@ -23,4 +23,4 @@ interface:
 execution: {entrypoint: main.py}
 provenance: {source: main.py, toolchain: "TAP CPython 3.12 WASM", build: "none: Python source runs in the TAP sandbox"}
 commands:
-  - {command: sips, args: [-g, pixelWidth, -g, pixelHeight, -g, format, "*"], effect: read}
+  - {command: sips, args: [-g, pixelWidth, -g, pixelHeight, -g, format, "/*"], effect: read}

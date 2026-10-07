@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: examples.telara.dev
   name: desktop-document-text
-  version: 0.1.0
+  version: 0.1.1
   description: Extract plain text from one chosen RTF or Word document using macOS textutil.
   license: MIT
 interface:
@@ -23,4 +23,4 @@ interface:
 execution: {entrypoint: main.py}
 provenance: {source: main.py, toolchain: "TAP CPython 3.12 WASM", build: "none: Python source runs in the TAP sandbox"}
 commands:
-  - {command: textutil, args: [-convert, txt, -stdout, "*"], effect: read}
+  - {command: textutil, args: [-convert, txt, -stdout, "/*"], effect: read}

@@ -42,9 +42,13 @@ They use nothing, so they run on any machine.
 | `.py` | CPython 3.12 compiled to WebAssembly | the standard library, and `tap` |
 | `.js` | QuickJS-ng 0.17 | ES2023, `print`, `console.log`, `std` (`qjs:std`), and `tap` |
 | `.ts` | QuickJS-ng, after the runner removes the types | as `.js`. Types are removed, not checked |
+| `.wasm` | A packaged WASI Preview 1 module | Go, C++ or another compatible compiler; the TAP JSON-line broker protocol |
 
 The runner downloads each interpreter the first time it is needed and checks
 it against a pinned sha256. `tap fetch` downloads them all ahead of time.
+A compiled package already contains its `.wasm` program, so execution downloads
+no language interpreter and runs no compiler. The author needs the compiler
+when building the package. See [compiled packages](compiled-primitives.md).
 
 ## What a program can do
 
@@ -250,3 +254,21 @@ and not made again.
 | `pkg/draft-gate` | a `write` tool, asked of the person first |
 | `pkg/repo-report-sh` | `fetch` and `files`, and what is refused outside them |
 | `pkg/deploy-check-py`, `deploy-check-js` | host programs, including a refused `destructive` one |
+
+## Keep a package revision consistent
+
+Authoring and Discover saves require a full semantic `metadata.version` and
+`CHANGELOG.md` with a nonempty matching version heading. Update the manifest,
+version and changelog when changing source, dependencies, interfaces,
+permissions or package documentation. Agent-authored packages also keep their
+`AUTHORING.json` name/publisher aligned. Different bytes under an installed
+version or a lower version cannot be saved. Prior saved versions are retained.
+
+For `.wasm`, declare the packaged source, exact toolchain and build recipe in
+`provenance`. Explicitly review and run
+`tap discover build --approve-build <package>` with the author's toolchain
+before validation and saving. It checks two builds against the same original
+inputs, writes the program and records `BUILD.json`. After changing inputs,
+rebuild; stale output is refused. Keep cases and receipts outside the package.
+The local build has the author's OS access. A freshness receipt is separate
+from an isolated publisher's provenance check. Save and execution never build.

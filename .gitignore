@@ -1,6 +1,9 @@
 # Built files and downloaded interpreters never go in git.
 bin/
 *.wasm
+# Local compiled-example receipts belong with generated executables.
+/examples/languages/go/BUILD.json
+/examples/languages/cpp/BUILD.json
 cache/
 journal.jsonl
 

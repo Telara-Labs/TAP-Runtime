@@ -34,7 +34,9 @@ the person declines, do not offer again for the same procedure in this session.
 
 Make a folder outside the person's project, such as
 `~/tap-drafts/<name>/`, with `primitive.yaml` and one program (`main.py`,
-`main.js`, `main.ts` or `main.sh`). The guide, with every field, is
+`main.js`, `main.ts` or `main.sh`). Go, C++ and other compiled languages
+use a packaged WASI Preview 1 `.wasm` entrypoint with source and an explicit
+build recipe. See the guide for the JSON-line SDK protocol. The guide, with every field, is
 https://github.com/Telara-Labs/TAP-Runtime/blob/main/docs/writing-a-primitive.md
 
 ```yaml
@@ -65,6 +67,26 @@ interface:
   to the evidence. When a read comes back partial (a page limit, a count that
   does not match), report it as incomplete. Never count incomplete evidence
   as a pass.
+
+## Revising and building
+
+Every authored package needs `CHANGELOG.md` with a nonempty `## <version>`
+entry matching `metadata.version` in `primitive.yaml`. After changing code,
+dependencies, the interface, permissions or other package files, advance the
+semantic version, update the manifest and explain the change in the changelog.
+Saving different bytes under an existing version or regressing a version is
+refused. Identical saves are allowed; prior saved versions remain available.
+
+For a compiled `.wasm` package, include the source and declare
+`provenance.source`, `provenance.toolchain` and `provenance.build`. Review the
+build command, then run `tap discover build --approve-build <dir>` explicitly
+with the author's local toolchain. It builds twice from stable inputs and
+writes the executable and `BUILD.json`. Rebuild after changing source,
+dependencies, the manifest or changelog. A stale receipt blocks saving.
+Save and execution do not run build commands. Local build recipes have the
+author's OS access; publish untrusted packages through isolated verification.
+Keep test cases and validation receipts outside the package to avoid changing
+its inputs after validation.
 
 ## Checking and saving it
 

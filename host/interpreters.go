@@ -90,7 +90,7 @@ func obtain(store, entrypoint string) ([]byte, interpreter, string, error) {
 	in, ok := interpreters[filepath.Ext(entrypoint)]
 	if !ok {
 		if filepath.Ext(entrypoint) == ".wasm" {
-			return nil, in, "", fmt.Errorf("a compiled .wasm entrypoint (%q) is not supported yet; write the primitive as main.sh, main.py, main.js or main.ts", entrypoint)
+			return nil, in, "", fmt.Errorf("compiled .wasm entrypoint %q is a package module, not an interpreter; Run loads it directly", entrypoint)
 		}
 		return nil, in, "", fmt.Errorf("no interpreter is listed for %q", entrypoint)
 	}

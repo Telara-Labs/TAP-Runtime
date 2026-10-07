@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: examples.telara.dev
   name: desktop-file-inventory
-  version: 0.1.0
+  version: 0.1.1
   description: List immediate files in a chosen macOS folder with size and modification time.
   license: MIT
 interface:
@@ -24,4 +24,4 @@ execution: {entrypoint: main.py}
 provenance: {source: main.py, toolchain: "TAP CPython 3.12 WASM", build: "none: Python source runs in the TAP sandbox"}
 commands:
   - {command: find, args: ["*", -maxdepth, "1", -type, f, -print0], effect: read}
-  - {command: stat, args: [-f, "%z|%Sm", -t, "%Y-%m-%dT%H:%M:%S", "*"], effect: read}
+  - {command: stat, args: [-f, "%z|%Sm", -t, "%Y-%m-%dT%H:%M:%S", "/*"], effect: read}

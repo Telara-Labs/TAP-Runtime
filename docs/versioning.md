@@ -69,3 +69,26 @@ handoff introduced in 0.1.27 and present in 0.2.0; input-shape enforcement
 changed in 0.1.24. Restart clients after replacing the runner so they refresh
 their tool list. Always run an acceptance test with your intended runner
 and primitive, rather than inferring compatibility from their labels.
+
+## Authoring and saving a revision
+
+Private Discover saves enforce a full semantic `metadata.version`, matching
+`AUTHORING.json` identity for agent-authored packages, and a nonempty matching
+version entry in `CHANGELOG.md`. The save checks every regular package file
+and executable bits, excluding TAP-generated `SKILL.md` and its save marker.
+Changing content under the same version or saving a lower version is refused;
+identical saves remain idempotent. Save a higher version to update the active
+folder. The previous exact package is retained in the collection's `.versions`
+area and stays selectable through its original ref and execution digest.
+
+For compiled packages, update source, version, manifest and changelog, then
+explicitly run `tap discover build --approve-build <package>` before validation
+and saving. The command checks two builds against the same original inputs
+and records `BUILD.json`, tying artifact bytes to the source bundle and build
+recipe. Changing any input or the artifact invalidates that receipt. The
+receipt checks freshness; an isolated publisher rebuild still establishes
+publication provenance. Neither saving nor running executes the build recipe.
+
+Discover-generated initial packages include a changelog. If a changed
+proposal collides with a saved version, refine its source, version and
+changelog before saving; Discover does not label that change compatible.

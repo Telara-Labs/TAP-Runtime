@@ -339,22 +339,26 @@ func buildFromExportWithRunner(dir, key, githubRepo string, command releaseComma
 			return err
 		}
 		defer os.RemoveAll(src)
-		archive := exec.Command("git", "archive", "--format=tar", tag)
-		archive.Dir = dir
-		untar := exec.Command("tar", "-x", "-C", src)
-		pipe, err := archive.StdoutPipe()
+		// Complete the clean export before extraction. Piping two subprocesses
+		// through Cmd.StdoutPipe can stall archive/untar teardown on macOS.
+		exported, err := os.CreateTemp("", "tap-release-export-*.tar")
 		if err != nil {
 			return err
 		}
-		untar.Stdin = pipe
-		if err := untar.Start(); err != nil {
-			return err
-		}
+		defer os.Remove(exported.Name())
+		archive := exec.Command("git", "archive", "--format=tar", tag)
+		archive.Dir = dir
+		archive.Stdout = exported
 		if err := archive.Run(); err != nil {
+			exported.Close()
 			return fmt.Errorf("git archive %s: %w", tag, err)
 		}
-		if err := untar.Wait(); err != nil {
+		if err := exported.Close(); err != nil {
 			return err
+		}
+		untar := exec.Command("tar", "-x", "-f", exported.Name(), "-C", src)
+		if out, err := untar.CombinedOutput(); err != nil {
+			return fmt.Errorf("extract clean export: %w: %s", err, out)
 		}
 		version := strings.TrimPrefix(tag, "v")
 		base := "https://github.com/" + githubRepo + "/releases/download/" + tag

@@ -8,8 +8,8 @@ Requires macOS with `/usr/bin/open` and an interactive Finder session. First cre
 
 ```sh
 mkdir -p /tmp/tap-review-demo
-# This run has a visible Finder effect; approve it when TAP asks.
-go run ./host examples/desktop-open-review '{"folder":"/tmp/tap-review-demo"}'
+# Review the manifest first: this flag grants the visible Finder effect.
+tap --approve examples/desktop-open-review '{"folder":"/tmp/tap-review-demo"}'
 ```
 
 The path must be absolute and cannot be `/`. The program requests a human review; it does not click controls, capture the screen, or automate Finder beyond revealing the selected folder. Do not point it at private work unless you intend to open that location in Finder.

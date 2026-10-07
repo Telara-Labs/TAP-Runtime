@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: examples.telara.dev
   name: browser-keyboard-check
-  version: 0.1.0
+  version: 0.1.1
   description: Use Tab and Space in a local page and verify checkbox state.
   license: MIT
 interface:

@@ -1,6 +1,6 @@
 apiVersion: primitives.telara.dev/v3
 kind: Primitive
-metadata: {publisher: dev.telara, name: recent-mail, version: 0.1.0}
+metadata: {publisher: dev.telara, name: recent-mail, version: 0.1.1}
 execution: {entrypoint: main.py}
 tools:
   # Two vendors, two nouns. Whichever this client has is bound.
