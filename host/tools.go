@@ -48,11 +48,13 @@ type binding struct {
 	Operation       string `json:"operation,omitempty"`
 	// Candidates are tools whose names ranked ahead of the one bound and
 	// whose schemas did not satisfy the contract, each with why.
-	Candidates []string        `json:"passed_over,omitempty"`
-	tool       bind.Tool       `json:"-"`
-	result     map[string]any  `json:"-"`
-	args       map[string]any  `json:"-"` // the contract's arguments, held against every call
-	dispatch   *telaraDispatch `json:"-"`
+	Candidates      []string        `json:"passed_over,omitempty"`
+	tool            bind.Tool       `json:"-"`
+	result          map[string]any  `json:"-"`
+	args            map[string]any  `json:"-"` // the contract's arguments, held against every call
+	dispatch        *telaraDispatch `json:"-"`
+	operationArgs   map[string]any  `json:"-"`
+	operationEffect string          `json:"-"`
 }
 
 // admission is the outcome of resolving a manifest against a client.
@@ -243,6 +245,13 @@ func admitOnce(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 			bd.args = contract.Args
 		}
 		bySchema := contract != nil && b.HasSchemas()
+		bindingInv := inv
+		routes := map[string]gatewayOperation{}
+		var discoveryErr error
+		if d.Pin == nil {
+			bindingInv, routes, discoveryErr = operationInventory(b, inv, d.Capability)
+			bySchema = contract != nil && (b.HasSchemas() || len(routes) > 0)
+		}
 		if d.Pin != nil {
 			bd.Pinned = true
 			found := false
@@ -308,7 +317,7 @@ func admitOnce(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 			// input schema satisfies the contract binds. A tool whose name
 			// is closest and whose schema does not fit is passed over, and
 			// the receipt says so.
-			c, ranked := bind.Candidates(mf.CapabilityName(d.Capability), bind.Effect(d.Effect), inv)
+			c, ranked := bind.Candidates(mf.CapabilityName(d.Capability), bind.Effect(d.Effect), bindingInv)
 			if c.Bound == nil {
 				refusal, absent = c.Refused, true
 			}
@@ -316,6 +325,10 @@ func admitOnce(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 			found := false
 			var fitting []bind.Candidate
 			for _, cand := range ranked {
+				if _, gateway := routes[operationKey(cand.Tool)]; !gateway && !b.HasSchemas() {
+					passed = append(passed, fmt.Sprintf("%s / %s (client does not expose the operation schema)", cand.Tool.Server, cand.Tool.Name))
+					continue
+				}
 				why := satisfy.Arguments(contract.Args, cand.Tool.Schema)
 				if len(why) > 0 {
 					passed = append(passed, fmt.Sprintf("%s / %s (%s)", cand.Tool.Server, cand.Tool.Name, why[0]))
@@ -325,6 +338,7 @@ func admitOnce(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 			}
 			if len(fitting) > 0 {
 				cand := fitting[0]
+				refusal = ambiguousGatewayOperations(fitting, routes)
 				if servers := tiedServers(fitting); len(servers) > 1 {
 					server, why := settle(Pick{Alias: d.Alias, Capability: mf.CapabilityName(d.Capability), Client: name, Servers: servers}, store, choose)
 					if why != "" {
@@ -352,7 +366,7 @@ func admitOnce(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 				bd.RunnerUp, bd.RunnerUpScore = c.RunnerUp.Server+" / "+c.RunnerUp.Name, c.RunnerUpScore
 			}
 		} else {
-			c, ranked := bind.Candidates(mf.CapabilityName(d.Capability), bind.Effect(d.Effect), inv)
+			c, ranked := bind.Candidates(mf.CapabilityName(d.Capability), bind.Effect(d.Effect), bindingInv)
 			if c.RunnerUp != nil {
 				bd.RunnerUp, bd.RunnerUpScore = c.RunnerUp.Server+" / "+c.RunnerUp.Name, c.RunnerUpScore
 			}
@@ -360,6 +374,7 @@ func admitOnce(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 				refusal, absent = c.Refused, true
 			} else {
 				bd.tool, bd.Score, bd.Gated = *c.Bound, c.Score, c.Gated
+				refusal = ambiguousGatewayOperations(ranked, routes)
 				if servers := tiedServers(ranked); len(servers) > 1 {
 					server, why := settle(Pick{Alias: d.Alias, Capability: mf.CapabilityName(d.Capability), Client: name, Servers: servers}, store, choose)
 					if why != "" {
@@ -374,6 +389,22 @@ func admitOnce(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 					}
 				}
 			}
+		}
+		if route, ok := routes[operationKey(bd.tool)]; ok && refusal == "" {
+			bd.operationArgs, bd.operationEffect = route.schema, string(bd.tool.Annotated)
+			bd.Schema = satisfy.Digest(route.schema)
+			bd.tool, bd.dispatch, bd.Adapter = route.tool, &route.dispatch, route.tool.Name
+			bd.Gated = false
+			if asker, ok := b.(bridge.Asker); ok {
+				asks, err := asker.Asks(route.operationTool)
+				if err != nil {
+					return nil, false, err
+				}
+				bd.Asked = asks
+			}
+		}
+		if refusal != "" && discoveryErr != nil {
+			refusal += "; " + discoveryErr.Error()
 		}
 		if refusal == "" {
 			denied, err := b.Denied(bd.tool)
@@ -392,7 +423,7 @@ func admitOnce(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 				if err != nil {
 					return nil, false, fmt.Errorf("reading the user's permission rules: %w", err)
 				}
-				bd.Asked = asks
+				bd.Asked = bd.Asked || asks
 			}
 		}
 		if refusal != "" {
@@ -405,6 +436,9 @@ func admitOnce(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 			return nil, missing || absent, fmt.Errorf("tool %q (%s): %s", d.Alias, d.Capability, refusal)
 		}
 		bd.Server, bd.Tool, bd.Annotated = bd.tool.Server, bd.tool.Name, string(bd.tool.Annotated)
+		if bd.operationEffect != "" {
+			bd.Annotated = bd.operationEffect
+		}
 		if bd.dispatch != nil && bd.dispatch.Integration != "" {
 			bd.Operation = bd.dispatch.Integration + "/" + bd.dispatch.Action
 		}
@@ -425,14 +459,18 @@ func rankOf(e bind.Effect) int { return bind.Rank(e) }
 func (b *binding) effective() string {
 	declared := bind.Effect(b.Declared)
 	effective := declared
-	switch b.tool.Annotated {
+	annotated := b.tool.Annotated
+	if b.operationEffect != "" {
+		annotated = bind.Effect(b.operationEffect)
+	}
+	switch annotated {
 	case bind.Read:
 		effective = bind.Read
 	case bind.Unknown:
 		// Keep the declaration; unknown effects never reduce its gate.
 	default:
-		if rankOf(b.tool.Annotated) > rankOf(effective) {
-			effective = b.tool.Annotated
+		if rankOf(annotated) > rankOf(effective) {
+			effective = annotated
 		}
 	}
 	if (b.Gated || b.Asked) && rankOf(effective) < rankOf(bind.Write) {
@@ -492,6 +530,10 @@ func callTool(a *admission, b bridge.Bridge, rq request, approve bool, journal i
 		record("refused_arguments", map[string]any{"error": why})
 		return reply{Refused: "the arguments are outside what the capability declares: " + why}
 	}
+	if why := satisfy.CallArguments(bd.operationArgs, rq.Arguments); why != "" {
+		record("refused_arguments", map[string]any{"error": why})
+		return reply{Refused: "arguments do not satisfy the bound gateway operation: " + why}
+	}
 	if effect != string(bind.Read) && !approve {
 		logf("  GATED    call %s -> %s / %s  (%s, no approval)", rq.Alias, bd.Server, bd.Tool, effect)
 		record("gated", nil)
@@ -500,12 +542,16 @@ func callTool(a *admission, b bridge.Bridge, rq request, approve bool, journal i
 	t0 := time.Now()
 	callArgs := rq.Arguments
 	if bd.dispatch != nil && bd.dispatch.WrapArgs {
-		var err error
-		callArgs, err = wrapTelaraActionArgs(bd.dispatch.Integration, bd.dispatch.Action, rq.Arguments)
-		if err != nil {
-			logf("  REFUSED  call %s: invalid Telara action arguments: %v", rq.Alias, err)
-			record("refused_arguments", map[string]any{"error": err.Error()})
-			return reply{Refused: "invalid action arguments: " + err.Error()}
+		if bd.dispatch.PlainArgs {
+			callArgs = map[string]any{"integration": bd.dispatch.Integration, "action": bd.dispatch.Action, "params": rq.Arguments}
+		} else {
+			var err error
+			callArgs, err = wrapTelaraActionArgs(bd.dispatch.Integration, bd.dispatch.Action, rq.Arguments)
+			if err != nil {
+				logf("  REFUSED  call %s: invalid Telara action arguments: %v", rq.Alias, err)
+				record("refused_arguments", map[string]any{"error": err.Error()})
+				return reply{Refused: "invalid action arguments: " + err.Error()}
+			}
 		}
 	}
 	res, err := b.Call(bd.tool, callArgs)

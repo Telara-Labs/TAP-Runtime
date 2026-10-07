@@ -52,8 +52,7 @@ def draft_id(value):
 if len(sys.argv) != 2:
     fail('usage: args: ["{\\"to\\":...,\\"subject\\":...,\\"body\\":...}"]')
 message = parse_input(sys.argv[1])
-# The current Telara action schema exposes `message` as a string. Pass the
-# documented structured message encoded as JSON; TAP adapts params_message to
-# the pinned gmail_create_draft action and gates it as one write.
-result = tap.call("create_draft", {"params_message": json.dumps(message, separators=(",", ":"))})
+# This contract requires a JSON-encoded structured message. The host selects
+# a compatible direct tool or wraps it for a gateway, then gates the write.
+result = tap.call("create_draft", {"message": json.dumps(message, separators=(",", ":"))})
 print(json.dumps({"draft_id": draft_id(result)[:200], "status": "unsent_draft_created"}, separators=(",", ":")))

@@ -35,7 +35,7 @@ remain visible in the result. See the package README for all input fields.
 | [API release brief](api-release-brief/) | Summarize public GitHub release evidence | Declared GitHub API origin |
 | [Connector meeting brief](connector-meeting-brief/) | Combine a calendar window and a bounded mail search | The documented connected Calendar and Gmail tools |
 | [Connector draft reply](connector-draft-reply/) | Create an email draft for review | The documented connected Gmail tool; effect approval |
-| [Connector issue triage](connector-issue-triage/) | Inspect a bounded Jira queue and group candidates | The documented connected Jira tool |
+| [Connector issue triage](connector-issue-triage/) | Inspect a bounded Jira queue | The documented connected Jira tool |
 
 The browser packages run against a disposable localhost site. They demonstrate
 real browser tool calls, including navigation and input, without using your
@@ -49,9 +49,11 @@ support. Follow [desktop setup](desktop-support/) for small disposable files
 you can use in the examples. Host commands have their own operating-system access; the program's
 path validation is not an operating-system security boundary.
 
-Connector packages pin the specific tools described in their READMEs. They
-borrow the host's existing authorized connections and need those tools or a
-verified equivalent binding. Installing TAP does not install a connector or
+Connector packages declare operations and parameter/result contracts without
+pinning a gateway. The host binds a compatible direct tool or discovers an
+operation advertised by the connected Telara gateway, then wraps its arguments
+for that route. They borrow the host's existing authorized connections.
+Installing TAP does not install a connector or
 grant account access. A sample input is not a successful live run; package
 READMEs distinguish tested behavior from remaining connected-account checks.
 

@@ -14,6 +14,14 @@ type Asker interface {
 	Asks(t bind.Tool) (bool, error)
 }
 
+// OperationDenier checks an advertised operation behind an allowed dispatcher.
+// A client's allow list names callable MCP tools, not the dispatcher's hidden
+// operations. Explicit operation denials still apply; transport allow lists
+// are checked separately on the actual catalog and dispatch tools.
+type OperationDenier interface {
+	OperationDenied(t bind.Tool) (bool, error)
+}
+
 // codexServerRules is what a Codex config says about one MCP server's tools.
 // Codex keeps it per server under mcp_servers (read through config/read):
 // enabled, enabled_tools (an allow list), disabled_tools (a deny list), and
@@ -30,6 +38,10 @@ func (r codexServerRules) denies(tool string) bool {
 		return true
 	}
 	return r.allow != nil && !r.allow[tool]
+}
+
+func (r codexServerRules) operationDenies(tool string) bool {
+	return r.disabled || r.deny[tool]
 }
 
 // codexRulesFrom reads the mcp_servers table of a config/read answer.

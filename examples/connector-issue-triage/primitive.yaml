@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: dev.telara
   name: connector-issue-triage
-  version: 0.1.0
+  version: 0.2.0
   description: Summarize a bounded Jira JQL result set for human triage.
   output_description: At most ten Jira issue keys, summaries, statuses and priorities; no issue creation or update.
 interface:
@@ -27,4 +27,18 @@ tools:
   - alias: search_issues
     capability: jira.issues.search
     effect: read
-    pin: {server: telara, tool: telara_jira_search_issues}
+capabilities:
+  - label: jira.issues.search
+    id: sha256:3d7e996a8b1a26e3be7af139c8a9290a40ef50fd9b6dcc1c82fc15dd7d133e1b
+    question: Search Jira issues using the caller's bounded JQL query.
+    args:
+      type: object
+      properties:
+        jql: {type: string}
+        max_results: {type: integer}
+        mode: {type: string}
+      required: [jql, max_results, mode]
+    result:
+      type: object
+      properties: {issues: {type: array, items: {type: object}}}
+      required: [issues]

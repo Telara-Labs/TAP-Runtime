@@ -222,6 +222,15 @@ func (c *Codex) Denied(t bind.Tool) (bool, error) {
 	return ok && r.denies(t.Name), nil
 }
 
+func (c *Codex) OperationDenied(t bind.Tool) (bool, error) {
+	rs, err := c.rules()
+	if err != nil {
+		return false, err
+	}
+	r, ok := rs[t.Server]
+	return ok && r.operationDenies(t.Name), nil
+}
+
 // Asks reports whether the user set the tool's approval_mode to "prompt".
 func (c *Codex) Asks(t bind.Tool) (bool, error) {
 	rs, err := c.rules()

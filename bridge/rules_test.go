@@ -51,6 +51,23 @@ func TestCodexPromptApprovalModeIsAnAskRuleAndOtherModesAreNot(t *testing.T) {
 	}
 }
 
+func TestCodexGatewayOperationPermissionsKeepTransportAllowListsSeparate(t *testing.T) {
+	r := codexRulesFrom(map[string]any{"mcp_servers": map[string]any{"gateway": map[string]any{
+		"enabled_tools":  []any{"telara_execute_action", "telara_tool_search", "telara_tool_describe"},
+		"disabled_tools": []any{"telara_jira_delete_issue"},
+	}}})["gateway"]
+	if r.denies("telara_execute_action") || !r.denies("telara_jira_get_issue") || r.operationDenies("telara_jira_get_issue") {
+		t.Fatal("hidden operation was required in the callable-tool allow list")
+	}
+	if !r.operationDenies("telara_jira_delete_issue") {
+		t.Fatal("explicit operation denial lost")
+	}
+	r.disabled = true
+	if !r.operationDenies("telara_jira_get_issue") {
+		t.Fatal("disabled server permitted an operation")
+	}
+}
+
 func TestGeminiSettingsExcludeAndIncludeTools(t *testing.T) {
 	dir := t.TempDir()
 	user := filepath.Join(dir, "user.json")

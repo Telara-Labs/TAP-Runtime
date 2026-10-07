@@ -25,8 +25,8 @@ def base_url_from_args():
 
 
 base = base_url_from_args()
-nav = tap.call("navigate", {"url": base + "/"})
+tap.call("navigate", {"url": base + "/"})
 page = str(tap.call("snapshot", {}))
 if "TAP Browser Smoke" not in page:
     raise RuntimeError("the rendered page did not contain the expected smoke heading")
-print(json.dumps({"status": "passed", "title": "TAP Browser Smoke", "heading": "TAP Browser Smoke", "navigate": str(nav)[:240]}))
+print(json.dumps({"status": "passed", "title": "TAP Browser Smoke", "heading": "TAP Browser Smoke"}))

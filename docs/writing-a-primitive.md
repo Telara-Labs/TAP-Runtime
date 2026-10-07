@@ -136,6 +136,22 @@ Anything but `read` is asked of the person before it happens. A tool whose
 own annotation says it does more than the declared effect (for example
 `readOnlyHint: false` on a tool declared `read`) is not bound.
 
+Unpinned declarations can also bind operations behind a gateway. The host's
+Telara adapter queries the connected server's read-only `telara_tool_search`
+and `telara_tool_describe`, using the advertised integration/action envelope,
+effect and parameter schema as live binding data. The operation participates
+in the same name/contract matching as a direct tool. The program sends normal
+operation parameters; the host fixes integration/action in the binding and
+wraps them as `{integration, action, params}` at dispatch. The receipt records
+both the logical capability and the actual server, dispatcher, operation and
+schema digest. Multiple equally fitting connections use the existing binding
+chooser. Other gateway protocols require a host adapter; TAP does not infer
+connector support from a generic dispatcher name. Connection previews remain
+inventory-only and may show these operations unresolved until runtime.
+Client tool allowlists are checked on the actual dispatcher and catalog tools;
+an operation hidden behind an allowed dispatcher need not itself be a listed
+MCP tool. Explicit denials and approval rules for that operation still apply.
+
 Some clients expose Telara actions only through the generic
 `telara_execute_action` tool. Its annotation covers every action, including
 writes, so it cannot establish that a particular action is a read. For a

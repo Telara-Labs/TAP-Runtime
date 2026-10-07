@@ -45,9 +45,9 @@ if len(sys.argv) != 2:
     fail('usage: args: ["{\\"jql\\":...,\\"max_results\\":5}"]')
 jql, maximum = parse_input(sys.argv[1])
 result = object_result(tap.call("search_issues", {
-    "params_jql": jql,
-    "params_max_results": maximum,
-    "params_mode": "summary",
+    "jql": jql,
+    "max_results": maximum,
+    "mode": "summary",
 }))
 raw_issues = result["issues"]
 issues = []

@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: dev.telara
   name: connector-meeting-brief
-  version: 0.1.0
+  version: 0.2.0
   description: Pair a bounded Google Calendar window with a bounded Gmail search count.
   output_description: Agenda items and a count of matching messages; no email bodies or attendee addresses are printed.
 interface:
@@ -29,8 +29,34 @@ tools:
   - alias: calendar
     capability: calendar.events.list
     effect: read
-    pin: {server: telara, tool: telara_google_workspace_calendar_list_events}
   - alias: mail
     capability: gmail.messages.search
     effect: read
-    pin: {server: telara, tool: telara_google_workspace_gmail_search_messages}
+capabilities:
+  - label: calendar.events.list
+    id: sha256:ef55e2ee02da49b06c9cb6361a683f9da43843f543fbe5019b6c9244caa31565
+    question: List Google Calendar events within the caller's time window.
+    args:
+      type: object
+      properties:
+        time_min: {type: string}
+        time_max: {type: string}
+        max_results: {type: integer}
+      required: [time_min, time_max, max_results]
+    result:
+      type: object
+      properties: {items: {type: array, items: {type: object}}}
+      required: [items]
+  - label: gmail.messages.search
+    id: sha256:1c4150b1b575183144929fbc7e357f73612c8b5aaa0394bfd7b7d5e748771f03
+    question: Search Gmail messages using the caller's query.
+    args:
+      type: object
+      properties:
+        q: {type: string}
+        max_results: {type: integer}
+      required: [q, max_results]
+    result:
+      type: object
+      properties: {messages: {type: array, items: {type: object}}}
+      required: [messages]

@@ -57,13 +57,13 @@ if len(sys.argv) != 2:
     fail('usage: args: ["{\\"time_min\\":...,\\"time_max\\":...,\\"gmail_query\\":...}"]')
 time_min, time_max, query = parse_input(sys.argv[1])
 events_result = obj_result(tap.call("calendar", {
-    "params_time_min": time_min,
-    "params_time_max": time_max,
-    "params_max_results": 5,
+    "time_min": time_min,
+    "time_max": time_max,
+    "max_results": 5,
 }), "Calendar")
 mail_result = obj_result(tap.call("mail", {
-    "params_q": query,
-    "params_max_results": 5,
+    "q": query,
+    "max_results": 5,
 }), "Gmail")
 raw_events = required_list(events_result, "items", "Calendar")
 raw_messages = required_list(mail_result, "messages", "Gmail")

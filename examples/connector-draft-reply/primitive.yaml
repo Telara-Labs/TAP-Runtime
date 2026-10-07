@@ -3,7 +3,7 @@ kind: Primitive
 metadata:
   publisher: dev.telara
   name: connector-draft-reply
-  version: 0.1.0
+  version: 0.2.0
   description: Create one unsent Gmail draft from caller-supplied content.
   output_description: Draft id and status only; this primitive never sends email.
 interface:
@@ -29,4 +29,13 @@ tools:
   - alias: create_draft
     capability: gmail.drafts.create
     effect: write
-    pin: {server: telara, tool: telara_google_workspace_gmail_create_draft}
+capabilities:
+  - label: gmail.drafts.create
+    id: sha256:6bfb37369b9d59cc91fe01910de2b69ece882314b8dd5d022911fc8ee239c52d
+    question: Create an unsent Gmail draft from a structured message encoded as JSON.
+    args:
+      type: object
+      properties: {message: {type: string}}
+      required: [message]
+    result:
+      type: object

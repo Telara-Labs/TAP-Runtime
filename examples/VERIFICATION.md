@@ -30,6 +30,34 @@ requests, zero refusals, exit 0. It used no client bridge or account. The
 source-built runner was based on commit
 `5dc7c0394ad76d125cdf632d3de5a895167552c8` plus these example files.
 
+## Gateway operation binding (TENG-3261)
+
+The three connector packages are now version 0.2.0 and declare unpinned
+operations with parameter/result contracts. Guest arguments use the operation's
+normal names, rather than Telara's `params_` transport names. The host discovers
+the connected gateway's catalog metadata and wraps the selected operation.
+
+Real source-built Codex 0.147.0 runs verified unpinned Jira issue search and
+Calendar/Gmail reads. Jira returned TENG-3261; Calendar and Gmail returned valid
+empty lists for the chosen window/query. These runs do not establish populated
+event, pagination or arbitrary other-connector compatibility. The unpinned
+Gmail draft operation bound and then refused without approval, with zero writes.
+No draft was created and no email was sent.
+
+Runtime client-protocol tests cover the same declaration through a direct tool
+and a gateway, argument/result contracts, effect changes, catalog permission
+and failures, fixed selectors, duplicate metadata and ambiguous connections.
+A real fresh-client check found that Codex's callable-tool allowlist was being
+applied to hidden operations. A regression test and the host permission seam
+now distinguish transport allowlists from explicit operation denials. New
+operation bindings refuse when their current effect cannot be verified.
+
+The local root Go suite, contract and discover module suites, npm's 15 tests,
+the 27 example Python tests, static checks and all twelve gallery manifest
+checks passed during verification. Final source and release receipts are
+recorded on TENG-3261. Other gateways require their own discovery adapter;
+matching the name alone does not translate incompatible parameter semantics.
+
 ## Repeat the checks
 
 Build the runner from the repository root:
