@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -185,9 +184,9 @@ func (t *transcript) indexID(id string) {
 // sqliteRows runs one read-only query on a store (never written; WAL
 // included, util.SQLiteURI) with the system sqlite3, as the readers do.
 func sqliteRows(path, sql string) ([]map[string]string, error) {
-	bin, err := exec.LookPath("sqlite3")
+	bin, err := util.SQLiteBin()
 	if err != nil {
-		return nil, fmt.Errorf("sqlite3 is not installed")
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteReadTimeout)
 	defer cancel()

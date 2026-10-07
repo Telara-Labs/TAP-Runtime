@@ -3,13 +3,13 @@ package history
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -260,11 +260,13 @@ func AntigravityUsage(db string) map[int]trace.Usage {
 	if _, err := os.Stat(db); err != nil {
 		return nil
 	}
-	bin, err := exec.LookPath("sqlite3")
+	bin, err := util.SQLiteBin()
 	if err != nil {
 		return nil
 	}
-	raw, err := exec.Command(bin, "-readonly", "-json", util.SQLiteURI(db), `SELECT hex(data) AS data FROM gen_metadata`).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteReadTimeout)
+	defer cancel()
+	raw, err := util.SQLiteQuery(ctx, bin, db, `SELECT hex(data) AS data FROM gen_metadata`)
 	if err != nil || len(bytes.TrimSpace(raw)) == 0 {
 		return nil
 	}

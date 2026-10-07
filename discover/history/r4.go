@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -62,7 +61,7 @@ func unreadableStore(st *trace.ReadStats, err error) error {
 }
 
 func sqliteBin(client string) (string, error) {
-	p, err := exec.LookPath("sqlite3")
+	p, err := util.SQLiteBin()
 	if err != nil {
 		return "", fmt.Errorf("%s: %w: sqlite3 is not installed", client, ErrUnavailable)
 	}

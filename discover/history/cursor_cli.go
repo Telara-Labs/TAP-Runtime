@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -49,7 +48,7 @@ func (r CursorCLI) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSt
 	}
 	bin := r.SQLite3
 	if bin == "" {
-		p, err := exec.LookPath("sqlite3")
+		p, err := util.SQLiteBin()
 		if err != nil {
 			return nil, st, fmt.Errorf("cursor-cli: %w: sqlite3 is not installed", ErrUnavailable)
 		}

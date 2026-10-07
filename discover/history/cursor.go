@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -101,7 +100,7 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 	}
 	bin := r.SQLite3
 	if bin == "" {
-		p, err := exec.LookPath("sqlite3")
+		p, err := util.SQLiteBin()
 		if err != nil {
 			return nil, fmt.Errorf("cursor: %w: sqlite3 is not installed", ErrUnavailable)
 		}
