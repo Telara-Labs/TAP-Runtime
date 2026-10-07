@@ -22,6 +22,12 @@ func TestRebuildSnapshotPreservesExecutableSource(t *testing.T) {
 	}
 }
 
+func TestHostShellIsAvailable(t *testing.T) {
+	if _, err := hostShell(); err != nil {
+		t.Fatalf("host build shell is unavailable: %v", err)
+	}
+}
+
 func TestCanceledBuildBoundsInheritedOutputPipes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()

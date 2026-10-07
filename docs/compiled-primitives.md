@@ -44,6 +44,10 @@ and are removed from build inputs. Save checks the receipt without compiling.
 An isolated publishing verifier is still required for untrusted publication;
 a locally writable receipt is not a signed attestation.
 
+On Windows, compiled build recipes run through `sh.exe` from `PATH` or the
+Git for Windows installation. Install Git for Windows to use `tap discover build`
+for compiled primitives; ordinary primitive execution does not need a host shell.
+
 Authoring/save provenance and validation requirements also apply: establish
 `AUTHORING.json` from a real brief rather than fabricating evidence. Put test
 cases and receipts outside the source bundle. For a new revision, advance

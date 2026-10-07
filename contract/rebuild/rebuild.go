@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -91,10 +92,35 @@ type Builder interface {
 // their own package, never for a package somebody else wrote.
 type Here struct{}
 
+func hostShell() (string, error) {
+	if runtime.GOOS != "windows" {
+		return "/bin/sh", nil
+	}
+	if shell, err := exec.LookPath("sh"); err == nil {
+		return shell, nil
+	}
+	// Git for Windows ships sh.exe alongside git.exe, even when its bin
+	// directories are not added to PATH (as on the native GitLab runner).
+	if git, err := exec.LookPath("git"); err == nil {
+		root := filepath.Dir(filepath.Dir(git))
+		for _, rel := range []string{filepath.Join("bin", "sh.exe"), filepath.Join("usr", "bin", "sh.exe")} {
+			candidate := filepath.Join(root, rel)
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return candidate, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("compiled primitive builds require a POSIX shell (sh.exe) on PATH or in the Git for Windows installation")
+}
+
 func (Here) Run(ctx context.Context, dir, command string) ([]byte, error) {
 	home := filepath.Join(dir, ".home")
 	os.MkdirAll(home, 0o755)
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	shell, err := hostShell()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, shell, "-c", command)
 	configureBuildProcess(cmd)
 	// A compiler subprocess may inherit the shell's output pipes. Bound
 	// draining those pipes after cancellation instead of waiting indefinitely.
