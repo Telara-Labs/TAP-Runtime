@@ -206,3 +206,16 @@ func TestASessionStartedJustBeforeTheServerIsTheCurrentOne(t *testing.T) {
 		t.Fatalf("the current session counted as earlier: %s", note)
 	}
 }
+
+// An earlier session asked a minute and a half before this one started still
+// counts: two minutes of slack hid it, and the repeat was never offered.
+func TestASessionFromAMinuteAgoIsEarlier(t *testing.T) {
+	now := time.Now()
+	text := "Can you check whether GitLab Runner commit 3c39fceb is ready to release after v19.4.0?"
+	h := &historyLoad{started: now, done: make(chan struct{})}
+	h.past = []pastRequest{{ref: "claude-code/prev/0", session: "prev", at: now.Add(-90 * time.Second), text: text, words: wordSet(text)}}
+	close(h.done)
+	if note := noMatchNote("gitlab runner commit release readiness", h); !strings.Contains(note, "tap-author") {
+		t.Fatalf("an earlier session 90 seconds ago was not counted: %s", note)
+	}
+}

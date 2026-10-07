@@ -32,8 +32,11 @@ const (
 	// also be rare in the history.
 	rareHistory = 20
 	// currentSessionSlack is how long before the server started a session
-	// may begin and still be the current one.
-	currentSessionSlack = 2 * time.Minute
+	// may begin and still be the current one. opencode run and goose run
+	// start their MCP servers seconds after writing the request. Two minutes
+	// also swallowed a real earlier session asked a minute or two before
+	// (the repeat went unnoticed); 30 seconds covers the start-up alone.
+	currentSessionSlack = 30 * time.Second
 )
 
 // pastRequest is one user request from the agent's history.
