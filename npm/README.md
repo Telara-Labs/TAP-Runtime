@@ -1,5 +1,14 @@
 # TAP Local
 
+```text
+████████╗ █████╗ ██████╗ 
+╚══██╔══╝██╔══██╗██╔══██╗
+   ██║   ███████║██████╔╝
+   ██║   ██╔══██║██╔═══╝ 
+   ██║   ██║  ██║██║     
+   ╚═╝   ╚═╝  ╚═╝╚═╝     
+```
+
 Install TAP globally on macOS, Linux, or Windows:
 
 ```sh
@@ -22,3 +31,7 @@ npm exec -- tap setup
 ```
 
 Setup connects every supported agent it finds installed and names each one; `tap install --client all --print` shows what it would change without changing anything. VS Code uses the separate TAP extension. To connect one agent later: `tap install --client <agent>`.
+
+---
+
+<a href="https://telara.dev"><img alt="Telara" src="https://raw.githubusercontent.com/Telara-Labs/Telara-CLI/main/docs/logo-light.png" height="40"></a>

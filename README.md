@@ -1,5 +1,14 @@
 # TAP Runtime
 
+```text
+████████╗ █████╗ ██████╗ 
+╚══██╔══╝██╔══██╗██╔══██╗
+   ██║   ███████║██████╔╝
+   ██║   ██╔══██║██╔═══╝ 
+   ██║   ██║  ██║██║     
+   ╚═╝   ╚═╝  ╚═╝╚═╝     
+```
+
 TAP (Trusted Agent Primitives) lets agents build their own internal tools as
 reusable blocks of code. We expect agents to write most of these primitives
 as they work. Humans can write them too.
@@ -355,3 +364,12 @@ MIT, in [LICENSE](LICENSE). `third_party/sh/`, a copy of `mvdan.cc/sh/v3`
 3.14.1 patched to run pipelines on wasip1, keeps its BSD 3-clause licence. A
 release carries both, with the licences of everything compiled in, in
 `THIRD_PARTY_NOTICES.txt`.
+
+---
+
+<a href="https://telara.dev">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Telara-Labs/Telara-CLI/main/docs/logo-dark.png">
+    <img alt="Telara" src="https://raw.githubusercontent.com/Telara-Labs/Telara-CLI/main/docs/logo-light.png" height="40">
+  </picture>
+</a>
