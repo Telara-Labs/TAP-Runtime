@@ -95,6 +95,7 @@ func (Here) Run(ctx context.Context, dir, command string) ([]byte, error) {
 	home := filepath.Join(dir, ".home")
 	os.MkdirAll(home, 0o755)
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	configureBuildProcess(cmd)
 	// A compiler subprocess may inherit the shell's output pipes. Bound
 	// draining those pipes after cancellation instead of waiting indefinitely.
 	cmd.WaitDelay = 2 * time.Second
