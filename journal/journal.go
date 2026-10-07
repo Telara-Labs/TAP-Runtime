@@ -40,11 +40,14 @@ const InlineLimit = 8 << 10
 // Header identifies the run. A run is resumed only against the package it
 // was started with.
 type Header struct {
-	RunID         string    `json:"run_id"`
-	Package       string    `json:"package"`
-	PackageDigest string    `json:"package_digest"`
-	Args          []string  `json:"args"`
-	Started       time.Time `json:"started"`
+	RunID           string    `json:"run_id"`
+	Package         string    `json:"package"`
+	PackageDigest   string    `json:"package_digest"`
+	Args            []string  `json:"args"`
+	Started         time.Time `json:"started"`
+	ManifestDigest  string    `json:"manifest_digest,omitempty"`
+	ManifestBytes   int       `json:"manifest_bytes,omitempty"`
+	EvidenceVersion int       `json:"evidence_version,omitempty"`
 }
 
 // Record is one line of the index.
@@ -60,6 +63,19 @@ type Record struct {
 	At      time.Time       `json:"at"`
 	Header  *Header         `json:"header,omitempty"`
 	Outcome string          `json:"outcome,omitempty"`
+	Call    *CallIdentity   `json:"call,omitempty"`
+}
+
+// CallIdentity names the binding assessed for a request, without its arguments
+// or result. A begin is an attempt, not proof that the provider changed anything.
+type CallIdentity struct {
+	Alias     string `json:"alias,omitempty"`
+	Server    string `json:"server,omitempty"`
+	Tool      string `json:"tool,omitempty"`
+	Operation string `json:"operation,omitempty"`
+	Annotated string `json:"annotated,omitempty"`
+	Schema    string `json:"schema,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 // State is what is known about one request when a run is resumed.
@@ -97,6 +113,18 @@ func NewRunID(now time.Time) string {
 
 // Create starts the record of a new run.
 func Create(root string, h Header) (*Journal, error) {
+	return create(root, h, nil)
+}
+
+// CreateWithManifest saves the exact manifest before making the run visible.
+// Resuming never replaces this snapshot with the current package's manifest.
+func CreateWithManifest(root string, h Header, manifest []byte) (*Journal, error) {
+	sum := sha256.Sum256(manifest)
+	h.ManifestDigest, h.ManifestBytes, h.EvidenceVersion = hex.EncodeToString(sum[:]), len(manifest), 1
+	return create(root, h, manifest)
+}
+
+func create(root string, h Header, manifest []byte) (*Journal, error) {
 	if !runIDRe.MatchString(h.RunID) {
 		return nil, fmt.Errorf("run id %q is not usable", h.RunID)
 	}
@@ -106,6 +134,11 @@ func Create(root string, h Header) (*Journal, error) {
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "blobs"), 0o700); err != nil {
 		return nil, err
+	}
+	if manifest != nil {
+		if err := writeDurable(filepath.Join(dir, "blobs", h.ManifestDigest), manifest); err != nil {
+			return nil, err
+		}
 	}
 	f, err := os.OpenFile(filepath.Join(dir, "index.jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
@@ -263,6 +296,11 @@ func (j *Journal) Effect(id string) string {
 
 // Begin records that a request is about to be acted on.
 func (j *Journal) Begin(id, method, digest, effect string, at time.Time) error {
+	return j.BeginCall(id, method, digest, effect, nil, at)
+}
+
+// BeginCall adds resolved identity to the same durable begin used for replay.
+func (j *Journal) BeginCall(id, method, digest, effect string, call *CallIdentity, at time.Time) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	// What the program read to compute this request is on disk before the
@@ -272,7 +310,17 @@ func (j *Journal) Begin(id, method, digest, effect string, at time.Time) error {
 			return err
 		}
 	}
-	r := Record{Phase: "begin", ID: id, Method: method, Digest: digest, Effect: effect, At: at}
+	if call != nil {
+		bounded := *call
+		for _, field := range []*string{&bounded.Alias, &bounded.Server, &bounded.Tool, &bounded.Operation, &bounded.Annotated, &bounded.Schema} {
+			if len(*field) > 1024 {
+				*field = ""
+				bounded.Truncated = true
+			}
+		}
+		call = &bounded
+	}
+	r := Record{Phase: "begin", ID: id, Method: method, Digest: digest, Effect: effect, Call: call, At: at}
 	if err := j.append(r); err != nil {
 		return err
 	}

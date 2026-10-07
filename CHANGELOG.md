@@ -6,6 +6,17 @@ release is compatible. For the complete source change, follow each compare
 link. Runner versions, primitive versions, and the manifest API are distinct;
 see [version review](docs/versioning.md).
 
+## 0.2.2
+
+- `tap_evidence` now includes the executed package digest, declared permissions
+  from a saved manifest, and resolved identities for journaled tool attempts.
+  Exact saved YAML is opt-in with `include_manifest: true`. Large fields are
+  explicitly omitted and legacy snapshots remain unavailable. Runtime request
+  arguments and replies are excluded. Existing resume and unknown-write
+  behavior is unchanged.
+
+[0.2.1 to 0.2.2 source changes](https://github.com/Telara-Labs/TAP-Runtime/compare/v0.2.1...v0.2.2).
+
 ## 0.2.1
 
 - Added read-only `tap diff [--json] OLD NEW`: exact package identities,

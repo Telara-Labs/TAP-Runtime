@@ -382,7 +382,11 @@ func main() {
 
 // Run admits a package, runs it in the sandbox and serves its requests.
 func Run(ctx context.Context, o Options) (*Result, error) {
-	loaded, err := mf.Load(o.Package)
+	rawManifest, err := os.ReadFile(filepath.Join(o.Package, "primitive.yaml"))
+	if err != nil {
+		return nil, err
+	}
+	loaded, err := mf.Parse(rawManifest)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +406,6 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	rawManifest, _ := os.ReadFile(filepath.Join(o.Package, "primitive.yaml"))
 	sumPkg := sha256.Sum256(append(append([]byte{}, rawManifest...), script...))
 	pkgDigest := hex.EncodeToString(sumPkg[:])
 	if o.ExpectedDigest != "" && pkgDigest != o.ExpectedDigest {
@@ -439,7 +442,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			logf("resuming   %s: %d request(s) already answered, %d left unanswered", o.Resume, done, open)
 		} else {
 			abs, _ := filepath.Abs(o.Package)
-			run, err = runlog.Create(root, runlog.Header{RunID: runlog.NewRunID(started), Package: abs, PackageDigest: pkgDigest, Args: o.Args, Started: started})
+			run, err = runlog.CreateWithManifest(root, runlog.Header{RunID: runlog.NewRunID(started), Package: abs, PackageDigest: pkgDigest, Args: o.Args, Started: started}, rawManifest)
 			if err != nil {
 				return nil, err
 			}
@@ -904,7 +907,20 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 		}
 		assess()
-		if err := run.Begin(id, rq.Method, digest, effectOf(rq), time.Now().UTC()); err != nil {
+		var identity *runlog.CallIdentity
+		if rq.Method == "call" {
+			identity = &runlog.CallIdentity{Alias: rq.Alias}
+			if adm != nil {
+				if bd := adm.byAlias[rq.Alias]; bd != nil {
+					identity.Server, identity.Tool, identity.Annotated, identity.Schema = bd.Server, bd.Tool, bd.Annotated, bd.Schema
+					identity.Operation = bd.Operation
+					if rq.callAssessment != nil && rq.callAssessment.nested != "" {
+						identity.Operation = rq.callAssessment.nested
+					}
+				}
+			}
+		}
+		if err := run.BeginCall(id, rq.Method, digest, effectOf(rq), identity, time.Now().UTC()); err != nil {
 			return reply{}, false, err
 		}
 		if o.stopDuring == id {

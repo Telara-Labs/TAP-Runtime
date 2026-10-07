@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/Telara-Labs/TAP-Runtime/journal"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -73,7 +74,8 @@ tools:
 	headers := filepath.Join(t.TempDir(), "headers")
 	os.WriteFile(headers, []byte("# the gateway's key\nAuthorization: Bearer tok\n"), 0o600)
 
-	res, err := Run(context.Background(), Options{Package: pkg, Journal: io.Discard, InterpDir: store, RunsDir: t.TempDir(),
+	runs := t.TempDir()
+	res, err := Run(context.Background(), Options{Package: pkg, Journal: io.Discard, InterpDir: store, RunsDir: runs,
 		MCPURL: ts.URL, MCPHeaderFile: headers})
 	if err != nil {
 		t.Fatal(err)
@@ -83,6 +85,27 @@ tools:
 	}
 	if len(calls) != 1 || calls[0] != "gmail_search_threads" {
 		t.Fatalf("calls %v", calls)
+	}
+	snap, err := journal.Inspect(runs, res.RunID, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := runEvidence(runs, snap, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range snap.Events {
+		if event.Method == "call" {
+			found = event.Call != nil && event.Call.Alias == "threads" && event.Call.Server == "telara" && event.Call.Tool == calls[0] && event.Effect == "read"
+		}
+	}
+	if !found {
+		t.Fatalf("actual MCP binding missing from evidence: %#v", evidence)
+	}
+	encoded, _ := json.Marshal(evidence)
+	if strings.Contains(string(encoded), "Bearer tok") || strings.Contains(string(encoded), `\"query\"`) || strings.Contains(string(encoded), "[1,2,3]") {
+		t.Fatalf("runtime payload leaked: %s", encoded)
 	}
 
 	// Without the header the server refuses, and the run says so.

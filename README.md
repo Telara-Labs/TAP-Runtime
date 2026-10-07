@@ -214,6 +214,22 @@ The tool list does not grow with the number of primitives. A client that
 cannot show an approval prompt receives no implicit approval. Package trust,
 fetch grants and tool bindings are separate owner decisions.
 
+`tap_evidence` ties a run to its executed package digest and saved manifest.
+It returns declared tool, command, file and network permissions from that
+snapshot, plus bounded journal events. Recorded tool attempts identify the
+alias, resolved host connection and tool, effective effect, and nested
+operation when resolved. Begin events are attempts; end and finish outcomes
+distinguish refusals, failures and unknown results. Replays keep the original
+record. Requests without journal IDs and `--no-journal` runs have no such trace.
+
+Pass `include_manifest: true` to request the exact saved YAML. This is opt-in
+because package defaults and examples may be sensitive. Runtime arguments,
+credentials and results are excluded from evidence. Oversized YAML or
+permission declarations are explicitly omitted; `truncated` marks omitted
+events. Legacy runs report that snapshots are unavailable rather than reading
+the current package. Evidence is a local execution record, not independent
+attestation or a guarantee that a result is correct. See [run evidence](docs/evidence.md).
+
 The first time a package runs, the person is asked whether it may, unless the
 package only calls tools (each of those calls has its own gate). If the client
 cannot present that question, a package that uses files, host programs, the

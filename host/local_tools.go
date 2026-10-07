@@ -25,9 +25,10 @@ var statusTool = localTool("tap_status", "Read the current state of a local TAP 
 	"run_id": map[string]any{"type": "string"},
 }, []string{"run_id"}, true)
 
-var evidenceTool = localTool("tap_evidence", "Read bounded metadata-only evidence for a local TAP run.", map[string]any{
-	"run_id": map[string]any{"type": "string"},
-	"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": 100},
+var evidenceTool = localTool("tap_evidence", "Read bounded run provenance and journaled request metadata. Exact saved manifest is opt-in; runtime arguments and results are excluded.", map[string]any{
+	"run_id":           map[string]any{"type": "string"},
+	"limit":            map[string]any{"type": "integer", "minimum": 1, "maximum": 100},
+	"include_manifest": map[string]any{"type": "boolean", "description": "Include exact saved YAML if it fits. May contain sensitive package defaults or examples."},
 }, []string{"run_id"}, true)
 
 func localTool(name, description string, properties map[string]any, required []string, readOnly bool) map[string]any {
@@ -190,15 +191,16 @@ func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMe
 		s.toolJSON(id, loaded)
 	case "tap_status", "tap_evidence":
 		var a struct {
-			RunID string `json:"run_id"`
-			Limit int    `json:"limit"`
+			RunID           string `json:"run_id"`
+			Limit           int    `json:"limit"`
+			IncludeManifest bool   `json:"include_manifest"`
 		}
 		if err := readToolArgs(raw, &a); err != nil || a.RunID == "" {
 			s.toolError(id, name+" needs run_id")
 			return
 		}
-		if name == "tap_status" && a.Limit != 0 {
-			s.toolError(id, "tap_status does not accept limit")
+		if name == "tap_status" && (a.Limit != 0 || a.IncludeManifest) {
+			s.toolError(id, "tap_status does not accept limit or include_manifest")
 			return
 		}
 		if name == "tap_evidence" && (a.Limit < 0 || a.Limit > 100) {
@@ -223,8 +225,12 @@ func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMe
 			s.toolJSON(id, map[string]any{"run_id": snap.Header.RunID, "package_digest": snap.Header.PackageDigest,
 				"started": snap.Header.Started, "state": snap.State, "outcome": snap.Outcome})
 		} else {
-			s.toolJSON(id, map[string]any{"run_id": snap.Header.RunID, "state": snap.State,
-				"events": snap.Events, "truncated": snap.Truncated})
+			evidence, err := runEvidence(root, snap, a.IncludeManifest)
+			if err != nil {
+				s.toolError(id, err.Error())
+				return
+			}
+			s.toolJSON(id, evidence)
 		}
 	default:
 		if strings.HasPrefix(name, "tap_") {

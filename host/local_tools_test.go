@@ -71,7 +71,7 @@ execution: {entrypoint: main.sh}
 	}
 	evidence := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_evidence", "arguments": map[string]any{"run_id": id[1], "limit": 10}}))
 	encoded, _ := json.Marshal(evidence)
-	if evidence["state"] != "finished" || strings.Contains(string(encoded), "private-output") {
+	if evidence["state"] != "finished" || evidence["package_digest"] != identity["digest"] || evidence["permissions_status"] != "available" || strings.Contains(string(encoded), "private-output") {
 		t.Fatalf("evidence exposed output or wrong state: %s", encoded)
 	}
 
@@ -89,6 +89,24 @@ execution: {entrypoint: main.sh}
 	drift := c.call("tools/call", map[string]any{"name": "tap_run", "arguments": identity})
 	if drift["isError"] != true {
 		t.Fatalf("changed package was accepted: %#v", drift)
+	}
+	// Evidence is a historical record, even after the installed package is
+	// replaced or removed. Exact YAML is opt-in, not current catalog data.
+	manifestPath := filepath.Join(filepath.Dir(staged), "primitive.yaml")
+	original, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, []byte("changed manifest"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Dir(staged)); err != nil {
+		t.Fatal(err)
+	}
+	saved := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_evidence", "arguments": map[string]any{"run_id": id[1], "include_manifest": true}}))
+	manifest := saved["manifest"].(map[string]any)
+	if manifest["yaml"] != string(original) || saved["package_digest"] != identity["digest"] {
+		t.Fatalf("historical evidence changed: %#v", saved)
 	}
 }
 

@@ -2,6 +2,8 @@ package journal
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,12 +27,13 @@ const (
 // Event is the safe, displayable part of one journal record. It deliberately
 // excludes request digests, replies, blob paths, and byte counts.
 type Event struct {
-	Phase   string    `json:"phase"`
-	ID      string    `json:"id,omitempty"`
-	Method  string    `json:"method,omitempty"`
-	Effect  string    `json:"effect,omitempty"`
-	At      time.Time `json:"at"`
-	Outcome string    `json:"outcome,omitempty"`
+	Phase   string        `json:"phase"`
+	ID      string        `json:"id,omitempty"`
+	Method  string        `json:"method,omitempty"`
+	Effect  string        `json:"effect,omitempty"`
+	At      time.Time     `json:"at"`
+	Outcome string        `json:"outcome,omitempty"`
+	Call    *CallIdentity `json:"call,omitempty"`
 }
 
 // Snapshot is a bounded, read-only view of a TAP run.
@@ -126,7 +129,7 @@ func Inspect(root, runID string, limit int) (Snapshot, error) {
 			s.Outcome = record.Outcome
 		}
 		if record.Phase != "header" {
-			event := Event{Phase: record.Phase, ID: record.ID, Method: record.Method, Effect: record.Effect, At: record.At, Outcome: record.Outcome}
+			event := Event{Phase: record.Phase, ID: record.ID, Method: record.Method, Effect: record.Effect, Call: record.Call, At: record.At, Outcome: record.Outcome}
 			if len(s.Events) < limit {
 				s.Events = append(s.Events, event)
 			} else {
@@ -136,6 +139,9 @@ func Inspect(root, runID string, limit int) (Snapshot, error) {
 	}
 	if !sawHeader {
 		return Snapshot{}, fmt.Errorf("run %s has no header", runID)
+	}
+	if s.Header.RunID != runID {
+		return Snapshot{}, fmt.Errorf("run %s has a mismatched header", runID)
 	}
 	if finished {
 		s.State = InspectFinished
@@ -151,6 +157,59 @@ func Inspect(root, runID string, limit int) (Snapshot, error) {
 		s.State = InspectInterrupted
 	}
 	return s, nil
+}
+
+// ReadManifest reads only the saved snapshot, never the mutable package path.
+// A nil result means the journal predates snapshots. Reads and integrity checks
+// are bounded; no symlink in the run-relative blob path is accepted.
+func ReadManifest(root string, h Header) ([]byte, error) {
+	if h.ManifestDigest == "" {
+		return nil, nil
+	}
+	digest, err := hex.DecodeString(h.ManifestDigest)
+	if err != nil || len(digest) != sha256.Size || h.ManifestDigest != hex.EncodeToString(digest) {
+		return nil, fmt.Errorf("invalid manifest snapshot digest")
+	}
+	if !runIDRe.MatchString(h.RunID) {
+		return nil, fmt.Errorf("invalid snapshot run id")
+	}
+	dir, err := inspectRunDir(root, h.RunID)
+	if err != nil {
+		return nil, err
+	}
+	blobs := filepath.Join(dir, "blobs")
+	info, err := os.Lstat(blobs)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil, fmt.Errorf("unsafe snapshot directory")
+	}
+	path := filepath.Join(blobs, h.ManifestDigest)
+	info, err = os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("unsafe manifest snapshot")
+	}
+	if info.Size() > 8<<20 {
+		return nil, fmt.Errorf("manifest snapshot exceeds inspection limit")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, (8<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(raw)
+	if len(raw) != h.ManifestBytes || hex.EncodeToString(sum[:]) != h.ManifestDigest {
+		return nil, fmt.Errorf("manifest snapshot integrity check failed")
+	}
+	return raw, nil
 }
 
 func inspectRunDir(root, runID string) (string, error) {
