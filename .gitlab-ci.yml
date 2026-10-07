@@ -26,6 +26,9 @@ default:
   - go vet ./bind ./bridge ./conformance/... ./host ./journal ./release ./satisfy ./guest-sh
   - (cd contract && go vet ./... && go test ./... -count=1)
   - GOOS=wasip1 GOARCH=wasm go build -o /dev/null ./guest-sh
+  # The VS Code extension is packaged by npm exec vsce in the release tests;
+  # golang:1.26 has no Node, and they failed here from v0.1.20 on.
+  - command -v npm >/dev/null || (apt-get update -qq && apt-get install -y -qq nodejs npm >/dev/null)
   # Shared runners can run several times slower when busy; host and the
   # conformance kit take about five minutes on an idle one.
   - go test ./bind ./bridge ./conformance ./host ./journal ./release ./satisfy -count=1 -timeout 20m

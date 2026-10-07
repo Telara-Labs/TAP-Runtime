@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+	"time"
 )
 
 // tapMainArg makes the test binary act as the runner.
@@ -24,6 +25,10 @@ func TestMain(m *testing.M) {
 	// tap trust asks the person at the terminal; tests answer yes for them,
 	// except the test of the question itself.
 	confirmTrust = func(string) (bool, error) { return true, nil }
+	// A busy CI runner takes over 20 seconds for a run that compiles its
+	// interpreter cold; tests read the result inline unless they test the
+	// handoff (handoff_test.go sets its own deadline).
+	handoffAfter = 10 * time.Minute
 	// A test that needs the runner as a separate process runs this test
 	// binary with tapMainArg first, rather than building the runner again.
 	if len(os.Args) > 1 && os.Args[1] == tapMainArg {

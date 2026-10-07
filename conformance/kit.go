@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -152,19 +153,36 @@ func (s *session) call(method string, params any) (map[string]any, error) {
 	}
 }
 
-// run hands the runner a package and returns what the program printed.
+// heldRun finds the handle a runner returns for a run still going when a
+// client's tool call would time out ("call tap_result with run ...").
+var heldRun = regexp.MustCompile(`tap_result with run "([^"]+)"`)
+
+// run hands the runner a package and returns what the program printed. A run
+// handed back while still going is followed through tap_result, as a client
+// does.
 func (s *session) run(pkg string) (string, error) {
 	r, err := s.call("tools/call", map[string]any{"name": "tap_run", "arguments": map[string]any{"package": pkg}})
+	for i := 0; err == nil && i < 30; i++ {
+		m := heldRun.FindStringSubmatch(resultText(r))
+		if m == nil {
+			break
+		}
+		r, err = s.call("tools/call", map[string]any{"name": "tap_result", "arguments": map[string]any{"run": m[1]}})
+	}
 	if err != nil {
 		return "", err
 	}
+	return resultText(r), nil
+}
+
+func resultText(r map[string]any) string {
 	content, _ := r["content"].([]any)
 	if len(content) == 0 {
-		return "", nil
+		return ""
 	}
 	first, _ := content[0].(map[string]any)
 	text, _ := first["text"].(string)
-	return text, nil
+	return text
 }
 
 const head = `apiVersion: primitives.telara.dev/v3

@@ -3,6 +3,7 @@ package journal
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,8 @@ func TestManifestSnapshotIntegrityAndLegacy(t *testing.T) {
 	}
 	path := filepath.Join(root, h.RunID, "blobs", s.Header.ManifestDigest)
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0600 {
+	// Windows has no Unix permission bits: Go reports 0666 for any file.
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 		t.Fatalf("private mode %v, %v", info, err)
 	}
 	// Resume uses the original header and does not replace saved content.
