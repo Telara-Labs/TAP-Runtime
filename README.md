@@ -83,15 +83,27 @@ applies:
 | claude.ai (web) | preview | a page published as an Artifact: [docs/web.md](docs/web.md) | only connector tools annotated read-only are permitted |
 
 What has been run end to end, on a clean Linux machine with nothing saved,
-asking only the task and never naming TAP: in Claude Code and in Codex the
-agent searched TAP, answered a first-time task without offering anything,
-offered to save the task when it came back in a new session, wrote and saved
-the primitive once the person agreed, and ran it in the next new session.
-Claude Code completed every round (4 of 4); Codex completed 2 of 3 on v0.1.27,
-and in the third it answered a repeated task without offering to save it, though
-TAP had said the task was asked before. The agent decides whether to offer.
-macOS and Windows pass the install and runner tests in CI; that agent flow has
-not been run on them yet.
+asking only the task and never naming TAP. Ask 1 is a first-time task (the
+agent should search TAP and offer nothing); ask 2 is the same kind of task in
+a new session (it should offer to save it, and save it once the person says
+yes); ask 3, in another new session, should run the saved primitive.
+
+| Agent (model) | Shows TAP's prompts | Ask 1 | Ask 2: offer, save | Ask 3: reuse |
+|---|---|---|---|---|
+| Claude Code (Claude) | yes | pass 6/6 | pass 4/4 | pass 4/4 |
+| Codex (GPT) | yes | pass 3/3 | 2 of 3 offered; saved | pass 2/2 |
+| Goose, interactive (DeepSeek V4.1 Flash) | yes | pass | pass | pass |
+| Goose, `goose run` | no | pass | pass | refused: no terminal for the prompt |
+| OpenCode (DeepSeek V4.1 Flash) | no | pass | pass (saved from its shell) | refused until `tap trust` |
+| Kilo CLI (DeepSeek V4.1 Flash) | no | pass | pass | refused until `tap trust` |
+| Gemini CLI, `-p` (Gemini) | no | pass | offered; its headless policy blocked the save | not reached |
+| Crush (DeepSeek V4.1 Flash) | no | answered without calling TAP | same | same |
+
+An agent that cannot show a prompt is never given an approval: the runner
+refuses a primitive that needs one until the person runs `tap trust` for it
+(`--fetch-origin` for web reads). Whether to offer saving is the agent's call;
+TAP tells it when a task has come before. macOS and Windows pass the install
+and runner tests in CI; this agent flow has not been run on them yet.
 
 Other agents can connect to the local MCP server where they support MCP.
 Tool execution depends on a supported bridge, an experimental relay, or an
