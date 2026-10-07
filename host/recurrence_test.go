@@ -181,3 +181,16 @@ func TestCodexIsDetectedWithoutSeatbelt(t *testing.T) {
 		t.Fatalf("detected %q", got)
 	}
 }
+
+// A short history that is mostly this task, asked several times, still
+// recurs: rarity is only required on a long history.
+func TestAShortHistoryOfTheSameTaskRecurs(t *testing.T) {
+	past := []pastRequest{
+		req("s1", 3, "Can you check whether GitLab Runner commit 3c39fceb is ready to release after v19.4.0?"),
+		req("s2", 2, "Can you check whether GitLab Runner commit 3378221a is ready to release after v19.4.1?"),
+		req("s3", 1, "Can you check whether GitLab Runner commit 3c39fceb is ready to release after v19.4.0?"),
+	}
+	if rec := findRecurrence("check gitlab runner commit release readiness", past); rec.Sessions != 3 {
+		t.Fatalf("recurrence = %+v", rec)
+	}
+}

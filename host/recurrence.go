@@ -28,6 +28,9 @@ const (
 	// recurrenceScore is the share of the query's weight a past request must
 	// carry to count as the same kind of request.
 	recurrenceScore = 0.6
+	// rareHistory is the fewest earlier requests at which shared words must
+	// also be rare in the history.
+	rareHistory = 20
 )
 
 // pastRequest is one user request from the agent's history.
@@ -280,6 +283,13 @@ func findRecurrence(query string, past []pastRequest) recurrence {
 	if rareLimit < 2 {
 		rareLimit = 2
 	}
+	// On a short history rarity says nothing: when it is mostly this very
+	// task, asked three times, every word is in every request and no match
+	// passed (found testing OpenCode). It was measured on 270 sessions.
+	needRare := 2
+	if len(past) < rareHistory {
+		needRare = 0
+	}
 	// Smoothed, so that on a short history, where every word is in every
 	// request, the weights fall back to plain overlap instead of zero.
 	weight := func(w string) float64 { return 1 + math.Log(float64(len(past)+1)/float64(df[w]+1)) }
@@ -310,7 +320,7 @@ func findRecurrence(query string, past []pastRequest) recurrence {
 		}
 		// The overlap must also be a real part of the earlier request: a long
 		// message shares some words with almost anything.
-		if shared/total < recurrenceScore || 2*count < len(q) || rare < 2 || 10*count < 3*len(p.words) {
+		if shared/total < recurrenceScore || 2*count < len(q) || rare < needRare || 10*count < 3*len(p.words) {
 			continue
 		}
 		sessions[p.session] = true
