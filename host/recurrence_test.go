@@ -219,3 +219,18 @@ func TestASessionFromAMinuteAgoIsEarlier(t *testing.T) {
 		t.Fatalf("an earlier session 90 seconds ago was not counted: %s", note)
 	}
 }
+
+// Codex searched "release readiness git commit" one minute after the person
+// asked whether a commit was "ready to release", and was told the task was
+// new: "readiness" and "ready" were different words.
+func TestReadinessAndReadyAreTheSameWord(t *testing.T) {
+	past := []pastRequest{req("s1", 0, "Can you check whether GitLab Runner commit 3c39fcebf73d01d464db3dee8a5267155273a6c5 is ready to release after v19.4.0?")}
+	for _, q := range []string{"release readiness git commit", "gitlab release readiness commit comparison"} {
+		if rec := findRecurrence(q, past); rec.Sessions != 1 {
+			t.Errorf("%q: recurrence = %+v", q, rec)
+		}
+	}
+	if w := wordSet("readiness ready queries"); !w["ready"] || w["readi"] || !w["query"] {
+		t.Fatalf("words = %v", w)
+	}
+}

@@ -137,7 +137,9 @@ type cachedRequest struct {
 	Example string   `json:"example"`
 }
 
-const requestCacheVersion = 2
+// Version 3: words are stemmed (readiness and ready agree), so older
+// cached words no longer compare.
+const requestCacheVersion = 3
 
 func requestCachePath(client string) string {
 	base, err := os.UserCacheDir()
@@ -264,6 +266,18 @@ func wordSet(text string) map[string]bool {
 	}) {
 		if len([]rune(w)) < 3 || strings.IndexFunc(w, unicode.IsDigit) >= 0 {
 			continue
+		}
+		// "readiness" must agree with "ready": cut to five letters they
+		// were "readi" and "ready", and a Codex search for "release
+		// readiness git commit" missed the same request asked a minute
+		// before.
+		switch {
+		case strings.HasSuffix(w, "iness") && len(w) > 6:
+			w = strings.TrimSuffix(w, "iness") + "y"
+		case strings.HasSuffix(w, "ness") && len(w) > 6:
+			w = strings.TrimSuffix(w, "ness")
+		case strings.HasSuffix(w, "ies") && len(w) > 5:
+			w = strings.TrimSuffix(w, "ies") + "y"
 		}
 		if r := []rune(w); len(r) > 5 {
 			w = string(r[:5])

@@ -8,6 +8,10 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- A search for a task the person asked before now finds it when the agent
+  words it differently: "readiness" and "ready" count as the same word.
+  Before, a Codex search for "release readiness" was told the task was new.
+
 - `tap setup` now installs the tap-author skill into OpenCode and Crush too.
   Before, it was installed only where TAP can also use the agent's own
   connections, so OpenCode and Crush never searched TAP before answering and
