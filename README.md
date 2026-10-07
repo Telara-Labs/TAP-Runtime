@@ -104,13 +104,13 @@ yes); ask 3, in another new session, should run the saved primitive.
 | Codex (GPT) | yes | pass 3/3 | 2 of 3 offered; saved | pass 2/2 |
 | Goose, interactive (DeepSeek V4.1 Flash) | yes | pass | pass | pass |
 | Goose, `goose run` | no | pass | pass | refused: no terminal for the prompt |
-| OpenCode (DeepSeek V4.1 Flash) | no | pass | pass (saved from its shell) | refused until `tap trust` (v0.2.5; reads run since v0.2.6) |
-| Kilo CLI (DeepSeek V4.1 Flash) | no | pass | pass | refused until `tap trust` (v0.2.5; reads run since v0.2.6) |
+| OpenCode (DeepSeek V4.1 Flash) | no | pass | pass (saved from its shell) | pass since v0.2.7 (reads-only, no prompt needed) |
+| Kilo CLI (DeepSeek V4.1 Flash) | no | pass | pass | pass since v0.2.7 (reads-only, no prompt needed) |
 | Gemini CLI, `-p` (Gemini) | no | pass | offered; its headless policy blocked the save | not reached |
 | Crush (DeepSeek V4.1 Flash) | no | answered without calling TAP | same | same |
 
 An agent that cannot show a prompt is never given an approval for a change.
-Since v0.2.6 a primitive that only reads runs there when the agent's own
+Since v0.2.7 a primitive that only reads runs there when the agent's own
 settings already let its model read the web without asking (OpenCode, Kilo,
 Crush with `fetch` allowed, Goose in `auto` mode); anything else still needs
 `tap trust`. Whether to offer saving is the agent's call;

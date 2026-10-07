@@ -9,7 +9,7 @@ refusal and real proxy fetching; see the version-qualified
 
 ## Reads-only primitives in agents that cannot prompt
 
-Since v0.2.6, a primitive whose manifest declares only reads (fetch `GET` or
+Since v0.2.7, a primitive whose manifest declares only reads (fetch `GET` or
 `HEAD`, files `read`, tools `read`, no host programs) runs without `tap trust`
 in an agent that cannot show a prompt, when that agent's own settings already
 let its model fetch the web without asking: OpenCode and Kilo with
