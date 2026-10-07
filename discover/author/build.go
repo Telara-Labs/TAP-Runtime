@@ -36,6 +36,9 @@ func BuildPackage(dir string) (*pack.BuildReceipt, error) {
 	if filepath.IsAbs(m.Provenance.Source) || filepath.Clean(m.Provenance.Source) == ".." || strings.HasPrefix(filepath.Clean(m.Provenance.Source), ".."+string(filepath.Separator)) {
 		return nil, fmt.Errorf("provenance.source must stay in the package")
 	}
+	if _, err := os.Lstat(filepath.Join(dir, ".home")); err == nil || !os.IsNotExist(err) {
+		return nil, fmt.Errorf(".home is reserved for temporary compiler files")
+	}
 	before, err := pack.ContentDigest(dir, entry, pack.BuildReceiptFile)
 	if err != nil {
 		return nil, err
@@ -58,14 +61,13 @@ func BuildPackage(dir string) (*pack.BuildReceipt, error) {
 	os.Remove(filepath.Join(work, pack.BuildReceiptFile))
 	os.Remove(filepath.Join(work, "SKILL.md"))
 	os.Remove(filepath.Join(work, pack.SavedMarker))
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	output, err := (rebuild.Here{}).Run(ctx, work, m.Provenance.Build)
+	builder := timedBuild{sourceDigest: before, entrypoint: entry}
+	output, err := builder.Run(context.Background(), work, m.Provenance.Build)
 	if err != nil {
 		return nil, fmt.Errorf("author build failed: %w\n%s", err, output)
 	}
-	// Verify against the original snapshot, excluding compiler-created caches
-	// or source files a build command may have rewritten.
+	// Verify against the same original source snapshot. Neither build may
+	// rewrite source files or dependency pins.
 	verification, err := os.MkdirTemp("", "tap-author-verify-")
 	if err != nil {
 		return nil, err
@@ -76,6 +78,7 @@ func BuildPackage(dir string) (*pack.BuildReceipt, error) {
 	}
 	os.Remove(filepath.Join(verification, "SKILL.md"))
 	os.Remove(filepath.Join(verification, pack.SavedMarker))
+	os.Remove(filepath.Join(verification, pack.BuildReceiptFile))
 	artifact, err := os.ReadFile(filepath.Join(work, entry))
 	if err != nil {
 		return nil, err
@@ -86,7 +89,7 @@ func BuildPackage(dir string) (*pack.BuildReceipt, error) {
 	if err := os.WriteFile(filepath.Join(verification, entry), artifact, 0o644); err != nil {
 		return nil, err
 	}
-	checked, err := rebuild.VerifyWith(verification, timedBuild{})
+	checked, err := rebuild.VerifyWith(verification, builder)
 	if err != nil {
 		return nil, err
 	}
@@ -141,10 +144,27 @@ func BuildCommand(args []string, out, errOut io.Writer) int {
 }
 
 // Bound the verifier rebuild as well as the first explicit local build.
-type timedBuild struct{}
+type timedBuild struct{ sourceDigest, entrypoint string }
 
-func (timedBuild) Run(ctx context.Context, dir, command string) ([]byte, error) {
+func (b timedBuild) Run(ctx context.Context, dir, command string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	return (rebuild.Here{}).Run(ctx, dir, command)
+	check := func() error {
+		digest, err := pack.ContentDigest(dir, b.entrypoint, pack.BuildReceiptFile, ".home")
+		if err != nil {
+			return err
+		}
+		if digest != b.sourceDigest {
+			return fmt.Errorf("build modified source or dependency files; update the authored inputs before building")
+		}
+		return nil
+	}
+	if err := check(); err != nil {
+		return nil, err
+	}
+	out, err := (rebuild.Here{}).Run(ctx, dir, command)
+	if err != nil {
+		return out, err
+	}
+	return out, check()
 }

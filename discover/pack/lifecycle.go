@@ -39,18 +39,21 @@ func ContentDigest(dir string, exclude ...string) (string, error) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() {
-			return nil
-		}
-		if !d.Type().IsRegular() {
-			return fmt.Errorf("package member %s is not a regular file", path)
-		}
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
 		}
 		if ignore[filepath.ToSlash(rel)] {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("package member %s is not a regular file", path)
 		}
 		b, err := os.ReadFile(path)
 		if err != nil {
@@ -103,7 +106,7 @@ func CheckLifecycle(dir, root string) (*manifest.Manifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("authoring requires CHANGELOG.md for version %s: %w", m.Metadata.Version, err)
 	}
-	heading := regexp.MustCompile(`(?m)^##[ \t]+\[?v?` + regexp.QuoteMeta(m.Metadata.Version) + `\]?(?:[ \t]+-[^\n]*)?[ \t]*$`)
+	heading := regexp.MustCompile(`(?m)^##[ \t]+\[?v?` + regexp.QuoteMeta(m.Metadata.Version) + `\]?(?:[ \t]+-[^\n]*)?[ \t]*\r?$`)
 	loc := heading.FindIndex(b)
 	if loc == nil {
 		return nil, fmt.Errorf("CHANGELOG.md needs a ## %s entry", m.Metadata.Version)
@@ -162,7 +165,7 @@ func CheckLifecycle(dir, root string) (*manifest.Manifest, error) {
 		return nil, err
 	}
 	for _, it := range items {
-		if it.IsDir() {
+		if it.IsDir() && !strings.HasPrefix(it.Name(), ".") {
 			previous = append(previous, filepath.Join(VersionHistoryDir(root, m.Metadata.Publisher, m.Metadata.Name), it.Name()))
 		}
 	}
@@ -209,12 +212,17 @@ func InstallVersioned(root, name string, pkg []byte, m Marker, skill string) (st
 		return "", false, err
 	}
 	lock := filepath.Join(root, "."+name+".saving-lock")
-	f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(lock, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
+		return "", false, err
+	}
+	defer f.Close()
+	if err := lockSave(f); err != nil {
 		return "", false, fmt.Errorf("another save may be in progress: %w", err)
 	}
-	f.Close()
-	defer os.Remove(lock)
+	// Keep the lock inode stable for concurrent savers. The operating system
+	// releases this advisory lock if a process exits without cleaning up.
+	defer unlockSave(f)
 	stage, err := os.MkdirTemp(root, "."+name+".checking-")
 	if err != nil {
 		return "", false, err

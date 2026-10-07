@@ -3,10 +3,66 @@ package pack
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestSaveLockCrashHelper(t *testing.T) {
+	args := os.Args
+	if len(args) < 3 || args[len(args)-2] != "tap-lock-crash" {
+		return
+	}
+	f, err := os.OpenFile(args[len(args)-1], os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lockSave(f); err != nil {
+		t.Fatal(err)
+	}
+	os.Exit(0) // Deliberately bypass unlock/close to model a crashed saver.
+}
+
+func TestLifecycleRecoversInterruptedSaveAndIgnoresHiddenRetention(t *testing.T) {
+	root := t.TempDir()
+	lock := filepath.Join(root, ".lifecycle.saving-lock")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestSaveLockCrashHelper$", "--", "tap-lock-crash", lock)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	stale := filepath.Join(VersionHistoryDir(root, "dev.test", "lifecycle"), ".retaining-interrupted")
+	if err := os.MkdirAll(stale, 0755); err != nil {
+		t.Fatal(err)
+	}
+	dir := lifecyclePackage(t, "0.1.0", "print(1)\n")
+	os.WriteFile(filepath.Join(dir, "CHANGELOG.md"), []byte("## 0.1.0\r\n\r\n- Initial revision.\r\n"), 0644)
+	if _, _, err := installLifecycle(t, dir, root); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSaveLockExcludesConcurrentSaver(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lock")
+	a, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if err := lockSave(a); err != nil {
+		t.Fatal(err)
+	}
+	defer unlockSave(a)
+	b, err := os.OpenFile(path, os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if err := lockSave(b); err == nil {
+		unlockSave(b)
+		t.Fatal("concurrent save acquired lock")
+	}
+}
 
 func lifecyclePackage(t *testing.T, version, program string) string {
 	t.Helper()

@@ -2,6 +2,7 @@ package author
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,36 @@ import (
 
 	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 )
+
+func TestBuildRefusesCompilerSourceAndDependencyChanges(t *testing.T) {
+	for _, name := range []string{"source.txt", "go.mod", "go.sum"} {
+		t.Run(name, func(t *testing.T) {
+			command, _ := json.Marshal("printf '\\000asm\\001\\000\\000\\000' > main.wasm; printf changed > " + name)
+			dir := compiledDraft(t, string(command))
+			prior := []byte("prior executable")
+			os.WriteFile(filepath.Join(dir, "main.wasm"), prior, 0600)
+			os.WriteFile(filepath.Join(dir, pack.BuildReceiptFile), []byte("prior receipt"), 0600)
+			if _, err := BuildPackage(dir); err == nil || !strings.Contains(err.Error(), "modified source or dependency") {
+				t.Fatalf("%v", err)
+			}
+			after, _ := os.ReadFile(filepath.Join(dir, "main.wasm"))
+			receipt, _ := os.ReadFile(filepath.Join(dir, pack.BuildReceiptFile))
+			if !bytes.Equal(prior, after) || string(receipt) != "prior receipt" {
+				t.Fatal("failed build changed prior artifact/receipt")
+			}
+		})
+	}
+}
+
+func TestRebuildUsesIdenticalSnapshotWithoutPriorReceipt(t *testing.T) {
+	dir := compiledDraft(t, `"test ! -e BUILD.json && printf '\\000asm\\001\\000\\000\\000' > main.wasm"`)
+	if _, err := BuildPackage(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildPackage(dir); err != nil {
+		t.Fatalf("rebuild with prior receipt: %v", err)
+	}
+}
 
 func compiledDraft(t *testing.T, command string) string {
 	t.Helper()

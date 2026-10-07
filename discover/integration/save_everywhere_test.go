@@ -72,6 +72,25 @@ func writeClaudeChain(t *testing.T, home string, n int) {
 // accepts the recurring chain, installs its package once into the TAP
 // collection, and writes a pointer only into the detected agent that can
 // run it.
+func savedCollectionEntries(t *testing.T, root string) []os.DirEntry {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved []os.DirEntry
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		if _, err := pack.ReadMarker(filepath.Join(root, entry.Name())); err != nil {
+			t.Fatal(err)
+		}
+		saved = append(saved, entry)
+	}
+	return saved
+}
+
 func TestDiscoverInstallsOnceAndPointsDetectedAgents(t *testing.T) {
 	home, coll := isolatedHome(t)
 	writeClaudeChain(t, home, 3)
@@ -93,7 +112,7 @@ func TestDiscoverInstallsOnceAndPointsDetectedAgents(t *testing.T) {
 	if code := discover.Command([]string{"--all"}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("exit %d: %s\n%s", code, errOut.String(), out.String())
 	}
-	entries, _ := os.ReadDir(coll)
+	entries := savedCollectionEntries(t, coll)
 	if len(entries) != 1 {
 		t.Fatalf("collection holds %d entries:\n%s", len(entries), out.String())
 	}
@@ -129,7 +148,7 @@ func TestDiscoverMigrateSaved(t *testing.T) {
 	if code := discover.Command([]string{"--all", "--save-client", "none"}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("exit %d: %s", code, errOut.String())
 	}
-	entries, _ := os.ReadDir(coll)
+	entries := savedCollectionEntries(t, coll)
 	if len(entries) != 1 {
 		t.Fatalf("%d entries", len(entries))
 	}
@@ -171,7 +190,7 @@ func TestSaveMigratesOldSaves(t *testing.T) {
 	if code := discover.Command([]string{"--all", "--save-client", "none"}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("exit %d: %s", code, errOut.String())
 	}
-	entries, _ := os.ReadDir(coll)
+	entries := savedCollectionEntries(t, coll)
 	name := entries[0].Name()
 	// Put it back where saves used to go, under another name, as an old save.
 	old := filepath.Join(home, ".claude", "skills", "older-save")

@@ -182,7 +182,7 @@ func ReviewGeneratedTo(in io.Reader, out io.Writer, graph *codegen.ProgramGraph,
 		fmt.Fprintf(out, "Needs decision: %v\n", generateErr)
 	} else {
 		fmt.Fprintf(out, "Exact package digest: %s\n", digest)
-		for _, name := range []string{"primitive.yaml", "main.py", "README.md"} {
+		for _, name := range []string{"primitive.yaml", "main.py", "README.md", "CHANGELOG.md"} {
 			fmt.Fprintf(out, "\n--- %s ---\n%s\n", name, pkg.Files[name])
 		}
 	}
