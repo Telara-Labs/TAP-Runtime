@@ -364,12 +364,15 @@ primitives across a team, [explore Telara](https://telara.dev/).
 See [CONTRIBUTING.md](CONTRIBUTING.md). Report a vulnerability as described
 in [SECURITY.md](SECURITY.md), not in a public issue.
 
-## Licence
+## License
 
-MIT, in [LICENSE](LICENSE). `third_party/sh/`, a copy of `mvdan.cc/sh/v3`
-3.14.1 patched to run pipelines on wasip1, keeps its BSD 3-clause licence. A
-release carries both, with the licences of everything compiled in, in
-`THIRD_PARTY_NOTICES.txt`.
+TAP is MIT-licensed; see [LICENSE](LICENSE).
+
+`third_party/sh/` is a vendored copy of `mvdan.cc/sh/v3` 3.14.1, patched so
+shell pipelines run under wasip1. It keeps its original BSD 3-Clause license.
+
+Release archives include `THIRD_PARTY_NOTICES.txt`, which lists the license of
+every dependency compiled into the binary.
 
 ---
 
