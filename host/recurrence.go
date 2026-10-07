@@ -31,6 +31,9 @@ const (
 	// rareHistory is the fewest earlier requests at which shared words must
 	// also be rare in the history.
 	rareHistory = 20
+	// currentSessionSlack is how long before the server started a session
+	// may begin and still be the current one.
+	currentSessionSlack = 2 * time.Minute
 )
 
 // pastRequest is one user request from the agent's history.
@@ -234,8 +237,13 @@ func (h *historyLoad) earlier(wait time.Duration) (past []pastRequest, ok bool) 
 	case <-time.After(wait):
 		return nil, false
 	}
+	// opencode run and goose run write the person's message before they start
+	// their MCP servers, so the current session began a moment before this
+	// server did and read as an earlier one: a first ask was offered for
+	// saving. A session from just before the server started is the current one.
+	cutoff := h.started.Add(-currentSessionSlack)
 	for _, p := range h.past {
-		if p.at.Before(h.started) {
+		if p.at.Before(cutoff) {
 			past = append(past, p)
 		}
 	}

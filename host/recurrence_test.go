@@ -194,3 +194,15 @@ func TestAShortHistoryOfTheSameTaskRecurs(t *testing.T) {
 		t.Fatalf("recurrence = %+v", rec)
 	}
 }
+
+// OpenCode and Goose write the request before starting their MCP servers:
+// the current session starts seconds before the server and is not earlier.
+func TestASessionStartedJustBeforeTheServerIsTheCurrentOne(t *testing.T) {
+	now := time.Now()
+	h := &historyLoad{started: now, done: make(chan struct{})}
+	h.past = []pastRequest{{ref: "opencode/cur/0", session: "cur", at: now.Add(-5 * time.Second), text: "Can you check whether GitLab Runner commit 3c39fceb is ready to release after v19.4.0?", words: wordSet("Can you check whether GitLab Runner commit 3c39fceb is ready to release after v19.4.0?")}}
+	close(h.done)
+	if note := noMatchNote("gitlab runner commit release readiness", h); strings.Contains(note, "tap-author") {
+		t.Fatalf("the current session counted as earlier: %s", note)
+	}
+}
