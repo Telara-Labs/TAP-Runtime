@@ -304,6 +304,9 @@ func installOne(c agents.Client, home, self, name, scope string, env envFlags, p
 		if c.MCP.Local {
 			entry = localMCPEntry(self, name, env)
 		}
+		if c.MCP.Type != "" {
+			entry["type"] = c.MCP.Type
+		}
 		if print {
 			verb := "add to"
 			if remove {

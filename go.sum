@@ -10,6 +10,8 @@ github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261006201830-13a1cc6435f0 h
 github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261006201830-13a1cc6435f0/go.mod h1:3DUQIqn+MbO8HLxn5WGJUo2Fh5bmKaBlpYDvSWRqBmo=
 github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261007053122-4edd7aab5b67 h1:BJ0/gRRZcoU2CV8QyOt96zhxZNQJiUJ8H4wjaSaYPHI=
 github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261007053122-4edd7aab5b67/go.mod h1:3DUQIqn+MbO8HLxn5WGJUo2Fh5bmKaBlpYDvSWRqBmo=
+github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261007054310-a9001da82af8 h1:yjW0vAoWdqiJ50TJP72zkqukfLiwoLZpRmR67y1X2Vk=
+github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261007054310-a9001da82af8/go.mod h1:3DUQIqn+MbO8HLxn5WGJUo2Fh5bmKaBlpYDvSWRqBmo=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=
 github.com/cenkalti/backoff/v5 v5.0.3/go.mod h1:rkhZdG3JZukswDf7f0cwqPNk4K0sa+F97BxZthm/crw=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=

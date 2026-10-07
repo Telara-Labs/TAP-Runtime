@@ -347,3 +347,21 @@ func TestInstallIsSeenByGoose(t *testing.T) {
 }
 
 func fileIsThere(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// Crush skipped an entry without "type": "stdio".
+func TestInstallCrushWritesAStdioEntry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	var out, errOut bytes.Buffer
+	if code := installCommand([]string{"--client", "crush"}, &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	b, err := os.ReadFile(filepath.Join(home, ".config", "crush", "crush.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := decode(t, b)["mcp"].(map[string]any)["tap"].(map[string]any)
+	if s["type"] != "stdio" || s["args"].([]any)[0] != "serve" {
+		t.Fatalf("crush entry %v", s)
+	}
+}
