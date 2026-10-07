@@ -17,7 +17,7 @@ var searchTool = localTool("tap_search", "Call this first, before starting any t
 	"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
 }, nil, true)
 
-var loadTool = localTool("tap_load", "Load the declared inputs and effects of an exact local TAP primitive.", map[string]any{
+var loadTool = localTool("tap_load", "Load an exact local TAP primitive's declarations and a bounded preview of possible host connections and write gates. Runs no tools; execution rechecks bindings and dynamic effects.", map[string]any{
 	"ref": map[string]any{"type": "string"}, "digest": map[string]any{"type": "string"},
 }, []string{"ref", "digest"}, true)
 
@@ -183,7 +183,8 @@ func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMe
 		m := e.Manifest
 		loaded := map[string]any{"ref": e.Ref, "digest": e.Digest, "description": e.Description,
 			"interface": m.Interface, "capabilities": m.Capabilities, "tools": m.Tools,
-			"commands": m.Commands, "files": m.Files, "fetch": m.Fetch}
+			"commands": m.Commands, "files": m.Files, "fetch": m.Fetch,
+			"connection_preview": s.previewConnections(m)}
 		if checkRunArgs(m, nil) != "" {
 			loaded["args"] = "tap_run args: one element, the input object as a JSON string, for example [\"" +
 				strings.ReplaceAll(exampleInput(inputProps(m), schemaStrings(m.Interface.InputSchema["required"])), `"`, `\"`) + "\"]"

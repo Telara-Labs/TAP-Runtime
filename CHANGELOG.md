@@ -6,6 +6,16 @@ release is compatible. For the complete source change, follow each compare
 link. Runner versions, primitive versions, and the manifest API are distinct;
 see [version review](docs/versioning.md).
 
+## 0.2.6
+
+- `tap_load` now returns a bounded flat preview of possible host connections
+  and base write gates using the same admission resolver as execution. It
+  shows missing, ambiguous and refused aliases without running tools,
+  prompting or saving choices. Dynamic dispatcher effects are checked again
+  during execution. Clients without live inventory report it as unavailable.
+
+[0.2.5 to 0.2.6 source changes](https://github.com/Telara-Labs/TAP-Runtime/compare/v0.2.5...v0.2.6).
+
 ## 0.2.2
 
 - `tap_evidence` now includes the executed package digest, declared permissions

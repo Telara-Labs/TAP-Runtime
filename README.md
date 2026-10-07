@@ -226,6 +226,15 @@ The tool list does not grow with the number of primitives. A client that
 cannot show an approval prompt receives no implicit approval. Package trust,
 fetch grants and tool bindings are separate owner decisions.
 
+`tap_load` adds a flat `connection_preview` for the exact requested ref and
+digest. It resolves possible tool aliases against one current host inventory,
+showing connection and tool names, declared and base effects, and write gates.
+Missing, ambiguous and refused aliases stay visible. Dispatcher operations
+require a runtime effect check. A client without live inventory reports
+`inventory_unavailable`; it does not claim the package's pins are connected.
+The preview executes no tools, prompts nobody and grants no trust. Execution
+resolves again. See [connection previews](docs/connection-preview.md).
+
 `tap_evidence` ties a run to its executed package digest and saved manifest.
 It returns declared tool, command, file and network permissions from that
 snapshot, plus bounded journal events. Recorded tool attempts identify the
