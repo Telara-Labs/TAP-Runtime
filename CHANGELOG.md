@@ -8,6 +8,12 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- On an agent that cannot lend its connections (OpenCode, Crush), `tap_save`
+  refuses a primitive that requires a connection, and a run of one says how to
+  fix it: declare a program such as `git` under `commands:` and a web read
+  under `fetch:`. Before, such a primitive saved and was then refused on every
+  run.
+
 - A search for a task the person asked before now finds it when the agent
   words it differently: "readiness" and "ready" count as the same word.
   Before, a Codex search for "release readiness" was told the task was new.

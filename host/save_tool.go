@@ -69,6 +69,13 @@ func (s *server) handleSave(id *json.RawMessage, raw json.RawMessage, canElicit 
 		return
 	}
 	ref := m.Metadata.Publisher + "/" + m.Metadata.Name + "@" + m.Metadata.Version
+	s.mu.Lock()
+	client := clientFor(s.clientName)
+	s.mu.Unlock()
+	if why := unlendableTools(client, m); why != "" {
+		s.toolError(id, why+"; fix it and call tap_save again")
+		return
+	}
 	if !canElicit {
 		s.toolError(id, fmt.Sprintf("this client cannot ask the person to agree; they can save it with: %s discover save %s", runnerCommand(), dir))
 		return

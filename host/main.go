@@ -541,6 +541,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			br, err = openBridge(c)
 			if err != nil {
+				if why := unlendableTools(c, &m); why != "" {
+					return nil, fmt.Errorf("%s", why)
+				}
 				return nil, err
 			}
 			defer br.Close()
