@@ -36,7 +36,7 @@ func TestAnAgentOnPathIsInstalledBeforeItsFirstRun(t *testing.T) {
 
 func TestCrushCanBeConnected(t *testing.T) {
 	c, ok := Lookup("crush")
-	if !ok || c.MCP.Kind != MCPJSONFile || c.MCP.Path != ".config/crush/crush.json" || c.MCP.Key != "mcp" {
+	if !ok || c.MCP.Kind != MCPJSONFile || c.MCP.Path != ".config/crush/crush.json" || c.MCP.Key != "mcp" || c.MCP.Type != "stdio" {
 		t.Fatalf("crush MCP = %+v", c.MCP)
 	}
 }

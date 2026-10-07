@@ -91,6 +91,9 @@ type MCPConfig struct {
 	// {"type": "local", "command": [program, args...], "enabled": true},
 	// instead of {"command", "args"}.
 	Local bool
+	// Type, when set, is written as the entry's "type": Crush loads a
+	// server only when it says "stdio".
+	Type string
 }
 
 // Capabilities a call site can ask for, named in errors.
@@ -190,8 +193,9 @@ var registry = []Client{
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history crush.db: crush source initial migration (not installed here)",
 		Markers: []string{".config/crush", ".local/share/crush"}, History: true,
 		Skills: SkillsPaths{Global: ".config/crush/skills", Project: ".crush/skills"},
-		// Crush reads MCP servers from crush.json "mcp" (stdio by default).
-		MCP: MCPConfig{Kind: MCPJSONFile, Path: ".config/crush/crush.json", Key: "mcp"}, Program: "crush"},
+		// Crush reads MCP servers from crush.json "mcp"; it skipped an entry
+		// without "type": "stdio".
+		MCP: MCPConfig{Kind: MCPJSONFile, Path: ".config/crush/crush.json", Key: "mcp", Type: "stdio"}, Program: "crush"},
 	{ID: "continue", Name: "Continue",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history ~/.continue/sessions: vshulcz/deja-vu registry (not installed here)",
 		Markers: []string{".continue"}, History: true,
