@@ -31,7 +31,7 @@ var errStoreSchema = errors.New("the store does not have the expected tables")
 
 // sqliteRows runs one query against a store, read-only.
 func sqliteRows(bin, db, sql string) ([]map[string]any, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteReadTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteDeadline(db))
 	defer cancel()
 	out, err := util.SQLiteQuery(ctx, bin, db, sql)
 	if err != nil {

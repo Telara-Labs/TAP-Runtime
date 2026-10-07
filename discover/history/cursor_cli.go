@@ -98,7 +98,7 @@ type cursorCLIPart struct {
 
 // ReadCursorCLIStore reads one session's store.db with the sqlite3 at bin.
 func ReadCursorCLIStore(bin, db string) (trace.Session, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteReadTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteDeadline(db))
 	defer cancel()
 	query := func(sql string) ([]map[string]string, error) {
 		b, err := util.SQLiteQuery(ctx, bin, db, sql)

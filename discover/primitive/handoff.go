@@ -188,7 +188,7 @@ func sqliteRows(path, sql string) ([]map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteReadTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteDeadline(path))
 	defer cancel()
 	out, err := util.SQLiteQuery(ctx, bin, path, sql)
 	if err != nil {

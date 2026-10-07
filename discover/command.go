@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Telara-Labs/TAP-Runtime/discover/client"
@@ -256,27 +257,19 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 		}
 	}
 	progress("Reading your agent history…")
-	var sessions []trace.Session
-	for i, r := range readers {
-		board.reading(i)
-		var ss []trace.Session
-		var err error
-		if pr, ok := r.(trace.ProgressReader); ok && board != nil {
-			ss, err = pr.ReadProgress(since, board.progress(i))
-		} else {
-			ss, err = r.Read(since)
+	// Repeat runs parse only the session files that changed.
+	history.UseCache(filepath.Join(home, ".tap", "discover", "cache"))
+	sessions, skipped := readAll(readers, since, board)
+	// One agent's store that cannot be read is skipped, never the run.
+	reportSkipped := func() {
+		for _, s := range skipped {
+			fmt.Fprintf(errOut, "discover: skipped %s\n", s)
 		}
-		if err != nil {
-			board.stop()
-			fmt.Fprintf(errOut, "discover: %s: %v\n", r.Client(), err)
-			return 1
-		}
-		board.read(i, len(ss))
-		sessions = append(sessions, ss...)
 	}
 	if len(sessions) == 0 && !*asJSON {
 		board.stop()
 		progress("")
+		reportSkipped()
 		writeNoHistory(out, readIDs, *days)
 		return 0
 	}
@@ -294,6 +287,7 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 	board.analysed(len(res.Families))
 	board.stop()
 	progress("")
+	reportSkipped()
 	if *asJSON {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
@@ -384,4 +378,48 @@ func MigrateCommand(out, errOut io.Writer) int {
 		fmt.Fprintln(out, "nothing to migrate")
 	}
 	return 0
+}
+
+// readAll reads every agent's history at once; files are parsed under the
+// history package's process-wide bound, so the host keeps a CPU. Sessions
+// come back in reader order. A reader that fails, or panics, is skipped and
+// named in skipped with its reason; the others are still read.
+func readAll(readers []trace.Reader, since time.Time, board *readBoard) (sessions []trace.Session, skipped []string) {
+	got := make([][]trace.Session, len(readers))
+	errs := make([]error, len(readers))
+	var wg sync.WaitGroup
+	for i, r := range readers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if p := recover(); p != nil {
+					errs[i] = fmt.Errorf("reader failed: %v", p)
+					board.skipped(i)
+				}
+			}()
+			board.reading(i)
+			var err error
+			if pr, ok := r.(trace.ProgressReader); ok && board != nil {
+				got[i], err = pr.ReadProgress(since, board.progress(i))
+			} else {
+				got[i], err = r.Read(since)
+			}
+			if err != nil {
+				errs[i] = err
+				board.skipped(i)
+				return
+			}
+			board.read(i, len(got[i]))
+		}()
+	}
+	wg.Wait()
+	for i, r := range readers {
+		if errs[i] != nil {
+			skipped = append(skipped, fmt.Sprintf("%s: %v", r.Client(), errs[i]))
+			continue
+		}
+		sessions = append(sessions, got[i]...)
+	}
+	return sessions, skipped
 }

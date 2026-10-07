@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -35,6 +36,24 @@ func SQLiteBin() (string, error) {
 // SQLiteReadTimeout bounds a store read even when sqlite3 or its pipes stall.
 // Keep this in code: it is part of Discover's local-reader contract.
 const SQLiteReadTimeout = 30 * time.Second
+
+// SQLiteReadPerGB is added to SQLiteReadTimeout for each gigabyte of the
+// store, so a large store is slow, never failed: Cursor keeps 15 GB stores
+// whose relevant rows alone take tens of seconds to read.
+const SQLiteReadPerGB = 30 * time.Second
+
+// SQLiteDeadline bounds one query of db: SQLiteReadTimeout, plus
+// SQLiteReadPerGB for each gigabyte the store and its WAL hold. It still
+// ends a read that has stalled.
+func SQLiteDeadline(db string) time.Duration {
+	var size int64
+	for _, p := range []string{db, db + "-wal"} {
+		if info, err := os.Stat(p); err == nil {
+			size += info.Size()
+		}
+	}
+	return SQLiteReadTimeout + time.Duration(float64(SQLiteReadPerGB)*float64(size)/(1<<30))
+}
 
 // SQLiteQuery reads a store with the same WAL-aware URI used by every reader.
 // WaitDelay also bounds inherited output pipes after the process is killed.

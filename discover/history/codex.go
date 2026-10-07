@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -63,19 +64,15 @@ func (r Codex) read(since time.Time, p trace.Progress) ([]trace.Session, trace.R
 	var out []trace.Session
 	ids := map[string]bool{}
 	files = changedSince(files, since)
-	for i, f := range files {
-		if p != nil {
-			p(i, len(files))
-		}
-		s, err := ReadCodexFile(f)
-		if err != nil {
+	for i, r := range ParseFiles(files, "codex", p, parseCodex) {
+		f, s := files[i], r.Session
+		if r.Err != nil {
 			st.UnreadableFiles++
 			continue
 		}
 		if len(s.Calls) == 0 || s.Start.Before(since) {
 			continue
 		}
-		s.SourceDigest = FileDigest(f)
 		// A sub-rollout can open with its parent's meta. Session identity
 		// must be unique, so a later file claiming a used id is named by
 		// its own file.
@@ -87,9 +84,6 @@ func (r Codex) read(since time.Time, p trace.Progress) ([]trace.Session, trace.R
 		}
 		ids[s.ID] = true
 		out = append(out, s)
-	}
-	if p != nil {
-		p(len(files), len(files))
 	}
 	return out, st, nil
 }
@@ -119,18 +113,15 @@ type CodexLine struct {
 	} `json:"payload"`
 }
 
-func ReadCodexFile(path string) (res trace.Session, err error) {
+func ReadCodexFile(path string) (trace.Session, error) { return ParseFile(path, parseCodex) }
+
+func parseCodex(path string, fh io.Reader) (res trace.Session, err error) {
 	// One file the parser cannot follow is skipped, not the whole run.
 	defer func() {
 		if r := recover(); r != nil {
 			res, err = trace.Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
 		}
 	}()
-	fh, err := os.Open(path)
-	if err != nil {
-		return trace.Session{}, err
-	}
-	defer fh.Close()
 	a := NewAssembler("codex", strings.TrimSuffix(filepath.Base(path), ".jsonl"))
 	s := &a.S
 	metaSeen := false

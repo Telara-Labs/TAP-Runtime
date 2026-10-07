@@ -50,20 +50,16 @@ func (r Antigravity) ReadWithStats(since time.Time) ([]trace.Session, trace.Read
 		return nil, st, err
 	}
 	var out []trace.Session
-	for _, f := range files {
-		if info, err := os.Stat(f); err != nil || info.ModTime().Before(since) {
-			continue
-		}
-		s, err := ReadAntigravityFile(f)
-		if err != nil {
+	// Not cached: a session's usage also comes from the conversation's
+	// state database, which the transcript's size and time do not cover.
+	for _, r := range ParseFiles(changedSince(files, since), "", nil, parseAntigravity) {
+		if r.Err != nil {
 			st.UnreadableFiles++
 			continue
 		}
-		if len(s.Calls) == 0 || s.Start.Before(since) {
-			continue
+		if s := r.Session; len(s.Calls) > 0 && !s.Start.Before(since) {
+			out = append(out, s)
 		}
-		s.SourceDigest = FileDigest(f)
-		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].Start.Equal(out[j].Start) {
@@ -94,17 +90,16 @@ func antigravityConversation(path string) string {
 }
 
 // ReadAntigravityFile reads one conversation's transcript.
-func ReadAntigravityFile(path string) (s trace.Session, err error) {
+func ReadAntigravityFile(path string) (trace.Session, error) {
+	return ParseFile(path, parseAntigravity)
+}
+
+func parseAntigravity(path string, fh io.Reader) (s trace.Session, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			s, err = trace.Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
 		}
 	}()
-	fh, err := os.Open(path)
-	if err != nil {
-		return trace.Session{}, err
-	}
-	defer fh.Close()
 	conv := antigravityConversation(path)
 	d := AntigravityDecoder{Conversation: conv, Usage: AntigravityUsage(antigravityStateDB(conv))}
 	a := NewAssembler("antigravity", filepath.Base(conv))
@@ -264,7 +259,7 @@ func AntigravityUsage(db string) map[int]trace.Usage {
 	if err != nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteReadTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteDeadline(db))
 	defer cancel()
 	raw, err := util.SQLiteQuery(ctx, bin, db, `SELECT hex(data) AS data FROM gen_metadata`)
 	if err != nil || len(bytes.TrimSpace(raw)) == 0 {

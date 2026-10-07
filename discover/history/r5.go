@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,31 +46,26 @@ func (r CopilotCLI) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadS
 	files, _ := filepath.Glob(filepath.Join(r.Dir, "*", "events.jsonl"))
 	servers := mcpServerNames(r.Configs, "mcpServers")
 	var out []trace.Session
-	for _, f := range files {
-		if info, err := os.Stat(f); err != nil || info.ModTime().Before(since) {
-			continue
-		}
-		s, err := readCopilotFile(f, servers)
-		if err != nil {
+	// Not cached: tool names decode against the configured MCP servers.
+	parse := func(path string, r io.Reader) (trace.Session, error) { return parseCopilot(path, r, servers) }
+	for _, r := range ParseFiles(changedSince(files, since), "", nil, parse) {
+		if r.Err != nil {
 			st.UnreadableFiles++
 			continue
 		}
-		if len(s.Calls) == 0 || s.Start.Before(since) {
-			continue
+		if s := r.Session; len(s.Calls) > 0 && !s.Start.Before(since) {
+			out = append(out, s)
 		}
-		s.SourceDigest = FileDigest(f)
-		out = append(out, s)
 	}
 	sortSessions(out)
 	return out, st, nil
 }
 
 func readCopilotFile(path string, servers []string) (trace.Session, error) {
-	fh, err := os.Open(path)
-	if err != nil {
-		return trace.Session{}, err
-	}
-	defer fh.Close()
+	return ParseFile(path, func(path string, r io.Reader) (trace.Session, error) { return parseCopilot(path, r, servers) })
+}
+
+func parseCopilot(path string, fh io.Reader, servers []string) (trace.Session, error) {
 	a := NewAssembler("copilot-cli", filepath.Base(filepath.Dir(path)))
 	sc := bufio.NewScanner(fh)
 	sc.Buffer(make([]byte, 1<<20), 128<<20)

@@ -3,7 +3,7 @@ package history
 import (
 	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -46,25 +46,24 @@ func (r VSCodeCopilot) ReadWithStats(since time.Time) ([]trace.Session, trace.Re
 		}
 		files = append(files, m...)
 	}
+	var sessions []string
+	for _, f := range files {
+		if strings.HasSuffix(f, ".json") || strings.HasSuffix(f, ".jsonl") {
+			sessions = append(sessions, f)
+		}
+	}
 	var out []trace.Session
 	seen := map[string]bool{}
-	for _, f := range files {
-		if !strings.HasSuffix(f, ".json") && !strings.HasSuffix(f, ".jsonl") {
-			continue
-		}
-		if info, err := os.Stat(f); err != nil || info.ModTime().Before(since) {
-			continue
-		}
-		s, err := ReadVSCodeFile(f)
-		if err != nil {
+	for _, r := range ParseFiles(changedSince(sessions, since), "vscode-copilot", nil, parseVSCode) {
+		if r.Err != nil {
 			st.UnreadableFiles++
 			continue
 		}
+		s := r.Session
 		if len(s.Calls) == 0 || s.Start.Before(since) || seen[s.ID] {
 			continue // a session kept as both .json and .jsonl is read once
 		}
 		seen[s.ID] = true
-		s.SourceDigest = FileDigest(f)
 		out = append(out, s)
 	}
 	sortSessions(out)
@@ -72,17 +71,14 @@ func (r VSCodeCopilot) ReadWithStats(since time.Time) ([]trace.Session, trace.Re
 }
 
 // ReadVSCodeFile reads one chat session file.
-func ReadVSCodeFile(path string) (s trace.Session, err error) {
+func ReadVSCodeFile(path string) (trace.Session, error) { return ParseFile(path, parseVSCode) }
+
+func parseVSCode(path string, fh io.Reader) (s trace.Session, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			s, err = trace.Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
 		}
 	}()
-	fh, err := os.Open(path)
-	if err != nil {
-		return trace.Session{}, err
-	}
-	defer fh.Close()
 	var state any
 	skipped := 0
 	if strings.HasSuffix(path, ".jsonl") {

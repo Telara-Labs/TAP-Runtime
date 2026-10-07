@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 	"path/filepath"
 	"strings"
 	"time"
@@ -43,23 +43,14 @@ func (r ClaudeCode) read(since time.Time, p trace.Progress) ([]trace.Session, tr
 	}
 	var out []trace.Session
 	files = changedSince(files, since)
-	for i, f := range files {
-		if p != nil {
-			p(i, len(files))
-		}
-		s, err := ReadClaudeFile(f)
-		if err != nil {
+	for _, r := range ParseFiles(files, "claude-code", p, parseClaude) {
+		if r.Err != nil {
 			st.UnreadableFiles++
 			continue
 		}
-		if len(s.Calls) == 0 || s.Start.Before(since) {
-			continue
+		if s := r.Session; len(s.Calls) > 0 && !s.Start.Before(since) {
+			out = append(out, s)
 		}
-		s.SourceDigest = FileDigest(f)
-		out = append(out, s)
-	}
-	if p != nil {
-		p(len(files), len(files))
 	}
 	return out, st, nil
 }
@@ -88,18 +79,15 @@ type ClaudeBlock struct {
 	Input map[string]json.RawMessage `json:"input"`
 }
 
-func ReadClaudeFile(path string) (s trace.Session, err error) {
+func ReadClaudeFile(path string) (trace.Session, error) { return ParseFile(path, parseClaude) }
+
+func parseClaude(path string, fh io.Reader) (s trace.Session, err error) {
 	// One file the parser cannot follow is skipped, not the whole run.
 	defer func() {
 		if r := recover(); r != nil {
 			s, err = trace.Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
 		}
 	}()
-	fh, err := os.Open(path)
-	if err != nil {
-		return trace.Session{}, err
-	}
-	defer fh.Close()
 	a := NewAssembler("claude-code", strings.TrimSuffix(filepath.Base(path), ".jsonl"))
 	sc := bufio.NewScanner(fh)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)

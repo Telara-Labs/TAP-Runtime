@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 	"path/filepath"
 	"strings"
 	"time"
@@ -38,24 +38,21 @@ func (r QwenCode) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSta
 	if err != nil {
 		return nil, st, err
 	}
-	var out []trace.Session
+	var sessions []string
 	for _, f := range files {
-		if strings.HasSuffix(f, ".ledger.jsonl") {
-			continue
+		if !strings.HasSuffix(f, ".ledger.jsonl") {
+			sessions = append(sessions, f)
 		}
-		if info, err := os.Stat(f); err != nil || info.ModTime().Before(since) {
-			continue
-		}
-		s, err := ReadQwenFile(f)
-		if err != nil {
+	}
+	var out []trace.Session
+	for _, r := range ParseFiles(changedSince(sessions, since), "qwen-code", nil, parseQwen) {
+		if r.Err != nil {
 			st.UnreadableFiles++
 			continue
 		}
-		if len(s.Calls) == 0 || s.Start.Before(since) {
-			continue
+		if s := r.Session; len(s.Calls) > 0 && !s.Start.Before(since) {
+			out = append(out, s)
 		}
-		s.SourceDigest = FileDigest(f)
-		out = append(out, s)
 	}
 	sortSessions(out)
 	return out, st, nil
@@ -96,17 +93,14 @@ type QwenRecord struct {
 }
 
 // ReadQwenFile reads one session: the active chain of its record tree.
-func ReadQwenFile(path string) (s trace.Session, err error) {
+func ReadQwenFile(path string) (trace.Session, error) { return ParseFile(path, parseQwen) }
+
+func parseQwen(path string, fh io.Reader) (s trace.Session, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			s, err = trace.Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
 		}
 	}()
-	fh, err := os.Open(path)
-	if err != nil {
-		return trace.Session{}, err
-	}
-	defer fh.Close()
 	byUUID := map[string]QwenRecord{}
 	var last string
 	skipped := 0

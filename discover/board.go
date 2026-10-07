@@ -22,7 +22,7 @@ type readBoard struct {
 
 	mu      sync.Mutex
 	clients []string
-	state   []int // 0 waiting, 1 reading, 2 read
+	state   []int // 0 waiting, 1 reading, 2 read, 3 skipped
 	done    []int // files read so far, for readers that report it
 	total   []int // files to read, 0 when the reader cannot tell
 	count   []int // sessions found once read
@@ -61,6 +61,10 @@ func (b *readBoard) progress(i int) func(done, total int) {
 
 func (b *readBoard) read(i, n int) { b.set(func() { b.state[i], b.count[i] = 2, n }) }
 
+// skipped marks an agent whose history could not be read; the reason is
+// printed once the board is gone.
+func (b *readBoard) skipped(i int) { b.set(func() { b.state[i] = 3 }) }
+
 func (b *readBoard) analysing(n int) { b.set(func() { b.sessions, b.stage = n, "starting" }) }
 
 // step is primitive.Stage for the search.
@@ -98,6 +102,8 @@ func (b *readBoard) render(frame int) []string {
 		case 2:
 			agents++
 			sessions += b.count[i]
+		case 3:
+			agents++
 		case 1:
 			sessions += b.done[i]
 		}
@@ -119,6 +125,8 @@ func (b *readBoard) render(frame int) []string {
 			} else {
 				row += spin + " reading…"
 			}
+		case 3:
+			row += termart.Dim(c, "· skipped (reason below)")
 		default:
 			row += termart.Good(c, "✓") + " " + termart.Bar(1, 1, miniBar, c) + fmt.Sprintf("  %d sessions", b.count[i])
 		}

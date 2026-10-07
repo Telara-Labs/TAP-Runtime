@@ -6,6 +6,18 @@ release is compatible. For the complete source change, follow each compare
 link. Runner versions, primitive versions, and the manifest API are distinct;
 see [version review](docs/versioning.md).
 
+## Unreleased
+
+- `tap discover` reads every agent's history at once and parses session
+  files in parallel, leaving one CPU free. Each file is read once. Parsed
+  sessions are cached in `~/.tap/discover/cache` (private to the user) and
+  reused while a file's size and modification time are unchanged, so a
+  repeat run parses only new or changed sessions; a different `tap` build
+  starts a fresh cache. An agent whose history cannot be read is skipped
+  with its reason instead of ending the run. SQLite read deadlines grow with
+  the store's size, and Cursor's queries read only the records they need, so
+  a large Cursor store is read instead of timing out.
+
 ## 0.2.10
 
 - Discover and agent-authored saves require a versioned changelog, reject

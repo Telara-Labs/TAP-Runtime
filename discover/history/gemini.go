@@ -3,7 +3,7 @@ package history
 import (
 	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -51,25 +51,16 @@ func (r GeminiCLI) read(since time.Time, p trace.Progress) ([]trace.Session, tra
 	}
 	var out []trace.Session
 	files = changedSince(files, since)
-	for i, f := range files {
-		if p != nil {
-			p(i, len(files))
-		}
-		s, err := ReadGeminiFile(f)
-		if err != nil {
+	for _, r := range ParseFiles(files, "gemini-cli", p, parseGemini) {
+		if r.Err != nil {
 			st.UnreadableFiles++
 			continue
 		}
-		if len(s.Calls) == 0 || s.Start.Before(since) {
-			continue
+		if s := r.Session; len(s.Calls) > 0 && !s.Start.Before(since) {
+			out = append(out, s)
 		}
-		s.SourceDigest = FileDigest(f)
-		out = append(out, s)
 	}
 	sortSessions(out)
-	if p != nil {
-		p(len(files), len(files))
-	}
 	return out, st, nil
 }
 
@@ -94,17 +85,14 @@ type GeminiMessage struct {
 }
 
 // ReadGeminiFile reads one Gemini CLI session.
-func ReadGeminiFile(path string) (s trace.Session, err error) {
+func ReadGeminiFile(path string) (trace.Session, error) { return ParseFile(path, parseGemini) }
+
+func parseGemini(path string, fh io.Reader) (s trace.Session, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			s, err = trace.Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
 		}
 	}()
-	fh, err := os.Open(path)
-	if err != nil {
-		return trace.Session{}, err
-	}
-	defer fh.Close()
 	var log GeminiLog
 	skipped := 0
 	if strings.HasSuffix(path, ".json") {

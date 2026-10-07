@@ -54,3 +54,26 @@ func TestSQLiteQueryReadsRealStoreAndPreservesSchemaErrors(t *testing.T) {
 		t.Fatalf("schema error: %v", err)
 	}
 }
+
+// A bigger store gets a longer deadline, WAL included; a missing one gets
+// the base.
+func TestSQLiteDeadlineGrowsWithTheStore(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "state.vscdb")
+	if got := SQLiteDeadline(db); got != SQLiteReadTimeout {
+		t.Errorf("missing store: %v, want %v", got, SQLiteReadTimeout)
+	}
+	for _, p := range []string{db, db + "-wal"} {
+		f, err := os.Create(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Truncate(8 << 30); err != nil { // sparse: no disk used
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+	if got, want := SQLiteDeadline(db), SQLiteReadTimeout+16*SQLiteReadPerGB; got != want {
+		t.Errorf("16 GB store: %v, want %v", got, want)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
@@ -43,7 +44,10 @@ const CursorArgs = `CASE WHEN json_valid(%[1]s) THEN (SELECT json_group_object(a
 
 var (
 	// The table is aliased c throughout: inside the json_each subquery a bare
-	// "value" would name json_each's own column, not the row's.
+	// "value" would name json_each's own column, not the row's. Each query
+	// selects its key prefix as a range (':' is followed by ';'), which the
+	// key's unique index answers; LIKE walks every key of a store that can
+	// hold gigabytes of other records.
 	CursorBubbleSQL = `SELECT substr(c.key, 10, 36) AS composer, substr(c.key, 47) AS bubble, length(c.value) AS size,
   json_extract(c.value, '$.toolFormerData.name') AS name,
   ` + fmt.Sprintf(CursorArgs, `coalesce(nullif(json_extract(c.value, '$.toolFormerData.rawArgs'), ''), json_extract(c.value, '$.toolFormerData.params'))`) + ` AS args,
@@ -51,21 +55,21 @@ var (
   CASE WHEN json_valid(json_extract(c.value, '$.toolFormerData.params')) THEN json_extract(json_extract(c.value, '$.toolFormerData.params'), '$.tools[0].serverName') END AS server,
   json_extract(c.value, '$.toolFormerData.status') AS status,
   substr(CAST(json_extract(c.value, '$.toolFormerData.result') AS TEXT), 1, 65536) AS result
-FROM cursorDiskKV c WHERE c.key LIKE 'bubbleId:%' AND json_extract(c.value, '$.toolFormerData.name') IS NOT NULL;`
+FROM cursorDiskKV c WHERE c.key >= 'bubbleId:' AND c.key < 'bubbleId;' AND json_extract(c.value, '$.toolFormerData.name') IS NOT NULL;`
 
 	CursorComposerSQL = `SELECT substr(c.key, 14) AS composer, length(c.value) AS size, json_extract(c.value, '$.createdAt') AS created,
   (SELECT json_group_array(json_extract(h.value, '$.bubbleId')) FROM json_each(c.value, '$.fullConversationHeadersOnly') h) AS headers
-FROM cursorDiskKV c WHERE c.key LIKE 'composerData:%';`
+FROM cursorDiskKV c WHERE c.key >= 'composerData:' AND c.key < 'composerData;';`
 
 	// The user's messages (bubble type 1), in both storage forms.
 	CursorUserSQL = `SELECT substr(c.key, 10, 36) AS composer, substr(c.key, 47) AS bubble, length(c.value) AS size,
   substr(json_extract(c.value, '$.text'), 1, 4000) AS text
-FROM cursorDiskKV c WHERE c.key LIKE 'bubbleId:%' AND json_extract(c.value, '$.type') = 1;`
+FROM cursorDiskKV c WHERE c.key >= 'bubbleId:' AND c.key < 'bubbleId;' AND json_extract(c.value, '$.type') = 1;`
 
 	CursorInlineUserSQL = `SELECT substr(c.key, 14) AS composer, CAST(j.key AS TEXT) AS bubble,
   substr(json_extract(j.value, '$.text'), 1, 4000) AS text
 FROM cursorDiskKV c, json_each(c.value, '$.conversation') j
-WHERE c.key LIKE 'composerData:%' AND json_extract(j.value, '$.type') = 1;`
+WHERE c.key >= 'composerData:' AND c.key < 'composerData;' AND json_extract(j.value, '$.type') = 1;`
 
 	CursorInlineSQL = `SELECT substr(c.key, 14) AS composer, CAST(j.key AS TEXT) AS bubble,
   json_extract(j.value, '$.toolFormerData.name') AS name,
@@ -75,7 +79,7 @@ WHERE c.key LIKE 'composerData:%' AND json_extract(j.value, '$.type') = 1;`
   json_extract(j.value, '$.toolFormerData.status') AS status,
   substr(CAST(json_extract(j.value, '$.toolFormerData.result') AS TEXT), 1, 65536) AS result
 FROM cursorDiskKV c, json_each(c.value, '$.conversation') j
-WHERE c.key LIKE 'composerData:%' AND json_extract(j.value, '$.toolFormerData.name') IS NOT NULL;`
+WHERE c.key >= 'composerData:' AND c.key < 'composerData;' AND json_extract(j.value, '$.toolFormerData.name') IS NOT NULL;`
 )
 
 type CursorRow struct {
@@ -106,9 +110,9 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 		}
 		bin = p
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteReadTimeout)
-	defer cancel()
 	query := func(sql string) ([]CursorRow, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteDeadline(r.DB))
+		defer cancel()
 		out, err := util.SQLiteQuery(ctx, bin, r.DB, sql)
 		if err != nil {
 			return nil, fmt.Errorf("cursor: %w", err)
@@ -119,26 +123,24 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 		}
 		return rows, json.Unmarshal(out, &rows)
 	}
-	composers, err := query(CursorComposerSQL)
-	if err != nil {
+	// The queries are independent reads of one store; run together, a large
+	// store takes as long as its slowest query, not the sum of all five.
+	sqls := []string{CursorComposerSQL, CursorBubbleSQL, CursorInlineSQL, CursorUserSQL, CursorInlineUserSQL}
+	rows := make([][]CursorRow, len(sqls))
+	errs := make([]error, len(sqls))
+	var wg sync.WaitGroup
+	for i, sql := range sqls {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rows[i], errs[i] = query(sql)
+		}()
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
 		return nil, err
 	}
-	bubbles, err := query(CursorBubbleSQL)
-	if err != nil {
-		return nil, err
-	}
-	inline, err := query(CursorInlineSQL)
-	if err != nil {
-		return nil, err
-	}
-	users, err := query(CursorUserSQL)
-	if err != nil {
-		return nil, err
-	}
-	inlineUsers, err := query(CursorInlineUserSQL)
-	if err != nil {
-		return nil, err
-	}
+	composers, bubbles, inline, users, inlineUsers := rows[0], rows[1], rows[2], rows[3], rows[4]
 
 	convs := map[string]*CursorConv{}
 	for _, c := range composers {
