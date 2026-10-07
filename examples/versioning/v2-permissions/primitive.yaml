@@ -1,0 +1,8 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata: {publisher: example.test, name: greeting, version: 2.1.0}
+interface:
+  inputSchema: {type: object, properties: {user: {type: string}}, required: [user]}
+  outputSchema: {type: object, properties: {greeting: {type: string}}, required: [greeting]}
+files: [{path: notes/*, access: write}]
+execution: {entrypoint: main.sh}

@@ -1,0 +1,7 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata: {publisher: example.test, name: greeting, version: 1.0.0}
+interface:
+  inputSchema: {type: object, properties: {name: {type: string}}, required: [name]}
+  outputSchema: {type: object, properties: {message: {type: string}}, required: [message]}
+execution: {entrypoint: main.sh}

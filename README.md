@@ -189,6 +189,15 @@ check. This does not establish exactly-once behavior in remote systems. The prog
 and random bytes it took before. One process holds a run at a time. Records
 are removed after 30 days; `--retention-days 0` keeps them.
 
+## Review version changes
+
+Read the [runtime migration history](CHANGELOG.md) before upgrading the
+runner. To review two versions of a primitive, use
+`tap diff [--json] OLD-PACKAGE-DIR NEW-PACKAGE-DIR` (available since 0.2.1).
+It shows contract changes, permission declarations, code hashes,
+and changed bytes under the same version. A changed digest requires review;
+the report does not certify compatibility. See the [runnable version example](docs/versioning.md).
+
 ## TAP Local: your primitives as an MCP server
 
 `tap serve` exposes seven fixed tools: `tap_search`, `tap_load`, `tap_run`,

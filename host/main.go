@@ -207,6 +207,7 @@ const usageText = `usage: tap [--approve] [--resume RUN] <package-dir> [args...]
        tap trust PACKAGE-DIR
        tap bind --client NAME CAPABILITY SERVER
        tap fetch
+       tap diff [--json] <old-package-dir> <new-package-dir>
        tap manifest check|complete <package-dir>
        tap web build --out FILE <package-dir>...
        tap hook gemini
@@ -295,6 +296,9 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "manifest" {
 		os.Exit(manifestCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "diff" {
+		os.Exit(diffCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
 		if err := serve(os.Stdin, os.Stdout, os.Args[2:]); err != nil {

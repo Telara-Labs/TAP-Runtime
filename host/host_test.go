@@ -116,6 +116,8 @@ func TestFetchFillsTheStore(t *testing.T) {
 }
 
 func TestADownloadRefusedByCodexSaysSo(t *testing.T) {
+	// The outside-Codex case must not inherit the invoking client's marker.
+	t.Setenv("CODEX_SANDBOX_NETWORK_DISABLED", "")
 	old := interpreters[".js"]
 	defer func() { interpreters[".js"] = old }()
 	in := old
