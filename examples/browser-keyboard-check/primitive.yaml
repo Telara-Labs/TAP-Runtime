@@ -1,0 +1,30 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata:
+  publisher: examples.telara.dev
+  name: browser-keyboard-check
+  version: 0.1.0
+  description: Use Tab and Space in a local page and verify checkbox state.
+  license: MIT
+interface:
+  inputSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      base_url: {type: string, description: "Local fixture origin, such as http://127.0.0.1:4173"}
+    required: [base_url]
+  outputSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      status: {type: string}
+      keys: {type: string}
+      checked: {type: boolean}
+    required: [status, keys, checked]
+execution: {entrypoint: main.py}
+provenance: {source: main.py, toolchain: "TAP CPython 3.12 WASM", build: "none: Python source runs in the TAP sandbox"}
+tools:
+  - {alias: navigate, capability: playwright.browser.navigate, effect: write, pin: {server: Playwright, tool: browser_navigate}}
+  - {alias: click, capability: playwright.browser.click, effect: write, pin: {server: Playwright, tool: browser_click}}
+  - {alias: press, capability: playwright.browser.press_key, effect: write, pin: {server: Playwright, tool: browser_press_key}}
+  - {alias: snapshot, capability: playwright.browser.snapshot, effect: read, pin: {server: Playwright, tool: browser_snapshot}}

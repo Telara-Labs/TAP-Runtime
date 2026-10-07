@@ -1,0 +1,26 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata:
+  publisher: examples.telara.dev
+  name: desktop-open-review
+  version: 0.1.0
+  description: Ask macOS Finder to reveal one chosen folder for a human review.
+  license: MIT
+interface:
+  inputSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      folder: {type: string, description: "Absolute path to a folder you own and intend to review in Finder."}
+    required: [folder]
+  outputSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      folder: {type: string}
+      status: {type: string}
+    required: [folder, status]
+execution: {entrypoint: main.py}
+provenance: {source: main.py, toolchain: "TAP CPython 3.12 WASM", build: "none: Python source runs in the TAP sandbox"}
+commands:
+  - {command: open, args: [-R, "*"], effect: write}

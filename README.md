@@ -60,6 +60,12 @@ decide what needs attention.
 This is an example of a primitive you could build. The folders in
 [`examples/`](examples/) show the runnable package format.
 
+The [automation gallery](examples/README.md) includes twelve procedures you
+can inspect and adapt: browser smoke, link, form and keyboard checks; local
+macOS file, image and document tools; public API release evidence; and
+connected calendar, email-draft and issue-triage tools. Each package explains
+the host it needs and how to run it.
+
 ## What it does
 
 - Runs the entrypoint inside a WebAssembly sandbox with no filesystem, no

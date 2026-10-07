@@ -1,0 +1,36 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata:
+  publisher: dev.telara
+  name: connector-meeting-brief
+  version: 0.1.0
+  description: Pair a bounded Google Calendar window with a bounded Gmail search count.
+  output_description: Agenda items and a count of matching messages; no email bodies or attendee addresses are printed.
+interface:
+  inputSchema:
+    type: object
+    properties:
+      time_min: {type: string, minLength: 20, maxLength: 40}
+      time_max: {type: string, minLength: 20, maxLength: 40}
+      gmail_query: {type: string, minLength: 1, maxLength: 200}
+    required: [time_min, time_max, gmail_query]
+  outputSchema:
+    type: object
+    properties:
+      window: {type: object}
+      events: {type: array, items: {type: object}}
+      matching_messages: {type: integer}
+    required: [window, events, matching_messages]
+execution:
+  entrypoint: main.py
+  timeoutSeconds: 30
+  limits: {max_dispatches: 2}
+tools:
+  - alias: calendar
+    capability: calendar.events.list
+    effect: read
+    pin: {server: telara, tool: telara_google_workspace_calendar_list_events}
+  - alias: mail
+    capability: gmail.messages.search
+    effect: read
+    pin: {server: telara, tool: telara_google_workspace_gmail_search_messages}

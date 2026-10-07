@@ -1,0 +1,28 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata:
+  publisher: examples.telara.dev
+  name: browser-smoke
+  version: 0.1.0
+  description: Navigate a local fixture and verify its rendered heading.
+  license: MIT
+interface:
+  inputSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      base_url: {type: string, description: "Local fixture origin, such as http://127.0.0.1:4173"}
+    required: [base_url]
+  outputSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      status: {type: string}
+      title: {type: string}
+      heading: {type: string}
+    required: [status, title, heading]
+execution: {entrypoint: main.py}
+provenance: {source: main.py, toolchain: "TAP CPython 3.12 WASM", build: "none: Python source runs in the TAP sandbox"}
+tools:
+  - {alias: navigate, capability: playwright.browser.navigate, effect: write, pin: {server: Playwright, tool: browser_navigate}}
+  - {alias: snapshot, capability: playwright.browser.snapshot, effect: read, pin: {server: Playwright, tool: browser_snapshot}}

@@ -1,0 +1,30 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata:
+  publisher: dev.telara
+  name: connector-issue-triage
+  version: 0.1.0
+  description: Summarize a bounded Jira JQL result set for human triage.
+  output_description: At most ten Jira issue keys, summaries, statuses and priorities; no issue creation or update.
+interface:
+  inputSchema:
+    type: object
+    properties:
+      jql: {type: string, minLength: 1, maxLength: 500}
+      max_results: {type: integer, minimum: 1, maximum: 10}
+    required: [jql]
+  outputSchema:
+    type: object
+    properties:
+      returned: {type: integer}
+      issues: {type: array, items: {type: object}}
+    required: [returned, issues]
+execution:
+  entrypoint: main.py
+  timeoutSeconds: 30
+  limits: {max_dispatches: 1}
+tools:
+  - alias: search_issues
+    capability: jira.issues.search
+    effect: read
+    pin: {server: telara, tool: telara_jira_search_issues}

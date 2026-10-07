@@ -1,0 +1,26 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata:
+  publisher: examples.telara.dev
+  name: desktop-image-inspect
+  version: 0.1.0
+  description: Read pixel dimensions and format from one chosen image using macOS sips.
+  license: MIT
+interface:
+  inputSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      image: {type: string, description: "Absolute path to a PNG, JPEG, TIFF, GIF, or HEIC image."}
+    required: [image]
+  outputSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      image: {type: string}
+      metadata: {type: string}
+    required: [image, metadata]
+execution: {entrypoint: main.py}
+provenance: {source: main.py, toolchain: "TAP CPython 3.12 WASM", build: "none: Python source runs in the TAP sandbox"}
+commands:
+  - {command: sips, args: [-g, pixelWidth, -g, pixelHeight, -g, format, "*"], effect: read}

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><title>TAP Keyboard Check</title></head>
+<body>
+  <main>
+    <h1 id="keyboard-start" tabindex="0">Keyboard interaction check</h1>
+    <label><input id="confirm" type="checkbox" autofocus> Confirm keyboard test</label>
+    <output id="keyboard-result" aria-live="polite">Keys: none; checked: false</output>
+  </main>
+  <script>
+    const result = document.querySelector('#keyboard-result');
+    const seen = [];
+    document.addEventListener('keyup', event => {
+      if (event.key === 'Tab' || event.key === ' ') {
+        seen.push(event.key === ' ' ? 'Space' : event.key);
+        result.textContent = `Keys: ${seen.join(', ')}`;
+      }
+    });
+  </script>
+</body>
+</html>

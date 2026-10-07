@@ -1,0 +1,31 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata:
+  publisher: dev.telara
+  name: api-release-brief
+  version: 0.1.0
+  description: Summarize a public GitHub release and its check runs for a tag.
+  output_description: Bounded release and check-run status with source URLs; this is evidence, not a release approval.
+interface:
+  inputSchema:
+    type: object
+    properties:
+      owner: {type: string, minLength: 1, maxLength: 39, pattern: "^[A-Za-z0-9-]+$"}
+      repo: {type: string, minLength: 1, maxLength: 100, pattern: "^[A-Za-z0-9_.-]+$"}
+      ref: {type: string, minLength: 1, maxLength: 100, pattern: "^[A-Za-z0-9._/-]+$"}
+    required: [owner, repo, ref]
+  outputSchema:
+    type: object
+    properties:
+      repository: {type: string}
+      ref: {type: string}
+      release: {type: object}
+      checks: {type: object}
+      evidence: {type: array, items: {type: string}}
+    required: [repository, ref, release, checks, evidence]
+execution:
+  entrypoint: main.py
+  timeoutSeconds: 30
+  limits: {max_dispatches: 4}
+fetch:
+  - {origin: "https://api.github.com", methods: [GET]}

@@ -1,0 +1,32 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata:
+  publisher: dev.telara
+  name: connector-draft-reply
+  version: 0.1.0
+  description: Create one unsent Gmail draft from caller-supplied content.
+  output_description: Draft id and status only; this primitive never sends email.
+interface:
+  inputSchema:
+    type: object
+    properties:
+      to: {type: string, minLength: 3, maxLength: 254}
+      subject: {type: string, minLength: 1, maxLength: 160}
+      body: {type: string, minLength: 1, maxLength: 4000}
+      thread_id: {type: string, maxLength: 200}
+    required: [to, subject, body]
+  outputSchema:
+    type: object
+    properties:
+      draft_id: {type: string}
+      status: {const: unsent_draft_created}
+    required: [draft_id, status]
+execution:
+  entrypoint: main.py
+  timeoutSeconds: 30
+  limits: {max_dispatches: 1}
+tools:
+  - alias: create_draft
+    capability: gmail.drafts.create
+    effect: write
+    pin: {server: telara, tool: telara_google_workspace_gmail_create_draft}

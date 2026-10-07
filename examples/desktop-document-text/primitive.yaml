@@ -1,0 +1,26 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata:
+  publisher: examples.telara.dev
+  name: desktop-document-text
+  version: 0.1.0
+  description: Extract plain text from one chosen RTF or Word document using macOS textutil.
+  license: MIT
+interface:
+  inputSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      document: {type: string, description: "Absolute path to one .rtf, .doc, or .docx file to read."}
+    required: [document]
+  outputSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      document: {type: string}
+      text: {type: string}
+    required: [document, text]
+execution: {entrypoint: main.py}
+provenance: {source: main.py, toolchain: "TAP CPython 3.12 WASM", build: "none: Python source runs in the TAP sandbox"}
+commands:
+  - {command: textutil, args: [-convert, txt, -stdout, "*"], effect: read}

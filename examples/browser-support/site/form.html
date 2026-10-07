@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><title>TAP Local Form Review</title></head>
+<body>
+  <main>
+    <h1>Local change review</h1>
+    <form id="review-form">
+      <label for="project-name">Project name</label><input id="project-name" name="project" required maxlength="60">
+      <label for="change-summary">Change summary</label><textarea id="change-summary" name="summary" required maxlength="160"></textarea>
+      <button id="review-submit" type="submit">Review locally</button>
+    </form>
+    <output id="review-result" aria-live="polite">No review submitted.</output>
+  </main>
+  <script>
+    document.querySelector('#review-form').addEventListener('submit', event => {
+      event.preventDefault();
+      const project = document.querySelector('#project-name').value;
+      const summary = document.querySelector('#change-summary').value;
+      document.querySelector('#review-result').textContent = `Review ready: ${project} — ${summary}`;
+    });
+  </script>
+</body>
+</html>
