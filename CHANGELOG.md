@@ -8,6 +8,11 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- `tap setup` now installs the tap-author skill into OpenCode and Crush too.
+  Before, it was installed only where TAP can also use the agent's own
+  connections, so OpenCode and Crush never searched TAP before answering and
+  never offered to save a task asked for again.
+
 - `tap discover` reads every agent's history at once and parses session
   files in parallel, leaving one CPU free. Each file is read once. Parsed
   sessions are cached in `~/.tap/discover/cache` (private to the user) and

@@ -102,7 +102,10 @@ func install(args []string, stdout, stderr io.Writer, animate bool) int {
 		if rc == 0 && !*remove && agents.HasSkills(c) && c.Bridge && (*print || c.Connected(home, *name)) {
 			pointerTargets = append(pointerTargets, pack.Target{Client: c})
 		}
-		if rc == 0 && agents.HasSkills(c) && c.Bridge {
+		// The authoring skill only asks the agent to search TAP first and
+		// to offer saving a recurring task; it needs no bridge. OpenCode and
+		// Crush, which have none, otherwise never searched before answering.
+		if rc == 0 && agents.HasSkills(c) {
 			src := syncAuthorSkill(c, home, *print, *remove, out, errs)
 			if src > code {
 				code = src
