@@ -19,7 +19,10 @@ run and not stored. Anything else follows the rest of this page.
 
 ## Approve a package before a headless run
 
-Review its manifest and entrypoint, then run the CLI yourself:
+Review its manifest and entrypoint, then run the CLI yourself, in your own
+terminal: since v0.2.7 `tap trust` shows what the package declares and asks you
+to type `yes`, and it refuses when there is no terminal to ask on, as in an
+agent's shell, so an agent cannot approve its own primitive.
 
 ```sh
 tap trust PACKAGE-DIR

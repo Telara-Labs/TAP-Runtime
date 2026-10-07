@@ -238,7 +238,20 @@ func trustCommand(args []string, stdout, stderr io.Writer) int {
 				return 1
 			}
 		}
-		fmt.Fprintf(stdout, "%s v%s by %s (digest %s)\n%s\n", m.Metadata.Name, m.Metadata.Version, m.Metadata.Publisher, digest[:12], declares(m))
+		summary := fmt.Sprintf("%s v%s by %s (digest %s)\n%s", m.Metadata.Name, m.Metadata.Version, m.Metadata.Publisher, digest[:12], declares(m))
+		for _, origin := range origins {
+			summary += "\nand requests to " + origin + " (URLs, headers and bodies can send data there)"
+		}
+		ok, err := confirmTrust(summary)
+		if err != nil {
+			fmt.Fprintf(stderr, "tap trust: no terminal to ask on (%v). Trusting a package is the person's decision: run this in your own terminal, not from an agent.\n", err)
+			return 1
+		}
+		if !ok {
+			fmt.Fprintln(stderr, "tap trust: not trusted")
+			return 1
+		}
+		fmt.Fprintln(stdout, summary)
 		if err := store.add(digest, m.Metadata.Name, abs, origins...); err != nil {
 			fmt.Fprintln(stderr, "tap trust:", err)
 			return 1

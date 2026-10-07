@@ -21,6 +21,9 @@ func TestMain(m *testing.M) {
 	// Detection also counts an agent's program on PATH; tests say what is
 	// installed, not the machine running them.
 	agents.LookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+	// tap trust asks the person at the terminal; tests answer yes for them,
+	// except the test of the question itself.
+	confirmTrust = func(string) (bool, error) { return true, nil }
 	// A test that needs the runner as a separate process runs this test
 	// binary with tapMainArg first, rather than building the runner again.
 	if len(os.Args) > 1 && os.Args[1] == tapMainArg {
