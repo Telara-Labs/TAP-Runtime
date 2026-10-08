@@ -50,9 +50,9 @@ func (r Antigravity) ReadWithStats(since time.Time) ([]trace.Session, trace.Read
 		return nil, st, err
 	}
 	var out []trace.Session
-	// Not cached: a session's usage also comes from the conversation's
-	// state database, which the transcript's size and time do not cover.
-	for _, r := range ParseFiles(changedSince(files, since), "", nil, parseAntigravity) {
+	// A session's usage also comes from the conversation's state database,
+	// so its size and time are part of the transcript's fingerprint.
+	for _, r := range ParseFilesWith(changedSince(files, since), "antigravity", antigravityDeps, nil, parseAntigravity) {
 		if r.Err != nil {
 			st.UnreadableFiles++
 			continue
@@ -236,6 +236,13 @@ func (d *AntigravityDecoder) output(content string) string {
 		return content
 	}
 	return content + "\n" + string(b)
+}
+
+// antigravityDeps names what a transcript's parse reads besides the
+// transcript: the conversation's state database and its write-ahead log.
+func antigravityDeps(path string) string {
+	db := antigravityStateDB(antigravityConversation(path))
+	return statFingerprint(db) + "/" + statFingerprint(db+"-wal")
 }
 
 // antigravityStateDB is the conversation's state database, kept beside the

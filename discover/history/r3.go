@@ -47,34 +47,39 @@ func (r ClineCLI) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSta
 	var st trace.ReadStats
 	files, _ := filepath.Glob(filepath.Join(r.Dir, "*", "*.messages.json"))
 	servers := mcpServerNames(r.Configs, "mcpServers")
-	var out []trace.Session
-	for _, f := range files {
-		if info, err := os.Stat(f); err != nil || info.ModTime().Before(since) {
-			continue
-		}
+	read := func(f string) ([]trace.Session, error) {
 		b, err := os.ReadFile(f)
 		if err != nil {
-			st.UnreadableFiles++
-			continue
+			return nil, err
 		}
 		var doc struct {
 			SessionID string           `json:"sessionId"`
 			Messages  []anthropicTsMsg `json:"messages"`
 		}
-		if json.Unmarshal(b, &doc) != nil {
-			st.UnreadableFiles++
-			continue
+		if err := json.Unmarshal(b, &doc); err != nil {
+			return nil, err
 		}
 		id := doc.SessionID
 		if id == "" {
 			id = strings.TrimSuffix(filepath.Base(f), ".messages.json")
 		}
 		s := anthropicSession("cline", id, doc.Messages, servers)
-		if len(s.Calls) == 0 || s.Start.Before(since) {
+		s.SourceDigest = FileDigest(f)
+		return []trace.Session{s}, nil
+	}
+	// Tool names decode against the configured MCP servers.
+	extra := func(string) string { return strings.Join(servers, "\x00") }
+	var out []trace.Session
+	for _, res := range readFiles(changedSince(files, since), "cline-cli", extra, nil, read) {
+		if res.Err != nil {
+			st.UnreadableFiles++
 			continue
 		}
-		s.SourceDigest = FileDigest(f)
-		out = append(out, s)
+		for _, s := range res.Sessions {
+			if len(s.Calls) > 0 && !s.Start.Before(since) {
+				out = append(out, s)
+			}
+		}
 	}
 	sortSessions(out)
 	return out, st, nil
@@ -95,34 +100,42 @@ func (r ExtensionTasks) Read(since time.Time) ([]trace.Session, error) {
 
 func (r ExtensionTasks) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, error) {
 	var st trace.ReadStats
-	var out []trace.Session
+	var files []string
 	for _, dir := range r.Dirs {
-		files, _ := filepath.Glob(filepath.Join(dir, "*", "api_conversation_history.json"))
-		for _, f := range files {
-			info, err := os.Stat(f)
-			if err != nil || info.ModTime().Before(since) {
-				continue
+		m, _ := filepath.Glob(filepath.Join(dir, "*", "api_conversation_history.json"))
+		files = append(files, m...)
+	}
+	// A task without times takes the file's, which its fingerprint covers.
+	read := func(f string) ([]trace.Session, error) {
+		info, err := os.Stat(f)
+		if err != nil {
+			return nil, err
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return nil, err
+		}
+		var msgs []anthropicTsMsg
+		if err := json.Unmarshal(b, &msgs); err != nil {
+			return nil, err
+		}
+		s := anthropicSession(r.ID, filepath.Base(filepath.Dir(f)), msgs, nil)
+		if s.Start.IsZero() {
+			s.Start = info.ModTime().UTC()
+		}
+		s.SourceDigest = FileDigest(f)
+		return []trace.Session{s}, nil
+	}
+	var out []trace.Session
+	for _, res := range readFiles(changedSince(files, since), r.ID+"-tasks", nil, nil, read) {
+		if res.Err != nil {
+			st.UnreadableFiles++
+			continue
+		}
+		for _, s := range res.Sessions {
+			if len(s.Calls) > 0 && !s.Start.Before(since) {
+				out = append(out, s)
 			}
-			b, err := os.ReadFile(f)
-			if err != nil {
-				st.UnreadableFiles++
-				continue
-			}
-			var msgs []anthropicTsMsg
-			if json.Unmarshal(b, &msgs) != nil {
-				st.UnreadableFiles++
-				continue
-			}
-			id := filepath.Base(filepath.Dir(f))
-			s := anthropicSession(r.ID, id, msgs, nil)
-			if s.Start.IsZero() {
-				s.Start = info.ModTime().UTC()
-			}
-			if len(s.Calls) == 0 || s.Start.Before(since) {
-				continue
-			}
-			s.SourceDigest = FileDigest(f)
-			out = append(out, s)
 		}
 	}
 	sortSessions(out)

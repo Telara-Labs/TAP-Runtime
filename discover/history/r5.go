@@ -46,9 +46,11 @@ func (r CopilotCLI) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadS
 	files, _ := filepath.Glob(filepath.Join(r.Dir, "*", "events.jsonl"))
 	servers := mcpServerNames(r.Configs, "mcpServers")
 	var out []trace.Session
-	// Not cached: tool names decode against the configured MCP servers.
+	// Tool names decode against the configured MCP servers, so they are part
+	// of each file's fingerprint.
 	parse := func(path string, r io.Reader) (trace.Session, error) { return parseCopilot(path, r, servers) }
-	for _, r := range ParseFiles(changedSince(files, since), "", nil, parse) {
+	extra := func(string) string { return strings.Join(servers, "\x00") }
+	for _, r := range ParseFilesWith(changedSince(files, since), "copilot-cli", extra, nil, parse) {
 		if r.Err != nil {
 			st.UnreadableFiles++
 			continue
@@ -170,45 +172,72 @@ func (r Zed) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, e
 		return nil, st, err
 	}
 	zstd, zerr := exec.LookPath("zstd")
-	rows, err := sqliteRows(bin, db, `SELECT id, updated_at, data_type, hex(data) AS data FROM threads`)
+	// read decodes the named threads, or every thread when ids is nil.
+	read := func(ids []string) (map[string]unitResult, error) {
+		sql := `SELECT id, updated_at, data_type, hex(data) AS data FROM threads`
+		if ids != nil {
+			sql += ` WHERE id IN (` + sqlList(ids, false) + `)`
+		}
+		rows, err := sqliteRows(bin, db, sql)
+		if err != nil {
+			return nil, err
+		}
+		out := map[string]unitResult{}
+		for _, row := range rows {
+			id := rowString(row, "id")
+			raw, err := hex.DecodeString(rowString(row, "data"))
+			if err != nil {
+				out[id] = unitResult{Err: err}
+				continue
+			}
+			switch rowString(row, "data_type") {
+			case "json":
+			case "zstd":
+				if zerr != nil {
+					return nil, fmt.Errorf("zed: %w: zstd is not installed", ErrUnavailable)
+				}
+				cmd := exec.Command(zstd, "-d", "-c", "-q")
+				cmd.Stdin = bytes.NewReader(raw)
+				if raw, err = cmd.Output(); err != nil {
+					out[id] = unitResult{Err: err}
+					continue
+				}
+			default:
+				out[id] = unitResult{Err: fmt.Errorf("zed: thread %s: data type %q", id, rowString(row, "data_type"))}
+				continue
+			}
+			updated, _ := time.Parse(time.RFC3339Nano, rowString(row, "updated_at"))
+			s, err := ZedThread(id, updated.UTC(), raw)
+			if err != nil {
+				out[id] = unitResult{Err: err}
+				continue
+			}
+			s.SourceDigest = hexSum(db + "\x00" + id + "\x00" + string(raw))
+			out[id] = unitResult{Sessions: []trace.Session{s}}
+		}
+		return out, nil
+	}
+	c := openUnitCache("zed")
+	// A thread is rewritten whole with a new updated_at; its type and stored
+	// length are checked too. Only changed threads are fetched and
+	// decompressed.
+	units := storeFingerprints(c, bin, db, `SELECT id, updated_at || ':' || data_type || ':' || length(data) AS fp FROM threads`)
+	threads, err := storeRead{Cache: c, Scope: db, Units: units, Read: read}.run()
 	if err != nil {
 		return nil, st, unreadableStore(&st, err)
 	}
+	c.save()
 	var out []trace.Session
-	for _, row := range rows {
-		raw, err := hex.DecodeString(rowString(row, "data"))
-		if err != nil {
+	for _, res := range threads {
+		if res.Err != nil {
 			st.UnreadableFiles++
 			continue
 		}
-		switch rowString(row, "data_type") {
-		case "json":
-		case "zstd":
-			if zerr != nil {
-				return out, st, fmt.Errorf("zed: %w: zstd is not installed", ErrUnavailable)
+		for _, s := range res.Sessions {
+			if len(s.Calls) > 0 && !s.Start.Before(since) {
+				out = append(out, s)
 			}
-			cmd := exec.Command(zstd, "-d", "-c", "-q")
-			cmd.Stdin = bytes.NewReader(raw)
-			if raw, err = cmd.Output(); err != nil {
-				st.UnreadableFiles++
-				continue
-			}
-		default:
-			st.UnreadableFiles++
-			continue
 		}
-		id := rowString(row, "id")
-		updated, _ := time.Parse(time.RFC3339Nano, rowString(row, "updated_at"))
-		s, err := ZedThread(id, updated.UTC(), raw)
-		if err != nil {
-			st.UnreadableFiles++
-			continue
-		}
-		if len(s.Calls) == 0 || s.Start.Before(since) {
-			continue
-		}
-		s.SourceDigest = hexSum(db + "\x00" + id + "\x00" + string(raw))
-		out = append(out, s)
 	}
 	sortSessions(out)
 	return out, st, nil

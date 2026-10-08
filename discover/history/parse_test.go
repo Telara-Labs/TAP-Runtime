@@ -27,12 +27,20 @@ var fixtureParsers = []struct {
 	{"vscode-copilot", "testdata/vscode-copilot/User/workspaceStorage/ws1/chatSessions/9c3e0000-0000-4000-8000-000000000003.jsonl", parseVSCode},
 }
 
-// useTempCache points the parse cache at a fresh directory for one test.
+// useTempCache points the cache at a fresh directory for one test. Files a
+// test writes are new, so the recently-written guard is off, and so is the
+// spot-check, which would otherwise read a cache hit again; the tests of
+// those guards turn them back on.
 func useTempCache(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	UseCache(dir)
-	t.Cleanup(func() { UseCache("") })
+	window, checks := activeWindow, spotChecks
+	activeWindow, spotChecks = 0, 0
+	t.Cleanup(func() {
+		UseCache("")
+		activeWindow, spotChecks = window, checks
+	})
 	return dir
 }
 
@@ -129,8 +137,8 @@ func TestCacheReparsesChangedFilesAndForgetsDeletedOnes(t *testing.T) {
 
 	os.Remove(file)
 	ParseFiles(nil, fx.cache, nil, counting)
-	if c := openCache(fx.cache); len(c.entries) != 0 {
-		t.Errorf("deleted file still cached: %v", c.entries)
+	if c := openUnitCache(fx.cache); len(c.units) != 0 {
+		t.Errorf("deleted file still cached: %v", c.units)
 	}
 	assertPrivateCacheFile(t, filepath.Join(cacheDir, fx.cache+".gob"))
 }
@@ -157,11 +165,11 @@ func TestCacheFromAnotherBuildIsIgnored(t *testing.T) {
 	fx := fixtureParsers[0]
 	file := copyFixture(t, fx.file, t.TempDir())
 	ParseFiles([]string{file}, fx.cache, nil, fx.parse)
-	c := openCache(fx.cache)
+	c := openUnitCache(fx.cache)
 	c.binary, c.dirty = "another build", true
 	c.save()
-	if c := openCache(fx.cache); len(c.entries) != 0 {
-		t.Errorf("entries from another build were loaded: %d", len(c.entries))
+	if c := openUnitCache(fx.cache); len(c.units) != 0 {
+		t.Errorf("entries from another build were loaded: %d", len(c.units))
 	}
 }
 

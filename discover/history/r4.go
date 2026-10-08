@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
@@ -138,19 +139,57 @@ func (r OpenCodeDB) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadS
 	if err != nil {
 		return nil, st, err
 	}
-	sessions, err := sqliteRows(bin, r.DB, `SELECT id, time_created FROM session`)
-	if err != nil {
-		return nil, st, unreadableStore(&st, err)
-	}
-	msgs, err := sqliteRows(bin, r.DB, `SELECT id, session_id, time_created, data FROM message ORDER BY time_created, id`)
-	if err != nil {
-		return nil, st, unreadableStore(&st, err)
-	}
-	parts, err := sqliteRows(bin, r.DB, `SELECT id, message_id, session_id, time_created, data FROM part ORDER BY time_created, id`)
-	if err != nil {
-		return nil, st, unreadableStore(&st, err)
-	}
 	servers := openCodeServers(r.Configs)
+	c := openUnitCache(r.ID)
+	// Messages and parts are updated in place as a tool runs (the row ID
+	// stays), so a session's fingerprint takes their latest time_updated as
+	// well as their count and highest row ID; tool names decode against the
+	// configured servers.
+	units := storeFingerprints(c, bin, r.DB, `SELECT s.id AS id, s.time_updated || '/' || ifnull(m.f, '') || '/' || ifnull(p.f, '') || '/' || `+sqlList([]string{strings.Join(servers, ",")}, false)+` AS fp
+FROM session s
+LEFT JOIN (SELECT session_id, count(*) || ':' || max(rowid) || ':' || max(time_updated) AS f FROM message GROUP BY session_id) m ON m.session_id = s.id
+LEFT JOIN (SELECT session_id, count(*) || ':' || max(rowid) || ':' || max(time_updated) AS f FROM part GROUP BY session_id) p ON p.session_id = s.id`)
+	res, err := storeRead{Cache: c, Scope: r.DB, Units: units, Read: func(ids []string) (map[string]unitResult, error) {
+		return r.readSessions(bin, ids, servers)
+	}}.run()
+	if err != nil {
+		return nil, st, unreadableStore(&st, err)
+	}
+	c.save()
+	digest := storeDigester(r.DB)
+	var out []trace.Session
+	for id, u := range res {
+		for _, s := range u.Sessions {
+			if !s.Start.Before(since) {
+				s.SourceDigest = digest(id)
+				out = append(out, s)
+			}
+		}
+	}
+	sortSessions(out)
+	return out, st, nil
+}
+
+// readSessions reads the named sessions, or every session when ids is nil.
+// A session without calls has no sessions in the result.
+func (r OpenCodeDB) readSessions(bin string, ids []string, servers []string) (map[string]unitResult, error) {
+	where := ""
+	if ids != nil {
+		where = ` WHERE session_id IN (` + sqlList(ids, false) + `)`
+	}
+	sessionWhere := strings.Replace(where, "session_id", "id", 1)
+	sessions, err := sqliteRows(bin, r.DB, `SELECT id, time_created FROM session`+sessionWhere)
+	if err != nil {
+		return nil, err
+	}
+	msgs, err := sqliteRows(bin, r.DB, `SELECT id, session_id, time_created, data FROM message`+where+` ORDER BY time_created, id`)
+	if err != nil {
+		return nil, err
+	}
+	parts, err := sqliteRows(bin, r.DB, `SELECT id, message_id, session_id, time_created, data FROM part`+where+` ORDER BY time_created, id`)
+	if err != nil {
+		return nil, err
+	}
 	role := map[string]string{}
 	for _, m := range msgs {
 		var d struct{ Role string }
@@ -162,14 +201,11 @@ func (r OpenCodeDB) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadS
 	for _, p := range parts {
 		bySession[rowString(p, "session_id")] = append(bySession[rowString(p, "session_id")], p)
 	}
-	var out []trace.Session
+	out := map[string]unitResult{}
 	for _, sr := range sessions {
 		id := rowString(sr, "id")
 		a := NewAssembler(r.ID, id)
 		a.S.Start = time.UnixMilli(rowInt(sr, "time_created")).UTC()
-		if a.S.Start.Before(since) {
-			continue
-		}
 		step := 0
 		for _, p := range bySession[id] {
 			var d struct {
@@ -222,12 +258,10 @@ func (r OpenCodeDB) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadS
 		}
 		s := a.Finish()
 		if len(s.Calls) > 0 {
-			s.SourceDigest = digestOf(r.DB, id)
-			out = append(out, s)
+			out[id] = unitResult{Sessions: []trace.Session{s}}
 		}
 	}
-	sortSessions(out)
-	return out, st, nil
+	return out, nil
 }
 
 // openCodeUserText unquotes a prompt OpenCode stored as a JSON string.
@@ -255,9 +289,16 @@ func OpenCodeTool(c *trace.Call, name string, input map[string]json.RawMessage, 
 	c.Tool, c.Args, c.RawArgs = name, Flatten(input), RawKeys(input)
 }
 
-// digestOf names one session of a shared store for frozen corpora.
-func digestOf(store, session string) string {
-	return hexSum(store + "\x00" + session + "\x00" + FileDigest(store))
+// storeDigester names sessions of a shared store for frozen corpora: the
+// store's path, the session, and the digest of the whole store file, read
+// once however many sessions it holds.
+func storeDigester(store string) func(session string) string {
+	var once sync.Once
+	var whole string
+	return func(session string) string {
+		once.Do(func() { whole = FileDigest(store) })
+		return hexSum(store + "\x00" + session + "\x00" + whole)
+	}
 }
 
 // --- Goose ---------------------------------------------------------------
@@ -287,9 +328,41 @@ func (r Goose) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats,
 	if err != nil {
 		return nil, st, err
 	}
-	rows, err := sqliteRows(bin, db, `SELECT session_id, role, content_json, created_timestamp FROM messages ORDER BY session_id, id`)
+	c := openUnitCache("goose")
+	// Messages are appended; a session's fingerprint is its updated_at with
+	// its message count and highest message ID.
+	units := storeFingerprints(c, bin, db, `SELECT m.session_id AS id, ifnull((SELECT s.updated_at FROM sessions s WHERE s.id = m.session_id), '') || '/' || count(*) || ':' || max(m.id) AS fp FROM messages m GROUP BY m.session_id`)
+	res, err := storeRead{Cache: c, Scope: db, Units: units, Read: func(ids []string) (map[string]unitResult, error) {
+		return readGooseSessions(bin, db, ids)
+	}}.run()
 	if err != nil {
 		return nil, st, unreadableStore(&st, err)
+	}
+	c.save()
+	digest := storeDigester(db)
+	var out []trace.Session
+	for sid, u := range res {
+		for _, s := range u.Sessions {
+			if !s.Start.Before(since) {
+				s.SourceDigest = digest(sid)
+				out = append(out, s)
+			}
+		}
+	}
+	sortSessions(out)
+	return out, st, nil
+}
+
+// readGooseSessions reads the named sessions, or every session when ids is
+// nil. A session without calls has no sessions in the result.
+func readGooseSessions(bin, db string, ids []string) (map[string]unitResult, error) {
+	where := ""
+	if ids != nil {
+		where = ` WHERE session_id IN (` + sqlList(ids, false) + `)`
+	}
+	rows, err := sqliteRows(bin, db, `SELECT session_id, role, content_json, created_timestamp FROM messages`+where+` ORDER BY session_id, id`)
+	if err != nil {
+		return nil, err
 	}
 	bySession := map[string]*Assembler{}
 	var order []string
@@ -350,17 +423,13 @@ func (r Goose) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats,
 			}
 		}
 	}
-	var out []trace.Session
+	out := map[string]unitResult{}
 	for _, sid := range order {
-		s := bySession[sid].Finish()
-		if len(s.Calls) == 0 || s.Start.Before(since) {
-			continue
+		if s := bySession[sid].Finish(); len(s.Calls) > 0 {
+			out[sid] = unitResult{Sessions: []trace.Session{s}}
 		}
-		s.SourceDigest = digestOf(db, sid)
-		out = append(out, s)
 	}
-	sortSessions(out)
-	return out, st, nil
+	return out, nil
 }
 
 // GooseTool decodes Goose's <extension>__<tool> names: the extension is the
@@ -430,6 +499,9 @@ func (r Crush) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats,
 		}
 	}
 	sort.Slice(servers, func(i, j int) bool { return len(servers[i]) > len(servers[j]) })
+	c := openUnitCache("crush")
+	defer c.save()
+	stores := map[string]bool{}
 	var out []trace.Session
 	for _, p := range pj.Projects {
 		dir := p.DataDir
@@ -440,23 +512,58 @@ func (r Crush) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats,
 		if _, err := os.Stat(db); err != nil {
 			continue
 		}
-		ss, err := readCrushDB(db, servers, since)
+		stores[db] = true
+		ss, err := readCrushDB(c, db, servers)
 		if err != nil {
 			st.UnreadableFiles++
 			continue
 		}
-		out = append(out, ss...)
+		for _, s := range ss {
+			if !s.Start.Before(since) {
+				out = append(out, s)
+			}
+		}
 	}
+	c.keepStores(stores)
 	sortSessions(out)
 	return out, st, nil
 }
 
-func readCrushDB(db string, servers []string, since time.Time) ([]trace.Session, error) {
+// readCrushDB reads one project's store, re-reading only the sessions whose
+// fingerprint changed since c last saw them.
+func readCrushDB(c *unitCache, db string, servers []string) ([]trace.Session, error) {
 	bin, err := sqliteBin("crush")
 	if err != nil {
 		return nil, err
 	}
-	rows, err := sqliteRows(bin, db, `SELECT session_id, role, parts, created_at FROM messages ORDER BY session_id, created_at, rowid`)
+	// Messages are updated in place (updated_at moves, the row ID stays);
+	// tool names decode against the configured servers.
+	units := storeFingerprints(c, bin, db, `SELECT m.session_id AS id, ifnull((SELECT s.updated_at FROM sessions s WHERE s.id = m.session_id), '') || '/' || count(*) || ':' || max(m.rowid) || ':' || max(m.updated_at) || '/' || `+sqlList([]string{strings.Join(servers, ",")}, false)+` AS fp FROM messages m GROUP BY m.session_id`)
+	res, err := storeRead{Cache: c, Scope: db, Units: units, Read: func(ids []string) (map[string]unitResult, error) {
+		return readCrushSessions(bin, db, ids, servers)
+	}}.run()
+	if err != nil {
+		return nil, err
+	}
+	digest := storeDigester(db)
+	var out []trace.Session
+	for sid, u := range res {
+		for _, s := range u.Sessions {
+			s.SourceDigest = digest(sid)
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
+// readCrushSessions reads the named sessions of one store, or every session
+// when ids is nil. A session without calls has no sessions in the result.
+func readCrushSessions(bin, db string, ids []string, servers []string) (map[string]unitResult, error) {
+	where := ""
+	if ids != nil {
+		where = ` WHERE session_id IN (` + sqlList(ids, false) + `)`
+	}
+	rows, err := sqliteRows(bin, db, `SELECT session_id, role, parts, created_at FROM messages`+where+` ORDER BY session_id, created_at, rowid`)
 	if err != nil {
 		return nil, err
 	}
@@ -505,14 +612,11 @@ func readCrushDB(db string, servers []string, since time.Time) ([]trace.Session,
 			}
 		}
 	}
-	var out []trace.Session
+	out := map[string]unitResult{}
 	for _, sid := range order {
-		s := bySession[sid].Finish()
-		if len(s.Calls) == 0 || s.Start.Before(since) {
-			continue
+		if s := bySession[sid].Finish(); len(s.Calls) > 0 {
+			out[sid] = unitResult{Sessions: []trace.Session{s}}
 		}
-		s.SourceDigest = digestOf(db, sid)
-		out = append(out, s)
 	}
 	return out, nil
 }
@@ -585,19 +689,22 @@ func (r Continue) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSta
 	if s := continueServers(r.Configs); len(s) == 1 {
 		server = s[0]
 	}
-	var out []trace.Session
+	var sessions []string
 	for _, f := range files {
-		if filepath.Base(f) == "sessions.json" {
-			continue // the index, not a session
+		if filepath.Base(f) != "sessions.json" { // the index, not a session
+			sessions = append(sessions, f)
 		}
+	}
+	// The session takes the file's time, which its fingerprint covers; tool
+	// names decode against the configured server.
+	read := func(f string) ([]trace.Session, error) {
 		info, err := os.Stat(f)
-		if err != nil || info.ModTime().Before(since) {
-			continue
+		if err != nil {
+			return nil, err
 		}
 		b, err := os.ReadFile(f)
 		if err != nil {
-			st.UnreadableFiles++
-			continue
+			return nil, err
 		}
 		var doc struct {
 			SessionID string `json:"sessionId"`
@@ -626,9 +733,8 @@ func (r Continue) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSta
 				} `json:"toolCallStates"`
 			} `json:"history"`
 		}
-		if json.Unmarshal(b, &doc) != nil {
-			st.UnreadableFiles++
-			continue
+		if err := json.Unmarshal(b, &doc); err != nil {
+			return nil, err
 		}
 		id := doc.SessionID
 		if id == "" {
@@ -661,11 +767,20 @@ func (r Continue) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSta
 			}
 		}
 		s := a.Finish()
-		if len(s.Calls) == 0 {
+		s.SourceDigest = FileDigest(f)
+		return []trace.Session{s}, nil
+	}
+	var out []trace.Session
+	for _, res := range readFiles(changedSince(sessions, since), "continue", func(string) string { return server }, nil, read) {
+		if res.Err != nil {
+			st.UnreadableFiles++
 			continue
 		}
-		s.SourceDigest = FileDigest(f)
-		out = append(out, s)
+		for _, s := range res.Sessions {
+			if len(s.Calls) > 0 {
+				out = append(out, s)
+			}
+		}
 	}
 	sortSessions(out)
 	return out, st, nil

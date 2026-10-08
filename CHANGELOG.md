@@ -8,6 +8,17 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- A repeat `tap discover` run now reads only what changed for every agent,
+  not only for agents that keep one file per session. Cursor finds the
+  conversations written since the last run from its key index and reads only
+  those. OpenCode, Kilo, Goose, Crush and Zed read only the sessions or
+  threads whose update time, row count or row IDs changed. Cursor CLI,
+  Antigravity, Copilot CLI, Windsurf, Continue and Cline reuse a session file
+  while its size, modification time and the settings it was read with are
+  unchanged. Aider's search of the home folder reads only folders that
+  changed. Each run reads a few cached sessions again and compares them; if
+  they differ, discover reads that agent in full and says so.
+
 - On an agent that cannot lend its connections (OpenCode, Crush), `tap_save`
   refuses a primitive that requires a connection, and a run of one says how to
   fix it: declare a program such as `git` under `commands:` and a web read

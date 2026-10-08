@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,22 +51,36 @@ func (r Windsurf) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSta
 			}
 		}
 	}
-	var out []trace.Session
-	for id, f := range newest {
+	var files []string
+	for _, f := range newest {
+		files = append(files, f)
+	}
+	sort.Strings(files)
+	// The session's time falls back to the file's, which its fingerprint
+	// already covers.
+	read := func(f string) ([]trace.Session, error) {
 		info, err := os.Stat(f)
-		if err != nil || info.ModTime().Before(since) {
-			continue
-		}
-		s, err := readWindsurfFile(f, id, info.ModTime().UTC())
 		if err != nil {
+			return nil, err
+		}
+		s, err := readWindsurfFile(f, strings.TrimSuffix(filepath.Base(f), ".jsonl"), info.ModTime().UTC())
+		if err != nil {
+			return nil, err
+		}
+		s.SourceDigest = FileDigest(f)
+		return []trace.Session{s}, nil
+	}
+	var out []trace.Session
+	for _, res := range readFiles(changedSince(files, since), "windsurf", nil, nil, read) {
+		if res.Err != nil {
 			st.UnreadableFiles++
 			continue
 		}
-		if len(s.Calls) == 0 {
-			continue
+		for _, s := range res.Sessions {
+			if len(s.Calls) > 0 {
+				out = append(out, s)
+			}
 		}
-		s.SourceDigest = FileDigest(f)
-		out = append(out, s)
 	}
 	sortSessions(out)
 	return out, st, nil
@@ -287,33 +300,63 @@ const aiderBudget = 200000
 // depth folder levels down. Aider writes the file into the project folder,
 // which is often 4 or more levels down (~/Desktop/Projects/<org>/<repo>).
 func aiderHistories(home string, depth int) []string {
+	return aiderHistoriesCached(home, depth, nil)
+}
+
+// walkDir is what a home-folder search saw in one folder, valid while the
+// folder's modification time is unchanged: adding, removing or renaming an
+// entry changes it.
+type walkDir struct {
+	ModTime int64
+	Subdirs []string // every subfolder, in name order
+	History bool     // the folder holds .aider.chat.history.md
+}
+
+// aiderHistoriesCached is aiderHistories reading only the folders whose
+// modification time changed since the search c remembers; the others are
+// only checked with a stat. Folders are visited in the same order, under the
+// same budget, as a plain walk.
+func aiderHistoriesCached(home string, depth int, c *unitCache) []string {
 	var files []string
 	visited := 0
-	base := strings.Count(filepath.Clean(home), string(filepath.Separator))
-	filepath.WalkDir(home, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if d != nil && d.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
+	seen := map[string]bool{}
+	var walk func(dir string, level int)
+	walk = func(dir string, level int) {
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			return
 		}
-		if d.IsDir() {
-			if p == home {
-				return nil
+		seen[dir] = true
+		e, ok := c.dir(dir)
+		if !ok || e.ModTime != info.ModTime().UnixNano() {
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				return
 			}
+			e = walkDir{ModTime: info.ModTime().UnixNano()}
+			for _, d := range entries {
+				switch {
+				case d.IsDir():
+					e.Subdirs = append(e.Subdirs, d.Name())
+				case d.Name() == ".aider.chat.history.md":
+					e.History = true
+				}
+			}
+			c.setDir(dir, e)
+		}
+		if e.History {
+			files = append(files, filepath.Join(dir, ".aider.chat.history.md"))
+		}
+		for _, name := range e.Subdirs {
 			visited++
-			name := d.Name()
-			if visited > aiderBudget || aiderSkip[name] || strings.HasPrefix(name, ".") ||
-				strings.Count(p, string(filepath.Separator))-base > depth {
-				return fs.SkipDir
+			if visited > aiderBudget || aiderSkip[name] || strings.HasPrefix(name, ".") || level+1 > depth {
+				continue
 			}
-			return nil
+			walk(filepath.Join(dir, name), level+1)
 		}
-		if d.Name() == ".aider.chat.history.md" {
-			files = append(files, p)
-		}
-		return nil
-	})
+	}
+	walk(filepath.Clean(home), 0)
+	c.keepDirs(seen)
 	sort.Strings(files)
 	return files
 }
@@ -331,19 +374,16 @@ func (r Aider) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats,
 	if depth == 0 {
 		depth = 6
 	}
-	files := aiderHistories(r.Home, depth)
+	walk := openUnitCache("aider-walk")
+	files := aiderHistoriesCached(r.Home, depth, walk)
+	walk.save()
 	var out []trace.Session
-	for _, f := range files {
-		info, err := os.Stat(f)
-		if err != nil || info.ModTime().Before(since) {
-			continue
-		}
-		ss, err := readAiderFile(f)
-		if err != nil {
+	for _, res := range readFiles(changedSince(files, since), "aider", nil, nil, readAiderFile) {
+		if res.Err != nil {
 			st.UnreadableFiles++
 			continue
 		}
-		for _, s := range ss {
+		for _, s := range res.Sessions {
 			if len(s.Calls) > 0 && !s.Start.Before(since) {
 				out = append(out, s)
 			}

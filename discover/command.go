@@ -265,6 +265,9 @@ func MenuCommand(args []string, in io.Reader, out, errOut io.Writer, known []pri
 		for _, s := range skipped {
 			fmt.Fprintf(errOut, "discover: skipped %s\n", s)
 		}
+		for _, n := range history.TakeNotices() {
+			fmt.Fprintf(errOut, "discover: %s\n", n)
+		}
 	}
 	if len(sessions) == 0 && !*asJSON {
 		board.stop()

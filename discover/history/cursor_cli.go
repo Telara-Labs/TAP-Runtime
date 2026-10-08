@@ -54,20 +54,27 @@ func (r CursorCLI) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSt
 		}
 		bin = p
 	}
-	var out []trace.Session
-	for _, db := range stores {
-		if info, err := os.Stat(db); err != nil || info.ModTime().Before(since) {
-			continue
-		}
+	read := func(db string) ([]trace.Session, error) {
 		s, err := ReadCursorCLIStore(bin, db)
 		if err != nil {
+			return nil, err
+		}
+		return []trace.Session{s}, nil
+	}
+	// A write can reach only the write-ahead log, so the log's size and time
+	// are part of each store's fingerprint.
+	wal := func(db string) string { return statFingerprint(db + "-wal") }
+	var out []trace.Session
+	for _, res := range readFiles(changedSince(stores, since), "cursor-cli", wal, nil, read) {
+		if res.Err != nil {
 			st.UnreadableFiles++ // one store that cannot be read is skipped, not the run
 			continue
 		}
-		if len(s.Calls) == 0 || s.Start.Before(since) {
-			continue
+		for _, s := range res.Sessions {
+			if len(s.Calls) > 0 && !s.Start.Before(since) {
+				out = append(out, s)
+			}
 		}
-		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].Start.Equal(out[j].Start) {

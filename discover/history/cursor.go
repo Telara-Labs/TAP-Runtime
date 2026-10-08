@@ -98,6 +98,40 @@ type CursorRow struct {
 	Size int64 `json:"size"`
 }
 
+// cursorScopes rewrite each query's key range into a join on the listed
+// conversations, so a query reads only those conversations' records: one
+// seek on the key index per conversation.
+var cursorScopes = [][2]string{
+	{`FROM cursorDiskKV c WHERE c.key >= 'bubbleId:' AND c.key < 'bubbleId;'`,
+		`FROM ids JOIN cursorDiskKV c ON c.key >= 'bubbleId:' || ids.id || ':' AND c.key < 'bubbleId:' || ids.id || ';' WHERE 1`},
+	{`FROM cursorDiskKV c WHERE c.key >= 'composerData:' AND c.key < 'composerData;'`,
+		`FROM ids JOIN cursorDiskKV c ON c.key = 'composerData:' || ids.id WHERE 1`},
+	{"FROM cursorDiskKV c, json_each(c.value, '$.conversation') j\nWHERE c.key >= 'composerData:' AND c.key < 'composerData;'",
+		"FROM ids JOIN cursorDiskKV c ON c.key = 'composerData:' || ids.id, json_each(c.value, '$.conversation') j\nWHERE 1"},
+}
+
+// cursorScoped is sql restricted to the conversations ids; nil ids is sql.
+func cursorScoped(sql string, ids []string) string {
+	if ids == nil {
+		return sql
+	}
+	for _, s := range cursorScopes {
+		sql = strings.Replace(sql, s[0], s[1], 1)
+	}
+	return "WITH ids(id) AS (VALUES " + sqlList(ids, true) + ") " + sql
+}
+
+// CursorListSQL lists every conversation record and bubble with its row ID,
+// from the key index alone: no record is read.
+const CursorListSQL = `SELECT substr(key, 14) AS c, '' AS b, rowid AS r FROM cursorDiskKV WHERE key >= 'composerData:' AND key < 'composerData;'
+UNION ALL
+SELECT substr(key, 10, 36), substr(key, 47), rowid FROM cursorDiskKV WHERE key >= 'bubbleId:' AND key < 'bubbleId;';`
+
+// Read reads Cursor's conversations. With a cache (UseCache), only the
+// conversations that changed since the last run are read: the store declares
+// its key UNIQUE ON CONFLICT REPLACE, so every write to a record replaces the
+// row and gives it a higher row ID, and the key index lists every record
+// with its row ID without reading any.
 func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 	if _, err := os.Stat(r.DB); os.IsNotExist(err) {
 		return nil, nil
@@ -110,6 +144,90 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 		}
 		bin = p
 	}
+	c := openUnitCache("cursor")
+	var units map[string]string
+	var force map[string]bool
+	var top int64
+	if c != nil {
+		units, force, top = r.listConversations(bin, c.mark(r.DB))
+	}
+	res, err := storeRead{Cache: c, Scope: r.DB, Units: units, Force: force, Read: func(ids []string) (map[string]unitResult, error) {
+		return r.readConversations(bin, ids)
+	}}.run()
+	if err != nil {
+		return nil, err
+	}
+	if units != nil {
+		c.setMark(r.DB, top)
+	}
+	c.save()
+	var out []trace.Session
+	for _, u := range res {
+		for _, s := range u.Sessions {
+			if len(s.Calls) > 0 && !s.Start.Before(since) {
+				out = append(out, s)
+			}
+		}
+	}
+	// Conversations come out of a map; later passes take sessions in order.
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].Start.Equal(out[j].Start) {
+			return out[i].Start.Before(out[j].Start)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+// listConversations fingerprints each conversation by its records' keys and
+// row IDs. A conversation holding a row ID at or above the highest one the
+// last run saw (mark) is read again whatever its fingerprint: rewriting the
+// store's newest row can give the new row the same ID. It returns nil when
+// the store cannot be listed, and the highest row ID seen.
+func (r Cursor) listConversations(bin string, mark int64) (map[string]string, map[string]bool, int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteDeadline(r.DB))
+	defer cancel()
+	out, err := util.SQLiteQuery(ctx, bin, r.DB, CursorListSQL)
+	if err != nil {
+		return nil, nil, 0
+	}
+	var rows []struct {
+		C string `json:"c"`
+		B string `json:"b"`
+		R int64  `json:"r"`
+	}
+	if len(bytes.TrimSpace(out)) > 0 && json.Unmarshal(out, &rows) != nil {
+		return nil, nil, 0
+	}
+	records := map[string][]string{}
+	hasComposer := map[string]bool{}
+	force := map[string]bool{}
+	var top int64
+	for _, row := range rows {
+		if row.B == "" {
+			hasComposer[row.C] = true
+		}
+		records[row.C] = append(records[row.C], fmt.Sprintf("%s\x00%d", row.B, row.R))
+		if mark > 0 && row.R >= mark {
+			force[row.C] = true
+		}
+		top = max(top, row.R)
+	}
+	units := map[string]string{}
+	for id, rs := range records {
+		if !hasComposer[id] {
+			continue // bubbles without their conversation are never read
+		}
+		sort.Strings(rs)
+		h := sha256.Sum256([]byte(strings.Join(rs, "\n")))
+		units[id] = hex.EncodeToString(h[:])
+	}
+	return units, force, top
+}
+
+// readConversations reads the named conversations, or every conversation
+// when ids is nil.
+func (r Cursor) readConversations(bin string, ids []string) (map[string]unitResult, error) {
 	query := func(sql string) ([]CursorRow, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteDeadline(r.DB))
 		defer cancel()
@@ -133,7 +251,7 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rows[i], errs[i] = query(sql)
+			rows[i], errs[i] = query(cursorScoped(sql, ids))
 		}()
 	}
 	wg.Wait()
@@ -192,9 +310,9 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 		addUser(u, i)
 	}
 
-	var out []trace.Session
+	out := map[string]unitResult{}
 	for id, cv := range convs {
-		if len(cv.Calls) == 0 || cv.Start.Before(since) {
+		if len(cv.Calls) == 0 {
 			continue
 		}
 		sort.SliceStable(cv.Calls, func(i, j int) bool { return cv.Calls[i].Pos < cv.Calls[j].Pos })
@@ -212,15 +330,8 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 				a.Add(e)
 			}
 		}
-		out = append(out, a.Finish())
+		out[id] = unitResult{Sessions: []trace.Session{a.Finish()}}
 	}
-	// Conversations come out of a map; later passes take sessions in order.
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].Start.Equal(out[j].Start) {
-			return out[i].Start.Before(out[j].Start)
-		}
-		return out[i].ID < out[j].ID
-	})
 	return out, nil
 }
 
