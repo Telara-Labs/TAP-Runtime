@@ -8,6 +8,14 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Security hardening keeps existing execution and cache behavior: authoring
+  briefs remove complete private-key blocks and named credentials in structured
+  arguments and environment values; HTTP failure diagnostics omit URL secrets;
+  command classification keeps both global flags and launcher subcommands;
+  host programs follow run cancellation, and native guest diagnostics are
+  bounded. Builds use patched Go and gRPC dependencies, with vulnerability
+  checks in CI. Private run records retain their existing evidence semantics.
+
 - Reading agent history no longer holds it whole. `tap discover` and the
   asked-before note of `tap_search` read every session they read before;
   results from SQLite stores are decoded a row at a time, stores are read in
