@@ -8,6 +8,10 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Aider history discovery refreshes directory listings captured during recent
+  writes, so timestamp aliases cannot keep deleted paths or hide new history.
+  Stable directories retain their cached listings across searches and restarts.
+
 - In an agent that cannot show TAP's prompts, `tap_save` now saves when the
   agent's own settings let it write files without asking. Before, it always
   refused and pointed to `tap discover save`, which Gemini CLI's own policy
