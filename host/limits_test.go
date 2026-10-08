@@ -62,11 +62,13 @@ func TestTheRunTimeLimitStopsADispatchedHostProgram(t *testing.T) {
 }
 
 func TestTheTimeLimitDoesNotRunWhileAPersonIsBeingAsked(t *testing.T) {
-	asked := false
-	res, err := runLimited(t, "main.py", "  timeoutSeconds: 1\nfiles:\n  - {path: out, access: write}\n",
-		"tap.write(\"out/a.txt\", \"hello\")\nprint(\"done\")\n", Options{
+	// Exercise the real sandbox and write gate without making CPython's
+	// startup time part of this approval-clock invariant.
+	asked := 0
+	res, err := runLimited(t, "main.sh", "  timeoutSeconds: 1\nfiles:\n  - {path: out, access: write}\n",
+		"printf hello > out/a.txt\necho done\n", Options{
 			Approve: func(Ask) Grant {
-				asked = true
+				asked++
 				time.Sleep(2500 * time.Millisecond) // longer than the limit
 				return Grant{OK: true, Limit: Unlimited}
 			},
@@ -74,11 +76,14 @@ func TestTheTimeLimitDoesNotRunWhileAPersonIsBeingAsked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !asked {
-		t.Fatal("the program did not need approval, so it does not test the pause")
+	if asked != 1 {
+		t.Fatalf("the owned write asked %d times, want 1", asked)
 	}
-	if !strings.Contains(res.Stdout, "done") {
-		t.Fatalf("waiting for a person cost the run its time: %q", res.Stdout)
+	if res.Exit != 0 || res.Ran != 1 || res.Refused != 0 || res.Stdout != "done\n" {
+		t.Fatalf("waiting for a person changed the completed write's result: %+v", res)
+	}
+	if got, err := os.ReadFile("out/a.txt"); err != nil || string(got) != "hello" {
+		t.Fatalf("approved owned write: %q, %v", got, err)
 	}
 }
 
