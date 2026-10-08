@@ -163,6 +163,10 @@ type Options struct {
 	// VSCodeSocket reaches the TAP extension in VS Code, which calls the
 	// editor's tools for the runner (bridge/vscode.go).
 	VSCodeSocket string
+	// Proc is the agent session the run is for: its working directory, where
+	// files resolve and programs start, and its environment. The zero value
+	// is this process's own (serve.go, shared.go).
+	Proc bridge.Proc
 
 	// RunsDir holds one directory per run. Empty means the user cache
 	// directory. NoJournal runs without a record, and so without resume.
@@ -304,8 +308,11 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "diff" {
 		os.Exit(diffCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "shared-runner" {
+		os.Exit(sharedRunnerCommand(os.Args[2:], os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
-		if err := serve(os.Stdin, os.Stdout, os.Args[2:]); err != nil {
+		if err := serveEntry(os.Stdin, os.Stdout, os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "tap:", err)
 			os.Exit(1)
 		}
@@ -513,7 +520,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 					return nil, fmt.Errorf("tool %q: %s does not tell the runner which tools it has, so each tool must be pinned, as pin: {server: <server>, tool: <tool>}", d.Alias, o.relayClient)
 				}
 			}
-			br = newRelayBridge(o.relay, o.relayClient, o.relayVersion, m.Tools)
+			br = newRelayBridge(o.relay, o.relayClient, o.relayVersion, m.Tools, o.Proc.Wd())
 		}
 		if br == nil && o.VSCodeSocket != "" {
 			br, err = bridge.NewVSCode(o.VSCodeSocket)
@@ -534,12 +541,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			if c == "" {
 				c = detectClient()
 			}
-			if c == "codex" && os.Getenv("CODEX_SANDBOX_NETWORK_DISABLED") == "1" {
+			if c == "codex" && o.Proc.Getenv("CODEX_SANDBOX_NETWORK_DISABLED") == "1" {
 				// Started from a command in Codex's sandbox: the runner cannot
 				// reach Codex's app-server, or the network, from there.
 				return nil, fmt.Errorf("this command runs inside Codex's sandbox, which has no network, so the runner cannot borrow Codex's connections from here; save the package (tap discover save, approved to run outside the sandbox) and run it with the tap_run tool")
 			}
-			br, err = openBridge(c)
+			br, err = openBridge(c, o.Proc)
 			if err != nil {
 				if why := unlendableTools(c, &m); why != "" {
 					return nil, fmt.Errorf("%s", why)
@@ -647,20 +654,19 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			logf("limit      %s is declared and this runner does not enforce it", k)
 		}
 	}
-	if o.CacheDir != "" {
-		cache, err := wazero.NewCompilationCacheWithDir(o.CacheDir)
-		if err != nil {
-			return nil, err
-		}
-		defer cache.Close(ctx)
+	if cache, err := compilationCache(o.CacheDir); err == nil {
 		rc = rc.WithCompilationCache(cache)
+	} else {
+		logf("cache      none: %v", err)
 	}
 	rt := wazero.NewRuntimeWithConfig(ctx, rc)
 	defer rt.Close(ctx)
 	wasi_snapshot_preview1.MustInstantiate(ctx, rt)
 
 	t0 := time.Now()
+	unlock := compileLock(wasmBytes)
 	compiled, err := rt.CompileModule(ctx, wasmBytes)
+	unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -842,11 +848,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			if decl, _ := resolve(&m, rq.Command, rq.Args); decl != nil {
 				kind = strings.TrimSpace("run " + decl.Command + " " + strings.Join(decl.Args, " "))
 			}
-			return gate(func(a bool) reply { return runCommand(&m, rq, a, journal) }, kind,
+			return gate(func(a bool) reply { return runCommand(o.Proc, &m, rq, a, journal) }, kind,
 				"run "+strings.TrimSpace(rq.Command+" "+strings.Join(rq.Args, " ")), effectOf(rq), true)
 		case "read", "write", "canwrite":
-			return gate(func(a bool) reply { return fileOp(&m, rq, a, journal) },
-				"write files under "+declaredRoot(&m, rq.Path), "write the file "+rq.Path, "write", rq.Method == "write")
+			return gate(func(a bool) reply { return fileOp(o.Proc, &m, rq, a, journal) },
+				"write files under "+declaredRoot(o.Proc, &m, rq.Path), "write the file "+rq.Path, "write", rq.Method == "write")
 		case "fetch":
 			origin := rq.URL
 			if u, err := url.Parse(rq.URL); err == nil {

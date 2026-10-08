@@ -107,7 +107,11 @@ func (h *relayHub) listen() error {
 		return err
 	}
 	os.Chmod(h.dir, 0o700)
-	h.sock = filepath.Join(h.dir, fmt.Sprintf("%d.sock", os.Getpid()))
+	// One process can hold a hub per session (shared.go), so the name is
+	// the process's and a random one of the hub's own.
+	tag := make([]byte, 4)
+	rand.Read(tag)
+	h.sock = filepath.Join(h.dir, fmt.Sprintf("%d-%s.sock", os.Getpid(), hex.EncodeToString(tag)))
 	// A socket path is limited to about 100 bytes (104 on macOS). A deep
 	// cache directory falls back to a short name in the system's temporary
 	// directory; the pending files, which name the socket, stay in h.dir.
@@ -276,13 +280,13 @@ type relayBridge struct {
 	denies  func(bind.Tool) bool
 }
 
-func newRelayBridge(r *relayRun, client, version string, decls []mf.Tool) *relayBridge {
+func newRelayBridge(r *relayRun, client, version string, decls []mf.Tool, wd string) *relayBridge {
 	b := &relayBridge{run: r, client: client, version: version, nameFor: geminiToolName}
 	// The person's own rules, from Gemini CLI's settings: includeTools and
 	// excludeTools per server, in their user settings and in this project's.
 	if home, err := os.UserHomeDir(); err == nil {
 		files := []string{filepath.Join(home, ".gemini", "settings.json")}
-		if wd, err := os.Getwd(); err == nil {
+		if wd != "" {
 			files = append(files, filepath.Join(wd, ".gemini", "settings.json"))
 		}
 		b.denies = bridge.GeminiRules(files...)

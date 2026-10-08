@@ -46,9 +46,9 @@ func localTool(name, description string, properties map[string]any, required []s
 
 func (s *server) catalog() ([]catalogEntry, error) {
 	if s.catalogRoot != "" {
-		return localCatalog(s.catalogRoot)
+		return localCatalogIn(s.proc.Wd(), s.catalogRoot)
 	}
-	return localCatalog()
+	return localCatalogIn(s.proc.Wd())
 }
 
 func (s *server) resolveRunPackage(ref, digest, legacyPath string) (string, error) {

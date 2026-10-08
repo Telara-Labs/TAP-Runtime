@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"os/exec"
 	"path"
 	"regexp"
@@ -61,14 +60,25 @@ var kiloListening = regexp.MustCompile(`listening on (http://127\.0\.0\.1:\d+)`)
 
 func NewKilo() (*Kilo, error) { return newKilo("kilo", nil) }
 
+// NewKiloIn starts Kilo's server in a session's directory and environment.
+func NewKiloIn(p Proc) (*Kilo, error) {
+	bin := "kilo"
+	if path, err := p.LookPath(bin); err == nil {
+		bin = path
+	}
+	return newKiloIn(bin, p)
+}
+
 // newKilo starts bin serve; env, when set, replaces the process environment.
-func newKilo(bin string, env []string) (*Kilo, error) {
+func newKilo(bin string, env []string) (*Kilo, error) { return newKiloIn(bin, Proc{Env: env}) }
+
+func newKiloIn(bin string, p Proc) (*Kilo, error) {
 	secret := make([]byte, 24)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, err
 	}
 	k := &Kilo{pass: hex.EncodeToString(secret), client: &http.Client{Timeout: 120 * time.Second}}
-	k.dir, _ = os.Getwd()
+	k.dir = p.Wd()
 	// Kilo takes --port 0 as its default port (4096), which another Kilo
 	// server may hold: ask the system for a free one.
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -78,9 +88,10 @@ func newKilo(bin string, env []string) (*Kilo, error) {
 	port := l.Addr().(*net.TCPAddr).Port
 	l.Close()
 	cmd := exec.Command(bin, "serve", "--port", strconv.Itoa(port), "--hostname", "127.0.0.1")
-	if env == nil {
-		env = os.Environ()
+	if p.Dir != "" {
+		cmd.Dir = p.Dir
 	}
+	env := p.Environ()
 	// Kilo's own flag and the server's password, for this server only.
 	cmd.Env = append(env, "KILO_EXPERIMENTAL_MCP_APPS=true", "KILO_SERVER_PASSWORD="+k.pass)
 	out, err := cmd.StdoutPipe()
@@ -120,7 +131,9 @@ func newKilo(bin string, env []string) (*Kilo, error) {
 		}
 	}
 	if k.version == "" {
-		if b, err := exec.Command(bin, "--version").Output(); err == nil {
+		version := exec.Command(bin, "--version")
+		p.apply(version)
+		if b, err := version.Output(); err == nil {
 			k.version = strings.TrimSpace(string(b))
 		}
 	}

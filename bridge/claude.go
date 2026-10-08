@@ -34,17 +34,24 @@ type Claude struct {
 
 // NewClaude starts a second copy of Claude Code. extra is passed
 // to it and exists for tests.
-func NewClaude(extra ...string) (*Claude, error) {
-	executable, err := ClaudeExecutable()
+func NewClaude(extra ...string) (*Claude, error) { return NewClaudeIn(Proc{}, extra...) }
+
+// NewClaudeIn starts Claude Code in a session's directory and environment.
+func NewClaudeIn(p Proc, extra ...string) (*Claude, error) {
+	home, _ := os.UserHomeDir()
+	executable, err := resolveClaudeExecutable(home, runtime.GOOS, p.LookPath)
 	if err != nil {
 		return nil, err
 	}
-	v, err := exec.Command(executable, "--version").Output()
+	version := exec.Command(executable, "--version")
+	p.apply(version)
+	v, err := version.Output()
 	if err != nil {
 		return nil, fmt.Errorf("claude is not on this machine: %w", err)
 	}
 	args := append([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"}, extra...)
 	cmd := exec.Command(executable, args...)
+	p.apply(cmd)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

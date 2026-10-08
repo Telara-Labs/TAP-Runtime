@@ -20,6 +20,7 @@ type Codex struct {
 	cmd     *exec.Cmd
 	in      io.WriteCloser
 	thread  string
+	wd      string // the session's directory, whose project config applies
 	version string
 
 	mu      sync.Mutex
@@ -29,8 +30,12 @@ type Codex struct {
 	ruleSet map[string]codexServerRules
 }
 
-func NewCodex() (*Codex, error) {
-	cmd := exec.Command("codex", "app-server")
+func NewCodex() (*Codex, error) { return NewCodexIn(Proc{}) }
+
+// NewCodexIn starts Codex's app-server in a session's directory and
+// environment.
+func NewCodexIn(p Proc) (*Codex, error) {
+	cmd := p.command("codex", "app-server")
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -44,7 +49,7 @@ func NewCodex() (*Codex, error) {
 	}
 	sc := bufio.NewScanner(out)
 	sc.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
-	c := &Codex{cmd: cmd, in: in, pending: map[int]chan map[string]any{}}
+	c := &Codex{cmd: cmd, in: in, wd: p.Wd(), pending: map[int]chan map[string]any{}}
 	go c.read(sc)
 	r, err := c.call("initialize", map[string]any{"clientInfo": map[string]string{"name": "tap-runtime", "version": "0"}})
 	if err != nil {
@@ -195,8 +200,8 @@ func (c *Codex) rules() (map[string]codexServerRules, error) {
 		return cached, nil
 	}
 	params := map[string]any{"includeLayers": false}
-	if wd, err := os.Getwd(); err == nil {
-		params["cwd"] = wd
+	if c.wd != "" {
+		params["cwd"] = c.wd
 	}
 	r, err := c.call("config/read", params)
 	if err != nil {

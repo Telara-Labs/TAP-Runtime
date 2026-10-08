@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -146,17 +147,17 @@ func TestRunCommandAgainstRealPrograms(t *testing.T) {
 	}}
 	var journal bytes.Buffer
 
-	r := runCommand(m, request{Command: "printenv"}, false, &journal)
+	r := runCommand(bridge.Proc{}, m, request{Command: "printenv"}, false, &journal)
 	if strings.Contains(r.Stdout, "must-not-leak") {
 		t.Fatal("an undeclared variable reached the host program")
 	}
 	if !strings.Contains(r.Stdout, "TAP_TEST_DECLARED=passed-through") {
 		t.Fatalf("a declared variable did not reach the host program:\n%s", r.Stdout)
 	}
-	if r := runCommand(m, request{Command: "pwd"}, false, &journal); strings.TrimSpace(r.Stdout) != dir {
+	if r := runCommand(bridge.Proc{}, m, request{Command: "pwd"}, false, &journal); strings.TrimSpace(r.Stdout) != dir {
 		t.Fatalf("ran in %q, want %q", strings.TrimSpace(r.Stdout), dir)
 	}
-	if r := runCommand(m, request{Command: "cat", Stdin: "piped in\n"}, false, &journal); r.Stdout != "piped in\n" {
+	if r := runCommand(bridge.Proc{}, m, request{Command: "cat", Stdin: "piped in\n"}, false, &journal); r.Stdout != "piped in\n" {
 		t.Fatalf("standard input did not arrive: %q", r.Stdout)
 	}
 

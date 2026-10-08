@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
 	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
@@ -23,6 +24,32 @@ import (
 // that does not advertise elicitation is never asked, and every write under
 // it is refused.
 func serve(in io.Reader, out io.Writer, args []string) error {
+	s, cfg, done, err := newServer(out, args)
+	if err != nil {
+		return err
+	}
+	defer done()
+	if cfg.httpListen != "" {
+		if s.mcpURL == "" {
+			return fmt.Errorf("--http-listen requires an explicitly configured --mcp-url backend")
+		}
+		return serveHTTP(cfg.httpListen, cfg.httpTokenFile, cfg.httpOrigins, s)
+	}
+	return s.serveStream(in)
+}
+
+// serveConfig is what serve's flags say beyond the server itself.
+type serveConfig struct {
+	httpListen    string
+	httpTokenFile string
+	httpOrigins   stringList
+	configDir     string
+}
+
+// newServer builds a server answering on out from serve's flags. done
+// releases what it opened.
+func newServer(out io.Writer, args []string) (*server, serveConfig, func(), error) {
+	var cfg serveConfig
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	journalPath := fs.String("journal", "", "append one JSON line per action")
 	interpDir := fs.String("interpreters", "", "interpreter store; default is the user cache directory")
@@ -36,40 +63,49 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 	serverName := fs.String("name", "tap", "the name the client knows this server by, as given at install")
 	vscodeSocket := fs.String("vscode-socket", "", "the TAP extension's socket, given by the extension that starts this server in VS Code")
 	noRecord := fs.Bool("no-record", false, "keep no record of a run: tool results and requests are not written to disk, and a run cannot be resumed")
-	configDir := fs.String("config-dir", "", "directory for the choices a person made (tool bindings) and the packages they trust; default is the user config directory")
+	fs.StringVar(&cfg.configDir, "config-dir", "", "directory for the choices a person made (tool bindings) and the packages they trust; default is the user config directory")
 	catalogRoot := fs.String("catalog-root", "", "additional local primitive collection root")
 	allowPackagePath := fs.Bool("allow-package-path", false, "allow legacy model-supplied package paths; use only during migration")
-	httpListen := fs.String("http-listen", "", "serve Streamable HTTP at /mcp on this address instead of stdio (for example 127.0.0.1:8765)")
-	httpTokenFile := fs.String("http-token-file", "", "required with --http-listen: private file containing the incoming bearer token")
-	var httpOrigins stringList
-	fs.Var(&httpOrigins, "http-origin", "allowed HTTP Origin; repeat for each exact origin")
+	fs.StringVar(&cfg.httpListen, "http-listen", "", "serve Streamable HTTP at /mcp on this address instead of stdio (for example 127.0.0.1:8765)")
+	fs.StringVar(&cfg.httpTokenFile, "http-token-file", "", "required with --http-listen: private file containing the incoming bearer token")
+	fs.Var(&cfg.httpOrigins, "http-origin", "allowed HTTP Origin; repeat for each exact origin")
+	fs.Bool("own-process", false, "answer in this process instead of the runner shared by every session (shared.go)")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return nil, cfg, nil, err
 	}
-	if *configDir != "" {
-		userConfigDir = func() (string, error) { return *configDir, nil }
+	if cfg.configDir != "" {
+		dir := cfg.configDir
+		userConfigDir = func() (string, error) { return dir, nil }
+	}
+	var closers []func()
+	done := func() {
+		for i := len(closers) - 1; i >= 0; i-- {
+			closers[i]()
+		}
 	}
 	var journal io.Writer = io.Discard
 	if *journalPath != "" {
 		f, err := os.OpenFile(*journalPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
-			return err
+			return nil, cfg, nil, err
 		}
-		defer f.Close()
+		closers = append(closers, func() { f.Close() })
 		journal = &lockedWriter{w: f}
 	}
 	s := &server{out: out, pending: map[int]chan rpcMessage{}, journal: journal, interpDir: *interpDir, cacheDir: *cacheDir, runsDir: *runsDir, retention: *retention, payloads: *otelPayloads, mcpURL: *mcpURL, mcpHeaderFile: *mcpHeaderFile, vscodeSocket: *vscodeSocket, noRecord: *noRecord, catalogRoot: *catalogRoot, allowPackagePath: *allowPackagePath}
 	s.mcpServerName = *mcpServerName
-	if *httpListen != "" {
-		if *mcpURL == "" {
-			return fmt.Errorf("--http-listen requires an explicitly configured --mcp-url backend")
+	if cfg.httpListen == "" {
+		if dir, err := relayDir(); err == nil {
+			s.relay = newRelayHub(dir, *serverName)
+			closers = append(closers, s.relay.close)
 		}
-		return serveHTTP(*httpListen, *httpTokenFile, httpOrigins, s)
 	}
-	if dir, err := relayDir(); err == nil {
-		s.relay = newRelayHub(dir, *serverName)
-		defer s.relay.close()
-	}
+	return s, cfg, done, nil
+}
+
+// serveStream answers the client's newline-delimited messages on in until
+// it closes.
+func (s *server) serveStream(in io.Reader) error {
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 	var wg sync.WaitGroup
@@ -83,12 +119,25 @@ func serve(in io.Reader, out io.Writer, args []string) error {
 			s.deliver(m)
 		case m.Method != "" && m.ID != nil:
 			wg.Add(1)
-			go func() { defer wg.Done(); s.handle(m) }()
+			go func() { defer wg.Done(); s.handleGuarded(m) }()
 		}
 	}
 	s.closeAll()
 	wg.Wait()
 	return sc.Err()
+}
+
+// handleGuarded is handle, with a panic answered as an error instead of
+// ending the process: the shared runner serves every session, and one
+// request must not take the others down with it.
+func (s *server) handleGuarded(m rpcMessage) {
+	defer func() {
+		if r := recover(); r != nil {
+			logf("panic      %s: %v", m.Method, r)
+			s.fail(m.ID, -32603, "the runner failed on this request")
+		}
+	}()
+	s.handle(m)
 }
 
 type rpcMessage struct {
@@ -151,6 +200,13 @@ type server struct {
 	held heldRuns
 	// vscodeSocket reaches the TAP extension in VS Code (bridge/vscode.go).
 	vscodeSocket string
+	// proc is the agent session this server answers: the directory and
+	// environment its client started it with. Zero is this process's own;
+	// the shared runner sets it from the relay (shared.go).
+	proc bridge.Proc
+	// histories, in the shared runner, is the history read its sessions
+	// share. Nil reads one for this server alone.
+	histories *historyPool
 }
 
 // serverInstructions reach the agent with the server's tools. They make a
@@ -365,7 +421,7 @@ func (s *server) handle(m rpcMessage) {
 		s.clientName, s.clientVersion = p.ClientInfo.Name, p.ClientInfo.Version
 		_, s.canElicit = p.Capabilities["elicitation"]
 		if s.history == nil {
-			s.history = loadHistory(p.ClientInfo.Name)
+			s.history = s.histories.load(p.ClientInfo.Name)
 		}
 		s.mu.Unlock()
 		logf("client     %s %s, elicitation=%v", p.ClientInfo.Name, p.ClientInfo.Version, s.canElicit)
@@ -488,7 +544,7 @@ func (s *server) handle(m rpcMessage) {
 				}
 			},
 			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, NoJournal: s.noRecord, TelemetryPayloads: s.payloads, Client: clientFor(name),
-			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile, MCPServerName: s.mcpServerName,
+			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile, MCPServerName: s.mcpServerName, Proc: s.proc,
 		}
 		if s.vscodeSocket != "" && s.mcpURL == "" {
 			// The approval stays with this runner: VS Code runs an unconfirmed

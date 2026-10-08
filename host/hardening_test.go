@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,7 +19,7 @@ func TestFilesAPrimitiveWritesAreOwnerOnly(t *testing.T) {
 	dir := inDir(t)
 	m := &manifest{Files: []fileDecl{{Path: "reports", Access: "write"}}}
 	var j bytes.Buffer
-	if r := fileOp(m, request{Method: "write", Path: "reports/deep/a.txt", Stdin: "x"}, true, &j); r.Refused != "" || r.Exit != 0 {
+	if r := fileOp(bridge.Proc{}, m, request{Method: "write", Path: "reports/deep/a.txt", Stdin: "x"}, true, &j); r.Refused != "" || r.Exit != 0 {
 		t.Fatalf("%+v", r)
 	}
 	for path, want := range map[string]os.FileMode{

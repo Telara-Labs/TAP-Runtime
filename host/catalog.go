@@ -22,6 +22,12 @@ type catalogEntry struct {
 // directories are package candidates; the user's home is never recursively
 // traversed.
 func localCatalog(extraRoots ...string) ([]catalogEntry, error) {
+	cwd, _ := os.Getwd()
+	return localCatalogIn(cwd, extraRoots...)
+}
+
+// localCatalogIn is localCatalog for a session started in cwd.
+func localCatalogIn(cwd string, extraRoots ...string) ([]catalogEntry, error) {
 	var roots []struct{ path, source string }
 	if cfg, err := userConfigDir(); err == nil && cfg != "" {
 		roots = append(roots, struct{ path, source string }{filepath.Join(cfg, "tap", "primitives"), "tap"})
@@ -32,7 +38,7 @@ func localCatalog(extraRoots ...string) ([]catalogEntry, error) {
 			struct{ path, source string }{filepath.Join(home, ".codex", "skills"), "codex"},
 		)
 	}
-	if cwd, err := os.Getwd(); err == nil && cwd != "" {
+	if cwd != "" {
 		roots = append(roots,
 			struct{ path, source string }{filepath.Join(cwd, ".claude", "skills"), "claude"},
 			struct{ path, source string }{filepath.Join(cwd, ".codex", "skills"), "codex"},

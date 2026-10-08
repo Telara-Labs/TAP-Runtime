@@ -8,6 +8,25 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Every agent session on a machine is now answered by one shared runner.
+  An agent starts `tap serve` once per session, and some start dozens at a
+  time; each used to be a full runner that read the agent's history on its
+  own, and a burst of forty held tens of gigabytes. `tap serve` is now a
+  relay of about 15 MB that passes the session to the shared runner,
+  with the folder and environment the agent started it in, so each run still
+  works in its session's own project and asks its approvals of that session
+  only. The relay starts the runner when none is running; the runner stops
+  after ten minutes with no sessions, and a relay whose runner stops starts
+  another and goes on. Nothing changes in an agent's configuration.
+  `--config-dir`, `--http-listen` and the new `--own-process` keep a session
+  in a process of its own, as before.
+- Two `tap serve` processes no longer read an agent's history at the same
+  time: the second waits and reads only what changed since the first.
+- `tap serve` now keeps compiled interpreters in the user cache directory,
+  as `tap run` does, and a process compiles each interpreter once. Before,
+  every `tap_run` compiled its interpreter again, which took seconds of CPU
+  per run and, with many sessions at once, much longer.
+
 - TAP now tells agents to call `tap_search` at the start of every request,
   even one that names a specific commit, ticket or file. Asked why they had
   skipped it, agents quoted the old wording ("Not for one-off requests", "a

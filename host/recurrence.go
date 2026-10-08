@@ -74,6 +74,14 @@ var readHistory = func(clientName string) []pastRequest {
 		return nil
 	}
 	path := requestCachePath(c.ID)
+	// Every session of an agent starts its own tap serve, and an agent can
+	// start dozens at once. Each read holds the changed sessions in memory,
+	// so dozens of them over a long history exhausted the machine. One
+	// process reads at a time; the next finds the cache it left and reads
+	// only what changed since.
+	if unlock := lockRequestCache(path); unlock != nil {
+		defer unlock()
+	}
 	cache := loadRequestCache(path)
 	now := time.Now()
 	window := now.AddDate(0, 0, -recurrenceDays)
@@ -147,6 +155,24 @@ func requestCachePath(client string) string {
 		return ""
 	}
 	return filepath.Join(base, "tap-runtime", "requests-"+client+".json")
+}
+
+// lockRequestCache waits until no other process is reading the agent's
+// history into the cache at path. It returns nil when no lock can be taken,
+// and the read goes ahead without one.
+func lockRequestCache(path string) func() {
+	if path == "" || os.MkdirAll(filepath.Dir(path), 0o700) != nil {
+		return nil
+	}
+	f, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil
+	}
+	if lockFile(f) != nil {
+		f.Close()
+		return nil
+	}
+	return func() { f.Close() }
 }
 
 func loadRequestCache(path string) requestCache {

@@ -38,10 +38,21 @@ type Goose struct {
 
 func NewGoose() (*Goose, error) { return newGoose("goose", nil) }
 
+// NewGooseIn starts goose in a session's directory and environment.
+func NewGooseIn(p Proc) (*Goose, error) {
+	bin := "goose"
+	if path, err := p.LookPath(bin); err == nil {
+		bin = path
+	}
+	return newGooseIn(bin, p)
+}
+
 // newGoose starts bin acp; env, when set, replaces the process environment.
-func newGoose(bin string, env []string) (*Goose, error) {
+func newGoose(bin string, env []string) (*Goose, error) { return newGooseIn(bin, Proc{Env: env}) }
+
+func newGooseIn(bin string, p Proc) (*Goose, error) {
 	cmd := exec.Command(bin, "acp")
-	cmd.Env = env
+	p.apply(cmd)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

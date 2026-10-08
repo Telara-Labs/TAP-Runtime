@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -35,9 +36,9 @@ func TestFilesAreBoundedByWhatIsDeclared(t *testing.T) {
 
 	m := &manifest{Files: []fileDecl{{Path: "inputs", Access: "read"}, {Path: "reports", Access: "write"}}}
 	var j bytes.Buffer
-	read := func(p string) reply { return fileOp(m, request{Method: "read", Path: p}, true, &j) }
+	read := func(p string) reply { return fileOp(bridge.Proc{}, m, request{Method: "read", Path: p}, true, &j) }
 	write := func(p string, approve bool) reply {
-		return fileOp(m, request{Method: "write", Path: p, Stdin: "x"}, approve, &j)
+		return fileOp(bridge.Proc{}, m, request{Method: "write", Path: p, Stdin: "x"}, approve, &j)
 	}
 
 	if r := read("inputs/a.txt"); r.Refused != "" || r.Result != "input" {
@@ -70,7 +71,7 @@ func TestFilesAreBoundedByWhatIsDeclared(t *testing.T) {
 		t.Fatal("an unapproved write created a file")
 	}
 	for p, want := range map[string]bool{"reports/new/out.txt": true, "inputs/b.txt": false, "/etc/hosts": false} {
-		r := fileOp(m, request{Method: "canwrite", Path: p}, true, &j)
+		r := fileOp(bridge.Proc{}, m, request{Method: "canwrite", Path: p}, true, &j)
 		if (r.Refused == "") != want {
 			t.Errorf("canwrite %s: refused=%q, want allowed=%v", p, r.Refused, want)
 		}
@@ -78,7 +79,7 @@ func TestFilesAreBoundedByWhatIsDeclared(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "reports", "new")); err == nil {
 		t.Fatal("asking whether a write is allowed created something")
 	}
-	if r := fileOp(m, request{Method: "canwrite", Path: "reports/new/out.txt"}, false, &j); r.Refused == "" {
+	if r := fileOp(bridge.Proc{}, m, request{Method: "canwrite", Path: "reports/new/out.txt"}, false, &j); r.Refused == "" {
 		t.Error("canwrite said yes to a write nobody approved")
 	}
 	if r := write("reports/new/out.txt", true); r.Refused != "" || r.Exit != 0 {
@@ -172,19 +173,19 @@ func TestFilePatterns(t *testing.T) {
 		"reports/link/o.txt":    false, // resolves outside
 		"/etc/hosts":            false,
 	} {
-		r := fileOp(m, request{Method: "read", Path: path}, true, &j)
+		r := fileOp(bridge.Proc{}, m, request{Method: "read", Path: path}, true, &j)
 		if (r.Refused == "") != want {
 			t.Errorf("read %s: refused=%q, want allowed=%v", path, r.Refused, want)
 		}
 	}
-	if r := fileOp(m, request{Method: "write", Path: "reports/new.txt", Stdin: "x"}, true, &j); r.Refused == "" {
+	if r := fileOp(bridge.Proc{}, m, request{Method: "write", Path: "reports/new.txt", Stdin: "x"}, true, &j); r.Refused == "" {
 		t.Error("a write was allowed under a read pattern")
 	}
-	if r := fileOp(m, request{Method: "write", Path: "data/z.csv", Stdin: "x"}, true, &j); r.Refused != "" {
+	if r := fileOp(bridge.Proc{}, m, request{Method: "write", Path: "data/z.csv", Stdin: "x"}, true, &j); r.Refused != "" {
 		t.Errorf("a write under a write pattern was refused: %s", r.Refused)
 	}
-	if declaredRoot(m, "data/z.csv") != "data/?.csv" {
-		t.Errorf("an approval would name %q", declaredRoot(m, "data/z.csv"))
+	if declaredRoot(bridge.Proc{}, m, "data/z.csv") != "data/?.csv" {
+		t.Errorf("an approval would name %q", declaredRoot(bridge.Proc{}, m, "data/z.csv"))
 	}
 }
 

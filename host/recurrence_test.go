@@ -234,3 +234,37 @@ func TestReadinessAndReadyAreTheSameWord(t *testing.T) {
 		t.Fatalf("words = %v", w)
 	}
 }
+
+// Dozens of sessions of one agent start at once, each with its own tap
+// serve. Their history reads must take turns, so only one holds a history
+// in memory at a time.
+func TestRequestCacheLockSerializesReaders(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache", "requests-codex.json")
+	unlock := lockRequestCache(path)
+	if unlock == nil {
+		t.Fatal("no lock taken")
+	}
+	got := make(chan struct{})
+	go func() {
+		second := lockRequestCache(path)
+		if second != nil {
+			defer second()
+		}
+		close(got)
+	}()
+	select {
+	case <-got:
+		t.Fatal("a second reader took the lock while the first held it")
+	case <-time.After(200 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case <-got:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second reader never got the lock after the first let it go")
+	}
+	info, err := os.Stat(path + ".lock")
+	if err != nil || info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("lock file missing or not private: %v %v", info, err)
+	}
+}

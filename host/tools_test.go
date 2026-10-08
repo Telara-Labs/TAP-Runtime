@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
 	"strings"
 	"testing"
 
@@ -154,7 +155,7 @@ func TestCallGate(t *testing.T) {
 
 func TestOpenBridgeRefusesClientsThatCannotDispatch(t *testing.T) {
 	for _, c := range []string{"cursor", "opencode", "grok"} {
-		if _, err := openBridge(c); err == nil || !strings.Contains(err.Error(), "cannot lend") {
+		if _, err := openBridge(c, bridge.Proc{}); err == nil || !strings.Contains(err.Error(), "cannot lend") {
 			t.Errorf("%s: %v", c, err)
 		}
 	}

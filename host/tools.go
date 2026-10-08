@@ -110,16 +110,16 @@ func lendsConnections(client string) bool {
 	return relayClient(client)
 }
 
-func openBridge(client string) (bridge.Bridge, error) {
+func openBridge(client string, p bridge.Proc) (bridge.Bridge, error) {
 	switch client {
 	case "claude":
-		return bridge.NewClaude()
+		return bridge.NewClaudeIn(p)
 	case "codex":
-		return bridge.NewCodex()
+		return bridge.NewCodexIn(p)
 	case "goose":
-		return bridge.NewGoose()
+		return bridge.NewGooseIn(p)
 	case "kilo":
-		return bridge.NewKilo()
+		return bridge.NewKiloIn(p)
 	case "":
 		return nil, fmt.Errorf("this primitive declares tools and no client was detected; pass --client claude or --client codex")
 	}

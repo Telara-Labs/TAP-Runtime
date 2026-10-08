@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
 	"github.com/Telara-Labs/TAP-Runtime/contract/glob"
 	"io"
-	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -262,7 +262,7 @@ func environFor(c *command, environ []string) (env []string, names []string) {
 	return env, names
 }
 
-func runCommand(m *manifest, rq request, approve bool, journal io.Writer) reply {
+func runCommand(p bridge.Proc, m *manifest, rq request, approve bool, journal io.Writer) reply {
 	line := logCommand(rq.Command, rq.Args)
 	decl, effect := resolve(m, rq.Command, rq.Args)
 	entry := map[string]any{"ts": time.Now().UTC().Format(time.RFC3339Nano), "command": rq.Command, "args": rq.Args}
@@ -285,7 +285,7 @@ func runCommand(m *manifest, rq request, approve bool, journal io.Writer) reply 
 		record("gated", nil)
 		return reply{Refused: effect + " command needs approval", Gated: true}
 	}
-	path, err := exec.LookPath(rq.Command)
+	path, err := p.LookPath(rq.Command)
 	if err != nil {
 		logf("  ABSENT   %s  (program not on this machine)", line)
 		record("refused_absent", nil)
@@ -296,8 +296,8 @@ func runCommand(m *manifest, rq request, approve bool, journal io.Writer) reply 
 	defer cancel()
 	cmd := exec.CommandContext(cctx, path, rq.Args...)
 	var names []string
-	cmd.Env, names = environFor(decl, os.Environ())
-	cwd, _ := os.Getwd()
+	cmd.Env, names = environFor(decl, p.Environ())
+	cwd := p.Wd()
 	cmd.Dir = cwd
 	if rq.Stdin != "" {
 		cmd.Stdin = strings.NewReader(rq.Stdin)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/Telara-Labs/TAP-Runtime/bridge"
 	"github.com/Telara-Labs/TAP-Runtime/contract/glob"
 	"io"
 	"net/http"
@@ -169,8 +170,8 @@ func (r *capRecorder) done(outcome string, extra map[string]any) {
 
 // declaredRoot is the declared path a file falls under, as the manifest
 // writes it, so an approval can name a directory instead of one file.
-func declaredRoot(m *manifest, path string) string {
-	cwd, _ := os.Getwd()
+func declaredRoot(p bridge.Proc, m *manifest, path string) string {
+	cwd := p.Wd()
 	real, err := resolvePath(path, cwd)
 	if err != nil {
 		return path
@@ -183,10 +184,10 @@ func declaredRoot(m *manifest, path string) string {
 	return path
 }
 
-func fileOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
+func fileOp(p bridge.Proc, m *manifest, rq request, approve bool, journal io.Writer) reply {
 	rec := newCapRecorder(journal, "file."+rq.Method)
 	rec.entry["path"] = rq.Path
-	cwd, _ := os.Getwd()
+	cwd := p.Wd()
 	real, err := resolvePath(rq.Path, cwd)
 	if err != nil {
 		rec.done("failed", map[string]any{"error": err.Error()})
