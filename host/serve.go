@@ -443,6 +443,7 @@ func (s *server) handle(m rpcMessage) {
 		var p struct {
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
+			Meta      json.RawMessage `json:"_meta"`
 		}
 		if json.Unmarshal(m.Params, &p) != nil {
 			s.fail(m.ID, -32602, "the call could not be read")
@@ -556,6 +557,9 @@ func (s *server) handle(m rpcMessage) {
 			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, NoJournal: s.noRecord, TelemetryPayloads: s.payloads, Client: clientFor(name),
 			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile, MCPServerName: s.mcpServerName, Proc: s.proc,
 		}
+		// Keep caller context on this run, not the shared session's Proc.
+		// The model cannot set it through tap_run's arguments.
+		o.Proc.ToolMeta = append(json.RawMessage(nil), p.Meta...)
 		if s.vscodeSocket != "" && s.mcpURL == "" {
 			// The approval stays with this runner: VS Code runs an unconfirmed
 			// tool call made this way without asking anyone.

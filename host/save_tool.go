@@ -92,8 +92,8 @@ func (s *server) handleSave(id *json.RawMessage, raw json.RawMessage, canElicit 
 			return
 		}
 		logf("save       %s without a TAP prompt: %s", ref, why)
-	} else if !s.confirmSave(ref, dir, declares(m)) {
-		s.toolError(id, "the person did not agree to save "+ref)
+	} else if why := s.confirmSave(ref, dir, declares(m)); why != "" {
+		s.toolError(id, why+" "+ref)
 		return
 	}
 	var out, errOut bytes.Buffer
@@ -106,28 +106,39 @@ func (s *server) handleSave(id *json.RawMessage, raw json.RawMessage, canElicit 
 	s.reply(id, map[string]any{"content": []any{map[string]any{"type": "text", "text": text + "\nFind it with tap_search and run it with tap_run."}}})
 }
 
-// confirmSave asks the person whether to save a package. Anything but an
-// explicit yes is a no.
-func (s *server) confirmSave(ref, dir, declared string) bool {
+// confirmSave requests a confirmation, not extra form data. The client's
+// permission policy may authorize a local save; decline and cancel still
+// save nothing. Execution retains its own package and effect gates.
+func (s *server) confirmSave(ref, dir, declared string) string {
 	if strings.TrimSpace(declared) == "" {
 		declared = "nothing beyond computing its output"
 	}
 	m, ok := s.ask("elicitation/create", map[string]any{
-		"message": fmt.Sprintf("Save the primitive %s from a reviewed snapshot of %s to your TAP collection, so later sessions can find and run it? It declares:\n\n%s\n\nRunning it later still asks before any change it makes.", ref, dir, declared),
-		"requestedSchema": map[string]any{
-			"type":       "object",
-			"properties": map[string]any{"approve": map[string]any{"type": "boolean", "title": "Save this primitive", "default": false}},
-			"required":   []string{"approve"},
-		},
+		"message":         fmt.Sprintf("Save the primitive %s from a reviewed snapshot of %s to your TAP collection, so later sessions can find and run it? It declares:\n\n%s\n\nRunning it later still asks before any change it makes.", ref, dir, declared),
+		"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 	})
 	if !ok || m.Error != nil {
-		return false
+		return "the client could not complete the save confirmation for"
 	}
 	var r struct {
-		Action  string `json:"action"`
-		Content struct {
-			Approve bool `json:"approve"`
-		} `json:"content"`
+		Action  string         `json:"action"`
+		Content map[string]any `json:"content"`
 	}
-	return json.Unmarshal(m.Result, &r) == nil && r.Action == "accept" && r.Content.Approve
+	if json.Unmarshal(m.Result, &r) != nil {
+		return "the client returned an invalid save confirmation for"
+	}
+	switch r.Action {
+	case "accept":
+		// Preserve refusal from clients answering the old checkbox schema.
+		if approve, present := r.Content["approve"]; present && approve != true {
+			return "the client declined the save confirmation for"
+		}
+		return ""
+	case "decline":
+		return "the client declined the save confirmation for"
+	case "cancel":
+		return "the client canceled the save confirmation for"
+	default:
+		return "the client returned an invalid save confirmation for"
+	}
 }

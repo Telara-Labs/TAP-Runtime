@@ -69,7 +69,7 @@ func TestSaveToolSavesNothingWithoutAYes(t *testing.T) {
 	saveHome(t)
 	c := startServer(t, true, decline)
 	res := c.call("tools/call", map[string]any{"name": "tap_save", "arguments": map[string]any{"package": authoredDraft(t)}})
-	if res["isError"] != true || !strings.Contains(toolText(t, res), "did not agree") {
+	if res["isError"] != true || !strings.Contains(toolText(t, res), "declined") {
 		t.Fatalf("declined save = %#v", res)
 	}
 	found := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "release candidate"}}))

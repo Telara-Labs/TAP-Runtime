@@ -17,10 +17,20 @@ prompts are model turns.
 
 ## Answer
 
+The Codex bridge forwards each incoming MCP call's `_meta` to the downstream
+tool. Native UI tools use its `x-codex-turn-metadata` object to select the
+caller's session and turn; the private dispatch thread is not that UI session.
+Metadata remains scoped to one run. For CLI calls without a complete envelope,
+the bridge can resolve the most recent turn of the inherited `CODEX_THREAD_ID`
+through `thread/turns/list` with `itemsView: notLoaded`. It does not read turn
+contents or invent identifiers, and never replaces another incoming session's
+context. Hosts without this lookup still support ordinary connector calls;
+native tools that require missing context can report that limitation.
+
 | Agent | Mechanism | Verdict | Evidence |
 |---|---|---|---|
 | Claude Code | stream-json control channel | **bridge** (built) | `bridge/claude.go` |
-| Codex | app-server protocol | **bridge** (built) | `bridge/codex.go` |
+| Codex | app-server protocol, preserving caller MCP metadata | **bridge** (built) | `bridge/codex.go` |
 | VS Code (GitHub Copilot Chat) | our extension calls `vscode.lm.invokeTool` | **bridge** (built) | `bridge/vscode.go` |
 | Gemini CLI | `AfterTool` hook returns a tail tool call | **bridge** (built, experimental; live-tested on Gemini CLI 0.62.0: the model's record holds only the primitive's output) | `host/hook.go`, `host/gemini_live_test.go` |
 | Antigravity | `PreInvocation` / `PostInvocation` hooks return `injectSteps: [{"toolCall": {"name", "args"}}]`; each hook gets `transcriptPath`, where the injected call's result is written | **candidate: verify live** | Hook contract embedded in `Antigravity.app/Contents/Resources/bin/language_server` ("Lifecycle Hooks (`hooks.json`)", sections 3 and 4) |

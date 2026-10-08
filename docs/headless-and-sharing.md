@@ -7,6 +7,15 @@ elicitation. Signed v0.1.15 checks verified exact-digest trust, changed-digest
 refusal and real proxy fetching; see the version-qualified
 [threat model](threat-model.md).
 
+## Saving with the host's permission policy
+
+`tap_save` sends a standard confirmation with no required form fields. A host
+that permits local writes without prompting can accept it under that policy;
+interactive hosts can show the same confirmation to the person. Decline,
+cancel, and a failed confirmation save nothing and report distinct reasons.
+No model-provided approval flag is accepted. Saving does not authorize the
+primitive's later effects.
+
 ## Reads-only primitives in agents that cannot prompt
 
 Since v0.2.7, a primitive whose manifest declares only reads (fetch `GET` or

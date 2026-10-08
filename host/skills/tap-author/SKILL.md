@@ -114,11 +114,13 @@ tap --approve <dir> '{"project": "...", ...}'   # run it once from the shell
 tap discover save <dir>                         # or the tap_save tool, after the person agrees
 ```
 
-To save, prefer the `tap_save` tool with the package's absolute path: the
-person is asked to agree in a prompt, and it works where your shell cannot
-write outside the workspace (Codex runs commands in a sandbox with no network
-that writes only inside the workspace, so a draft cannot be tried from that
-shell either). Then try the saved primitive with `tap_run`.
+To save, prefer the `tap_save` tool with the package's absolute path. The
+host handles its confirmation under the person's permission settings, and
+it works where your shell cannot write outside the workspace. An accepted
+confirmation needs no additional checkbox or special wording from the person.
+If the client declines, cancels, or cannot complete the confirmation, report
+that exact reason; do not describe a client cancellation as the person refusing.
+Then try the saved primitive with `tap_run`. Saving does not approve its effects.
 
 When the procedure can run on local fixtures (files, a git repository),
 validate it first as `BRIEF.md` steps 4 and 5 describe and save with

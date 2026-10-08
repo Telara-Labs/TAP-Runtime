@@ -23,11 +23,12 @@ type Codex struct {
 	wd      string // the session's directory, whose project config applies
 	version string
 
-	mu      sync.Mutex
-	n       int
-	pending map[int]chan map[string]any
-	gone    bool
-	ruleSet map[string]codexServerRules
+	mu       sync.Mutex
+	n        int
+	pending  map[int]chan map[string]any
+	gone     bool
+	ruleSet  map[string]codexServerRules
+	toolMeta json.RawMessage
 }
 
 func NewCodex() (*Codex, error) { return NewCodexIn(Proc{}) }
@@ -50,6 +51,7 @@ func NewCodexIn(p Proc) (*Codex, error) {
 	sc := bufio.NewScanner(out)
 	sc.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 	c := &Codex{cmd: cmd, in: in, wd: p.Wd(), pending: map[int]chan map[string]any{}}
+	c.setToolMeta(p.ToolMeta)
 	go c.read(sc)
 	r, err := c.call("initialize", map[string]any{"clientInfo": map[string]string{"name": "tap-runtime", "version": "0"}})
 	if err != nil {
@@ -77,7 +79,63 @@ func NewCodexIn(p Proc) (*Codex, error) {
 		c.Close()
 		return nil, fmt.Errorf("codex thread/start returned no thread id")
 	}
+	c.resolveCallerMeta(p)
 	return c, nil
+}
+
+// Shell calls carry the host's existing thread ID in their environment but
+// have no MCP envelope. Resolve that thread's most recent turn through the
+// host protocol, without reading its items or manufacturing identifiers.
+// A complete MCP context always wins, including when the inherited process
+// belongs to a different session. Ordinary connectors still work when an
+// older host cannot supply turn context.
+func (c *Codex) resolveCallerMeta(p Proc) {
+	meta := map[string]any{}
+	if len(c.toolMeta) != 0 && json.Unmarshal(c.toolMeta, &meta) != nil {
+		return
+	}
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	// Codex embeds the browser/session context inside this MCP metadata key.
+	// Top-level fields are not consumed by its native tools.
+	context, _ := meta["x-codex-turn-metadata"].(map[string]any)
+	if context == nil {
+		context = map[string]any{}
+	}
+	if session, _ := context["session_id"].(string); session != "" {
+		if turn, _ := context["turn_id"].(string); turn != "" {
+			return
+		}
+		if session != p.Getenv("CODEX_THREAD_ID") {
+			return
+		}
+	}
+	thread := p.Getenv("CODEX_THREAD_ID")
+	if thread == "" {
+		return
+	}
+	r, err := c.call("thread/turns/list", map[string]any{
+		"threadId": thread, "limit": 1, "sortDirection": "desc", "itemsView": "notLoaded",
+	})
+	if err != nil {
+		return
+	}
+	turns, _ := r["data"].([]any)
+	if len(turns) != 1 {
+		return
+	}
+	turn, _ := turns[0].(map[string]any)
+	id, _ := turn["id"].(string)
+	if id == "" {
+		return
+	}
+	context["session_id"], context["turn_id"] = thread, id
+	meta["x-codex-turn-metadata"] = context
+	b, err := json.Marshal(meta)
+	if err == nil {
+		c.setToolMeta(b)
+	}
 }
 
 // codexBridgeThreadStartParams creates the private app-server thread used to
@@ -249,13 +307,21 @@ func (c *Codex) Call(t bind.Tool, args map[string]any) (string, error) {
 	if args == nil {
 		args = map[string]any{}
 	}
-	r, err := c.call("mcpServer/tool/call", map[string]any{
+	params := map[string]any{
 		"server": t.Server, "tool": t.Name, "arguments": args, "threadId": c.thread,
-	})
+	}
+	if len(c.toolMeta) != 0 {
+		params["_meta"] = c.toolMeta
+	}
+	r, err := c.call("mcpServer/tool/call", params)
 	if err != nil {
 		return "", err
 	}
 	return callResult(t, r)
+}
+
+func (c *Codex) setToolMeta(meta json.RawMessage) {
+	c.toolMeta = append(json.RawMessage(nil), meta...)
 }
 
 func (c *Codex) Close() {

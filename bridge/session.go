@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,10 @@ import (
 type Proc struct {
 	Dir string
 	Env []string // KEY=value; nil means the runner's own environment
+	// ToolMeta is the host-supplied context of this MCP call, distinct from
+	// model arguments. It is forwarded only for this run, never persisted as
+	// bridge authority or shared between requests.
+	ToolMeta json.RawMessage
 }
 
 func (p Proc) apply(cmd *exec.Cmd) {

@@ -8,6 +8,12 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Saving an agent-authored primitive uses the host's standard confirmation
+  policy, without an extra required checkbox. A canceled or failed prompt is
+  reported as a client failure instead of saying the person refused. Codex
+  bridge calls retain per-run caller metadata so native browser tools can
+  reach the caller's live UI; CLI runs resolve the host's actual turn context.
+
 - Repeated tasks in distinct sessions only seconds apart are recognized. Search
   reads fresh incremental history and excludes the session with the pending TAP
   search, rather than discarding every session in a 30-second startup window.
