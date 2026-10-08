@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -266,5 +267,35 @@ func TestRequestCacheLockSerializesReaders(t *testing.T) {
 	info, err := os.Stat(path + ".lock")
 	if err != nil || info.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("lock file missing or not private: %v %v", info, err)
+	}
+}
+
+// The shared runner reads the history of every agent its sessions come
+// from. Those reads run one at a time, so their memory does not add up.
+func TestHistoryReadsRunOneAtATime(t *testing.T) {
+	var mu sync.Mutex
+	running, most := 0, 0
+	old := readHistory
+	readHistory = func(string) []pastRequest {
+		mu.Lock()
+		running++
+		most = max(most, running)
+		mu.Unlock()
+		time.Sleep(50 * time.Millisecond)
+		mu.Lock()
+		running--
+		mu.Unlock()
+		return nil
+	}
+	t.Cleanup(func() { readHistory = old })
+	var loads []*historyLoad
+	for _, c := range []string{"codex", "claude-code", "cursor", "gemini-cli", "goose"} {
+		loads = append(loads, loadHistory(c))
+	}
+	for _, h := range loads {
+		<-h.done
+	}
+	if most != 1 {
+		t.Fatalf("%d history reads ran at once, want 1", most)
 	}
 }

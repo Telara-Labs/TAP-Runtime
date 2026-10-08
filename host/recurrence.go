@@ -251,11 +251,21 @@ type historyLoad struct {
 func loadHistory(clientName string) *historyLoad {
 	h := &historyLoad{started: time.Now(), done: make(chan struct{})}
 	go func() {
+		historyReads <- struct{}{}
+		defer func() { <-historyReads }()
 		h.past = readHistory(clientName)
 		close(h.done)
+		// A read holds whole sessions to keep a few words of each, and the
+		// memory it used is otherwise kept by the process long after.
+		releaseMemory()
 	}()
 	return h
 }
+
+// historyReads lets one history read run at a time in this process: the
+// shared runner reads for every agent its sessions come from, and reads of
+// long histories held at once added up to gigabytes.
+var historyReads = make(chan struct{}, 1)
 
 // earlier returns the requests from sessions that began before the agent
 // connected, or ok false when the read has not finished within wait.

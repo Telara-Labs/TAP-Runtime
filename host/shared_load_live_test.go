@@ -32,6 +32,8 @@ var sharedLoadBaselineSessions = flag.Int("shared-load-baseline-sessions", 10, "
 var sharedLoadOut = flag.String("shared-load-out", "", "directory for the samples (CSV) and the summary")
 var sharedLoadAgents = flag.Int("shared-load-agents", 0, "also start this many real Claude Code and this many real Codex sessions at once, each running the primitive through its own MCP connection")
 var sharedLoadLinger = flag.Duration("shared-load-linger", 5*time.Second, "keep sampling this long after every session answered, while the sessions stay open")
+var sharedLoadClients = flag.String("shared-load-clients", "", "comma-separated client names the sessions give, instead of all twenty")
+var sharedLoadNoRun = flag.Bool("shared-load-no-run", false, "sessions only start and search; no primitive is run")
 var sharedLoadCold = flag.Bool("shared-load-cold", true, "set the agent history caches aside first, as on a first start, and put them back after")
 
 const loadManifest = `apiVersion: primitives.telara.dev/v3
@@ -139,6 +141,9 @@ func burst(t *testing.T, label, exe string, sessions int, catalog string, identi
 	res := loadResult{label: label, sessions: sessions, baseSwap: swapUsedMB()}
 	names := []string{"codex-mcp-client", "claude-code", "gemini-cli-mcp-client", "goose-cli", "cursor", "opencode", "kilo", "crush", "qwen-code", "copilot-cli",
 		"windsurf", "cline", "roo", "zed", "continue", "amp", "aider", "antigravity", "cursor-cli", "vscode-copilot"}
+	if *sharedLoadClients != "" {
+		names = strings.Split(*sharedLoadClients, ",")
+	}
 	env := os.Environ()
 	store := interpreterStore(t)
 	var answered sync.WaitGroup
@@ -184,6 +189,12 @@ func burst(t *testing.T, label, exe string, sessions int, catalog string, identi
 			}
 			if _, err := c.call("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "load check"}}); err != nil {
 				fail(err)
+				return
+			}
+			if *sharedLoadNoRun {
+				mu.Lock()
+				done++
+				mu.Unlock()
 				return
 			}
 			r, err := c.call("tools/call", map[string]any{"name": "tap_run", "arguments": identity})

@@ -393,6 +393,7 @@ func main() {
 
 // Run admits a package, runs it in the sandbox and serves its requests.
 func Run(ctx context.Context, o Options) (*Result, error) {
+	defer runStarted()()
 	rawManifest, err := os.ReadFile(filepath.Join(o.Package, "primitive.yaml"))
 	if err != nil {
 		return nil, err
