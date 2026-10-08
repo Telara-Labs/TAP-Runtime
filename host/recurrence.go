@@ -13,6 +13,7 @@ import (
 
 	agents "github.com/Telara-Labs/TAP-Runtime/discover/client"
 	"github.com/Telara-Labs/TAP-Runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/internal/sharedwire"
 )
 
 // When a search finds no saved primitive, the agent is told whether the task
@@ -168,7 +169,7 @@ func lockRequestCache(path string) func() {
 	if err != nil {
 		return nil
 	}
-	if lockFile(f) != nil {
+	if sharedwire.LockFile(f) != nil {
 		f.Close()
 		return nil
 	}

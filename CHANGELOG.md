@@ -26,6 +26,11 @@ see [version review](docs/versioning.md).
   in a process of its own, as before.
 - Two `tap serve` processes no longer read an agent's history at the same
   time: the second waits and reads only what changed since the first.
+- On macOS and Linux, a release's `tap serve` now replaces itself with a
+  relay of under 4 MB built into the runner, instead of relaying as the
+  whole runner (about 15 MB). Forty open sessions hold about 150 MB of
+  relays instead of 600 MB. Windows, and a runner built from source, relay
+  as before.
 - A process reads one agent's history at a time, and gives the memory a
   history read or a burst of runs used back to the system when it ends.
   In a burst of forty sessions from every supported agent, the shared

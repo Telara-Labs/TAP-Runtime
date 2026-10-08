@@ -28,3 +28,4 @@ dist/
 /discover/discover-fixture
 /discover/discover
 /discover/discover-eval
+/cmd/tap-relay/tap-relay

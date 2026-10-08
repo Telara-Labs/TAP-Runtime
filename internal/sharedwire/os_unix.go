@@ -1,6 +1,6 @@
 //go:build !windows
 
-package main
+package sharedwire
 
 import (
 	"fmt"
@@ -11,9 +11,19 @@ import (
 	"syscall"
 )
 
-// detach starts cmd in a session of its own, so it outlives the agent
+// LockFile waits for an exclusive lock on f. The lock is released when f is
+// closed or the process ends, so a crashed holder never keeps it.
+func LockFile(f *os.File) error { return syscall.Flock(int(f.Fd()), syscall.LOCK_EX) }
+
+// TryLockFile takes an exclusive lock on f, or fails at once if another
+// process holds it.
+func TryLockFile(f *os.File) error {
+	return syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+}
+
+// Detach starts cmd in a session of its own, so it outlives the agent
 // session that started it and no signal to that session reaches it.
-func detach(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} }
+func Detach(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} }
 
 // shortSocketDir is a directory for the runner's socket when the cache
 // directory's path is too long for one: in the system's temporary directory,

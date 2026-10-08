@@ -196,7 +196,18 @@ func Build(repo, out, version string, platforms []string, keyFile, base string, 
 		if goos == "windows" {
 			name += ".exe"
 		}
-		args := append(append([]string{"build"}, flags(stamp...)...), "-o", filepath.Join(abs, name), "./host")
+		args := append([]string{"build"}, flags(stamp...)...)
+		if goos != "windows" {
+			// tap serve becomes the small relay, built for the same
+			// platform and carried inside the runner (host/relaybin_embed.go).
+			overlay, err := buildRelay(repo, env, goos, goarch)
+			if err != nil {
+				return err
+			}
+			defer os.RemoveAll(filepath.Dir(overlay))
+			args = append(args, "-tags", "relayembed", "-overlay", overlay)
+		}
+		args = append(args, "-o", filepath.Join(abs, name), "./host")
 		if _, err := run(repo, append(env, "GOOS="+goos, "GOARCH="+goarch), "go", args...); err != nil {
 			return err
 		}
@@ -371,6 +382,7 @@ func Notices(repo string) ([]byte, error) {
 		env []string
 	}{
 		{"./host", nil},
+		{"./cmd/tap-relay", nil},
 		{"./guest-sh", []string{"GOOS=wasip1", "GOARCH=wasm"}},
 	} {
 		out, err := run(repo, append([]string{"GOWORK=off"}, target.env...), "go", "list", "-deps", "-f",
@@ -450,4 +462,33 @@ func signingChosen(key string, unsigned bool) error {
 		return fmt.Errorf("a release is signed: give --key, or --unsigned to ship it without a signature")
 	}
 	return nil
+}
+
+// buildRelay builds the small relay for one platform where the runner's
+// build embeds it, and returns the overlay that gives the runner's build
+// that file as host/relaybin/tap-relay. Nothing is written into the source,
+// so builds for different platforms, or at the same time, do not meet.
+func buildRelay(repo string, env []string, goos, goarch string) (string, error) {
+	dir, err := os.MkdirTemp("", "tap-relay-")
+	if err != nil {
+		return "", err
+	}
+	bin := filepath.Join(dir, "tap-relay")
+	args := append(append([]string{"build"}, flags()...), "-o", bin, "./cmd/tap-relay")
+	if _, err := run(repo, append(env, "GOOS="+goos, "GOARCH="+goarch), "go", args...); err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	src, err := filepath.Abs(filepath.Join(repo, "host", "relaybin", "tap-relay"))
+	if err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	b, _ := json.Marshal(map[string]any{"Replace": map[string]string{src: bin}})
+	overlay := filepath.Join(dir, "overlay.json")
+	if err := os.WriteFile(overlay, b, 0o600); err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	return overlay, nil
 }

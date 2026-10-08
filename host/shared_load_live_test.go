@@ -34,6 +34,7 @@ var sharedLoadAgents = flag.Int("shared-load-agents", 0, "also start this many r
 var sharedLoadLinger = flag.Duration("shared-load-linger", 5*time.Second, "keep sampling this long after every session answered, while the sessions stay open")
 var sharedLoadClients = flag.String("shared-load-clients", "", "comma-separated client names the sessions give, instead of all twenty")
 var sharedLoadNoRun = flag.Bool("shared-load-no-run", false, "sessions only start and search; no primitive is run")
+var sharedLoadRelay = flag.Bool("shared-load-relay", true, "build tap with the small relay in it, as a release is")
 var sharedLoadCold = flag.Bool("shared-load-cold", true, "set the agent history caches aside first, as on a first start, and put them back after")
 
 const loadManifest = `apiVersion: primitives.telara.dev/v3
@@ -76,7 +77,10 @@ func sampleTap(exe string) (procs, runners int, rssMB, runnerMB float64) {
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		rss, args, ok := strings.Cut(line, " ")
-		if !ok || !strings.HasPrefix(strings.TrimSpace(args), exe+" ") {
+		args = strings.TrimSpace(args)
+		// A session is tap serve, or the small relay it became, which names
+		// the tap program it came from.
+		if !ok || !strings.HasPrefix(args, exe+" ") && !strings.Contains(args, " --runner "+exe+" ") {
 			continue
 		}
 		kb, _ := strconv.ParseFloat(rss, 64)
@@ -405,6 +409,9 @@ func TestSharedRunnerLoad(t *testing.T) {
 		t.Skip("samples processes with ps")
 	}
 	exe := buildTap(t)
+	if *sharedLoadRelay {
+		exe = buildTapWithRelay(t)
+	}
 	catalog := t.TempDir()
 	os.MkdirAll(filepath.Join(catalog, "load-check"), 0o700)
 	os.WriteFile(filepath.Join(catalog, "load-check", "primitive.yaml"), []byte(loadManifest), 0o600)

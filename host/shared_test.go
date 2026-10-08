@@ -120,6 +120,34 @@ func buildTap(t *testing.T) string {
 	return exe
 }
 
+// buildTapWithRelay builds tap as a release does on this platform: with the
+// small relay built into it.
+func buildTapWithRelay(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows builds carry no relay")
+	}
+	// As a release does: the relay goes in through an overlay, never into
+	// the source, where builds running at the same time would meet.
+	dir := t.TempDir()
+	relay := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", filepath.Join(dir, "tap-relay"), "./cmd/tap-relay")
+	relay.Dir = repoRoot
+	relay.Env = append(os.Environ(), "GOWORK=off", "CGO_ENABLED=0")
+	if out, err := relay.CombinedOutput(); err != nil {
+		t.Fatalf("building the relay: %v\n%s", err, out)
+	}
+	overlay, _ := json.Marshal(map[string]any{"Replace": map[string]string{filepath.Join(repoRoot, "host", "relaybin", "tap-relay"): filepath.Join(dir, "tap-relay")}})
+	os.WriteFile(filepath.Join(dir, "overlay.json"), overlay, 0o600)
+	exe := filepath.Join(t.TempDir(), "tap")
+	cmd := exec.Command("go", "build", "-tags", "relayembed", "-overlay", filepath.Join(dir, "overlay.json"), "-o", exe, "./host")
+	cmd.Dir = repoRoot
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("building tap: %v\n%s", err, out)
+	}
+	return exe
+}
+
 // isolatedHome is an environment whose home, and so whose cache and
 // configuration directories, belong to the test.
 func isolatedHome(t *testing.T) (string, []string) {
@@ -312,5 +340,50 @@ func TestSharedEligible(t *testing.T) {
 		if got := sharedEligible(strings.Fields(args)); got != want {
 			t.Errorf("%q: %v, want %v", args, got, want)
 		}
+	}
+}
+
+// A release's tap serve becomes the small relay: each session a client keeps
+// open is a relay of a few megabytes, and the work is done by the runner.
+func TestSessionsBecomeTheSmallRelay(t *testing.T) {
+	exe := buildTapWithRelay(t)
+	home, env := isolatedHome(t)
+	t.Cleanup(func() { killRunner(home, t) })
+	const sessions = 10
+	clients := make([]*procClient, sessions)
+	for i := range clients {
+		clients[i] = startProcClient(t, exe, env, t.TempDir(), "claude-code", "--interpreters", interpreterStore(t), "--catalog-root", t.TempDir())
+	}
+	for i, c := range clients {
+		if err := c.initialize(); err != nil {
+			t.Fatalf("session %d: %v", i, err)
+		}
+		if _, err := c.call("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "anything"}}); err != nil {
+			t.Fatalf("session %d: %v", i, err)
+		}
+	}
+	out, err := exec.Command("ps", "-Ao", "rss=,args=").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relays, full := 0, 0
+	for _, line := range strings.Split(string(out), "\n") {
+		rss, args, _ := strings.Cut(strings.TrimSpace(line), " ")
+		args = strings.TrimSpace(args)
+		switch {
+		case strings.Contains(args, filepath.Join(home, "")) && strings.Contains(args, "/tap-relay-") && strings.Contains(args, "--runner "+exe):
+			relays++
+			if kb, _ := strconv.Atoi(rss); kb > 12*1024 {
+				t.Errorf("a relay holds %d KB: %s", kb, args)
+			}
+		case strings.HasPrefix(args, exe+" serve"):
+			full++
+		}
+	}
+	if relays != sessions || full != 0 {
+		t.Fatalf("%d small relays and %d full tap serve processes for %d sessions", relays, full, sessions)
+	}
+	if n := countRunners(t, exe); n != 1 {
+		t.Fatalf("%d runners, want 1", n)
 	}
 }
