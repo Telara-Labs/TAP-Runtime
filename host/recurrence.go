@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -34,21 +35,20 @@ const (
 	// rareHistory is the fewest earlier requests at which shared words must
 	// also be rare in the history.
 	rareHistory = 20
-	// currentSessionSlack is how long before the server started a session
-	// may begin and still be the current one. opencode run and goose run
-	// start their MCP servers seconds after writing the request. Two minutes
-	// also swallowed a real earlier session asked a minute or two before
-	// (the repeat went unnoticed); 30 seconds covers the start-up alone.
+	// currentSessionSlack is only a fallback window for locating the latest
+	// session when a client has not recorded its pending search. It never
+	// excludes every session in the window: distinct recent sessions count.
 	currentSessionSlack = 30 * time.Second
 )
 
 // pastRequest is one user request from the agent's history.
 type pastRequest struct {
-	ref     string // client/session/request, as tap discover brief --task takes it
-	session string
-	at      time.Time
-	text    string
-	words   map[string]bool
+	ref      string // client/session/request, as tap discover brief --task takes it
+	session  string
+	at       time.Time
+	text     string
+	words    map[string]bool
+	searches []pendingSearch
 }
 
 // recurrence is what the search says about earlier requests like this one.
@@ -102,6 +102,16 @@ var readHistory = func(clientName string) []pastRequest {
 	err = history.Each(r, since, func(s trace.Session) error {
 		read++
 		cs := cachedSession{Start: s.Start}
+		// The pending call identifies the actual session asking this search.
+		// Keep only digests and timestamps, not extra transcript text.
+		for i := len(s.Calls) - 1; i >= 0 && len(cs.Searches) < 16; i-- {
+			c := s.Calls[i]
+			if (c.MCPTool == "tap_search" || c.Tool == "mcp:tap_search") && c.Outcome == trace.OutcomeUnknown {
+				if q := strings.TrimSpace(c.Args["query"]); q != "" {
+					cs.Searches = append(cs.Searches, pendingSearch{Query: searchDigest(q), At: c.Time})
+				}
+			}
+		}
 		for i, text := range s.Requests {
 			if i < len(s.RequestRoles) && s.RequestRoles[i] != "" && s.RequestRoles[i] != "user" {
 				continue
@@ -146,6 +156,17 @@ type requestCache struct {
 type cachedSession struct {
 	Start    time.Time       `json:"start"`
 	Requests []cachedRequest `json:"requests"`
+	Searches []pendingSearch `json:"searches,omitempty"`
+}
+
+// pendingSearch is a TAP search whose result was not yet in the transcript.
+type pendingSearch struct {
+	Query string    `json:"query_digest"`
+	At    time.Time `json:"at"`
+}
+
+func searchDigest(query string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(query))))
 }
 
 type cachedRequest struct {
@@ -154,9 +175,9 @@ type cachedRequest struct {
 	Example string   `json:"example"`
 }
 
-// Version 3: words are stemmed (readiness and ready agree), so older
-// cached words no longer compare.
-const requestCacheVersion = 3
+// Version 4 records pending searches so a current session is excluded by
+// identity rather than dropping all sessions within a startup window.
+const requestCacheVersion = 4
 
 func requestCachePath(client string) string {
 	base, err := os.UserCacheDir()
@@ -233,7 +254,7 @@ func (c requestCache) requests(client string, window time.Time) []pastRequest {
 			for _, w := range rq.Words {
 				words[w] = true
 			}
-			out = append(out, pastRequest{ref: fmt.Sprintf("%s/%s/%d", client, id, rq.Index), session: id, at: cs.Start, text: rq.Example, words: words})
+			out = append(out, pastRequest{ref: fmt.Sprintf("%s/%s/%d", client, id, rq.Index), session: id, at: cs.Start, text: rq.Example, words: words, searches: cs.Searches})
 		}
 	}
 	return out
@@ -249,15 +270,13 @@ func historyClient(name string) (agents.Client, bool) {
 	return agents.Lookup(clientFor(name))
 }
 
-// historyLoad is a history read started when the agent connected. Its
-// sessions all began before then, so none of them is the current one.
+// historyLoad is either a connection descriptor (client is set) or a fresh
+// history read for a search. Descriptors retain no per-connection snapshot.
 type historyLoad struct {
 	started time.Time
 	done    chan struct{}
 	past    []pastRequest
-	// from is the read this session shares (shared.go); started is still
-	// this session's own, so "earlier" is measured from when it connected.
-	from *historyLoad
+	client  string
 }
 
 func loadHistory(clientName string) *historyLoad {
@@ -282,28 +301,62 @@ var useHistoryCache sync.Once
 // long histories held at once added up to gigabytes.
 var historyReads = make(chan struct{}, 1)
 
-// earlier returns the requests from sessions that began before the agent
-// connected, or ok false when the read has not finished within wait.
-func (h *historyLoad) earlier(wait time.Duration) (past []pastRequest, ok bool) {
+// earlier is also used by diagnostics that have no recorded search query.
+func (h *historyLoad) earlier(wait time.Duration) ([]pastRequest, bool) {
+	return h.earlierForSearch(wait, "")
+}
+
+// earlierForSearch excludes the session containing the pending TAP search.
+// Clients usually persist a tool call before invoking it. When they do not,
+// only the unique latest recent session is excluded, never the whole window.
+// Ambiguous concurrent searches cannot establish a safe recurrence signal.
+func (h *historyLoad) earlierForSearch(wait time.Duration, query string) (past []pastRequest, ok bool) {
 	if h == nil {
 		return nil, false
 	}
-	src := h
-	if h.from != nil {
-		src = h.from
-	}
 	select {
-	case <-src.done:
+	case <-h.done:
 	case <-time.After(wait):
 		return nil, false
 	}
-	// opencode run and goose run write the person's message before they start
-	// their MCP servers, so the current session began a moment before this
-	// server did and read as an earlier one: a first ask was offered for
-	// saving. A session from just before the server started is the current one.
-	cutoff := h.started.Add(-currentSessionSlack)
-	for _, p := range src.past {
-		if p.at.Before(cutoff) {
+	current := ""
+	var boundary time.Time
+	candidates := map[string]time.Time{}
+	if query != "" {
+		digest := searchDigest(query)
+		for _, p := range h.past {
+			for _, search := range p.searches {
+				if search.Query == digest && !search.At.Before(h.started.Add(-currentSessionSlack)) && !search.At.After(h.started) {
+					candidates[p.session] = p.at
+				}
+			}
+		}
+	}
+	if len(candidates) > 1 {
+		return nil, false
+	}
+	for id, at := range candidates {
+		current, boundary = id, at
+	}
+	if current == "" {
+		// The fallback locates one session; it does not erase recent history.
+		for _, p := range h.past {
+			if p.at.Before(h.started.Add(-currentSessionSlack)) || p.at.After(h.started) {
+				continue
+			}
+			if boundary.IsZero() || p.at.After(boundary) {
+				current, boundary = p.session, p.at
+				candidates = map[string]time.Time{current: boundary}
+			} else if p.at.Equal(boundary) {
+				candidates[p.session] = p.at
+			}
+		}
+		if len(candidates) > 1 {
+			return nil, false
+		}
+	}
+	for _, p := range h.past {
+		if p.session != current && !p.at.After(h.started) {
 			past = append(past, p)
 		}
 	}
@@ -429,7 +482,12 @@ func noMatchNote(query string, h *historyLoad) string {
 	if strings.TrimSpace(query) == "" {
 		return "No saved primitive fits. Search again with a few words describing the task to learn whether the person has asked for it before."
 	}
-	past, ok := h.earlier(recurrenceWait)
+	// Initialization may precede the user's request, and another session may
+	// have completed since the last search. Read after this call arrives.
+	if h != nil && h.client != "" {
+		h = loadHistory(h.client)
+	}
+	past, ok := h.earlierForSearch(recurrenceWait, query)
 	if !ok {
 		return "No saved primitive fits. Do the task as usual."
 	}

@@ -8,6 +8,11 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Repeated tasks in distinct sessions only seconds apart are recognized. Search
+  reads fresh incremental history and excludes the session with the pending TAP
+  search, rather than discarding every session in a 30-second startup window.
+  Concurrent searches that cannot be distinguished do not suggest a save.
+
 - When one shared runner answers several sessions, a new session no longer
   reuses a read of the agent's history taken before an earlier ask was
   written. Before, a task asked again within about a minute could be

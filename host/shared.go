@@ -12,7 +12,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -137,7 +136,7 @@ func sharedRunnerCommand(args []string, stderr io.Writer) int {
 	}
 	defer os.Remove(p.Sock)
 	os.Chmod(p.Sock, 0o600)
-	r := &sharedRunner{key: key, histories: &historyPool{loads: map[string]*historyLoad{}}}
+	r := &sharedRunner{key: key, histories: &historyPool{}}
 	r.touch()
 	logf("runner     %s started, pid %d", key, os.Getpid())
 	go func() {
@@ -207,30 +206,11 @@ func (r *sharedRunner) session(c net.Conn) {
 	s.serveStream(br)
 }
 
-// historyPool shares one read of an agent's history among the sessions of
-// the shared runner, instead of one read held by each.
-type historyPool struct {
-	mu    sync.Mutex
-	loads map[string]*historyLoad
-}
-
-// historyReuse is how old a read can be and still be given to a new session.
-// A minute missed a repeat: the second ask's session was given a read made
-// before the first ask was written, and was told the task was new. A read
-// started no more than currentSessionSlack before a session holds every
-// session that is earlier for it.
-const historyReuse = currentSessionSlack
+// A connection keeps only its client identity. Each search reads fresh
+// history through the existing serialized, incremental reader, then drops
+// the snapshot. Session start time is not a cache-freshness guarantee.
+type historyPool struct{}
 
 func (p *historyPool) load(client string) *historyLoad {
-	if p == nil {
-		return loadHistory(client)
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if h := p.loads[client]; h != nil && time.Since(h.started) < historyReuse {
-		return &historyLoad{started: time.Now(), done: h.done, from: h}
-	}
-	h := loadHistory(client)
-	p.loads[client] = h
-	return h
+	return &historyLoad{started: time.Now(), client: client}
 }
