@@ -8,6 +8,19 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Reading agent history no longer holds it whole. `tap discover` and the
+  asked-before note of `tap_search` read every session they read before;
+  results from SQLite stores are decoded a row at a time, stores are read in
+  batches, sessions are passed on as they are read, and the history cache
+  keeps one file per session or conversation instead of one file per agent.
+  On one machine a full read of a 15.8 GB Cursor store fell from 1.97 GB to
+  127 MB of memory, and a cached Codex read from 807 MB to 108 MB. A first,
+  uncached read of a large file-based history now takes longer (Codex: 19 s
+  to about 30 s) in exchange for about a third of the memory. The cache is
+  rebuilt once in the new layout; the old per-agent files are removed.
+- `tap serve` now uses the history cache `tap discover` keeps, so the
+  asked-before note reads only what changed since the last read.
+
 - The example gallery index now lists all six runnable language examples,
   including Go and C++ through the compiled WASI Preview 1 path available
   since 0.2.10, and distinguishes author builds from execution.

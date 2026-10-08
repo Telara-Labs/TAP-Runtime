@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
 	agents "github.com/Telara-Labs/TAP-Runtime/discover/client"
 	"github.com/Telara-Labs/TAP-Runtime/discover/history"
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 	"github.com/Telara-Labs/TAP-Runtime/internal/sharedwire"
 )
 
@@ -74,6 +76,8 @@ var readHistory = func(clientName string) []pastRequest {
 	if err != nil {
 		return nil
 	}
+	// The cache tap discover keeps: a later read parses only what changed.
+	useHistoryCache.Do(func() { history.UseCache(filepath.Join(home, ".tap", "discover", "cache")) })
 	path := requestCachePath(c.ID)
 	// Every session of an agent starts its own tap serve, and an agent can
 	// start dozens at once. Each read holds the changed sessions in memory,
@@ -92,11 +96,11 @@ var readHistory = func(clientName string) []pastRequest {
 		// half-written; read anything touched shortly before it again.
 		since = cache.ReadAt.Add(-time.Hour)
 	}
-	sessions, err := r.Read(since)
-	if err != nil && len(sessions) == 0 {
-		return cache.requests(c.ID, window)
-	}
-	for _, s := range sessions {
+	// Every session is read, and passed on as it is read: only its first
+	// request is kept, so the history is never held whole.
+	read := 0
+	err = history.Each(r, since, func(s trace.Session) error {
+		read++
 		cs := cachedSession{Start: s.Start}
 		for i, text := range s.Requests {
 			if i < len(s.RequestRoles) && s.RequestRoles[i] != "" && s.RequestRoles[i] != "user" {
@@ -116,6 +120,10 @@ var readHistory = func(clientName string) []pastRequest {
 			break
 		}
 		cache.Sessions[s.ID] = cs
+		return nil
+	})
+	if err != nil && read == 0 {
+		return cache.requests(c.ID, window)
 	}
 	cache.ReadAt = now
 	for id, cs := range cache.Sessions {
@@ -262,6 +270,9 @@ func loadHistory(clientName string) *historyLoad {
 	}()
 	return h
 }
+
+// useHistoryCache switches on discover's history cache once per process.
+var useHistoryCache sync.Once
 
 // historyReads lets one history read run at a time in this process: the
 // shared runner reads for every agent its sessions come from, and reads of
