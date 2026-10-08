@@ -402,10 +402,14 @@ ticket, and what remains. A fixed gap names the test that holds it.
 
 Authoring briefs are private local evidence, not packages for publication. Their
 redactor removes complete private-key blocks and uses credential field names for
-opaque argument values, including nested objects and environment maps. Literal
-variable references and ordinary configuration remain available to the author.
-`TestRedactRemovesWholePrivateKeyBlocks`,
-`TestArgumentRedactsNestedCredentialsAndPreservesConfig` and
+opaque argument values, including camel-case names, nested objects and environment
+maps. Generated recipes require credential values as inputs rather than saving
+them as defaults. A mixed JSON config containing credentials remains one supplied
+JSON input, preserving its structure on replay. Literal variable references and
+ordinary configuration such as token counts and tokenizer options remain available
+to the author. `TestRedactRemovesWholePrivateKeyBlocks`,
+`TestCredentialWordsKeepFieldContext`,
+`TestToolDraftSuppliesNestedCredentialConfigAsRawJSON` and
 `TestRedactShellEnvironmentKeepsTheProcedure` hold those cases. The original
 client history and private execution journal are not rewritten; redaction does
 not guarantee detection of an arbitrary secret with no identifying context.
