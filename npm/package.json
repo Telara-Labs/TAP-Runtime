@@ -1,6 +1,6 @@
 {
   "name": "@telaralabs/tap",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "private": true,
   "description": "Local TAP primitive discovery, execution, and MCP server",
   "license": "MIT",
