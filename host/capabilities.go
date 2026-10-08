@@ -283,7 +283,7 @@ func fetchOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 	req, err := http.NewRequest(method, rq.URL, bytes.NewReader([]byte(rq.Stdin)))
 	if err != nil {
 		rec.done("failed", map[string]any{"error": err.Error()})
-		return reply{Exit: 1, Stderr: err.Error()}
+		return reply{Exit: 1, Stderr: logHTTPError(err)}
 	}
 	for k, v := range rq.Headers {
 		req.Header.Set(k, v)
@@ -308,9 +308,10 @@ func fetchOp(m *manifest, rq request, approve bool, journal io.Writer) reply {
 	t0 := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
-		logf("  FAILED   fetch %s %s: %v", method, logURL(rq.URL), err)
+		diagnostic := logHTTPError(err)
+		logf("  FAILED   fetch %s %s: %s", method, logURL(rq.URL), diagnostic)
 		rec.done("failed", map[string]any{"error": err.Error()})
-		return reply{Exit: 1, Stderr: err.Error()}
+		return reply{Exit: 1, Stderr: diagnostic}
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))

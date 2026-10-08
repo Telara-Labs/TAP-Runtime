@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -164,8 +166,31 @@ func logURL(raw string) string {
 	if err != nil || u.Host == "" {
 		return "(not a URL)"
 	}
-	u.RawQuery, u.Fragment, u.User = "", "", nil
+	u.RawQuery, u.Fragment, u.User, u.ForceQuery = "", "", nil, false
 	return u.String()
+}
+
+// HTTP errors include their own URLs, including a redirect destination or a
+// malformed Location header. Sanitize those too in diagnostics, keeping the
+// original error in the private run record. Quoted addresses
+// are matched as a whole because a query may contain spaces or escaped quotes.
+var httpErrorURL = regexp.MustCompile(`(?i)(?:Location header |parse )"(?:\\.|[^"\\])*"|"https?://(?:\\.|[^"\\])*"|https?://[^\s<>"']+`)
+
+func logHTTPError(err error) string {
+	return httpErrorURL.ReplaceAllStringFunc(err.Error(), func(raw string) string {
+		prefix := ""
+		if i := strings.Index(raw, `"`); i > 0 && !strings.HasPrefix(strings.ToLower(raw), "http") {
+			prefix, raw = raw[:i], raw[i:]
+		}
+		if strings.HasPrefix(raw, `"`) {
+			address, uerr := strconv.Unquote(raw)
+			if uerr != nil {
+				return prefix + strconv.Quote("(not a URL)")
+			}
+			return prefix + strconv.Quote(logURL(address))
+		}
+		return logURL(raw)
+	})
 }
 
 // forPrompt makes text a program wrote safe to show a person who is deciding

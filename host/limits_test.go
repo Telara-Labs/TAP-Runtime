@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,6 +40,24 @@ func TestAProgramThatNeverEndsIsStoppedAtItsTimeLimit(t *testing.T) {
 	}
 	if took := time.Since(start); took > 20*time.Second {
 		t.Fatalf("a 1 second limit took %s to apply", took)
+	}
+}
+
+func TestTheRunTimeLimitStopsADispatchedHostProgram(t *testing.T) {
+	if _, err := exec.LookPath("sleep"); err != nil {
+		t.Skip("sleep is not installed")
+	}
+	cache := t.TempDir()
+	if _, err := runLimited(t, "main.sh", "", "echo ready\n", Options{CacheDir: cache}); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	_, err := runLimited(t, "main.sh", "  timeoutSeconds: 1\ncommands:\n  - {command: sleep, args: [\"3\"], effect: read}\n", "sleep 3\n", Options{CacheDir: cache})
+	if err == nil || !strings.Contains(err.Error(), "time limit") {
+		t.Fatalf("run did not report its time limit: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2500*time.Millisecond {
+		t.Fatalf("run waited for the host program after the guest timed out: %s", elapsed)
 	}
 }
 
@@ -123,6 +142,24 @@ func TestACappedBufferKeepsTheStartAndSaysItDroppedTheRest(t *testing.T) {
 	c.Write([]byte("more"))
 	if c.String() != strings.Repeat("a", 10) || !c.truncated {
 		t.Fatalf("got %q truncated=%v", c.String(), c.truncated)
+	}
+}
+
+func TestGuestStderrIsBoundedAndStillRecognizesMemoryFailures(t *testing.T) {
+	g := &guestStderr{cappedBuffer: cappedBuffer{max: 10}}
+	for _, p := range []string{"first diagnostic\n", strings.Repeat("x", 4096), "Memory", "Error", "\n"} {
+		n, err := g.Write([]byte(p))
+		if err != nil || n != len(p) {
+			t.Fatalf("stderr backpressure changed guest behavior: %d %v", n, err)
+		}
+	}
+	if g.Len() != 10 || !strings.HasPrefix(g.String(), "first diag") || !strings.Contains(g.String(), "was dropped") || !g.memoryFailure {
+		t.Fatalf("bounded diagnostics: retained=%d memory=%v output=%q", g.Len(), g.memoryFailure, g.String())
+	}
+	clean := &guestStderr{cappedBuffer: cappedBuffer{max: 100}}
+	clean.Write([]byte("ordinary error\n"))
+	if clean.String() != "ordinary error\n" || clean.memoryFailure || clean.truncated {
+		t.Fatalf("ordinary diagnostics changed: %+v", clean)
 	}
 }
 

@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.26.1"
+          go-version: "1.26.8"
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
@@ -40,6 +40,12 @@ jobs:
         run: test -z "$(gofmt -l acceptance bind bridge conformance contract host journal release satisfy guest-sh internal discover)"
       - name: Vet
         run: go vet ./... && (cd contract && go vet ./...) && (cd discover && go vet ./...)
+      - name: Check known Go vulnerabilities
+        if: runner.os == 'Linux'
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+          (cd contract && go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...)
+          (cd discover && go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...)
       - name: Build the Bash interpreter
         run: GOOS=wasip1 GOARCH=wasm go build -o /dev/null ./guest-sh
       # contract/buildbox is the Linux build sandbox agent-service runs; its
@@ -58,7 +64,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.26.1"
+          go-version: "1.26.8"
       - uses: actions/setup-node@v6
         with:
           node-version: "24"

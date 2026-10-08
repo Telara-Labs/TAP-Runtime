@@ -15,7 +15,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -679,11 +678,20 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer toGuestR.Close()
+	defer toGuestW.Close()
 	fromGuestR, fromGuestW, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	var guestErr bytes.Buffer
+	defer fromGuestR.Close()
+	defer fromGuestW.Close()
+	// Canceling the engine does not interrupt a blocked WASI stdin read.
+	// Close its input on cancellation so it can finish before stdout is
+	// drained, including when a canceled host command has no reply to send.
+	stopInputClose := context.AfterFunc(guestCtx, func() { toGuestW.Close() })
+	defer stopInputClose()
+	guestErr := guestStderr{cappedBuffer: cappedBuffer{max: maxGuestStderr}}
 	cfg := guestConfig(kind, o.PyLib, string(script), args).
 		WithStdin(toGuestR).WithStdout(fromGuestW).WithStderr(&guestErr)
 	if run != nil {
@@ -697,6 +705,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	done := make(chan error, 1)
 	go func() {
 		_, err := rt.InstantiateModule(guestCtx, compiled, cfg)
+		stopGuest() // a finished guest has no remaining host work to dispatch
 		fromGuestW.Close()
 		done <- err
 	}()
@@ -849,7 +858,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			if decl, _ := resolve(&m, rq.Command, rq.Args); decl != nil {
 				kind = strings.TrimSpace("run " + decl.Command + " " + strings.Join(decl.Args, " "))
 			}
-			return gate(func(a bool) reply { return runCommand(o.Proc, &m, rq, a, journal) }, kind,
+			return gate(func(a bool) reply { return runCommand(guestCtx, o.Proc, &m, rq, a, journal) }, kind,
 				"run "+strings.TrimSpace(rq.Command+" "+strings.Join(rq.Args, " ")), effectOf(rq), true)
 		case "read", "write", "canwrite":
 			return gate(func(a bool) reply { return fileOp(o.Proc, &m, rq, a, journal) },
@@ -1024,7 +1033,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 						toGuestW.Close()
 						return
 					}
-					if stopped.Load() {
+					if stopped.Load() || guestCtx.Err() != nil {
 						return
 					}
 					answered++
@@ -1057,6 +1066,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			break
 		}
 	}
+	stopGuest() // stop dispatched programs before waiting for their answers
 	wg.Wait()
 	if bud.expired() {
 		outcome = "timed_out"
@@ -1087,10 +1097,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	if guestErr.Len() > 0 {
 		logf("guest stderr:\n%s", clipLines(strings.TrimRight(guestErr.String(), "\n"), 12))
+		if guestErr.truncated {
+			logf("guest stderr past the runner's limit was dropped")
+		}
 	}
 	logf("%d call(s) and command(s) run, %d refused, in %s", res.Ran, res.Refused, time.Since(t0).Round(time.Millisecond))
 	if final == nil {
-		if outOfMemory(guestErr.String()) {
+		if guestErr.memoryFailure {
 			return nil, fmt.Errorf("the primitive ran out of memory (the limit is %d MiB)", guestMemoryPages*64/1024)
 		}
 		return nil, fmt.Errorf("the primitive ended without a result")

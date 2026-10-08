@@ -220,7 +220,9 @@ func resolve(m *manifest, name string, args []string) (*command, string) {
 		return nil, ""
 	}
 	effect := best.Effect
-	if runsArbitraryCode(name, bestRest) {
+	// Matching may strip permitted global flags, but those flags still reach
+	// the program and must participate in its effect classification.
+	if runsArbitraryCode(name, args) || runsArbitraryCode(name, bestRest) {
 		effect = "destructive"
 	}
 	return best, effect
@@ -262,7 +264,7 @@ func environFor(c *command, environ []string) (env []string, names []string) {
 	return env, names
 }
 
-func runCommand(p bridge.Proc, m *manifest, rq request, approve bool, journal io.Writer) reply {
+func runCommand(ctx context.Context, p bridge.Proc, m *manifest, rq request, approve bool, journal io.Writer) reply {
 	line := logCommand(rq.Command, rq.Args)
 	decl, effect := resolve(m, rq.Command, rq.Args)
 	entry := map[string]any{"ts": time.Now().UTC().Format(time.RFC3339Nano), "command": rq.Command, "args": rq.Args}
@@ -292,9 +294,12 @@ func runCommand(p bridge.Proc, m *manifest, rq request, approve bool, journal io
 		return reply{Refused: "program not installed on this machine"}
 	}
 	t0 := time.Now()
-	cctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	cctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, path, rq.Args...)
+	// A child may inherit a program's output pipe. Do not wait without a
+	// bound for that pipe after the dispatched program has been stopped.
+	cmd.WaitDelay = 250 * time.Millisecond
 	var names []string
 	cmd.Env, names = environFor(decl, p.Environ())
 	cwd := p.Wd()
@@ -315,7 +320,11 @@ func runCommand(p bridge.Proc, m *manifest, rq request, approve bool, journal io
 		}
 	}
 	if cctx.Err() != nil {
-		se.WriteString("\nthe runner stopped this program after " + commandTimeout.String())
+		if ctx.Err() != nil {
+			se.WriteString("\nthe runner stopped this program with the primitive")
+		} else {
+			se.WriteString("\nthe runner stopped this program after " + commandTimeout.String())
+		}
 	}
 	if so.truncated || se.truncated {
 		se.WriteString("\noutput past the runner's limit was dropped")

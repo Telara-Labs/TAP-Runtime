@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"github.com/Telara-Labs/TAP-Runtime/bridge"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testManifest() *manifest {
@@ -147,17 +149,17 @@ func TestRunCommandAgainstRealPrograms(t *testing.T) {
 	}}
 	var journal bytes.Buffer
 
-	r := runCommand(bridge.Proc{}, m, request{Command: "printenv"}, false, &journal)
+	r := runCommand(context.Background(), bridge.Proc{}, m, request{Command: "printenv"}, false, &journal)
 	if strings.Contains(r.Stdout, "must-not-leak") {
 		t.Fatal("an undeclared variable reached the host program")
 	}
 	if !strings.Contains(r.Stdout, "TAP_TEST_DECLARED=passed-through") {
 		t.Fatalf("a declared variable did not reach the host program:\n%s", r.Stdout)
 	}
-	if r := runCommand(bridge.Proc{}, m, request{Command: "pwd"}, false, &journal); strings.TrimSpace(r.Stdout) != dir {
+	if r := runCommand(context.Background(), bridge.Proc{}, m, request{Command: "pwd"}, false, &journal); strings.TrimSpace(r.Stdout) != dir {
 		t.Fatalf("ran in %q, want %q", strings.TrimSpace(r.Stdout), dir)
 	}
-	if r := runCommand(bridge.Proc{}, m, request{Command: "cat", Stdin: "piped in\n"}, false, &journal); r.Stdout != "piped in\n" {
+	if r := runCommand(context.Background(), bridge.Proc{}, m, request{Command: "cat", Stdin: "piped in\n"}, false, &journal); r.Stdout != "piped in\n" {
 		t.Fatalf("standard input did not arrive: %q", r.Stdout)
 	}
 
@@ -232,5 +234,64 @@ func TestGitDashCDeclaredAsAReadIsRaisedToDestructive(t *testing.T) {
 	}
 	if _, effect := resolve(m, "git", []string{"log", "-5"}); effect != "read" {
 		t.Fatalf("git log ran as %q", effect)
+	}
+}
+
+func TestCommandClassificationIncludesDeclaredGlobals(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		globals, args []string
+		want          string
+	}{
+		{"configuration flag", []string{"-c <any>"}, []string{"-c", "core.pager=cat", "log"}, "destructive"},
+		{"configuration flag inline", []string{"--config-env <any>"}, []string{"--config-env=core.pager=TEST", "log"}, "destructive"},
+		{"program location", []string{"--exec-path <any>"}, []string{"--exec-path=/tmp/owned-programs", "status"}, "destructive"},
+		{"ordinary read globals", []string{"-C <any>", "--no-pager"}, []string{"-C", "/tmp", "--no-pager", "log"}, "read"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &manifest{Commands: []command{{Command: "git", Globals: tc.globals, Args: []string{"*"}, Effect: "read"}}}
+			if declaration, effect := resolve(m, "git", tc.args); declaration == nil || effect != tc.want {
+				t.Fatalf("declared command classification: declaration=%v effect=%q, want %q", declaration, effect, tc.want)
+			}
+		})
+	}
+}
+
+func TestCommandClassificationStillRecognizesLaunchersAfterGlobals(t *testing.T) {
+	for _, tc := range []struct {
+		command       string
+		globals, args []string
+		want          string
+	}{
+		{"docker", []string{"--context <any>"}, []string{"--context", "owned", "run", "fixture"}, "destructive"},
+		{"kubectl", []string{"--context <any>"}, []string{"--context", "owned", "exec", "fixture"}, "destructive"},
+		{"docker", []string{"--context <any>"}, []string{"--context", "owned", "ps"}, "read"},
+		{"kubectl", []string{"--context <any>"}, []string{"--context", "owned", "get", "pods"}, "read"},
+	} {
+		m := &manifest{Commands: []command{{Command: tc.command, Globals: tc.globals, Args: []string{"*"}, Effect: "read"}}}
+		if declaration, effect := resolve(m, tc.command, tc.args); declaration == nil || effect != tc.want {
+			t.Errorf("%s globals: declaration=%v effect=%q, want %q", tc.command, declaration, effect, tc.want)
+		}
+	}
+}
+
+func TestAHostProgramStopsWithItsRunContext(t *testing.T) {
+	if _, err := exec.LookPath("sleep"); err != nil {
+		t.Skip("sleep is not installed")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	m := &manifest{Commands: []command{{Command: "sleep", Args: []string{"5"}, Effect: "read"}}}
+	start := time.Now()
+	var journal bytes.Buffer
+	r := runCommand(ctx, bridge.Proc{}, m, request{Command: "sleep", Args: []string{"5"}}, false, &journal)
+	if r.Exit == 0 || !strings.Contains(r.Stderr, "stopped this program with the primitive") {
+		t.Fatalf("canceled command: %+v", r)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("canceled local program kept running: %s", elapsed)
+	}
+	if !strings.Contains(journal.String(), `"outcome":"ran"`) || !strings.Contains(journal.String(), `"effect":"read"`) {
+		t.Fatalf("canceled dispatched program lost its journal receipt: %s", journal.String())
 	}
 }

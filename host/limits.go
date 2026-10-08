@@ -17,6 +17,7 @@ const (
 	defaultTimeout     = 10 * time.Minute
 	defaultDispatches  = 1000
 	maxGuestLine       = 16 << 20 // one protocol line from the guest
+	maxGuestStderr     = 16 << 20 // cumulative native diagnostics from one guest
 	maxCommandOutput   = 16 << 20 // stdout, and separately stderr, of one host program
 	commandTimeout     = 10 * time.Minute
 	guestMemoryPages   = 8192 // 512 MiB of 64 KiB pages
@@ -167,15 +168,57 @@ func (c *cappedBuffer) String() string { return c.buf.String() }
 // WriteString adds the runner's own note, which the cap does not drop.
 func (c *cappedBuffer) WriteString(s string) { c.buf.WriteString(s) }
 
+// guestStderr bounds cumulative diagnostics independently of protocol output.
+// Keep recognizing memory failures even after the retained prefix is full,
+// including a diagnostic split between writes.
+type guestStderr struct {
+	cappedBuffer
+	memoryFailure bool
+	tail          [32]byte
+	tailLen       int
+}
+
+func (g *guestStderr) Write(p []byte) (int, error) {
+	if !g.memoryFailure {
+		var boundary [64]byte
+		n := copy(boundary[:], g.tail[:g.tailLen])
+		n += copy(boundary[n:], p[:min(len(p), 32)])
+		g.memoryFailure = outOfMemory(string(boundary[:n])) || bytes.Contains(p, []byte("out of memory")) || bytes.Contains(p, []byte("MemoryError"))
+	}
+	if len(p) >= 32 {
+		g.tailLen = copy(g.tail[:], p[len(p)-32:])
+	} else {
+		keep := min(g.tailLen, 32-len(p))
+		copy(g.tail[:], g.tail[g.tailLen-keep:g.tailLen])
+		g.tailLen = keep + copy(g.tail[keep:], p)
+	}
+	return g.cappedBuffer.Write(p)
+}
+
+func (g *guestStderr) String() string {
+	s := g.cappedBuffer.String()
+	if g.truncated {
+		s += "\n... (guest stderr past the runner's limit was dropped)"
+	}
+	return s
+}
+
 // clipLines keeps the first n lines of a text and says how many it left out.
 // A guest that runs out of memory writes its whole runtime state, which is no
 // help to anyone reading a log.
 func clipLines(s string, n int) string {
-	lines := strings.Split(s, "\n")
-	if len(lines) <= n {
+	lines := strings.Count(s, "\n") + 1
+	if lines <= n {
 		return s
 	}
-	return strings.Join(lines[:n], "\n") + fmt.Sprintf("\n... (%d more lines)", len(lines)-n)
+	end := 0
+	for i := 0; i < n; i++ {
+		end += strings.IndexByte(s[end:], '\n')
+		if i+1 < n {
+			end++
+		}
+	}
+	return s[:end] + fmt.Sprintf("\n... (%d more lines)", lines-n)
 }
 
 // outOfMemory reports whether a guest's error output says it ran out of memory
