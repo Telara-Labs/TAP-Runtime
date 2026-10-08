@@ -22,8 +22,8 @@ func TestBriefWriterRemovesOpaqueCredentialsAndEntirePEMBodies(t *testing.T) {
 	lines := []any{
 		map[string]any{"type": "user", "message": map[string]any{"content": "Inspect the synthetic example\n" + pem}},
 		map[string]any{"type": "assistant", "message": map[string]any{"id": "msg1", "content": []any{map[string]any{"type": "tool_use", "id": "call1", "name": "mcp__synthetic__inspect", "input": map[string]any{
-			"password": "synthetic-password", "token": "x", "api_key": "synthetic-api-key", "issue_key": "ABC-12", "a_token": "${SYNTHETIC_TOKEN}",
-			"config": map[string]any{"env": map[string]any{"DB_PASSWORD": "synthetic-env-password", "API_TOKEN": "short", "REGION": "west", "PATH": "/ordinary/bin", "REFRESH_TOKEN": "${SYNTHETIC_TOKEN}"}, "limit": 5},
+			"password": "synthetic-password", "token": "x", "api_key": "synthetic-api-key", "issue_key": "ABC-12", "a_token": "${SYNTHETIC_TOKEN}", "dbPassword": "synthetic-db-password", "passwordValue": "synthetic-password-value",
+			"config": map[string]any{"env": map[string]any{"DB_PASSWORD": "synthetic-env-password", "API_TOKEN": "short", "REGION": "west", "PATH": "/ordinary/bin", "REFRESH_TOKEN": "${SYNTHETIC_TOKEN}"}, "rows": []any{map[string]any{"oauthToken": "synthetic-oauth-token", "clientCredentials": "q", "token_count": 5, "tokenizer": "ordinary-model"}}, "limit": 5},
 		}}}}},
 		map[string]any{"type": "user", "message": map[string]any{"content": []any{map[string]any{"type": "tool_result", "tool_use_id": "call1", "content": pem}}}},
 		map[string]any{"type": "assistant", "message": map[string]any{"id": "msg2", "content": []any{map[string]any{"type": "tool_use", "id": "call2", "name": "Bash", "input": map[string]any{"command": "export DB_PASSWORD=abc; API_TOKEN=q REGION=west PATH=/ordinary/bin tool status"}}}}},
@@ -58,7 +58,7 @@ func TestBriefWriterRemovesOpaqueCredentialsAndEntirePEMBodies(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(raw)
-		for _, secret := range []string{"synthetic-password", "synthetic-api-key", "synthetic-env-password", "SYNTHETIC-PRIVATE-BODY", "DB_PASSWORD=abc", "API_TOKEN=q", "short"} {
+		for _, secret := range []string{"synthetic-password", "synthetic-api-key", "synthetic-env-password", "synthetic-db-password", "synthetic-password-value", "synthetic-oauth-token", `"clientCredentials":"q"`, "SYNTHETIC-PRIVATE-BODY", "DB_PASSWORD=abc", "API_TOKEN=q", "short"} {
 			if strings.Contains(text, secret) {
 				t.Errorf("%s retains synthetic credential %q", name, secret)
 			}

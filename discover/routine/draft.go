@@ -1063,7 +1063,7 @@ func (d *Drafter) Compound(i, j int) {
 				sensitive = true
 			}
 		}
-		if p > 0 && redact.SensitiveName.MatchString(strings.TrimSuffix(first.words[p-1].Text, "=")) {
+		if p > 0 && redact.IsSensitiveName(strings.TrimSuffix(first.words[p-1].Text, "=")) {
 			sensitive = true
 		}
 		if same && !sensitive {

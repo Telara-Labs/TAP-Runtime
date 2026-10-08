@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
 // Every value here is synthetic and deliberately unusable.
@@ -142,5 +144,120 @@ func TestStructuredRedactionDecodesEscapedSecretNames(t *testing.T) {
 	got = Redact(in)
 	if strings.Contains(got, fakeGitlab) || !strings.Contains(got, `"count":5`) || !json.Valid([]byte(got)) {
 		t.Fatalf("value-shaped credential reached structured output: %s", got)
+	}
+}
+
+func TestCredentialWordsKeepFieldContext(t *testing.T) {
+	for _, name := range []string{"dbPassword", "oauthToken", "clientCredentials", "passwordValue", "credentialValue", "credentialHash", "passwordHash", "DB_PASSWORD_VALUE", "client-credentials", "serviceAPIToken", "dbPrivateKey"} {
+		t.Run(name, func(t *testing.T) {
+			for _, secret := range []string{"x", "SYNTHETIC-LONG-PASSWORD"} {
+				if got := Argument(name, secret); strings.Contains(got, secret) {
+					t.Fatalf("named credential retained: %q", got)
+				}
+				input, _ := json.Marshal(map[string]any{"rows": []any{map[string]any{"env": map[string]any{name: secret}, "issue_key": "ABC-12"}}})
+				got := Argument("config", string(input))
+				if strings.Contains(got, secret) || !strings.Contains(got, "ABC-12") || !json.Valid([]byte(got)) {
+					t.Fatalf("nested credential context lost: %s", got)
+				}
+			}
+			if !SensitiveSlot("mcp:synthetic", trace.Slot{Key: name, Value: "x"}) {
+				t.Fatal("credential can become a hardcoded package argument")
+			}
+			command := name + "=q REGION=west tool"
+			if got := Redact(command); strings.Contains(got, name+"=q") || !strings.Contains(got, "REGION=west tool") {
+				t.Fatalf("named shell assignment lost credential context: %s", got)
+			}
+			for _, ref := range []string{"$SYNTHETIC_TOKEN", "${SYNTHETIC_TOKEN}", "{env:SYNTHETIC_TOKEN}"} {
+				input, _ := json.Marshal(map[string]string{name: ref})
+				if got := Argument("config", string(input)); got != string(input) {
+					t.Fatalf("literal reference changed: %s", got)
+				}
+			}
+			input, _ := json.Marshal(map[string]string{name: "${SYNTHETIC_TOKEN:-synthetic-default}"})
+			if strings.Contains(Argument("config", string(input)), "synthetic-default") {
+				t.Fatal("credential fallback retained")
+			}
+		})
+	}
+}
+
+func TestCredentialWordConfigNamesArePreserved(t *testing.T) {
+	for name, value := range map[string]any{
+		"max_output_tokens": 4000, "issue_key": "ABC-12", "tokenizer": "ordinary-model",
+		"token_count": 9007199254740993, "tokenCount": 5, "password_length": 24,
+		"passwordLength": 24, "secret_rotation_interval": 30, "secretRotationInterval": 30,
+		"token_limit": 100, "tokenBudget": 4000,
+	} {
+		t.Run(name, func(t *testing.T) {
+			input, _ := json.Marshal(map[string]any{name: value})
+			if got := Argument("config", string(input)); got != string(input) {
+				t.Fatalf("configuration bytes changed: %s -> %s", input, got)
+			}
+			if got := Argument(name, "ordinary-value"); got != "ordinary-value" {
+				t.Fatalf("configuration argument changed: %s", got)
+			}
+			if SensitiveSlot("mcp:synthetic", trace.Slot{Key: name, Value: "5"}) {
+				t.Fatal("configuration classified as a credential slot")
+			}
+		})
+	}
+}
+
+func TestSensitiveSlotUsesNestedCredentialContext(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  bool
+	}{
+		{`{"rows":[{"dbPassword":"q","region":"west"}]}`, true},
+		{`{"env":{"oauthToken":"q"},"token_count":5}`, true},
+		{`{"passwordValue":1234,"enabled":true}`, true},
+		{`{"clientCredentials":{"value":"q"}}`, true},
+		{`{"env":{"dbPassword":"$SYNTHETIC_TOKEN","oauthToken":"${SYNTHETIC_TOKEN}","passwordValue":"{env:SYNTHETIC_TOKEN}"}}`, false},
+		{`{"dbPassword":"${SYNTHETIC_TOKEN:-synthetic-default}"}`, true},
+		{`{"tokenizer":"ordinary-model","token_count":5,"password_length":24,"secret_rotation_interval":30,"issue_key":"ABC-12"}`, false},
+	} {
+		if got := SensitiveSlot("mcp:synthetic", trace.Slot{Key: "config", Value: test.value, Raw: true}); got != test.want {
+			t.Errorf("SensitiveSlot(config, %s)=%t, want %t", test.value, got, test.want)
+		}
+	}
+}
+
+func BenchmarkSensitiveSlotOrdinary(b *testing.B) {
+	slot := trace.Slot{Key: "issue_key", Value: "ABC-12"}
+	for b.Loop() {
+		SensitiveSlot("mcp:synthetic", slot)
+	}
+}
+
+func BenchmarkSensitiveSlotBenignJSON(b *testing.B) {
+	in := benignJSONBenchmark()
+	slot := trace.Slot{Key: "config", Value: in, Raw: true}
+	b.SetBytes(int64(len(in)))
+	for b.Loop() {
+		SensitiveSlot("mcp:synthetic", slot)
+	}
+}
+
+func TestRawJSONShapeKeepsCredentialFieldContext(t *testing.T) {
+	benign := `request {"tokenizer":"ordinary-model","password_length":"twenty-four","dbPassword":"{env:SYNTHETIC_TOKEN}"}`
+	if shape := SecretShape(benign); shape != "" {
+		t.Fatalf("configuration/reference mistaken for credential: %s", shape)
+	}
+	if got := Redact(benign); got != benign {
+		t.Fatalf("raw configuration/reference changed: %s", got)
+	}
+	for _, name := range []string{"dbPassword", "oauthToken", "clientCredentials", "passwordValue", "credentialHash"} {
+		input, _ := json.Marshal(map[string]string{name: "SYNTHETIC-LONG-PASSWORD", "tokenizer": "ordinary-model"})
+		raw := "request " + string(input)
+		if shape := SecretShape(raw); shape != "secret in JSON" {
+			t.Fatalf("raw %s credential shape lost: %s", name, shape)
+		}
+		got := Redact(raw)
+		if strings.Contains(got, "SYNTHETIC-LONG-PASSWORD") || !strings.Contains(got, `"tokenizer":"ordinary-model"`) {
+			t.Fatalf("raw credential/context not handled consistently: %s", got)
+		}
+		if findings := ScanArtifacts(map[string][]byte{"synthetic.json": input}); len(findings) != 1 {
+			t.Fatalf("raw credential artifact can be published: %v", findings)
+		}
 	}
 }

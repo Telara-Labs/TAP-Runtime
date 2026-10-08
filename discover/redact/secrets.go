@@ -51,17 +51,117 @@ var SecretShapes = []struct {
 // (max_output_tokens) do not match.
 var SensitiveName = regexp.MustCompile(`(?i)^-{0,2}(authorization|auth|cookie|set-cookie|x-api-key|api[_-]?key|apikey|secret|secret[_-]?key|aws[_-]?secret[_-]?access[_-]?key|client[_-]?secret|password|passwd|pwd|pass|private[_-]?key|private[_-]?token|access[_-]?token|refresh[_-]?token|auth[_-]?token|id[_-]?token|session[_-]?token|bearer|token|credentials?|[a-z0-9_-]*[_-](token|secret|secret[_-]?key|password|passwd|api[_-]?key))=?$`)
 
+// IsSensitiveName also recognizes complete credential words inside camel,
+// snake and kebab names. Counts, lengths and other numeric configuration
+// labels are distinct from credential values (passwordHash is still secret).
+// Scan name boundaries without allocating a normalized copy for every field.
+func IsSensitiveName(name string) bool {
+	if SensitiveName.MatchString(name) {
+		return true
+	}
+	credential, configuration := false, false
+	previous := ""
+	start := 0
+	for i := 0; i <= len(name); i++ {
+		if i < len(name) && nameLetter(name[i]) {
+			// dbPassword and APIToken have different capital boundaries.
+			if i == start || !nameUpper(name[i]) || (!nameLower(name[i-1]) && !(nameUpper(name[i-1]) && i+1 < len(name) && nameLower(name[i+1]))) {
+				continue
+			}
+		}
+		if i > start {
+			word := name[start:i]
+			credential = credential || credentialWord(word) || (strings.EqualFold(word, "key") && (strings.EqualFold(previous, "api") || strings.EqualFold(previous, "private")))
+			configuration = configuration || configurationWord(word)
+			previous = word
+		}
+		start = i
+		if i < len(name) && !nameLetter(name[i]) {
+			start++
+		}
+	}
+	return credential && !configuration
+}
+
+func nameUpper(c byte) bool { return c >= 'A' && c <= 'Z' }
+func nameLower(c byte) bool { return c >= 'a' && c <= 'z' }
+func nameLetter(c byte) bool {
+	return nameUpper(c) || nameLower(c) || (c >= '0' && c <= '9')
+}
+
+func credentialWord(word string) bool {
+	switch word[0] | 0x20 {
+	case 'p':
+		return strings.EqualFold(word, "password") || strings.EqualFold(word, "passwd") || strings.EqualFold(word, "pwd")
+	case 's':
+		return strings.EqualFold(word, "secret")
+	case 't':
+		return strings.EqualFold(word, "token")
+	case 'c':
+		return strings.EqualFold(word, "credential") || strings.EqualFold(word, "credentials") || strings.EqualFold(word, "cookie")
+	case 'a':
+		return strings.EqualFold(word, "authorization")
+	case 'b':
+		return strings.EqualFold(word, "bearer")
+	}
+	return false
+}
+
+func configurationWord(word string) bool {
+	switch word[0] | 0x20 {
+	case 'c':
+		return strings.EqualFold(word, "count")
+	case 'l':
+		return strings.EqualFold(word, "length") || strings.EqualFold(word, "limit")
+	case 'i':
+		return strings.EqualFold(word, "interval")
+	case 'b':
+		return strings.EqualFold(word, "budget")
+	case 's':
+		return strings.EqualFold(word, "size")
+	case 'd':
+		return strings.EqualFold(word, "duration")
+	case 't':
+		return strings.EqualFold(word, "timeout")
+	}
+	return false
+}
+
 // UserFlagPrograms take -u / --user as user:password.
 var UserFlagPrograms = map[string]bool{"curl": true, "wget": true, "http": true, "https": true, "xh": true}
 
 // SecretShape names the credential shape v contains, or "".
 func SecretShape(v string) string {
 	for _, s := range SecretShapes {
+		if s.name == "secret in JSON" {
+			for _, field := range s.re.FindAllString(v, -1) {
+				if sensitiveJSONField(field) {
+					return s.name
+				}
+			}
+			continue
+		}
 		if s.re.MatchString(v) {
 			return s.name
 		}
 	}
 	return ""
+}
+
+// The legacy raw-text expression intentionally remains public. Apply the
+// same name semantics to its field matches as to decoded objects, rather
+// than treating tokenizer or password_length as credential values.
+func sensitiveJSONField(field string) bool {
+	end := strings.IndexByte(field[1:], '"') + 1
+	if end < 1 || !IsSensitiveName(field[1:end]) {
+		return false
+	}
+	var value string
+	raw := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(field[end+1:]), ":"))
+	if json.Unmarshal([]byte(raw), &value) == nil && variableReference(value) {
+		return false
+	}
+	return true
 }
 
 // SensitiveSlot reports whether a recorded argument must never be written:
@@ -75,11 +175,18 @@ func SensitiveSlot(label string, sl trace.Slot) bool {
 		return false
 	}
 	name := strings.SplitN(sl.Key, "#", 2)[0]
-	if SensitiveName.MatchString(strings.TrimSuffix(name, "=")) {
+	if IsSensitiveName(strings.TrimSuffix(name, "=")) {
 		return true
 	}
 	if (name == "-u=" || name == "--user=") && UserFlagPrograms[strings.SplitN(strings.TrimPrefix(label, "sh:"), " ", 2)[0]] && strings.Contains(sl.Value, ":") {
 		return true
+	}
+	if value, ok := structured(sl.Value); ok {
+		// A short credential nested in a generic config argument is still
+		// supplied by the caller. Keep benign JSON and literal references
+		// ordinary instead of applying the old substring-based JSON shape.
+		_, changed := redactValue(value, false)
+		return changed
 	}
 	return SecretShape(sl.Value) != ""
 }
@@ -95,7 +202,7 @@ func Redact(s string) string {
 // arguments to JSON strings; nested objects, arrays and environment maps must
 // retain that context instead of relying on a token's recognizable shape.
 func Argument(name, s string) string {
-	sensitive := SensitiveName.MatchString(name)
+	sensitive := IsSensitiveName(name)
 	if value, ok := structured(s); ok {
 		out, changed := redactValue(value, sensitive)
 		if !changed {
@@ -157,7 +264,7 @@ func redactValue(value any, sensitive bool) (any, bool) {
 	switch v := value.(type) {
 	case map[string]any:
 		for k, old := range v {
-			next, dirty := redactValue(old, sensitive || SensitiveName.MatchString(k))
+			next, dirty := redactValue(old, sensitive || IsSensitiveName(k))
 			v[k], changed = next, changed || dirty
 		}
 	case []any:
@@ -188,7 +295,7 @@ func redactText(s string) string {
 	if strings.ContainsAny(s, "=:") && assignmentWord.MatchString(s) {
 		s = assignmentWord.ReplaceAllStringFunc(s, func(word string) string {
 			parts := assignmentWord.FindStringSubmatch(word)
-			if SensitiveName.MatchString(parts[1]) && !variableReference(strings.Trim(parts[3], `'"`)) {
+			if IsSensitiveName(parts[1]) && !variableReference(strings.Trim(parts[3], `'"`)) {
 				return parts[1] + parts[2] + "'<redacted credential>'"
 			}
 			return word
@@ -201,7 +308,16 @@ func redactText(s string) string {
 			continue
 		}
 		if sh.re.MatchString(s) {
-			s = sh.re.ReplaceAllString(s, "<redacted "+sh.name+">")
+			if sh.name == "secret in JSON" {
+				s = sh.re.ReplaceAllStringFunc(s, func(field string) string {
+					if sensitiveJSONField(field) {
+						return "<redacted " + sh.name + ">"
+					}
+					return field
+				})
+			} else {
+				s = sh.re.ReplaceAllString(s, "<redacted "+sh.name+">")
+			}
 		}
 	}
 	return s
