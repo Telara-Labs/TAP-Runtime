@@ -1,6 +1,9 @@
 package redact
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"regexp"
 	"sort"
 	"strings"
@@ -32,7 +35,9 @@ var SecretShapes = []struct {
 	{"model provider key", regexp.MustCompile(`\bsk-(ant-|proj-)?[A-Za-z0-9_-]{20,}`)},
 	{"Google key", regexp.MustCompile(`\b(AIza[0-9A-Za-z_-]{35}|ya29\.[0-9A-Za-z_-]{20,})`)},
 	{"Telara key", regexp.MustCompile(`\btlr[a-z]{0,3}_[A-Za-z0-9]{16,}`)},
-	{"private key", regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)},
+	// Consume the body too, including an incomplete block. Removing only
+	// the header leaves the encoded private key available to the reader.
+	{"private key", regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)`)},
 	{"password in URL", regexp.MustCompile(`\b[a-z][a-z0-9+.-]*://[^/\s:@'"]+:[^/\s@'"]+@`)},
 	{"signed URL", regexp.MustCompile(`(?i)[?&](x-amz-signature|x-amz-credential|x-amz-security-token|x-goog-signature|x-goog-credential|signature|sig|access_token|id_token|refresh_token|api_key|apikey|client_secret)=[^&\s'"]{8,}`)},
 	// NAME=value where the name ends in a credential word. "tokens" (a
@@ -44,7 +49,7 @@ var SecretShapes = []struct {
 // SensitiveName matches argument, flag and header names that carry
 // credentials. Names that merely end in "key" (issue_key) or count tokens
 // (max_output_tokens) do not match.
-var SensitiveName = regexp.MustCompile(`(?i)^-{0,2}(authorization|auth|cookie|set-cookie|x-api-key|api[_-]?key|apikey|secret|client[_-]?secret|password|passwd|pwd|pass|private[_-]?key|private[_-]?token|access[_-]?token|refresh[_-]?token|auth[_-]?token|id[_-]?token|session[_-]?token|bearer|token|credentials?|[a-z0-9_-]*[_-](token|secret|password|passwd|api[_-]?key))=?$`)
+var SensitiveName = regexp.MustCompile(`(?i)^-{0,2}(authorization|auth|cookie|set-cookie|x-api-key|api[_-]?key|apikey|secret|secret[_-]?key|aws[_-]?secret[_-]?access[_-]?key|client[_-]?secret|password|passwd|pwd|pass|private[_-]?key|private[_-]?token|access[_-]?token|refresh[_-]?token|auth[_-]?token|id[_-]?token|session[_-]?token|bearer|token|credentials?|[a-z0-9_-]*[_-](token|secret|secret[_-]?key|password|passwd|api[_-]?key))=?$`)
 
 // UserFlagPrograms take -u / --user as user:password.
 var UserFlagPrograms = map[string]bool{"curl": true, "wget": true, "http": true, "https": true, "xh": true}
@@ -82,8 +87,122 @@ func SensitiveSlot(label string, sl trace.Slot) bool {
 // Redact replaces every credential-shaped part of s with <redacted>. It is
 // applied to all text the report prints or writes.
 func Redact(s string) string {
+	return Argument("", s)
+}
+
+// Argument preserves a recorded value's structure while removing credential
+// values identified by their field names. History readers flatten structured
+// arguments to JSON strings; nested objects, arrays and environment maps must
+// retain that context instead of relying on a token's recognizable shape.
+func Argument(name, s string) string {
+	sensitive := SensitiveName.MatchString(name)
+	if value, ok := structured(s); ok {
+		out, changed := redactValue(value, sensitive)
+		if !changed {
+			return s
+		}
+		var b bytes.Buffer
+		e := json.NewEncoder(&b)
+		e.SetEscapeHTML(false)
+		if e.Encode(out) == nil {
+			return strings.TrimSuffix(b.String(), "\n")
+		}
+	}
+	if sensitive && s != "" && !variableReference(s) {
+		return "<redacted credential>"
+	}
+	return redactText(s)
+}
+
+// Only a complete reference is safe: ${TOKEN:-literal-secret} also contains
+// a credential. Do not interpret expressions or read the environment.
+var reference = regexp.MustCompile(`^(\$[A-Za-z_][A-Za-z0-9_]*|\$\{[A-Za-z_][A-Za-z0-9_]*\}|\{env:[A-Za-z_][A-Za-z0-9_]*\})$`)
+
+// An assignment word can concatenate quoted/unquoted parts. Keep its exact
+// surrounding command bytes; only credential-bearing words are replaced.
+var assignmentWord = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_-]*)\s*([=:])\s*((?:(?i:Bearer|Basic)\s+)?(?:"(?:\\.|[^"\\])*"|'[^']*'|\\.|[^\s;|&"'\\])+)`)
+
+func variableReference(s string) bool {
+	if reference.MatchString(s) {
+		return true
+	}
+	for _, scheme := range []string{"Bearer ", "Basic "} {
+		if len(s) > len(scheme) && strings.EqualFold(s[:len(scheme)], scheme) {
+			return reference.MatchString(s[len(scheme):])
+		}
+	}
+	return false
+}
+
+func structured(s string) (any, bool) {
+	trimmed := strings.TrimSpace(s)
+	if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') {
+		return nil, false
+	}
+	d := json.NewDecoder(strings.NewReader(trimmed))
+	d.UseNumber() // keep exact integer/configuration values
+	var value any
+	if d.Decode(&value) != nil {
+		return nil, false
+	}
+	var trailing any
+	if d.Decode(&trailing) != io.EOF {
+		return nil, false
+	}
+	return value, true
+}
+
+func redactValue(value any, sensitive bool) (any, bool) {
+	changed := false
+	switch v := value.(type) {
+	case map[string]any:
+		for k, old := range v {
+			next, dirty := redactValue(old, sensitive || SensitiveName.MatchString(k))
+			v[k], changed = next, changed || dirty
+		}
+	case []any:
+		for i, old := range v {
+			next, dirty := redactValue(old, sensitive)
+			v[i], changed = next, changed || dirty
+		}
+	case string:
+		name := ""
+		if sensitive {
+			name = "credential"
+		}
+		next := Argument(name, v)
+		return next, next != v
+	case nil:
+		return value, false
+	default:
+		if sensitive {
+			return "<redacted credential>", true
+		}
+	}
+	return value, changed
+}
+
+func redactText(s string) string {
+	// Cover short opaque env assignments too, preserving the rest of the
+	// command and complete variable references. Include named text fields.
+	if strings.ContainsAny(s, "=:") && assignmentWord.MatchString(s) {
+		s = assignmentWord.ReplaceAllStringFunc(s, func(word string) string {
+			parts := assignmentWord.FindStringSubmatch(word)
+			if SensitiveName.MatchString(parts[1]) && !variableReference(strings.Trim(parts[3], `'"`)) {
+				return parts[1] + parts[2] + "'<redacted credential>'"
+			}
+			return word
+		})
+	}
 	for _, sh := range SecretShapes {
-		s = sh.re.ReplaceAllString(s, "<redacted "+sh.name+">")
+		if sh.name == "assigned secret" {
+			// Named values above include short and quoted credentials and
+			// preserve references; the old length-only shape does neither.
+			continue
+		}
+		if sh.re.MatchString(s) {
+			s = sh.re.ReplaceAllString(s, "<redacted "+sh.name+">")
+		}
 	}
 	return s
 }

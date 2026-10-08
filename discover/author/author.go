@@ -142,7 +142,7 @@ func NewBrief(s trace.Session, req int, cand *BriefCandidate) (*Brief, error) {
 		if len(c.Args) > 0 {
 			st.Args = map[string]string{}
 			for k, v := range c.Args {
-				st.Args[k] = redact.Redact(v)
+				st.Args[k] = redact.Argument(k, v)
 			}
 		}
 		b.Evidence.Steps = append(b.Evidence.Steps, st)
