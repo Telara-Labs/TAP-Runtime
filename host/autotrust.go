@@ -70,6 +70,7 @@ func readFetchKinds(m *mf.Manifest) []string {
 const (
 	unaskedWeb   = "web"
 	unaskedShell = "shell"
+	unaskedWrite = "write" // write files
 )
 
 // agentReadsWebUnasked reports whether an agent's own configuration lets its
@@ -79,8 +80,8 @@ func agentReadsWebUnasked(clientName, home string) (bool, string) {
 }
 
 // agentDoesUnasked reports whether an agent's own configuration lets its
-// model use the web (unaskedWeb) or run shell commands (unaskedShell)
-// without asking the person, and where that was read. Unknown agents, and
+// model use the web (unaskedWeb), run shell commands (unaskedShell) or write
+// files (unaskedWrite) without asking the person, and where that was read. Unknown agents, and
 // settings that ask, deny or allow only some commands, are no. agentPid is
 // the process that started the session (0: this process's parent).
 func agentDoesUnasked(clientName, home, what string, agentPid int) (bool, string) {
@@ -92,7 +93,7 @@ func agentDoesUnasked(clientName, home, what string, agentPid int) (bool, string
 	case "opencode", "kilo":
 		// permission.webfetch and permission.bash: "allow" (the default),
 		// "ask" or "deny"; bash may also map command patterns to those.
-		key := map[string]string{unaskedWeb: "webfetch", unaskedShell: "bash"}[what]
+		key := map[string]string{unaskedWeb: "webfetch", unaskedShell: "bash", unaskedWrite: "edit"}[what]
 		file := filepath.Join(home, ".config", c.ID, c.ID+".json")
 		var cfg struct {
 			Permission json.RawMessage `json:"permission"`
@@ -134,7 +135,7 @@ func agentDoesUnasked(clientName, home, what string, agentPid int) (bool, string
 		if b, err := os.ReadFile(file); err == nil {
 			json.Unmarshal(b, &cfg)
 		}
-		want := map[string][]string{unaskedWeb: {"fetch", "agentic_fetch"}, unaskedShell: {"bash"}}[what]
+		want := map[string][]string{unaskedWeb: {"fetch", "agentic_fetch"}, unaskedShell: {"bash"}, unaskedWrite: {"write", "edit"}}[what]
 		for _, t := range cfg.Permissions.AllowedTools {
 			for _, w := range want {
 				if t == w {
@@ -172,7 +173,7 @@ func agentDoesUnasked(clientName, home, what string, agentPid int) (bool, string
 		if b, err := os.ReadFile(file); err == nil {
 			json.Unmarshal(b, &cfg)
 		}
-		want := map[string]string{unaskedWeb: "web_fetch", unaskedShell: "run_shell_command"}[what]
+		want := map[string]string{unaskedWeb: "web_fetch", unaskedShell: "run_shell_command", unaskedWrite: "write_file"}[what]
 		for _, t := range cfg.Tools.Allowed {
 			if t == want {
 				return true, file + " tools.allowed lists " + want

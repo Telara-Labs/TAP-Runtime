@@ -8,6 +8,11 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- In an agent that cannot show TAP's prompts, `tap_save` now saves when the
+  agent's own settings let it write files without asking. Before, it always
+  refused and pointed to `tap discover save`, which Gemini CLI's own policy
+  then blocked, so nothing could be saved there.
+
 - Security hardening keeps existing execution and cache behavior: authoring
   briefs remove complete private-key blocks and named credentials in structured
   arguments and environment values; HTTP failure diagnostics omit URL secrets;

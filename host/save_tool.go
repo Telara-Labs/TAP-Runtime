@@ -77,10 +77,22 @@ func (s *server) handleSave(id *json.RawMessage, raw json.RawMessage, canElicit 
 		return
 	}
 	if !canElicit {
-		s.toolError(id, fmt.Sprintf("this client cannot ask the person to agree; they can save it with: %s discover save %s", runnerCommand(), dir))
-		return
-	}
-	if !s.confirmSave(ref, dir, declares(m)) {
+		// Gemini CLI could not save at all: TAP could not ask, and its
+		// policy denied the tap discover save command TAP pointed it to.
+		// The person's yes is given to the agent, as for any file it
+		// writes: an agent whose own settings let it write files unasked
+		// saves here, and running the package later is still gated.
+		home, _ := os.UserHomeDir()
+		s.mu.Lock()
+		pid, name := s.agentPid, s.clientName
+		s.mu.Unlock()
+		ok, why := agentDoesUnasked(name, home, unaskedWrite, pid)
+		if !ok {
+			s.toolError(id, fmt.Sprintf("this client cannot ask the person to agree, and %s; they can save it with: %s discover save %s", why, runnerCommand(), dir))
+			return
+		}
+		logf("save       %s without a TAP prompt: %s", ref, why)
+	} else if !s.confirmSave(ref, dir, declares(m)) {
 		s.toolError(id, "the person did not agree to save "+ref)
 		return
 	}

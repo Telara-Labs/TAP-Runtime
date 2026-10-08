@@ -43,3 +43,27 @@ func TestUnlendableToolsOnlyNamesRequiredToolsOnClientsThatCannotLend(t *testing
 		t.Fatalf("optional only: %q", why)
 	}
 }
+
+// Gemini CLI could not save at all: TAP could not ask, and its own policy
+// denied the tap discover save command TAP pointed it to. An agent that
+// writes files unasked by its own settings now saves through tap_save; one
+// set to ask is refused, and the refusal names that setting.
+func TestSaveFollowsTheAgentsOwnWriteSetting(t *testing.T) {
+	saveHome(t)
+	home, _ := os.UserHomeDir()
+	old := testClientName
+	testClientName = "opencode"
+	t.Cleanup(func() { testClientName = old })
+	userConfigDir = os.UserConfigDir
+	writeHomeFile(t, home, ".config/opencode/opencode.json", `{"permission":{"edit":"ask"}}`)
+	c := startServer(t, false, nil)
+	res := c.call("tools/call", map[string]any{"name": "tap_save", "arguments": map[string]any{"package": authoredDraft(t)}})
+	if text := toolText(t, res); res["isError"] != true || !strings.Contains(text, "permission.edit") {
+		t.Fatalf("saved although OpenCode asks before writing files: %#v", res)
+	}
+	writeHomeFile(t, home, ".config/opencode/opencode.json", `{"mcp":{}}`)
+	res = c.call("tools/call", map[string]any{"name": "tap_save", "arguments": map[string]any{"package": authoredDraft(t)}})
+	if res["isError"] == true || !strings.Contains(toolText(t, res), "saved") {
+		t.Fatalf("save = %#v", res)
+	}
+}
