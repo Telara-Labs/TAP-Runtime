@@ -696,11 +696,11 @@ func (s storeRead) each(emit func(unit string, r unitResult) error) error {
 		ids = append(ids, u)
 	}
 	sort.Strings(ids)
-	cached := map[string][]trace.Session{}
+	// Hits are found in the index alone; each is loaded only when it is
+	// passed on.
 	var want, hits []string
 	for _, u := range ids {
-		if ss, ok := s.Cache.get(s.key(u), s.Units[u]); ok && !s.Force[u] {
-			cached[u] = ss
+		if s.Cache.has(s.key(u), s.Units[u]) && !s.Force[u] {
 			hits = append(hits, u)
 			continue
 		}
@@ -721,14 +721,15 @@ func (s storeRead) each(emit func(unit string, r unitResult) error) error {
 		}
 		agree := true
 		for _, u := range checks {
-			if r := fresh[u]; r.Err != nil || !reflect.DeepEqual(r.Sessions, cached[u]) {
+			cached, ok := s.Cache.get(s.key(u), s.Units[u])
+			if r := fresh[u]; !ok || r.Err != nil || !reflect.DeepEqual(r.Sessions, cached) {
 				agree = false
 			}
 		}
 		if !agree {
 			notice("%s: cached history did not match a fresh read; read it all again", name)
 			s.Cache.prune(func(k string) bool { return strings.HasPrefix(k, s.Scope+"\x00") })
-			want, hits, cached = ids, nil, nil
+			want, hits = ids, nil
 		} else {
 			checked := map[string]bool{}
 			for _, u := range checks {
@@ -747,11 +748,17 @@ func (s storeRead) each(emit func(unit string, r unitResult) error) error {
 		}
 	}
 	for _, u := range hits {
-		if err := emit(u, unitResult{Sessions: cached[u]}); err != nil {
+		ss, ok := s.Cache.get(s.key(u), s.Units[u])
+		if !ok {
+			// Its file is gone or unreadable: read it with the rest.
+			want = append(want, u)
+			continue
+		}
+		if err := emit(u, unitResult{Sessions: ss}); err != nil {
 			return err
 		}
-		delete(cached, u)
 	}
+	sort.Strings(want)
 	for _, group := range s.Batch(want) {
 		fresh, err := s.Read(group)
 		if err != nil {
