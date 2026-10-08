@@ -255,6 +255,9 @@ type historyLoad struct {
 	started time.Time
 	done    chan struct{}
 	past    []pastRequest
+	// from is the read this session shares (shared.go); started is still
+	// this session's own, so "earlier" is measured from when it connected.
+	from *historyLoad
 }
 
 func loadHistory(clientName string) *historyLoad {
@@ -285,8 +288,12 @@ func (h *historyLoad) earlier(wait time.Duration) (past []pastRequest, ok bool) 
 	if h == nil {
 		return nil, false
 	}
+	src := h
+	if h.from != nil {
+		src = h.from
+	}
 	select {
-	case <-h.done:
+	case <-src.done:
 	case <-time.After(wait):
 		return nil, false
 	}
@@ -295,7 +302,7 @@ func (h *historyLoad) earlier(wait time.Duration) (past []pastRequest, ok bool) 
 	// server did and read as an earlier one: a first ask was offered for
 	// saving. A session from just before the server started is the current one.
 	cutoff := h.started.Add(-currentSessionSlack)
-	for _, p := range h.past {
+	for _, p := range src.past {
 		if p.at.Before(cutoff) {
 			past = append(past, p)
 		}

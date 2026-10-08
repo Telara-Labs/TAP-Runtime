@@ -8,6 +8,12 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- When one shared runner answers several sessions, a new session no longer
+  reuses a read of the agent's history taken before an earlier ask was
+  written. Before, a task asked again within about a minute could be
+  reported as new, and each session now judges what is earlier from its own
+  start.
+
 - Aider history discovery refreshes directory listings captured during recent
   writes, so timestamp aliases cannot keep deleted paths or hide new history.
   Stable directories retain their cached listings across searches and restarts.

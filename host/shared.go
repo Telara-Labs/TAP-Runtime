@@ -215,7 +215,11 @@ type historyPool struct {
 }
 
 // historyReuse is how old a read can be and still be given to a new session.
-const historyReuse = time.Minute
+// A minute missed a repeat: the second ask's session was given a read made
+// before the first ask was written, and was told the task was new. A read
+// started no more than currentSessionSlack before a session holds every
+// session that is earlier for it.
+const historyReuse = currentSessionSlack
 
 func (p *historyPool) load(client string) *historyLoad {
 	if p == nil {
@@ -224,7 +228,7 @@ func (p *historyPool) load(client string) *historyLoad {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if h := p.loads[client]; h != nil && time.Since(h.started) < historyReuse {
-		return h
+		return &historyLoad{started: time.Now(), done: h.done, from: h}
 	}
 	h := loadHistory(client)
 	p.loads[client] = h
