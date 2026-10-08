@@ -255,7 +255,7 @@ func (c *Codex) Call(t bind.Tool, args map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return resultText(r), nil
+	return callResult(t, r)
 }
 
 func (c *Codex) Close() {

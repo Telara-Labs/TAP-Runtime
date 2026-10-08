@@ -150,10 +150,7 @@ func (m *MCP) Call(t bind.Tool, args map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if isErr, _ := r["isError"].(bool); isErr {
-		return "", fmt.Errorf("%s: %s", t.Name, resultText(r))
-	}
-	return resultText(r), nil
+	return callResult(t, r)
 }
 
 // Close ends the session. A server that does not support ending sessions

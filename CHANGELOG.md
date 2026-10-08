@@ -8,6 +8,10 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Failed MCP calls now preserve the tool's original error through Claude and
+  Codex. An upstream permission error is no longer reported as a JSON result
+  contract violation, and failed writes are never automatically retried.
+
 - Every agent session on a machine is now answered by one shared runner.
   An agent starts `tap serve` once per session, and some start dozens at a
   time; each used to be a full runner that read the agent's history on its

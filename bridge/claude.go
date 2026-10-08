@@ -328,7 +328,7 @@ func (c *Claude) Call(t bind.Tool, args map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return resultText(r), nil
+	return callResult(t, r)
 }
 
 func (c *Claude) Close() {

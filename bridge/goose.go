@@ -240,10 +240,7 @@ func (g *Goose) Call(t bind.Tool, args map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if isErr, _ := r["isError"].(bool); isErr {
-		return "", fmt.Errorf("%s/%s: %s", t.Server, t.Name, resultText(r))
-	}
-	return resultText(r), nil
+	return callResult(t, r)
 }
 
 // Close deletes the bridge's session, so it does not show in Goose's

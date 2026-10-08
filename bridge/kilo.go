@@ -284,10 +284,7 @@ func (k *Kilo) Call(t bind.Tool, args map[string]any) (string, error) {
 	if err := json.Unmarshal(b, &r); err != nil {
 		return "", fmt.Errorf("kilo call-tool: %w", err)
 	}
-	if isErr, _ := r["isError"].(bool); isErr {
-		return "", fmt.Errorf("%s/%s: %s", t.Server, t.Name, resultText(r))
-	}
-	return resultText(r), nil
+	return callResult(t, r)
 }
 
 // Close stops the server the bridge started, and everything it started:
