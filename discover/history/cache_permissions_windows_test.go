@@ -3,11 +3,23 @@
 package history
 
 import (
+	"os"
 	"testing"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+func assertPrivateCacheDirectory(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("cache directory: %v %v, want a directory", info, err)
+	}
+	// FILE_READ_DATA/WRITE_DATA also represent directory listing/creation
+	// rights, so the same native broad-group DACL check applies here.
+	assertPrivateCacheFile(t, path)
+}
 
 // Windows permissions are ACLs, not POSIX mode bits. Check that the cache
 // file's native DACL does not grant content or permission access to broad
