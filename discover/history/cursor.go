@@ -1,7 +1,6 @@
 package history
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -133,43 +132,15 @@ SELECT substr(key, 10, 36), substr(key, 47), rowid FROM cursorDiskKV WHERE key >
 // row and gives it a higher row ID, and the key index lists every record
 // with its row ID without reading any.
 func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
-	if _, err := os.Stat(r.DB); os.IsNotExist(err) {
-		return nil, nil
-	}
-	bin := r.SQLite3
-	if bin == "" {
-		p, err := util.SQLiteBin()
-		if err != nil {
-			return nil, fmt.Errorf("cursor: %w: sqlite3 is not installed", ErrUnavailable)
-		}
-		bin = p
-	}
-	c := openUnitCache("cursor")
-	var units map[string]string
-	var force map[string]bool
-	var top int64
-	if c != nil {
-		units, force, top = r.listConversations(bin, c.mark(r.DB))
-	}
-	res, err := storeRead{Cache: c, Scope: r.DB, Units: units, Force: force, Read: func(ids []string) (map[string]unitResult, error) {
-		return r.readConversations(bin, ids)
-	}}.run()
-	if err != nil {
+	var out []trace.Session
+	if err := r.Each(since, func(s trace.Session) error {
+		out = append(out, s)
+		return nil
+	}); err != nil {
 		return nil, err
 	}
-	if units != nil {
-		c.setMark(r.DB, top)
-	}
-	c.save()
-	var out []trace.Session
-	for _, u := range res {
-		for _, s := range u.Sessions {
-			if len(s.Calls) > 0 && !s.Start.Before(since) {
-				out = append(out, s)
-			}
-		}
-	}
-	// Conversations come out of a map; later passes take sessions in order.
+	// Conversations come out a batch at a time; later passes take sessions
+	// in order.
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].Start.Equal(out[j].Start) {
 			return out[i].Start.Before(out[j].Start)
@@ -179,31 +150,95 @@ func (r Cursor) Read(since time.Time) ([]trace.Session, error) {
 	return out, nil
 }
 
+// cursorBatchRecords bounds how many records (a conversation and its
+// bubbles) one batch reads. A store holds hundreds of thousands, and their
+// tool calls alone came to 631 MB read at once.
+var cursorBatchRecords = 8000
+
+// Each passes Cursor's sessions to yield a batch of conversations at a time,
+// in no particular order: every conversation Read reads, never more than a
+// batch of them held at once.
+func (r Cursor) Each(since time.Time, yield func(trace.Session) error) error {
+	if _, err := os.Stat(r.DB); os.IsNotExist(err) {
+		return nil
+	}
+	bin := r.SQLite3
+	if bin == "" {
+		p, err := util.SQLiteBin()
+		if err != nil {
+			return fmt.Errorf("cursor: %w: sqlite3 is not installed", ErrUnavailable)
+		}
+		bin = p
+	}
+	c := openUnitCache("cursor")
+	// The listing reads only the key index, so it is made with or without a
+	// cache: it is what lets the store be read a batch at a time.
+	units, force, records, top := r.listConversations(bin, c.mark(r.DB))
+	err := storeRead{Cache: c, Scope: r.DB, Units: units, Force: force,
+		Read: func(ids []string) (map[string]unitResult, error) {
+			return r.readConversations(bin, ids)
+		},
+		Batch: func(ids []string) [][]string { return batchByRecords(ids, records, cursorBatchRecords) },
+	}.each(func(_ string, u unitResult) error {
+		for _, s := range u.Sessions {
+			if len(s.Calls) > 0 && !s.Start.Before(since) {
+				if err := yield(s); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if units != nil {
+		c.setMark(r.DB, top)
+	}
+	c.save()
+	return nil
+}
+
+// batchByRecords splits ids into groups of at most limit records each, a
+// unit's records counted by records; a unit larger than limit is a group of
+// its own.
+func batchByRecords(ids []string, records map[string]int, limit int) [][]string {
+	var out [][]string
+	var group []string
+	n := 0
+	for _, id := range ids {
+		k := max(records[id], 1)
+		if len(group) > 0 && n+k > limit {
+			out = append(out, group)
+			group, n = nil, 0
+		}
+		group = append(group, id)
+		n += k
+	}
+	if len(group) > 0 {
+		out = append(out, group)
+	}
+	return out
+}
+
 // listConversations fingerprints each conversation by its records' keys and
 // row IDs. A conversation holding a row ID at or above the highest one the
 // last run saw (mark) is read again whatever its fingerprint: rewriting the
 // store's newest row can give the new row the same ID. It returns nil when
 // the store cannot be listed, and the highest row ID seen.
-func (r Cursor) listConversations(bin string, mark int64) (map[string]string, map[string]bool, int64) {
+func (r Cursor) listConversations(bin string, mark int64) (map[string]string, map[string]bool, map[string]int, int64) {
 	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteDeadline(r.DB))
 	defer cancel()
-	out, err := util.SQLiteQuery(ctx, bin, r.DB, CursorListSQL)
-	if err != nil {
-		return nil, nil, 0
-	}
-	var rows []struct {
+	type listed struct {
 		C string `json:"c"`
 		B string `json:"b"`
 		R int64  `json:"r"`
-	}
-	if len(bytes.TrimSpace(out)) > 0 && json.Unmarshal(out, &rows) != nil {
-		return nil, nil, 0
 	}
 	records := map[string][]string{}
 	hasComposer := map[string]bool{}
 	force := map[string]bool{}
 	var top int64
-	for _, row := range rows {
+	add := func(row listed) {
 		if row.B == "" {
 			hasComposer[row.C] = true
 		}
@@ -213,7 +248,19 @@ func (r Cursor) listConversations(bin string, mark int64) (map[string]string, ma
 		}
 		top = max(top, row.R)
 	}
+	err := util.SQLiteEach(ctx, bin, r.DB, CursorListSQL, func(raw json.RawMessage) error {
+		var row listed
+		if err := json.Unmarshal(raw, &row); err != nil {
+			return err
+		}
+		add(row)
+		return nil
+	})
+	if err != nil {
+		return nil, nil, nil, 0
+	}
 	units := map[string]string{}
+	counts := map[string]int{}
 	for id, rs := range records {
 		if !hasComposer[id] {
 			continue // bubbles without their conversation are never read
@@ -221,8 +268,9 @@ func (r Cursor) listConversations(bin string, mark int64) (map[string]string, ma
 		sort.Strings(rs)
 		h := sha256.Sum256([]byte(strings.Join(rs, "\n")))
 		units[id] = hex.EncodeToString(h[:])
+		counts[id] = len(rs)
 	}
-	return units, force, top
+	return units, force, counts, top
 }
 
 // readConversations reads the named conversations, or every conversation
@@ -231,15 +279,20 @@ func (r Cursor) readConversations(bin string, ids []string) (map[string]unitResu
 	query := func(sql string) ([]CursorRow, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteDeadline(r.DB))
 		defer cancel()
-		out, err := util.SQLiteQuery(ctx, bin, r.DB, sql)
+		// Rows are decoded as they arrive: the output is never held whole.
+		var rows []CursorRow
+		err := util.SQLiteEach(ctx, bin, r.DB, sql, func(raw json.RawMessage) error {
+			var row CursorRow
+			if err := json.Unmarshal(raw, &row); err != nil {
+				return err
+			}
+			rows = append(rows, row)
+			return nil
+		})
 		if err != nil {
 			return nil, fmt.Errorf("cursor: %w", err)
 		}
-		var rows []CursorRow
-		if len(bytes.TrimSpace(out)) == 0 {
-			return nil, nil
-		}
-		return rows, json.Unmarshal(out, &rows)
+		return rows, nil
 	}
 	// The queries are independent reads of one store; run together, a large
 	// store takes as long as its slowest query, not the sum of all five.

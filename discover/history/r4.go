@@ -34,7 +34,19 @@ var errStoreSchema = errors.New("the store does not have the expected tables")
 func sqliteRows(bin, db, sql string) ([]map[string]any, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), util.SQLiteDeadline(db))
 	defer cancel()
-	out, err := util.SQLiteQuery(ctx, bin, db, sql)
+	// Rows are decoded as they arrive: the query's output is never held
+	// whole beside them.
+	var rows []map[string]any
+	err := util.SQLiteEach(ctx, bin, db, sql, func(raw json.RawMessage) error {
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber()
+		var row map[string]any
+		if err := dec.Decode(&row); err != nil {
+			return err
+		}
+		rows = append(rows, row)
+		return nil
+	})
 	if err != nil {
 		msg := err.Error()
 		if strings.Contains(msg, "no such table") || strings.Contains(msg, "no such column") {
@@ -42,13 +54,7 @@ func sqliteRows(bin, db, sql string) ([]map[string]any, error) {
 		}
 		return nil, err
 	}
-	if len(bytes.TrimSpace(out)) == 0 {
-		return nil, nil
-	}
-	var rows []map[string]any
-	dec := json.NewDecoder(bytes.NewReader(out))
-	dec.UseNumber()
-	return rows, dec.Decode(&rows)
+	return rows, nil
 }
 
 // unreadableStore counts a store without the expected schema as unreadable
@@ -131,13 +137,29 @@ func openCodeServers(configs []string) []string {
 }
 
 func (r OpenCodeDB) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, error) {
+	var out []trace.Session
+	st, err := r.each(since, func(s trace.Session) error { out = append(out, s); return nil })
+	if err != nil {
+		return nil, st, err
+	}
+	sortSessions(out)
+	return out, st, nil
+}
+
+// Each passes the store's sessions on a batch of sessions at a time.
+func (r OpenCodeDB) Each(since time.Time, yield func(trace.Session) error) error {
+	_, err := r.each(since, yield)
+	return err
+}
+
+func (r OpenCodeDB) each(since time.Time, yield func(trace.Session) error) (trace.ReadStats, error) {
 	var st trace.ReadStats
 	if _, err := os.Stat(r.DB); err != nil {
-		return nil, st, nil
+		return st, nil
 	}
 	bin, err := sqliteBin(r.ID)
 	if err != nil {
-		return nil, st, err
+		return st, err
 	}
 	servers := openCodeServers(r.Configs)
 	c := openUnitCache(r.ID)
@@ -149,25 +171,25 @@ func (r OpenCodeDB) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadS
 FROM session s
 LEFT JOIN (SELECT session_id, count(*) || ':' || max(rowid) || ':' || max(time_updated) AS f FROM message GROUP BY session_id) m ON m.session_id = s.id
 LEFT JOIN (SELECT session_id, count(*) || ':' || max(rowid) || ':' || max(time_updated) AS f FROM part GROUP BY session_id) p ON p.session_id = s.id`)
-	res, err := storeRead{Cache: c, Scope: r.DB, Units: units, Read: func(ids []string) (map[string]unitResult, error) {
-		return r.readSessions(bin, ids, servers)
-	}}.run()
-	if err != nil {
-		return nil, st, unreadableStore(&st, err)
-	}
-	c.save()
 	digest := storeDigester(r.DB)
-	var out []trace.Session
-	for id, u := range res {
+	err = storeRead{Cache: c, Scope: r.DB, Units: units, Read: func(ids []string) (map[string]unitResult, error) {
+		return r.readSessions(bin, ids, servers)
+	}}.each(func(id string, u unitResult) error {
 		for _, s := range u.Sessions {
 			if !s.Start.Before(since) {
 				s.SourceDigest = digest(id)
-				out = append(out, s)
+				if err := yield(s); err != nil {
+					return err
+				}
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return st, unreadableStore(&st, err)
 	}
-	sortSessions(out)
-	return out, st, nil
+	c.save()
+	return st, nil
 }
 
 // readSessions reads the named sessions, or every session when ids is nil.
@@ -319,38 +341,54 @@ func (r Goose) Read(since time.Time) ([]trace.Session, error) {
 }
 
 func (r Goose) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, error) {
+	var out []trace.Session
+	st, err := r.each(since, func(s trace.Session) error { out = append(out, s); return nil })
+	if err != nil {
+		return nil, st, err
+	}
+	sortSessions(out)
+	return out, st, nil
+}
+
+// Each passes Goose's sessions on a batch of sessions at a time.
+func (r Goose) Each(since time.Time, yield func(trace.Session) error) error {
+	_, err := r.each(since, yield)
+	return err
+}
+
+func (r Goose) each(since time.Time, yield func(trace.Session) error) (trace.ReadStats, error) {
 	var st trace.ReadStats
 	db := filepath.Join(r.Dir, "sessions.db")
 	if _, err := os.Stat(db); err != nil {
-		return nil, st, nil
+		return st, nil
 	}
 	bin, err := sqliteBin("goose")
 	if err != nil {
-		return nil, st, err
+		return st, err
 	}
 	c := openUnitCache("goose")
 	// Messages are appended; a session's fingerprint is its updated_at with
 	// its message count and highest message ID.
 	units := storeFingerprints(c, bin, db, `SELECT m.session_id AS id, ifnull((SELECT s.updated_at FROM sessions s WHERE s.id = m.session_id), '') || '/' || count(*) || ':' || max(m.id) AS fp FROM messages m GROUP BY m.session_id`)
-	res, err := storeRead{Cache: c, Scope: db, Units: units, Read: func(ids []string) (map[string]unitResult, error) {
-		return readGooseSessions(bin, db, ids)
-	}}.run()
-	if err != nil {
-		return nil, st, unreadableStore(&st, err)
-	}
-	c.save()
 	digest := storeDigester(db)
-	var out []trace.Session
-	for sid, u := range res {
+	err = storeRead{Cache: c, Scope: db, Units: units, Read: func(ids []string) (map[string]unitResult, error) {
+		return readGooseSessions(bin, db, ids)
+	}}.each(func(sid string, u unitResult) error {
 		for _, s := range u.Sessions {
 			if !s.Start.Before(since) {
 				s.SourceDigest = digest(sid)
-				out = append(out, s)
+				if err := yield(s); err != nil {
+					return err
+				}
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return st, unreadableStore(&st, err)
 	}
-	sortSessions(out)
-	return out, st, nil
+	c.save()
+	return st, nil
 }
 
 // readGooseSessions reads the named sessions, or every session when ids is
@@ -539,19 +577,19 @@ func readCrushDB(c *unitCache, db string, servers []string) ([]trace.Session, er
 	// Messages are updated in place (updated_at moves, the row ID stays);
 	// tool names decode against the configured servers.
 	units := storeFingerprints(c, bin, db, `SELECT m.session_id AS id, ifnull((SELECT s.updated_at FROM sessions s WHERE s.id = m.session_id), '') || '/' || count(*) || ':' || max(m.rowid) || ':' || max(m.updated_at) || '/' || `+sqlList([]string{strings.Join(servers, ",")}, false)+` AS fp FROM messages m GROUP BY m.session_id`)
-	res, err := storeRead{Cache: c, Scope: db, Units: units, Read: func(ids []string) (map[string]unitResult, error) {
-		return readCrushSessions(bin, db, ids, servers)
-	}}.run()
-	if err != nil {
-		return nil, err
-	}
 	digest := storeDigester(db)
 	var out []trace.Session
-	for sid, u := range res {
+	err = storeRead{Cache: c, Scope: db, Units: units, Read: func(ids []string) (map[string]unitResult, error) {
+		return readCrushSessions(bin, db, ids, servers)
+	}}.each(func(sid string, u unitResult) error {
 		for _, s := range u.Sessions {
 			s.SourceDigest = digest(sid)
 			out = append(out, s)
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }

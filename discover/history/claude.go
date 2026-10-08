@@ -36,23 +36,39 @@ func (r ClaudeCode) ReadProgress(since time.Time, p trace.Progress) ([]trace.Ses
 }
 
 func (r ClaudeCode) read(since time.Time, p trace.Progress) ([]trace.Session, trace.ReadStats, error) {
-	var st trace.ReadStats
-	files, err := filepath.Glob(filepath.Join(r.Dir, "*", "*.jsonl"))
+	var out []trace.Session
+	st, err := r.each(since, p, func(s trace.Session) error { out = append(out, s); return nil })
 	if err != nil {
 		return nil, st, err
 	}
-	var out []trace.Session
+	return out, st, nil
+}
+
+// Each passes Claude Code's sessions on in file order, a chunk of files at a
+// time.
+func (r ClaudeCode) Each(since time.Time, yield func(trace.Session) error) error {
+	_, err := r.each(since, nil, yield)
+	return err
+}
+
+func (r ClaudeCode) each(since time.Time, p trace.Progress, yield func(trace.Session) error) (trace.ReadStats, error) {
+	var st trace.ReadStats
+	files, err := filepath.Glob(filepath.Join(r.Dir, "*", "*.jsonl"))
+	if err != nil {
+		return st, err
+	}
 	files = changedSince(files, since)
-	for _, r := range ParseFiles(files, "claude-code", p, parseClaude) {
+	err = ParseFilesEach(files, "claude-code", nil, p, parseClaude, func(_ int, r Parsed) error {
 		if r.Err != nil {
 			st.UnreadableFiles++
-			continue
+			return nil
 		}
 		if s := r.Session; len(s.Calls) > 0 && !s.Start.Before(since) {
-			out = append(out, s)
+			return yield(s)
 		}
-	}
-	return out, st, nil
+		return nil
+	})
+	return st, err
 }
 
 type ClaudeLine struct {

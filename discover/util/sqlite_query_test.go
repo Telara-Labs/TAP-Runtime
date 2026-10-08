@@ -2,10 +2,12 @@ package util
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -75,5 +77,57 @@ func TestSQLiteDeadlineGrowsWithTheStore(t *testing.T) {
 	}
 	if got, want := SQLiteDeadline(db), SQLiteReadTimeout+16*SQLiteReadPerGB; got != want {
 		t.Errorf("16 GB store: %v, want %v", got, want)
+	}
+}
+
+// SQLiteEach gives the rows SQLiteQuery gives, one at a time, and stops when
+// told to.
+func TestSQLiteEachStreamsTheRowsSQLiteQueryReturns(t *testing.T) {
+	bin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 unavailable")
+	}
+	db := filepath.Join(t.TempDir(), "store.db")
+	if b, err := exec.Command(bin, db, "CREATE TABLE item(x, y); WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 5000) INSERT INTO item SELECT i, printf('%0500d', i) FROM n;").CombinedOutput(); err != nil {
+		t.Fatalf("create: %v %s", err, b)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), SQLiteReadTimeout)
+	defer cancel()
+	whole, err := SQLiteQuery(ctx, bin, db, "SELECT x, y FROM item ORDER BY x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []map[string]any
+	if err := json.Unmarshal(whole, &want); err != nil {
+		t.Fatal(err)
+	}
+	var got []map[string]any
+	err = SQLiteEach(ctx, bin, db, "SELECT x, y FROM item ORDER BY x", func(raw json.RawMessage) error {
+		var r map[string]any
+		if err := json.Unmarshal(raw, &r); err != nil {
+			return err
+		}
+		got = append(got, r)
+		return nil
+	})
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("streamed %d rows (err %v), want the %d SQLiteQuery returns", len(got), err, len(want))
+	}
+	if err := SQLiteEach(ctx, bin, db, "SELECT x FROM item WHERE x < 0", func(json.RawMessage) error { return errors.New("no row was expected") }); err != nil {
+		t.Fatalf("no rows: %v", err)
+	}
+	stop := errors.New("enough")
+	n := 0
+	err = SQLiteEach(ctx, bin, db, "SELECT x, y FROM item", func(json.RawMessage) error {
+		if n++; n == 10 {
+			return stop
+		}
+		return nil
+	})
+	if !errors.Is(err, stop) || n != 10 {
+		t.Fatalf("stopping: read %d rows, err %v", n, err)
+	}
+	if err := SQLiteEach(ctx, bin, db, "SELECT * FROM missing", func(json.RawMessage) error { return nil }); err == nil || !strings.Contains(err.Error(), "no such table") {
+		t.Fatalf("schema error: %v", err)
 	}
 }

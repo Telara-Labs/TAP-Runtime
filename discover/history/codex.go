@@ -41,6 +41,21 @@ func (r Codex) ReadProgress(since time.Time, p trace.Progress) ([]trace.Session,
 }
 
 func (r Codex) read(since time.Time, p trace.Progress) ([]trace.Session, trace.ReadStats, error) {
+	var out []trace.Session
+	st, err := r.each(since, p, func(s trace.Session) error { out = append(out, s); return nil })
+	if err != nil {
+		return nil, st, err
+	}
+	return out, st, nil
+}
+
+// Each passes Codex's sessions on in file order, a chunk of files at a time.
+func (r Codex) Each(since time.Time, yield func(trace.Session) error) error {
+	_, err := r.each(since, nil, yield)
+	return err
+}
+
+func (r Codex) each(since time.Time, p trace.Progress, yield func(trace.Session) error) (trace.ReadStats, error) {
 	var st trace.ReadStats
 	var files []string
 	err := filepath.WalkDir(r.Dir, func(p string, d os.DirEntry, err error) error {
@@ -56,22 +71,21 @@ func (r Codex) read(since time.Time, p trace.Progress) ([]trace.Session, trace.R
 		return nil
 	})
 	if os.IsNotExist(err) {
-		return nil, st, nil
+		return st, nil
 	}
 	if err != nil {
-		return nil, st, err
+		return st, err
 	}
-	var out []trace.Session
 	ids := map[string]bool{}
 	files = changedSince(files, since)
-	for i, r := range ParseFiles(files, "codex", p, parseCodex) {
+	err = ParseFilesEach(files, "codex", nil, p, parseCodex, func(i int, r Parsed) error {
 		f, s := files[i], r.Session
 		if r.Err != nil {
 			st.UnreadableFiles++
-			continue
+			return nil
 		}
 		if len(s.Calls) == 0 || s.Start.Before(since) {
-			continue
+			return nil
 		}
 		// A sub-rollout can open with its parent's meta. Session identity
 		// must be unique, so a later file claiming a used id is named by
@@ -83,9 +97,9 @@ func (r Codex) read(since time.Time, p trace.Progress) ([]trace.Session, trace.R
 			}
 		}
 		ids[s.ID] = true
-		out = append(out, s)
-	}
-	return out, st, nil
+		return yield(s)
+	})
+	return st, err
 }
 
 type CodexLine struct {

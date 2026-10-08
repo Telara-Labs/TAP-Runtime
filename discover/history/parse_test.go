@@ -140,7 +140,15 @@ func TestCacheReparsesChangedFilesAndForgetsDeletedOnes(t *testing.T) {
 	if c := openUnitCache(fx.cache); len(c.units) != 0 {
 		t.Errorf("deleted file still cached: %v", c.units)
 	}
-	assertPrivateCacheFile(t, filepath.Join(cacheDir, fx.cache+".gob"))
+	assertPrivateCacheFile(t, filepath.Join(cacheDir, fx.cache+".index.gob"))
+	// The deleted file's sessions leave with it, and the units' folder is
+	// private to the user.
+	if left, _ := filepath.Glob(filepath.Join(cacheDir, fx.cache, "*.gob")); len(left) != 0 {
+		t.Errorf("a deleted file's cached sessions are still on disk: %v", left)
+	}
+	if info, err := os.Stat(filepath.Join(cacheDir, fx.cache)); err != nil || info.Mode().Perm() != 0o700 {
+		t.Errorf("units folder: %v %v, want private 0700", info, err)
+	}
 }
 
 // Parse failures are not cached: a file that failed once is tried again.

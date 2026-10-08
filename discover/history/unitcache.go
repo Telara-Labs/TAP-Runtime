@@ -43,9 +43,14 @@ func UseCache(dir string) {
 	cacheMu.Unlock()
 }
 
-// cacheFormat changes when the cache file's own layout changes. A change to
-// a reader needs no bump: entries are tied to the binary that wrote them.
-const cacheFormat = 2
+// cacheFormat changes when the cache's own layout changes. A change to a
+// reader needs no bump: entries are tied to the binary that wrote them.
+//
+// Format 3 keeps each unit in a file of its own beside a small index, so a
+// read loads only the units it reaches. Format 2 kept a reader's whole
+// history in one file that every read decoded whole (409 MB for one Codex
+// history).
+const cacheFormat = 3
 
 // spotChecks is how many cache hits each read checks against a fresh read.
 var spotChecks = 2
@@ -59,10 +64,11 @@ var activeWindow = 2 * time.Second
 // than served from the cache. Tests use it to see what a run read.
 var unitReadHook func(cache, unit string)
 
+// cacheFile is a reader's index: each unit's fingerprint, not its sessions.
 type cacheFile struct {
 	Format int
 	Binary string
-	Units  map[string]cacheUnit
+	Units  map[string]cacheEntry
 	// Marks are per-store values a reader carries to its next run, such as
 	// the highest row ID it saw.
 	Marks map[string]int64
@@ -70,17 +76,18 @@ type cacheFile struct {
 	Dirs map[string]walkDir
 }
 
-// cacheUnit is one unit's parse, valid while its fingerprint is unchanged.
-type cacheUnit struct {
+// cacheEntry is one unit in the index, valid while its fingerprint is
+// unchanged. Its sessions are in the unit's own file (unitFile).
+type cacheEntry struct {
 	Fingerprint string
-	Sessions    []trace.Session
 }
 
 type unitCache struct {
 	name, path, binary string
+	unitDir            string // the units' files
 
 	mu    sync.Mutex
-	units map[string]cacheUnit
+	units map[string]cacheEntry
 	marks map[string]int64
 	dirs  map[string]walkDir
 	dirty bool
@@ -97,8 +104,10 @@ func openUnitCache(name string) *unitCache {
 	if name == "" || dir == "" || bin == "" {
 		return nil
 	}
-	c := &unitCache{name: name, path: filepath.Join(dir, name+".gob"), binary: bin,
-		units: map[string]cacheUnit{}, marks: map[string]int64{}, dirs: map[string]walkDir{}}
+	c := &unitCache{name: name, path: filepath.Join(dir, name+".index.gob"), unitDir: filepath.Join(dir, name), binary: bin,
+		units: map[string]cacheEntry{}, marks: map[string]int64{}, dirs: map[string]walkDir{}}
+	// A format-2 cache held the whole history in one file; it is not read.
+	os.Remove(filepath.Join(dir, name+".gob"))
 	f, err := os.Open(c.path)
 	if err != nil {
 		return c
@@ -126,27 +135,83 @@ func (c *unitCache) cacheName() string {
 	return c.name
 }
 
+// unitFile is where key's sessions are kept: named by the key's digest, so
+// a unit read again replaces its own file.
+func (c *unitCache) unitFile(key string) string {
+	return filepath.Join(c.unitDir, hexSum(key)[:32]+".gob")
+}
+
+// unitData is a unit file's content. Key guards against two keys whose
+// digests collide in the file name.
+type unitData struct {
+	Key      string
+	Sessions []trace.Session
+}
+
+// get loads key's sessions when they are cached under fp.
 func (c *unitCache) get(key, fp string) ([]trace.Session, bool) {
-	if c == nil || fp == "" {
+	if !c.has(key, fp) {
 		return nil, false
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	u, ok := c.units[key]
-	if !ok || u.Fingerprint != fp {
+	f, err := os.Open(c.unitFile(key))
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	var u unitData
+	if gob.NewDecoder(f).Decode(&u) != nil || u.Key != key {
 		return nil, false
 	}
 	return u.Sessions, true
 }
 
+// has reports whether key is cached under fp, without loading it.
+func (c *unitCache) has(key, fp string) bool {
+	if c == nil || fp == "" {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	u, ok := c.units[key]
+	return ok && u.Fingerprint == fp
+}
+
+// put writes key's sessions to the unit's own file and indexes them under
+// fp. A unit whose file cannot be written is left out of the index.
 func (c *unitCache) put(key, fp string, ss []trace.Session) {
 	if c == nil || fp == "" {
 		return
 	}
+	if err := writePrivate(c.unitDir, c.unitFile(key), unitData{Key: key, Sessions: ss}); err != nil {
+		return
+	}
 	c.mu.Lock()
-	c.units[key] = cacheUnit{Fingerprint: fp, Sessions: ss}
+	c.units[key] = cacheEntry{Fingerprint: fp}
 	c.dirty = true
 	c.mu.Unlock()
+}
+
+// writePrivate writes v as gob to path atomically, in dir, private to the
+// user.
+func writePrivate(dir, path string, v any) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".unit-*")
+	if err != nil {
+		return err
+	}
+	err = gob.NewEncoder(tmp).Encode(v)
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), path)
+	}
+	if err != nil {
+		os.Remove(tmp.Name())
+	}
+	return err
 }
 
 // prune drops the units drop reports.
@@ -159,6 +224,7 @@ func (c *unitCache) prune(drop func(key string) bool) {
 	for k := range c.units {
 		if drop(k) {
 			delete(c.units, k)
+			os.Remove(c.unitFile(k))
 			c.dirty = true
 		}
 	}
@@ -195,22 +261,7 @@ func (c *unitCache) save() {
 	if !c.dirty {
 		return
 	}
-	if os.MkdirAll(filepath.Dir(c.path), 0o700) != nil {
-		return
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(c.path), ".parse-*")
-	if err != nil {
-		return
-	}
-	err = gob.NewEncoder(tmp).Encode(cacheFile{Format: cacheFormat, Binary: c.binary, Units: c.units, Marks: c.marks, Dirs: c.dirs})
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Rename(tmp.Name(), c.path)
-	}
-	if err != nil {
-		os.Remove(tmp.Name())
+	if writePrivate(filepath.Dir(c.path), c.path, cacheFile{Format: cacheFormat, Binary: c.binary, Units: c.units, Marks: c.marks, Dirs: c.dirs}) != nil {
 		return
 	}
 	c.dirty = false
@@ -298,24 +349,42 @@ func statFingerprint(path string) string {
 // and extra may use a cache.
 func readFiles(files []string, cache string, extra func(string) string, p trace.Progress, read func(string) ([]trace.Session, error)) []unitResult {
 	out := make([]unitResult, len(files))
+	readFilesEach(files, cache, extra, p, read, func(i int, r unitResult) error {
+		out[i] = r
+		return nil
+	})
+	return out
+}
+
+// readAheadBytes bounds how far readFilesEach reads ahead of the file it
+// passes on next, in bytes of the files read or being read. Results go out
+// in file order, so one large file at the head holds the rest back; the
+// window has to be wide enough that the parse slots stay busy meanwhile. A
+// parse keeps a small part of its file (Codex: 15 GB of files parse to
+// about 270 MB), so this much file is far less in memory.
+var readAheadBytes int64 = 2 << 30
+
+// readFilesEach is readFiles passing each file's result to emit in file
+// order, a chunk of files at a time: cached results are loaded only when
+// their chunk is reached, so a reader's history is never held whole. The
+// spot checks of cache hits run before anything is passed on.
+func readFilesEach(files []string, cache string, extra func(string) string, p trace.Progress, read func(string) ([]trace.Session, error), emit func(int, unitResult) error) error {
 	c := openUnitCache(cache)
 	fps := make([]string, len(files))
 	xs := make([]string, len(files))
-	var misses, hits []int
-	cached := map[int][]trace.Session{}
+	hit := make([]bool, len(files))
+	var hits []int
 	for i, f := range files {
 		if c != nil {
 			if extra != nil {
 				xs[i] = extra(f)
 			}
 			fps[i], _ = fileFingerprint(f, xs[i])
+			if c.has(f, fps[i]) {
+				hit[i] = true
+				hits = append(hits, i)
+			}
 		}
-		if ss, ok := c.get(f, fps[i]); ok {
-			hits = append(hits, i)
-			cached[i] = ss
-			continue
-		}
-		misses = append(misses, i)
 	}
 	var mu sync.Mutex
 	done := 0
@@ -331,48 +400,120 @@ func readFiles(files []string, cache string, extra func(string) string, p trace.
 	if p != nil {
 		p(0, len(files))
 	}
-	readOne := func(i int) {
+	readOne := func(i int) unitResult {
 		reportRead(cache, files[i])
 		ss, err := read(files[i])
-		out[i] = unitResult{ss, err}
-		if err != nil {
-			return
+		if err == nil {
+			// A file that changed while it was read is read again next time.
+			if fp, _ := fileFingerprint(files[i], xs[i]); fp == fps[i] {
+				c.put(files[i], fps[i], ss)
+			}
 		}
-		// A file that changed while it was read is read again next time.
-		if fp, _ := fileFingerprint(files[i], xs[i]); fp == fps[i] {
-			c.put(files[i], fps[i], ss)
-		}
+		return unitResult{ss, err}
 	}
-	// Check a few hits against a fresh read along with the misses.
+	// Check a few hits against a fresh read before any is used.
+	checked := map[int]unitResult{}
 	checks := sample(hits, spotChecks)
-	parallelEach(append(append([]int(nil), misses...), checks...), func(i int) {
-		readOne(i)
-		report(1)
-	})
 	for _, i := range checks {
-		if out[i].Err != nil || !reflect.DeepEqual(out[i].Sessions, cached[i]) {
+		cached, _ := c.get(files[i], fps[i])
+		r := readOne(i)
+		checked[i] = r
+		if r.Err != nil || !reflect.DeepEqual(r.Sessions, cached) {
 			notice("%s: cached history did not match a fresh read; read it all again", cache)
 			c.prune(func(string) bool { return true })
-			var rest []int
-			for _, j := range hits {
-				if !containsInt(checks, j) {
-					rest = append(rest, j)
-				}
+			for j := range hit {
+				hit[j] = false
 			}
-			parallelEach(rest, func(j int) {
-				readOne(j)
-				report(1)
-			})
-			hits = nil
 			break
 		}
 	}
-	for _, i := range hits {
-		if !containsInt(checks, i) {
-			out[i] = unitResult{Sessions: cached[i]}
+	// Files are read ahead of the one passed on next, up to readAheadBytes of
+	// files started and not yet passed on, and passed on in file order as
+	// soon as each is ready. The largest start first: a parse takes time in
+	// proportion to its file, so the longest set the pace, and started last
+	// they would leave the other slots idle at the end. The file due next is
+	// always started, whatever the budget, so the read never waits on itself.
+	results := make([]chan unitResult, len(files))
+	cost := make([]int64, len(files))
+	order := make([]int, len(files))
+	for i, f := range files {
+		results[i] = make(chan unitResult, 1)
+		order[i] = i
+		var size int64
+		if info, err := os.Stat(f); err == nil {
+			size = info.Size()
+		}
+		cost[i] = min(max(size, 1), readAheadBytes)
+	}
+	sort.SliceStable(order, func(a, b int) bool { return cost[order[a]] > cost[order[b]] })
+	var smu sync.Mutex
+	cond := sync.NewCond(&smu)
+	started := make([]bool, len(files))
+	avail, head, stopped := readAheadBytes, 0, false
+	defer func() {
+		smu.Lock()
+		stopped = true
+		smu.Unlock()
+		cond.Broadcast()
+	}()
+	work := func(i int) {
+		if r, ok := checked[i]; ok {
+			results[i] <- r
+			return
+		}
+		if hit[i] {
+			if ss, ok := c.get(files[i], fps[i]); ok {
+				results[i] <- unitResult{Sessions: ss}
+				return
+			}
+		}
+		parseSlots <- struct{}{}
+		r := readOne(i)
+		<-parseSlots
+		results[i] <- r
+	}
+	go func() {
+		next := 0 // position in order
+		for {
+			smu.Lock()
+			pick := -1
+			for pick < 0 {
+				if stopped {
+					smu.Unlock()
+					return
+				}
+				for next < len(order) && started[order[next]] {
+					next++
+				}
+				switch {
+				case head < len(files) && !started[head]:
+					pick = head
+				case next >= len(order):
+					smu.Unlock()
+					return
+				case avail >= cost[order[next]]:
+					pick = order[next]
+				default:
+					cond.Wait()
+				}
+			}
+			started[pick] = true
+			avail -= cost[pick]
+			smu.Unlock()
+			go work(pick)
+		}
+	}()
+	for i := range files {
+		r := <-results[i]
+		smu.Lock()
+		head, avail = i+1, avail+cost[i]
+		smu.Unlock()
+		cond.Broadcast()
+		report(1)
+		if err := emit(i, r); err != nil {
+			return err
 		}
 	}
-	report(len(hits) - countIn(hits, checks))
 	// Files that are gone leave the cache; files outside this run's window
 	// stay for a wider one.
 	c.prune(func(k string) bool {
@@ -380,26 +521,7 @@ func readFiles(files []string, cache string, extra func(string) string, p trace.
 		return errors.Is(err, os.ErrNotExist)
 	})
 	c.save()
-	return out
-}
-
-func containsInt(is []int, v int) bool {
-	for _, i := range is {
-		if i == v {
-			return true
-		}
-	}
-	return false
-}
-
-func countIn(is, of []int) int {
-	n := 0
-	for _, i := range is {
-		if containsInt(of, i) {
-			n++
-		}
-	}
-	return n
+	return nil
 }
 
 // parallelEach runs f for each index, at most cap(parseSlots) at once across
@@ -442,6 +564,10 @@ type storeRead struct {
 	// Read reads the named units, or every unit when ids is nil. A unit with
 	// no sessions may be left out of the result.
 	Read func(ids []string) (map[string]unitResult, error)
+	// Batch, when set, splits the units to read into groups that are read
+	// one at a time, each group's results passed on before the next is
+	// read (each), so a large store is never held whole.
+	Batch func(ids []string) [][]string
 }
 
 func (s storeRead) key(unit string) string { return s.Scope + "\x00" + unit }
@@ -534,6 +660,127 @@ func (s storeRead) run() (map[string]unitResult, error) {
 	return out, nil
 }
 
+// storeBatchUnits is how many units (sessions, threads) one read of a store
+// takes when its reader sets no Batch of its own.
+var storeBatchUnits = 200
+
+// each passes every unit's result to emit as it is read, a group of units
+// (Batch, or storeBatchUnits) at a time, never holding more than a group at
+// once. A store that could not be listed (Units nil) is read whole by run. Cache hits are checked as in run,
+// before anything is passed on, so a cache that disagrees with the store is
+// dropped before any of it is used.
+func (s storeRead) each(emit func(unit string, r unitResult) error) error {
+	if s.Batch == nil {
+		s.Batch = func(ids []string) [][]string { return batchByRecords(ids, nil, storeBatchUnits) }
+	}
+	if s.Units == nil {
+		res, err := s.run()
+		if err != nil {
+			return err
+		}
+		ids := make([]string, 0, len(res))
+		for u := range res {
+			ids = append(ids, u)
+		}
+		sort.Strings(ids)
+		for _, u := range ids {
+			if err := emit(u, res[u]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	name := s.Cache.cacheName()
+	ids := make([]string, 0, len(s.Units))
+	for u := range s.Units {
+		ids = append(ids, u)
+	}
+	sort.Strings(ids)
+	cached := map[string][]trace.Session{}
+	var want, hits []string
+	for _, u := range ids {
+		if ss, ok := s.Cache.get(s.key(u), s.Units[u]); ok && !s.Force[u] {
+			cached[u] = ss
+			hits = append(hits, u)
+			continue
+		}
+		want = append(want, u)
+	}
+	listed := func(u string, r unitResult) error {
+		reportRead(name, u)
+		if r.Err == nil {
+			s.Cache.put(s.key(u), s.Units[u], r.Sessions)
+		}
+		return emit(u, r)
+	}
+	if checks := sample(hits, spotChecks); len(checks) > 0 {
+		sort.Strings(checks)
+		fresh, err := s.Read(checks)
+		if err != nil {
+			return err
+		}
+		agree := true
+		for _, u := range checks {
+			if r := fresh[u]; r.Err != nil || !reflect.DeepEqual(r.Sessions, cached[u]) {
+				agree = false
+			}
+		}
+		if !agree {
+			notice("%s: cached history did not match a fresh read; read it all again", name)
+			s.Cache.prune(func(k string) bool { return strings.HasPrefix(k, s.Scope+"\x00") })
+			want, hits, cached = ids, nil, nil
+		} else {
+			checked := map[string]bool{}
+			for _, u := range checks {
+				checked[u] = true
+				if err := listed(u, fresh[u]); err != nil {
+					return err
+				}
+			}
+			var rest []string
+			for _, u := range hits {
+				if !checked[u] {
+					rest = append(rest, u)
+				}
+			}
+			hits = rest
+		}
+	}
+	for _, u := range hits {
+		if err := emit(u, unitResult{Sessions: cached[u]}); err != nil {
+			return err
+		}
+		delete(cached, u)
+	}
+	for _, group := range s.Batch(want) {
+		fresh, err := s.Read(group)
+		if err != nil {
+			return err
+		}
+		for _, u := range group {
+			if err := listed(u, fresh[u]); err != nil {
+				return err
+			}
+			delete(fresh, u)
+		}
+		// A unit created after the listing is used, not cached.
+		for u, r := range fresh {
+			if err := emit(u, r); err != nil {
+				return err
+			}
+		}
+	}
+	s.Cache.prune(func(k string) bool {
+		scope, unit, ok := strings.Cut(k, "\x00")
+		if !ok || scope != s.Scope {
+			return false
+		}
+		_, present := s.Units[unit]
+		return !present
+	})
+	return nil
+}
+
 // keepStores drops cached units of stores not in keep (a project removed
 // from Crush's list, for one).
 func (c *unitCache) keepStores(keep map[string]bool) {
@@ -611,12 +858,11 @@ func (c *unitCache) keepDirs(seen map[string]bool) {
 }
 
 // storeFingerprints runs a listing query that returns each unit's id and fp,
-// reading no unit's contents. It is nil when caching is off or the listing
-// fails (a store of another version); the store is then read whole.
+// reading no unit's contents. The listing is what lets a store be read a
+// batch at a time, so it is made with or without a cache (c). It is nil when
+// the listing fails (a store of another version); the store is then read
+// whole.
 func storeFingerprints(c *unitCache, bin, db, sql string) map[string]string {
-	if c == nil {
-		return nil
-	}
 	rows, err := sqliteRows(bin, db, sql)
 	if err != nil {
 		return nil

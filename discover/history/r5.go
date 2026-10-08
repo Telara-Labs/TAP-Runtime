@@ -162,14 +162,31 @@ func (r Zed) Read(since time.Time) ([]trace.Session, error) {
 }
 
 func (r Zed) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, error) {
+	var out []trace.Session
+	st, err := r.each(since, func(s trace.Session) error { out = append(out, s); return nil })
+	if err != nil {
+		return nil, st, err
+	}
+	sortSessions(out)
+	return out, st, nil
+}
+
+// Each passes Zed's threads on a batch of threads at a time: each thread is
+// one compressed record, decompressed only while its batch is read.
+func (r Zed) Each(since time.Time, yield func(trace.Session) error) error {
+	_, err := r.each(since, yield)
+	return err
+}
+
+func (r Zed) each(since time.Time, yield func(trace.Session) error) (trace.ReadStats, error) {
 	var st trace.ReadStats
 	db := filepath.Join(r.Dir, "threads.db")
 	if _, err := os.Stat(db); err != nil {
-		return nil, st, nil
+		return st, nil
 	}
 	bin, err := sqliteBin("zed")
 	if err != nil {
-		return nil, st, err
+		return st, err
 	}
 	zstd, zerr := exec.LookPath("zstd")
 	// read decodes the named threads, or every thread when ids is nil.
@@ -222,25 +239,25 @@ func (r Zed) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadStats, e
 	// length are checked too. Only changed threads are fetched and
 	// decompressed.
 	units := storeFingerprints(c, bin, db, `SELECT id, updated_at || ':' || data_type || ':' || length(data) AS fp FROM threads`)
-	threads, err := storeRead{Cache: c, Scope: db, Units: units, Read: read}.run()
-	if err != nil {
-		return nil, st, unreadableStore(&st, err)
-	}
-	c.save()
-	var out []trace.Session
-	for _, res := range threads {
+	err = storeRead{Cache: c, Scope: db, Units: units, Read: read}.each(func(_ string, res unitResult) error {
 		if res.Err != nil {
 			st.UnreadableFiles++
-			continue
+			return nil
 		}
 		for _, s := range res.Sessions {
 			if len(s.Calls) > 0 && !s.Start.Before(since) {
-				out = append(out, s)
+				if err := yield(s); err != nil {
+					return err
+				}
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return st, unreadableStore(&st, err)
 	}
-	sortSessions(out)
-	return out, st, nil
+	c.save()
+	return st, nil
 }
 
 // ZedThread decodes one thread document.

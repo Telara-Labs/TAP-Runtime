@@ -37,21 +37,32 @@ func ParseFiles(files []string, cache string, p trace.Progress, parse FileParser
 // beside the file: extra(path) names it (a size and time, a configuration),
 // and a cached parse is used only while extra is unchanged too.
 func ParseFilesWith(files []string, cache string, extra func(string) string, p trace.Progress, parse FileParser) []Parsed {
-	res := readFiles(files, cache, extra, p, func(path string) ([]trace.Session, error) {
+	out := make([]Parsed, len(files))
+	ParseFilesEach(files, cache, extra, p, parse, func(i int, r Parsed) error {
+		out[i] = r
+		return nil
+	})
+	return out
+}
+
+// ParseFilesEach is ParseFilesWith passing each file's result to emit, in
+// file order, a chunk of files at a time, so a long history is never held
+// whole. An error from emit stops the read and is returned.
+func ParseFilesEach(files []string, cache string, extra func(string) string, p trace.Progress, parse FileParser, emit func(int, Parsed) error) error {
+	return readFilesEach(files, cache, extra, p, func(path string) ([]trace.Session, error) {
 		s, err := ParseFile(path, parse)
 		if err != nil {
 			return nil, err
 		}
 		return []trace.Session{s}, nil
-	})
-	out := make([]Parsed, len(res))
-	for i, r := range res {
-		out[i].Err = r.Err
+	}, func(i int, r unitResult) error {
+		var out Parsed
+		out.Err = r.Err
 		if len(r.Sessions) == 1 {
-			out[i].Session = r.Sessions[0]
+			out.Session = r.Sessions[0]
 		}
-	}
-	return out
+		return emit(i, out)
+	})
 }
 
 // ParseFile parses one file, setting SourceDigest from the bytes parsed.

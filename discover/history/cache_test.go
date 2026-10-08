@@ -1,6 +1,7 @@
 package history
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -351,10 +352,14 @@ func TestSpotCheckRebuildsACacheThatDisagrees(t *testing.T) {
 			r.Read(time.Time{})
 			c := openUnitCache(tc.cache)
 			for k, u := range c.units {
-				for i := range u.Sessions {
-					u.Sessions[i].Requests = append(u.Sessions[i].Requests, "not in the source")
+				ss, ok := c.get(k, u.Fingerprint)
+				if !ok {
+					t.Fatalf("unit %q is indexed but cannot be loaded", k)
 				}
-				c.units[k] = u
+				for i := range ss {
+					ss[i].Requests = append(ss[i].Requests, "not in the source")
+				}
+				c.put(k, u.Fingerprint, ss)
 			}
 			c.dirty = true
 			c.save()
@@ -428,4 +433,166 @@ func contains(ss []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// Reading Cursor's store a few records at a time gives exactly what one
+// pass gives, with a cache and without, and Each passes on the same sessions
+// Read returns.
+func TestCursorBatchedReadMatchesAWholeRead(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "state.vscdb")
+	buildCursorStore(t, db, [][]string{{"ls", "pwd"}, {"date"}, {"whoami"}, {"id", "uname", "env"}, {"hostname"}, {"true"}, {"false"}})
+	r := Cursor{DB: db}
+	old := cursorBatchRecords
+	t.Cleanup(func() { cursorBatchRecords = old })
+	cursorBatchRecords = 1 << 30
+	whole, err := r.Read(time.Time{})
+	if err != nil || len(whole) == 0 {
+		t.Fatalf("whole read: %d sessions, %v", len(whole), err)
+	}
+	for _, limit := range []int{1, 2, 3} {
+		cursorBatchRecords = limit
+		got, err := r.Read(time.Time{})
+		if err != nil || !reflect.DeepEqual(got, whole) {
+			t.Fatalf("batches of %d records: %v\ngot   %+v\nwhole %+v", limit, err, got, whole)
+		}
+		var each []trace.Session
+		if err := Each(r, time.Time{}, func(s trace.Session) error { each = append(each, s); return nil }); err != nil {
+			t.Fatal(err)
+		}
+		sortSessions(each)
+		if !reflect.DeepEqual(each, whole) {
+			t.Fatalf("Each with batches of %d records differs from Read", limit)
+		}
+	}
+	useTempCache(t)
+	cursorBatchRecords = 2
+	for i := 0; i < 2; i++ { // filling the cache, then reading from it
+		got, err := r.Read(time.Time{})
+		if err != nil || !reflect.DeepEqual(got, whole) {
+			t.Fatalf("cached batched read %d differs: %v", i, err)
+		}
+	}
+}
+
+func TestBatchByRecordsKeepsEveryIDOnceAndBoundsEachGroup(t *testing.T) {
+	ids := []string{"a", "b", "c", "d", "e"}
+	records := map[string]int{"a": 3, "b": 1, "c": 10, "d": 2, "e": 2}
+	groups := batchByRecords(ids, records, 4)
+	var flat []string
+	for _, g := range groups {
+		n := 0
+		for _, id := range g {
+			n += records[id]
+		}
+		if n > 4 && len(g) > 1 {
+			t.Errorf("group %v holds %d records, over 4", g, n)
+		}
+		flat = append(flat, g...)
+	}
+	if !reflect.DeepEqual(flat, ids) {
+		t.Fatalf("groups %v lose or reorder ids", groups)
+	}
+}
+
+// Every reader gives exactly the same sessions however small its batches,
+// and Each passes on exactly what Read returns.
+func TestEveryReaderReadsTheSameInBatchesAndStreamed(t *testing.T) {
+	oldStore, oldCursor := storeBatchUnits, cursorBatchRecords
+	t.Cleanup(func() { storeBatchUnits, cursorBatchRecords = oldStore, oldCursor })
+	for _, tc := range cacheCases() {
+		t.Run(tc.cache, func(t *testing.T) {
+			r := tc.build(t)
+			storeBatchUnits, cursorBatchRecords = 1<<30, 1<<30
+			whole, err := r.Read(time.Time{})
+			if err != nil || len(whole) == 0 {
+				t.Fatalf("whole read: %d sessions, %v", len(whole), err)
+			}
+			storeBatchUnits, cursorBatchRecords = 1, 1
+			small, err := r.Read(time.Time{})
+			if err != nil || !reflect.DeepEqual(small, whole) {
+				t.Fatalf("read one unit at a time: %v\nsmall %+v\nwhole %+v", err, small, whole)
+			}
+			var each []trace.Session
+			if err := Each(r, time.Time{}, func(s trace.Session) error { each = append(each, s); return nil }); err != nil {
+				t.Fatal(err)
+			}
+			sortSessions(each)
+			if !reflect.DeepEqual(each, whole) {
+				t.Fatalf("Each differs from Read:\neach  %+v\nwhole %+v", each, whole)
+			}
+		})
+	}
+}
+
+// A cache in the old layout, a reader's whole history in one file, is
+// removed rather than read; and a unit whose file is gone is read from the
+// source again.
+func TestPerUnitCacheDropsTheOldFileAndRereadsAMissingUnit(t *testing.T) {
+	useTempCache(t)
+	old := filepath.Join(cacheDir, "codex.gob")
+	if err := os.WriteFile(old, []byte("a whole history"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	openUnitCache("codex")
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("the old single-file cache is still there: %v", err)
+	}
+	tc := cacheCases()[0]
+	r := tc.build(t)
+	fresh, err := r.Read(time.Time{})
+	if err != nil || len(fresh) == 0 {
+		t.Fatalf("first read: %d sessions, %v", len(fresh), err)
+	}
+	units, _ := filepath.Glob(filepath.Join(cacheDir, tc.cache, "*.gob"))
+	if len(units) == 0 {
+		t.Fatal("no unit files were written")
+	}
+	os.Remove(units[0])
+	reads := readsOf(t)
+	got, err := r.Read(time.Time{})
+	if err != nil || !reflect.DeepEqual(got, fresh) {
+		t.Fatalf("read with a unit file gone differs from a fresh read: %v", err)
+	}
+	if len(reads(tc.cache)) == 0 {
+		t.Error("the unit whose file was gone was not read from the source")
+	}
+}
+
+// Files start largest first but go out in file order, and a read-ahead
+// budget smaller than any file never stops the read: the file due next is
+// always started.
+func TestReadFilesEachKeepsOrderUnderATinyReadAheadBudget(t *testing.T) {
+	old := readAheadBytes
+	t.Cleanup(func() { readAheadBytes = old })
+	readAheadBytes = 1
+	dir := t.TempDir()
+	var files []string
+	for i, size := range []int{10, 5000, 1, 300, 20000, 7} {
+		f := filepath.Join(dir, fmt.Sprintf("%02d.txt", i))
+		os.WriteFile(f, bytes.Repeat([]byte("x"), size), 0o600)
+		files = append(files, f)
+	}
+	var got []string
+	done := make(chan error, 1)
+	go func() {
+		done <- readFilesEach(files, "", nil, nil, func(path string) ([]trace.Session, error) {
+			return []trace.Session{{ID: filepath.Base(path)}}, nil
+		}, func(i int, r unitResult) error {
+			got = append(got, r.Sessions[0].ID)
+			return nil
+		})
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the read stopped: the file due next was never started")
+	}
+	for i, f := range files {
+		if got[i] != filepath.Base(f) {
+			t.Fatalf("out of file order: %v", got)
+		}
+	}
 }
