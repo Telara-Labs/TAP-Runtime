@@ -296,6 +296,10 @@ var aiderSkip = map[string]bool{"Library": true, "Applications": true, "node_mod
 // aiderBudget bounds the folders visited, so a large home stays fast.
 const aiderBudget = 200000
 
+// A recent directory can change twice within one filesystem timestamp.
+// Keep this guard fixed, independently of the session-file cache's window.
+const aiderDirectoryActiveWindow = 2 * time.Second
+
 // aiderHistories finds .aider.chat.history.md files under home, at most
 // depth folder levels down. Aider writes the file into the project folder,
 // which is often 4 or more levels down (~/Desktop/Projects/<org>/<repo>).
@@ -304,10 +308,12 @@ func aiderHistories(home string, depth int) []string {
 }
 
 // walkDir is what a home-folder search saw in one folder, valid while the
-// folder's modification time is unchanged: adding, removing or renaming an
-// entry changes it.
+// folder's modification time is unchanged and the listing was read outside
+// the recent-write window. A recent listing never becomes reusable merely
+// because time passed: another change may have shared its timestamp.
 type walkDir struct {
 	ModTime int64
+	Stable  bool     // persisted with the listing; only stable snapshots may hit
 	Subdirs []string // every subfolder, in name order
 	History bool     // the folder holds .aider.chat.history.md
 }
@@ -317,6 +323,12 @@ type walkDir struct {
 // only checked with a stat. Folders are visited in the same order, under the
 // same budget, as a plain walk.
 func aiderHistoriesCached(home string, depth int, c *unitCache) []string {
+	return aiderHistoriesCachedAt(home, depth, c, time.Now())
+}
+
+// One clock reading covers the walk. Tests can advance it without sleeping
+// to establish that an active snapshot remains invalid after it ages.
+func aiderHistoriesCachedAt(home string, depth int, c *unitCache, now time.Time) []string {
 	var files []string
 	visited := 0
 	seen := map[string]bool{}
@@ -327,13 +339,15 @@ func aiderHistoriesCached(home string, depth int, c *unitCache) []string {
 			return
 		}
 		seen[dir] = true
+		recent := now.Sub(info.ModTime()) < aiderDirectoryActiveWindow
 		e, ok := c.dir(dir)
-		if !ok || e.ModTime != info.ModTime().UnixNano() {
+		if !ok || !e.Stable || recent || e.ModTime != info.ModTime().UnixNano() {
 			entries, err := os.ReadDir(dir)
 			if err != nil {
 				return
 			}
-			e = walkDir{ModTime: info.ModTime().UnixNano()}
+			reportRead("aider-walk", dir)
+			e = walkDir{ModTime: info.ModTime().UnixNano(), Stable: !recent}
 			for _, d := range entries {
 				switch {
 				case d.IsDir():
