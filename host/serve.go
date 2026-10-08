@@ -204,6 +204,9 @@ type server struct {
 	// environment its client started it with. Zero is this process's own;
 	// the shared runner sets it from the relay (shared.go).
 	proc bridge.Proc
+	// agentPid is the process that started the session, when a shared
+	// runner answers it (0: this process's parent).
+	agentPid int
 	// histories, in the shared runner, is the history read its sessions
 	// share. Nil reads one for this server alone.
 	histories *historyPool
@@ -511,18 +514,25 @@ func (s *server) handle(m rpcMessage) {
 		// its own configuration already lets its model read the web unasked
 		// (autotrust.go). Decided each run and never kept.
 		var autoKinds []string
-		autoTrusted := false
+		autoTrusted, notAuto := false, ""
 		if !canElicit {
 			if _, pm, err := packageDigest(packagePath); err == nil {
 				home, _ := os.UserHomeDir()
-				if ok, because := autoTrustReads(pm, name, home); ok {
+				if ok, because := autoTrustReads(pm, name, home, s.agentPid); ok {
 					autoTrusted, autoKinds = true, readFetchKinds(pm)
 					logf("trust      %s runs without a prompt: it only reads, and %s", pm.Metadata.Name, because)
+				} else {
+					notAuto = because
 				}
 			}
 		}
 		if !autoTrusted {
 			if why := admitPackage(store, truster, packagePath); why != "" {
+				if notAuto != "" {
+					// Say which of the agent's own settings kept it from
+					// running: the approval belongs to the agent.
+					why += ". It did not run without asking because " + notAuto + "; a primitive that only reads runs unasked where the agent itself would do the same unasked"
+				}
 				s.reply(m.ID, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": why}}})
 				return
 			}

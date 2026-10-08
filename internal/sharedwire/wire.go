@@ -29,6 +29,10 @@ type Hello struct {
 	Dir  string   `json:"dir"`
 	Env  []string `json:"env"`
 	Args []string `json:"args"`
+	// Parent is the process that started the session (the agent, or a
+	// wrapper it ran): what an agent was started with, such as Gemini CLI's
+	// yolo mode, is read from its command line.
+	Parent int `json:"parent,omitempty"`
 }
 
 // Answer is the runner's reply to a Hello.

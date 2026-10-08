@@ -101,7 +101,7 @@ func relayToShared(in io.Reader, out io.Writer, args []string) error {
 		return fmt.Errorf("%w: %v", sharedwire.ErrNoShared, err)
 	}
 	dir, _ := os.Getwd()
-	return sharedwire.Relay(in, out, p, exe, sharedwire.Hello{Key: key, Dir: dir, Env: os.Environ(), Args: args})
+	return sharedwire.Relay(in, out, p, exe, sharedwire.Hello{Key: key, Dir: dir, Env: os.Environ(), Args: args, Parent: os.Getppid()})
 }
 
 // sharedRunnerCommand is `tap shared-runner`: the runner every relay talks
@@ -200,6 +200,7 @@ func (r *sharedRunner) session(c net.Conn) {
 	}
 	defer done()
 	s.proc = bridge.Proc{Dir: h.Dir, Env: h.Env}
+	s.agentPid = h.Parent
 	s.histories = r.histories
 	answer(sharedwire.Answer{OK: true})
 	logf("session    opened in %s (%d open)", h.Dir, r.active.Load())

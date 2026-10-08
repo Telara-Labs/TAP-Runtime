@@ -8,6 +8,15 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- In an agent that cannot show TAP's prompts (OpenCode, Kilo, Crush, Gemini
+  CLI, `goose run`), a primitive that only reads now runs when the agent's own
+  settings let its model do the same without asking. That covers web reads,
+  as before, and now read-only programs such as `git log` where the agent
+  runs shell commands unasked. Gemini CLI counts in yolo mode. When it does
+  not run, the refusal names the agent setting that asked. Saving a primitive
+  whose unpinned connection can never bind on Kilo or Gemini CLI is refused,
+  with the fix.
+
 - Failed MCP calls now preserve the tool's original error through Claude and
   Codex. An upstream permission error is no longer reported as a JSON result
   contract violation, and failed writes are never automatically retried.

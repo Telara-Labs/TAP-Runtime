@@ -27,7 +27,7 @@ func main() {
 	p, err := sharedwire.PathsFor(*key)
 	if err == nil {
 		dir, _ := os.Getwd()
-		err = sharedwire.Relay(os.Stdin, os.Stdout, p, *runner, sharedwire.Hello{Key: *key, Dir: dir, Env: os.Environ(), Args: args})
+		err = sharedwire.Relay(os.Stdin, os.Stdout, p, *runner, sharedwire.Hello{Key: *key, Dir: dir, Env: os.Environ(), Args: args, Parent: os.Getppid()})
 		if err == nil {
 			return
 		}

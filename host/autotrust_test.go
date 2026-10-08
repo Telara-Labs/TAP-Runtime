@@ -24,7 +24,8 @@ func TestReadsOnly(t *testing.T) {
 		{mf.Manifest{Files: []mf.File{{Path: "in", Access: "read"}}}, true},
 		{mf.Manifest{Files: []mf.File{{Path: "out", Access: "write"}}}, false},
 		{mf.Manifest{Tools: []mf.Tool{{Alias: "a", Effect: "read"}, {Alias: "b", Effect: "write"}}}, false},
-		{mf.Manifest{Commands: []mf.Command{{Command: "git", Effect: "read"}}}, false},
+		{mf.Manifest{Commands: []mf.Command{{Command: "git", Effect: "read"}}}, true},
+		{mf.Manifest{Commands: []mf.Command{{Command: "git", Effect: "read"}, {Command: "git", Effect: "write"}}}, false},
 	} {
 		if got := readsOnly(&c.m); got != c.want {
 			t.Errorf("%+v: readsOnly %v, want %v", c.m, got, c.want)

@@ -205,7 +205,8 @@ origin, even for a `GET`, because an address and its headers can carry data off
 the machine; once they approve a `GET` origin it is kept for that exact version,
 so later runs do not ask, and every full address is in the record. An agent
 that cannot show a prompt runs a primitive that only reads when its own
-settings let its model read the web unasked. A write, or any method but `GET` and `HEAD`, is asked of the
+settings let its model do the same unasked: read the web, and run shell
+commands if the primitive runs a `read` program such as `git log`. A write, or any method but `GET` and `HEAD`, is asked of the
 person each time it is a new kind of change. From the command line, add
 `--approve` to let a primitive that fetches run.
 

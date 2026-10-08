@@ -34,7 +34,7 @@ func TestUnlendableToolsOnlyNamesRequiredToolsOnClientsThatCannotLend(t *testing
 	if why := unlendableTools("opencode", m); !strings.Contains(why, "git (git.shell)") || strings.Contains(why, "mail") {
 		t.Fatalf("opencode: %q", why)
 	}
-	for _, client := range []string{"claude", "codex", "kilo", "goose", "gemini", "", "unknown"} {
+	for _, client := range []string{"claude", "codex", "goose", "", "unknown"} {
 		if why := unlendableTools(client, m); why != "" {
 			t.Fatalf("%s: %q", client, why)
 		}
