@@ -12,7 +12,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/journal"
 )
 
-var searchTool = localTool("tap_search", "Call this first, before starting any task that will take several tool calls, with a few words describing the task (not its specific values). It returns a saved primitive that does the task in one step, or says whether the person has asked for this kind of task before. The user does not need to mention TAP. Read-only and fast; it runs nothing.", map[string]any{
+var searchTool = localTool("tap_search", "Call this first, at the start of every request to look something up, check something or do something, even one that names a specific commit, ticket or file, or that one step might answer. Pass a few words describing the kind of task, without its specific values. It returns a saved primitive that does the task in one step, or says whether the person has asked for this kind of task before; only this tool can tell you that. The user does not need to mention TAP. Read-only and instant; it runs nothing.", map[string]any{
 	"query": map[string]any{"type": "string", "description": "Words in the primitive reference or description."},
 	"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
 }, nil, true)

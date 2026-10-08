@@ -8,6 +8,13 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- TAP now tells agents to call `tap_search` at the start of every request,
+  even one that names a specific commit, ticket or file. Asked why they had
+  skipped it, agents quoted the old wording ("Not for one-off requests", "a
+  task that takes several tool calls"). When a task was asked before, the
+  search result now gives the exact line to end the answer with, offering to
+  save it.
+
 - A repeat `tap discover` run now reads only what changed for every agent,
   not only for agents that keep one file per session. Cursor finds the
   conversations written since the last run from its key index and reads only

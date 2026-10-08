@@ -156,7 +156,7 @@ type server struct {
 // serverInstructions reach the agent with the server's tools. They make a
 // search the first step of multi-step work, which is how a saved primitive is
 // found and how a recurring task is noticed.
-const serverInstructions = "TAP runs saved primitives: programs for procedures this person asks for repeatedly. Before a task that takes several tool calls, call tap_search with a few words describing the task (not its specific values); it is read-only and fast. If it returns a match, tap_load and tap_run it instead of redoing the steps. If it returns a note, follow the note."
+const serverInstructions = "TAP runs saved primitives: programs that repeat a procedure this person has asked for before, with new values each time. At the start of every request to look something up, check something or do something, call tap_search with a few words describing the kind of task. Leave out its specific values, such as a commit, ticket or file name: those are a primitive's inputs. Call it even when the request looks like a one-off or one tool call might answer it: it is read-only and instant, and only it can tell you whether this person has asked this before. If it returns a match, tap_load and tap_run it instead of redoing the steps. If it returns a note, follow the note."
 
 func (s *server) write(v any) {
 	b, _ := json.Marshal(v)

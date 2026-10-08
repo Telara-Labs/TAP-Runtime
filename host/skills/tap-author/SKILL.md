@@ -1,6 +1,6 @@
 ---
 name: tap-author
-description: "Use at the start of any task that will take several tool calls: call tap_search first, with a few words describing the task, to find a saved TAP primitive that does it in one step. Afterwards, if tap_search said the person asked for this kind of task before, offer to save the procedure as a primitive. Not for one-off requests."
+description: "Use at the start of every request to look something up, check something or do something, even one that names a specific commit, ticket or file: call tap_search first, with a few words describing the kind of task, to find a saved TAP primitive that does it in one step. Afterwards, offer to save the procedure as a primitive only when tap_search says the person asked for this kind of task before."
 tap-owned: tap-author
 ---
 
