@@ -76,9 +76,12 @@ agent and its connected host; registration is separate from successful reuse.
 ## Small building blocks
 
 [The language showcase](languages/) runs the same useful file-summary tool in
-Bash, Python, JavaScript and TypeScript, with the same declared read and JSON
-interface. Its support table distinguishes these runnable source languages
-from the compiled Go/C++ execution path still being added.
+Bash, Python, JavaScript, TypeScript, Go and C++, with the same declared read
+and JSON interface. Go and C++ use packaged WASI Preview 1 modules, supported
+since TAP 0.2.10. Authors compile those packages explicitly; execution runs the
+compiled bytes. The support table explains each language's execution path and
+build requirements. Other languages require a compatible module and broker
+protocol; these examples do not establish support for every language.
 
 The existing [hello Python](hello-py/), [hello TypeScript](hello-ts/) and
 [hello shell](hello-sh/) packages show the smallest executable package.

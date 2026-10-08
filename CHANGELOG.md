@@ -8,6 +8,10 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- The example gallery index now lists all six runnable language examples,
+  including Go and C++ through the compiled WASI Preview 1 path available
+  since 0.2.10, and distinguishes author builds from execution.
+
 - In an agent that cannot show TAP's prompts (OpenCode, Kilo, Crush, Gemini
   CLI, `goose run`), a primitive that only reads now runs when the agent's own
   settings let its model do the same without asking. That covers web reads,
