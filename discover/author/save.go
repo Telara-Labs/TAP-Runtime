@@ -1,6 +1,7 @@
 package author
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,7 +160,43 @@ func CheckPackage(pkgDir, root string) (*Authoring, error) {
 	} else if len(marks) > 0 {
 		return nil, fmt.Errorf("the package is not finished: %s", strings.Join(marks, "; "))
 	}
+	if briefs, err := FindBriefs(pkgDir); err != nil {
+		return nil, err
+	} else if len(briefs) > 0 {
+		return nil, fmt.Errorf("the package holds an authoring brief, which quotes private session history: %s; remove it, a saved package must not carry it", strings.Join(briefs, ", "))
+	}
 	return a, nil
+}
+
+// briefMarkers are text only an authoring brief carries: its kind, and the
+// privacy line BRIEF.md opens with. A renamed or edited copy still has one.
+var briefMarkers = []string{"tap.authoring-brief/v1", "Private: this file holds text from your session history."}
+
+// FindBriefs lists the package files that are, or copy, an authoring brief.
+func FindBriefs(pkgDir string) ([]string, error) {
+	var found []string
+	err := filepath.WalkDir(pkgDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(pkgDir, path)
+		if name := strings.ToLower(d.Name()); name == "brief.md" || name == "brief.json" {
+			found = append(found, rel)
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, m := range briefMarkers {
+			if bytes.Contains(b, []byte(m)) {
+				found = append(found, rel)
+				break
+			}
+		}
+		return nil
+	})
+	return found, err
 }
 
 func AuthoredSkillMD(a *Authoring, m pack.Marker, dir string) string {
@@ -236,6 +274,10 @@ func SaveCommand(args []string, home string, out, errOut io.Writer) int {
 	if len(pos) != 1 {
 		fmt.Fprintln(errOut, "discover save: give one package directory")
 		return 2
+	}
+	if err := IgnoreDrafts(pos[0], false); err != nil {
+		fmt.Fprintln(errOut, "discover save:", err)
+		return 1
 	}
 	var rec *Receipts
 	var recSum string

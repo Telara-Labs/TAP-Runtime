@@ -342,7 +342,7 @@ func BriefCommand(args []string, home string, out, errOut io.Writer) int {
 	logic := fs.String("logic", "", "a recurring execution-logic candidate id from a discover report")
 	report := fs.String("report", "", "with --candidate: the report written by `tap discover --out`")
 	source := fs.Int("source", 0, "with --candidate: which of its source requests to brief from")
-	dir := fs.String("out", "", "directory to write brief.json and BRIEF.md into (private)")
+	dir := fs.String("out", "", "directory to write brief.json and BRIEF.md into (private; default "+DraftsDir+"/brief-<ref> in this folder, git-ignored)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -355,8 +355,8 @@ func BriefCommand(args []string, home string, out, errOut io.Writer) int {
 			given++
 		}
 	}
-	if *dir == "" || given != 1 || (*task == "" && *report == "") {
-		fmt.Fprintln(errOut, "discover brief: give --out and exactly one of --task, --candidate, --opportunity, --span or --logic with --report")
+	if given != 1 || (*task == "" && *report == "") {
+		fmt.Fprintln(errOut, "discover brief: give exactly one of --task, --candidate, --opportunity, --span or --logic with --report")
 		return 2
 	}
 	var cand *BriefCandidate
@@ -456,8 +456,19 @@ func BriefCommand(args []string, home string, out, errOut io.Writer) int {
 			b.LogicExamples = append(b.LogicExamples, LogicExample{SpanID: member.ID, Ref: OpaqueRef(src), Source: src, Evidence: example.Evidence})
 		}
 	}
+	if *dir == "" {
+		*dir = filepath.Join(DraftsDir, "brief-"+b.Ref)
+	}
 	digest, err := b.Write(*dir)
 	if err != nil {
+		fmt.Fprintln(errOut, "discover brief:", err)
+		return 1
+	}
+	// The package is written next, in this workspace's drafts folder; make
+	// sure that folder is ignored even when the brief went somewhere else
+	// (an agent once wrote it to the workspace root and moved the files in,
+	// leaving the brief folder's own ignore file behind).
+	if err := IgnoreDrafts(DraftsDir, false); err != nil {
 		fmt.Fprintln(errOut, "discover brief:", err)
 		return 1
 	}
@@ -469,6 +480,9 @@ func BriefCommand(args []string, home string, out, errOut io.Writer) int {
 // digest, which the package's AUTHORING.json names.
 func (b *Brief) Write(dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if err := IgnoreDrafts(dir, true); err != nil {
 		return "", err
 	}
 	raw, err := json.MarshalIndent(b, "", "  ")
@@ -549,7 +563,9 @@ func (b *Brief) Markdown() string {
 	   is not enough. Author the repeatable chunk; the surrounding user task need not
 	   be automated. Turn changing values into runtime arguments or values derived
 	   by earlier steps, rather than copying an example's concrete values.
-2. Write the package as docs/writing-a-primitive.md describes: primitive.yaml declaring every
+2. Write the package in this workspace's ` + "`" + DraftsDir + "/<name>/`" + ` (next to this brief; tap keeps
+   that folder out of git), and keep cases.json and receipts.json beside it, not in it.
+   Write it as docs/writing-a-primitive.md describes: primitive.yaml declaring every
    command, file and tool it uses, and one program. Include CHANGELOG.md with a nonempty
    entry for metadata.version. On a revision, advance the semantic version and update
    both the manifest and changelog. Source entrypoints are their executable. A compiled
@@ -557,6 +573,27 @@ func (b *Brief) Markdown() string {
    review and run ` + "`tap discover build --approve-build <package>`" + ` before validation
    or saving. It builds twice from the same inputs and records BUILD.json. Save and run
    never compile. No TODO: or REPLACE_ markers may remain.
+   Design it first, whatever the work touches (browser, desktop app, shell and files, MCP
+   connectors, HTTP APIs, steps only a person can take): decide what the program does and
+   what it hands back as "needs_person", name each observable state and the evidence that
+   completes it, and report a missing, refused or partial read as unresolved or incomplete,
+   never as zero or success.
+   Write it to run in any client, not only the one the session used. Where a step used a
+   tool that clients provide differently (a browser or desktop app above all), declare each
+   client's equivalent as an optional tool, branch on tap.tools(), and keep the procedure's
+   logic in code every backend runs (for a browser: navigate, read with page JavaScript, and
+   act on a selector, which on Codex goes through its locator because its evaluation is
+   read-only). Never
+   write against one client's own REPL objects, and return "blocked" naming what is missing
+   when no backend is bound.
+   Make it fast: its speed is decided by how you write it. Count round trips: every tool
+   call goes program, runner, agent, tool and back (measured at about 0.7 s on Claude in
+   Chrome and 1.4 s on Playwright). Index once per run and match every input against the
+   index instead of walking the source per item (one primitive walked a 382-thread inbox in
+   150 to 270 calls for each absent name, where search took about 10). Batch independent
+   calls. Loop inside the backend when it allows, bounded per call, since backends differ
+   (Codex caps a page evaluation at about 3 s). No fixed waits beyond what loading needs.
+   Declare a budget of calls and seconds, and report the calls and time used in the result.
    Check it with ` + "`tap manifest check <package>`" + `.
 3. Put AUTHORING.json in the package:
    {"kind": "tap.authoring/v1", "name": ..., "publisher": ..., "author": "host-agent",
@@ -565,13 +602,23 @@ func (b *Brief) Markdown() string {
     "brief_digest": <printed by brief>, "contract": {<field>: {"value", "established_by"}},
     "interface": {"args": [...], "output": ..., "exit": {...}}}
 4. Before running the package, write cases.json (at least: normal, empty, a changed count,
-   a missing prerequisite, a malformed or ambiguous input) and an oracle derived from the
-   contract, not from the package. ` + "`tap discover validate --cases cases.json --freeze`" + ` records the
+   a missing prerequisite, a malformed or ambiguous input, slow or partial loading, and an
+   unsupported client with no backend bound) and an oracle derived from the contract, not
+   from the package. ` + "`tap discover validate --cases cases.json --freeze`" + ` records the
    oracle's expected results.
 5. ` + "`tap discover validate <package> --cases cases.json --out receipts.json`" + ` runs the package
-   through the real runner on fresh fixtures and checks each result and each effect.
+   through the real runner on fresh fixtures and checks each result and each effect. Also run
+   it with ` + "`tap --client <agent> <package>`" + ` on each client backend you have, and keep
+   fixture results apart from live results: fixtures prove no live identity or completeness.
+   Measure each case: record its tool calls, duration and unresolved count (each run's
+   host_log ends with the calls and the time it took).
 6. ` + "`tap discover save <package> --receipts receipts.json`" + ` installs it privately. It is marked
    validated only for the exact digest the receipts passed.
+7. Keep improving it. After real runs, read the run record (the tap_run result ends with a
+   stats line, and tap_evidence shows each call) and publish an improved version, with a
+   new semantic version and a changelog entry giving before and after numbers, whenever
+   calls, duration or unresolved items can drop. Compare versions on identical inputs.
+   Never trade correctness for speed: an item the program could not prove stays unresolved.
 `)
 	return w.String()
 }

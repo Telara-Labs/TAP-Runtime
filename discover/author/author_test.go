@@ -78,6 +78,58 @@ func TestBriefFromASelectedTaskEstablishesNothing(t *testing.T) {
 	}
 }
 
+// The brief is what an agent follows when it writes a primitive, so it must
+// carry the three rules for any kind of automated work: design what the
+// program hands back, run in any client, and test every case before saving.
+func TestBriefTeachesDesignAnyClientAndTesting(t *testing.T) {
+	s, err := author.FindSession("claude-code", "s1", homeWithClaudeSession(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := author.NewBrief(s, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	md := b.Markdown()
+	for _, want := range []string{
+		"desktop app", "MCP", "HTTP APIs", "needs_person", "never as zero or success",
+		"optional tool", "tap.tools()", `"blocked"`, "one client's own REPL objects",
+		"slow or partial loading", "no backend bound", "changed count", "missing prerequisite",
+		"tap --client <agent> <package>", "keep\n   fixture results apart from live results",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("brief instructions lack %q", want)
+		}
+	}
+}
+
+// The brief tells the authoring agent that speed is its job, how to get it,
+// how to measure it, and to keep improving the primitive after real use
+// without trading correctness for speed.
+func TestBriefTeachesSpeedAndImprovement(t *testing.T) {
+	s, err := author.FindSession("claude-code", "s1", homeWithClaudeSession(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := author.NewBrief(s, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	md := b.Markdown()
+	for _, want := range []string{
+		"Make it fast", "Count round trips", "0.7 s", "1.4 s",
+		"Index once per run and match every input against the", "382-thread inbox",
+		"Batch independent", "Loop inside the backend", "about 3 s", "No fixed waits",
+		"Declare a budget", "Measure each case", "tool calls, duration and unresolved count",
+		"7. Keep improving it.", "stats line", "tap_evidence", "new semantic version and a changelog entry",
+		"identical inputs", "Never trade correctness for speed", "stays unresolved",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("brief instructions lack %q", want)
+		}
+	}
+}
+
 func TestBriefRedactsCredentials(t *testing.T) {
 	s := trace.Session{Client: "codex", ID: "x", Requests: []string{"deploy with Bearer abcdefghijklmnopqrstu"},
 		Calls: []trace.Call{{Tool: "shell", Command: "curl -H 'Authorization: Bearer abcdefghijklmnopqrstu' https://h", Output: "token glpat-abcdefghijklmnopqrstuv"}}}

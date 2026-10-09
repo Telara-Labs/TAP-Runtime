@@ -619,6 +619,17 @@ func ValidateCommand(args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "discover validate: --cases is required")
 		return 2
 	}
+	// A draft in the workspace's drafts folder stays out of git, whichever
+	// command touched it first.
+	for _, p := range append([]string{*cases, *outFile}, pkgArgs...) {
+		if p == "" {
+			continue
+		}
+		if err := IgnoreDrafts(p, false); err != nil {
+			fmt.Fprintln(errOut, "discover validate:", err)
+			return 1
+		}
+	}
 	if *freeze {
 		n, err := Freeze(*cases)
 		if err != nil {

@@ -154,7 +154,9 @@ func TestAgentsSharingAFolderGetOnePointer(t *testing.T) {
 
 func TestPointersGoWhereThePrimitiveCanRunUnlessPicked(t *testing.T) {
 	home := t.TempDir()
-	for _, d := range []string{".claude", ".codex", ".cursor/chats", ".codeium/windsurf"} {
+	// Windsurf is installed with no bridge: it gets no pointer and is not
+	// reported. (Cursor CLI now has one, so it would be reported.)
+	for _, d := range []string{".claude", ".codex", ".codeium/windsurf"} {
 		os.MkdirAll(filepath.Join(home, d), 0o755)
 	}
 	ids := func(ts []Target) string {

@@ -118,13 +118,13 @@ var registry = []Client{
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history globalStorage/state.vscdb and MCP ~/.cursor/mcp.json (mcpServers): on disk 2026-10-02",
 		Markers: []string{"Library/Application Support/Cursor", ".config/Cursor", "$APPDATA/Cursor"}, History: true,
 		Skills: SkillsPaths{Global: ".cursor/skills", Project: ".agents/skills"},
-		MCP:    MCPConfig{Kind: MCPJSONFile, Path: ".cursor/mcp.json", Key: "mcpServers"}},
+		MCP:    MCPConfig{Kind: MCPJSONFile, Path: ".cursor/mcp.json", Key: "mcpServers"}, Bridge: true},
 	{ID: "cursor-cli", Aliases: []string{"cursor-agent"}, Name: "Cursor CLI",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history ~/.cursor/chats store.db: on disk 2026-10-02; MCP shares ~/.cursor/mcp.json",
 		Markers: []string{".cursor/chats"}, History: true, Transcript: ".cursor/chats/*/{session}/store.db",
 		Skills: SkillsPaths{Global: ".cursor/skills", Project: ".agents/skills"},
 		MCP:    MCPConfig{Kind: MCPJSONFile, Path: ".cursor/mcp.json", Key: "mcpServers"},
-		Launch: []string{"cursor-agent"}, Program: "cursor-agent"},
+		Launch: []string{"cursor-agent"}, Program: "cursor-agent", Bridge: true},
 	{ID: "antigravity", Name: "Antigravity",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history brain/ and conversations/: on disk 2026-10-02; hooks: contract in the shipped language_server",
 		Markers: []string{".gemini/antigravity"}, History: true, Transcript: ".gemini/antigravity/brain/{session}/.system_generated/logs/transcript_full.jsonl",
@@ -148,7 +148,7 @@ var registry = []Client{
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs) (shares ~/.copilot); history session-state/<id>/events.jsonl: github/copilot-cli issues; MCP ~/.copilot/mcp-config.json: GitHub Copilot CLI docs (not seen on disk)",
 		Markers: []string{".copilot/session-state"}, History: true,
 		Skills: SkillsPaths{Global: ".copilot/skills", Project: ".agents/skills"},
-		MCP:    MCPConfig{Kind: MCPCommand, Path: ".copilot/mcp-config.json", Key: "mcpServers"}, Program: "copilot"},
+		MCP:    MCPConfig{Kind: MCPCommand, Path: ".copilot/mcp-config.json", Key: "mcpServers"}, Program: "copilot", Bridge: true},
 	{ID: "windsurf", Name: "Windsurf",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); MCP ~/.codeium/windsurf/mcp_config.json and transcript hook: docs.devin.ai/desktop (not installed here)",
 		Markers: []string{".codeium/windsurf", ".windsurf/transcripts", ".tap/windsurf"}, History: true,
@@ -175,8 +175,11 @@ var registry = []Client{
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history opencode.db: schema seen on disk (empty) + vshulcz/deja-vu opencode.go",
 		Markers: []string{".config/opencode", ".local/share/opencode"}, History: true,
 		Skills: SkillsPaths{Global: ".config/opencode/skills", Project: ".agents/skills"},
+		// Its bridge is the TAP relay plugin in the person's session
+		// (tap install writes plugin/tap-relay.js); outside a session the
+		// runner connects to the secret-free servers in this configuration.
 		MCP:    MCPConfig{Kind: MCPJSONFile, Path: ".config/opencode/opencode.json", Key: "mcp", Local: true},
-		Launch: []string{"opencode", "run"}, Program: "opencode"},
+		Bridge: true, Launch: []string{"opencode", "run"}, Program: "opencode"},
 	{ID: "zed", Name: "Zed",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history threads.db: zed source crates/agent/src/db.rs (not installed here)",
 		Markers: []string{"Library/Application Support/Zed", ".config/zed", ".local/share/zed", "$LOCALAPPDATA/Zed"}, History: true,
@@ -194,8 +197,9 @@ var registry = []Client{
 		Markers: []string{".config/crush", ".local/share/crush"}, History: true,
 		Skills: SkillsPaths{Global: ".config/crush/skills", Project: ".crush/skills"},
 		// Crush reads MCP servers from crush.json "mcp"; it skipped an entry
-		// without "type": "stdio".
-		MCP: MCPConfig{Kind: MCPJSONFile, Path: ".config/crush/crush.json", Key: "mcp", Type: "stdio"}, Program: "crush"},
+		// without "type": "stdio". Its bridge connects to the servers in
+		// that configuration that carry no secret.
+		MCP: MCPConfig{Kind: MCPJSONFile, Path: ".config/crush/crush.json", Key: "mcp", Type: "stdio"}, Program: "crush", Bridge: true},
 	{ID: "continue", Name: "Continue",
 		Source:  "skills folders and markers: npx skills 1.5.18 agent table (vercel-labs/skills dist/cli.mjs); history ~/.continue/sessions: vshulcz/deja-vu registry (not installed here)",
 		Markers: []string{".continue"}, History: true,
