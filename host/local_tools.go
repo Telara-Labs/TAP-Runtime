@@ -13,23 +13,29 @@ import (
 )
 
 var searchTool = localTool("tap_search", "Call this first, at the start of every request to look something up, check something or do something, even one that names a specific commit, ticket or file, or that one step might answer. Pass a few words describing the kind of task, without its specific values. It returns a saved primitive that does the task in one step, or says whether the person has asked for this kind of task before; only this tool can tell you that. The user does not need to mention TAP. Read-only and instant; it runs nothing.", map[string]any{
-	"query": map[string]any{"type": "string", "description": "Words in the primitive reference or description."},
-	"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
+	"query":  map[string]any{"type": "string", "description": "Words in the primitive reference or description."},
+	"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
+	"detail": detailArgument,
 }, nil, true)
 
 var loadTool = localTool("tap_load", "Load an exact local TAP primitive's declarations and a bounded preview of possible host connections and write gates. Runs no tools; execution rechecks bindings and dynamic effects.", map[string]any{
 	"ref": map[string]any{"type": "string"}, "digest": map[string]any{"type": "string"},
+	"detail": detailArgument,
 }, []string{"ref", "digest"}, true)
 
 var statusTool = localTool("tap_status", "Read the current state of a local TAP run without resuming it.", map[string]any{
 	"run_id": map[string]any{"type": "string"},
+	"detail": detailArgument,
 }, []string{"run_id"}, true)
 
 var evidenceTool = localTool("tap_evidence", "Read bounded run provenance and journaled request metadata. Exact saved manifest is opt-in; runtime arguments and results are excluded.", map[string]any{
 	"run_id":           map[string]any{"type": "string"},
 	"limit":            map[string]any{"type": "integer", "minimum": 1, "maximum": 100},
 	"include_manifest": map[string]any{"type": "boolean", "description": "Include exact saved YAML if it fits. May contain sensitive package defaults or examples."},
+	"detail":           detailArgument,
 }, []string{"run_id"}, true)
+
+var detailArgument = map[string]any{"type": "boolean", "description": "Return complete JSON instead of compact readable text. Use for programmatic inspection; default false."}
 
 func localTool(name, description string, properties map[string]any, required []string, readOnly bool) map[string]any {
 	// JSON Schema's required is an array; null makes Claude Code reject the
@@ -76,23 +82,36 @@ func (s *server) toolError(id *json.RawMessage, message string) {
 	s.reply(id, map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": message}}})
 }
 
-func (s *server) toolJSON(id *json.RawMessage, value any) {
-	b, err := json.Marshal(value)
+// withoutClientScheduling drops wait_for_previous, which Gemini CLI (0.63)
+// adds to every tool's schema and then sends to the server with the call
+// (packages/core/src/tools/tools.ts). It only orders the client's own calls.
+// Read strictly, it made tap_save and tap_run refuse Gemini's calls.
+func withoutClientScheduling(raw json.RawMessage) json.RawMessage {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return raw
+	}
+	v, ok := m["wait_for_previous"]
+	if !ok {
+		return raw
+	}
+	var b bool
+	if json.Unmarshal(v, &b) != nil {
+		return raw
+	}
+	delete(m, "wait_for_previous")
+	out, err := json.Marshal(m)
 	if err != nil {
-		s.toolError(id, "local TAP result could not be encoded")
-		return
+		return raw
 	}
-	if len(b) > 64<<10 {
-		s.toolError(id, "local TAP result is too large")
-		return
-	}
-	s.reply(id, map[string]any{"content": []any{map[string]any{"type": "text", "text": string(b)}}})
+	return out
 }
 
 func readToolArgs(raw json.RawMessage, value any) error {
 	if len(raw) == 0 {
 		raw = []byte("{}")
 	}
+	raw = withoutClientScheduling(raw)
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
 	if err := d.Decode(value); err != nil {
@@ -120,8 +139,9 @@ func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMe
 	switch name {
 	case "tap_search":
 		var a struct {
-			Query string `json:"query"`
-			Limit int    `json:"limit"`
+			Query  string `json:"query"`
+			Limit  int    `json:"limit"`
+			Detail bool   `json:"detail"`
 		}
 		if err := readToolArgs(raw, &a); err != nil {
 			s.toolError(id, err.Error())
@@ -160,11 +180,12 @@ func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMe
 			s.mu.Unlock()
 			reply["note"] = noMatchNote(a.Query, h)
 		}
-		s.toolJSON(id, reply)
+		s.toolOutput(id, name, reply, a.Detail)
 	case "tap_load":
 		var a struct {
 			Ref    string `json:"ref"`
 			Digest string `json:"digest"`
+			Detail bool   `json:"detail"`
 		}
 		if err := readToolArgs(raw, &a); err != nil || a.Ref == "" || a.Digest == "" {
 			s.toolError(id, "tap_load needs ref and digest")
@@ -186,15 +207,15 @@ func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMe
 			"commands": m.Commands, "files": m.Files, "fetch": m.Fetch,
 			"connection_preview": s.previewConnections(m)}
 		if checkRunArgs(m, nil) != "" {
-			loaded["args"] = "tap_run args: one element, the input object as a JSON string, for example [\"" +
-				strings.ReplaceAll(exampleInput(inputProps(m), schemaStrings(m.Interface.InputSchema["required"])), `"`, `\"`) + "\"]"
+			loaded["args"] = "one element: the input object encoded as a JSON string in args[0]"
 		}
-		s.toolJSON(id, loaded)
+		s.toolOutput(id, name, loaded, a.Detail)
 	case "tap_status", "tap_evidence":
 		var a struct {
 			RunID           string `json:"run_id"`
 			Limit           int    `json:"limit"`
 			IncludeManifest bool   `json:"include_manifest"`
+			Detail          bool   `json:"detail"`
 		}
 		if err := readToolArgs(raw, &a); err != nil || a.RunID == "" {
 			s.toolError(id, name+" needs run_id")
@@ -223,15 +244,15 @@ func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMe
 			return
 		}
 		if name == "tap_status" {
-			s.toolJSON(id, map[string]any{"run_id": snap.Header.RunID, "package_digest": snap.Header.PackageDigest,
-				"started": snap.Header.Started, "state": snap.State, "outcome": snap.Outcome})
+			s.toolOutput(id, name, map[string]any{"run_id": snap.Header.RunID, "package_digest": snap.Header.PackageDigest,
+				"started": snap.Header.Started, "state": snap.State, "outcome": snap.Outcome}, a.Detail)
 		} else {
 			evidence, err := runEvidence(root, snap, a.IncludeManifest)
 			if err != nil {
 				s.toolError(id, err.Error())
 				return
 			}
-			s.toolJSON(id, evidence)
+			s.toolOutput(id, name, evidence, a.Detail)
 		}
 	default:
 		if strings.HasPrefix(name, "tap_") {

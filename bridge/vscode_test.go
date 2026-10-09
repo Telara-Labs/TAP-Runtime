@@ -166,3 +166,48 @@ func TestVSCodeAskKeyMatchesAnMCPToolListedOnlyByItsPrefixedName(t *testing.T) {
 		}
 	}
 }
+
+// VS Code lists an MCP tool as mcp_<server>_<tool> and tags it only "mcp".
+// The runner names it by server and tool, as on every other client, and
+// still calls it by VS Code's name.
+func TestVSCodeNamesMCPToolsByServerAndTool(t *testing.T) {
+	cases := []struct{ name, server, tool string }{
+		{"mcp_telara-mcp_telara_execute_action", "telara-mcp", "telara_execute_action"},
+		{"mcp_playwright_browser_navigate", "playwright", "browser_navigate"},
+		{"run_task", "vscode", "run_task"},
+		{"mcp_", "vscode", "mcp_"},
+		{"mcp_onlyserver_", "vscode", "mcp_onlyserver_"},
+	}
+	for _, c := range cases {
+		server, tool := splitEditorName(c.name, map[string]any{"name": c.name, "tags": []any{"mcp"}})
+		if server != c.server || tool != c.tool {
+			t.Errorf("%s: got %s / %s, want %s / %s", c.name, server, tool, c.server, c.tool)
+		}
+	}
+	// A tag that names the server is used as given, also when VS Code shortened it.
+	if s, n := splitEditorName("mcp_a_very_long_s_fetch", map[string]any{"tags": []any{"mcp:A Very Long Server"}}); s != "A Very Long Server" || n != "fetch" {
+		t.Errorf("tagged long server: %s / %s", s, n)
+	}
+}
+
+func TestVSCodeCallsAToolByTheEditorsName(t *testing.T) {
+	var calls []map[string]any
+	v, err := NewVSCode(fakeExtension(t, &calls))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+	inv, err := v.Inventory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv[0].Server != "github" || inv[0].Name != "search_issues" {
+		t.Fatalf("the MCP tool is %s / %s", inv[0].Server, inv[0].Name)
+	}
+	if _, err := v.Call(inv[0], nil); err != nil {
+		t.Fatal(err)
+	}
+	if calls[0]["name"] != "mcp_github_search_issues" {
+		t.Errorf("called %v, want VS Code's name", calls[0]["name"])
+	}
+}

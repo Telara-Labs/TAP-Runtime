@@ -198,7 +198,7 @@ tools:
 `, "tap call threads '{}'\n")
 	c := startServerArgs(t, true, accept, "--mcp-url", ts.URL)
 	identity := c.stagePackage(pkg)
-	loaded := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_load", "arguments": identity}))
+	loaded := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_load", "arguments": identity}))
 	p := loaded["connection_preview"].(map[string]any)
 	rows := p["connections"].([]any)
 	row := rows[0].(map[string]any)

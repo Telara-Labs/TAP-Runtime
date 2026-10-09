@@ -1,7 +1,16 @@
 // The TAP extension for VS Code. It lets the TAP runner borrow the editor's
 // tools: the language model tools VS Code knows, including every MCP server
 // the user connected for Copilot. The editor makes each call with its own
-// connection, and shows its own confirmation where a tool asks for one.
+// connection.
+//
+// Who confirms a change: the runner asks the person with an MCP elicitation,
+// which VS Code's MCP client shows in the chat that called tap_run (or, with
+// no chat, as a notification with a form) and answers back to the runner.
+// A call made from here carries no chat invocation token: an extension gets
+// one only from a chat request it handles, and Copilot calls tap_run over
+// MCP. So VS Code shows such a call nowhere in the chat; a tool that wants
+// confirmation puts up a modal dialog instead, which cancellation does not
+// close.
 //
 // It does two things:
 //  - registers the runner with VS Code as the MCP server "TAP Runtime", so
@@ -74,10 +83,11 @@ async function answer(req) {
     }
     case "call": {
       const cts = new vscode.CancellationTokenSource();
-      // A confirmation can wait with no chat showing it. Cancellation alone
-      // does not settle invokeTool, so the deadline must settle our answer too.
-      // VS Code 1.140 checks the token after confirmation, before dispatch. A
-      // tool already running can ignore cancellation; its outcome stays unknown.
+      // With no invocation token VS Code confirms a tool that asks for it in
+      // a modal dialog, which cancellation does not close, so the deadline
+      // must settle our answer too. VS Code checks the token after the
+      // dialog, before dispatch. A tool already running can ignore
+      // cancellation; its outcome stays unknown.
       const limit = 2 * 60 * 1000;
       let timedOut = false;
       let timer;

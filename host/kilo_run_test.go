@@ -91,8 +91,24 @@ tap call issue "{\"issue_key\":\"$key\"}" | jq -r '.key'
 	unpinned := write(`  - {alias: search, capability: tracker.issues.search, effect: read}
   - {alias: issue, capability: tracker.issues.get, effect: read, pin: {server: tracker, tool: get_issue}}
 `)
-	if _, err := Run(context.Background(), Options{Package: unpinned, Journal: io.Discard, InterpDir: store, RunsDir: t.TempDir(), Client: "kilo", Approve: approve}); err == nil || !strings.Contains(err.Error(), "must be pinned") {
-		t.Fatalf("an unpinned tool through Kilo: %v", err)
+	// Kilo's tools are listed from its own configuration (the runner's
+	// connections to its secret-free servers, when no TAP relay runs in a
+	// session), so an unpinned capability binds to the listed tool without
+	// asking anyone.
+	var asked []ToolQuestion
+	ask := func(q ToolQuestion) (string, bool) { asked = append(asked, q); return "", false }
+	receipt := filepath.Join(t.TempDir(), "receipt.json")
+	res, err = Run(context.Background(), Options{Package: unpinned, Journal: io.Discard, InterpDir: store, RunsDir: t.TempDir(), Client: "kilo", Approve: approve, AskTool: ask, ReceiptPath: receipt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(res.Stdout) != "ABC-12" || len(asked) != 0 {
+		t.Fatalf("asked %+v: stdout %q stderr %q", asked, res.Stdout, res.Stderr)
+	}
+	var adm admission
+	b, _ := os.ReadFile(receipt)
+	if json.Unmarshal(b, &adm) != nil || adm.Bindings[0].Server != "tracker" || adm.Bindings[0].Tool != "search_issues" || adm.Bindings[0].Pinned {
+		t.Fatalf("receipt: %s", b)
 	}
 }
 

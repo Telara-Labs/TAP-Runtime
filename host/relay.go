@@ -278,19 +278,17 @@ type relayBridge struct {
 	tools   []bind.Tool
 	nameFor func(server, tool string) string
 	denies  func(bind.Tool) bool
+	// settingsFiles are the client's settings, read for its rules and the
+	// servers it is configured with (resolve.go).
+	settingsFiles []string
 }
 
 func newRelayBridge(r *relayRun, client, version string, decls []mf.Tool, wd string) *relayBridge {
 	b := &relayBridge{run: r, client: client, version: version, nameFor: geminiToolName}
 	// The person's own rules, from Gemini CLI's settings: includeTools and
 	// excludeTools per server, in their user settings and in this project's.
-	if home, err := os.UserHomeDir(); err == nil {
-		files := []string{filepath.Join(home, ".gemini", "settings.json")}
-		if wd != "" {
-			files = append(files, filepath.Join(wd, ".gemini", "settings.json"))
-		}
-		b.denies = bridge.GeminiRules(files...)
-	}
+	b.settingsFiles = geminiSettingsFiles(wd)
+	b.denies = bridge.GeminiRules(b.settingsFiles...)
 	for _, d := range decls {
 		if d.Pin != nil && d.Pin.Server != "" && d.Pin.Tool != "" {
 			b.tools = append(b.tools, bind.Tool{Server: d.Pin.Server, Name: d.Pin.Tool, Annotated: bind.Unknown})

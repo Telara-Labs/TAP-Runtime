@@ -59,7 +59,7 @@ func TestSaveToolSavesAfterThePersonAgrees(t *testing.T) {
 	if res["isError"] == true || !strings.Contains(toolText(t, res), "saved") {
 		t.Fatalf("save = %#v", res)
 	}
-	found := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "release candidate"}}))
+	found := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "release candidate"}}))
 	if m, _ := found["matches"].([]any); len(m) != 1 {
 		t.Fatalf("saved primitive not found: %#v", found)
 	}
@@ -72,7 +72,7 @@ func TestSaveToolSavesNothingWithoutAYes(t *testing.T) {
 	if res["isError"] != true || !strings.Contains(toolText(t, res), "declined") {
 		t.Fatalf("declined save = %#v", res)
 	}
-	found := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "release candidate"}}))
+	found := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "release candidate"}}))
 	if m, _ := found["matches"].([]any); len(m) != 0 {
 		t.Fatalf("a declined save was saved: %#v", found)
 	}

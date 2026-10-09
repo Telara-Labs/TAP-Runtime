@@ -186,15 +186,20 @@ echo "total $a $b"
 	if !strings.Contains(text, "total 3 4") || !strings.Contains(text, "[2 action(s) run, 0 refused]") {
 		t.Fatalf("tap_result:\n%s", text)
 	}
+	// The result carries what the run cost; two calls draw no hint.
+	if !strings.Contains(text, "[stats: 2 tool call(s), 0 failed, 0 refused, 1 input item(s), ") || strings.Contains(text, "faster version") {
+		t.Fatalf("tap_result stats:\n%s", text)
+	}
 	time.Sleep(50 * time.Millisecond)
 	if left, _ := filepath.Glob(filepath.Join(dir, "*.json")); len(left) != 0 {
 		t.Errorf("a finished run left a pending call behind: %v", left)
 	}
 }
 
-// On Gemini, a tool the primitive does not pin cannot bind: Gemini does not
-// say which tools it has.
-func TestRelayRefusesAnUnpinnedTool(t *testing.T) {
+// On Gemini, which does not say which tools it has, an unpinned tool that
+// nothing resolves blocks the run and names the capability.
+func TestRelayBlocksAnUnresolvedUnpinnedTool(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // no Gemini settings: no configured server
 	dir := t.TempDir()
 	old := relayDir
 	relayDir = func() (string, error) { return dir, nil }
@@ -214,8 +219,8 @@ tools:
 `, "tap call search '{}'\n")
 	_, err = Run(t.Context(), Options{Package: pkg, Journal: io.Discard, InterpDir: interpreterStore(t), RunsDir: t.TempDir(),
 		relay: r, relayClient: "gemini-cli-mcp-client"})
-	if err == nil || !strings.Contains(err.Error(), "must be pinned") {
-		t.Fatalf("an unpinned tool was not refused: %v", err)
+	if err == nil || !strings.HasPrefix(err.Error(), "blocked:") || !strings.Contains(err.Error(), "mail.messages.search") || !strings.Contains(err.Error(), "tap bind --client") {
+		t.Fatalf("an unresolved tool was not blocked: %v", err)
 	}
 }
 

@@ -317,8 +317,18 @@ func (c *Codex) Call(t bind.Tool, args map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return callResult(t, r)
+	out, err := callResult(t, r)
+	if err != nil && strings.Contains(err.Error(), codexNoTurn) {
+		// Tools such as Codex's browser (cua_repl) belong to a turn of a
+		// Codex session, and a runner started outside one has no turn to
+		// give. The tool's answer also carries its whole manual; leave it out.
+		return "", fmt.Errorf("%s/%s: %s: it answers only inside a Codex session's turn; run the primitive from Codex (its tap_run tool, or a command Codex runs)", t.Server, t.Name, codexNoTurn)
+	}
+	return out, err
 }
+
+// codexNoTurn is how Codex's turn-bound tools refuse a call made with no turn.
+const codexNoTurn = "Missing required Codex turn metadata"
 
 func (c *Codex) setToolMeta(meta json.RawMessage) {
 	c.toolMeta = append(json.RawMessage(nil), meta...)

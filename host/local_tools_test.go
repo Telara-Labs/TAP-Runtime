@@ -35,6 +35,23 @@ func toolObject(t *testing.T, result map[string]any) map[string]any {
 	return value
 }
 
+// Existing machine-contract tests explicitly request JSON. Do not change the
+// original argument map: stagePackage identities are also passed to tap_run.
+func (c *client) callDetail(method string, params map[string]any) map[string]any {
+	c.t.Helper()
+	copy := make(map[string]any, len(params))
+	for key, value := range params {
+		copy[key] = value
+	}
+	args := make(map[string]any)
+	for key, value := range params["arguments"].(map[string]any) {
+		args[key] = value
+	}
+	args["detail"] = true
+	copy["arguments"] = args
+	return c.call(method, copy)
+}
+
 func TestTAPLocalFiveToolFlowAndDigestPin(t *testing.T) {
 	c := startServer(t, true, accept)
 	pkg := writePackage(t, `apiVersion: primitives.telara.dev/v3
@@ -43,7 +60,7 @@ metadata: {publisher: example.test, name: greeting, version: 1.0.0, description:
 execution: {entrypoint: main.sh}
 `, "echo private-output\n")
 	identity := c.stagePackage(pkg)
-	search := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "greet"}}))
+	search := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "greet"}}))
 	matches, _ := search["matches"].([]any)
 	if len(matches) != 1 {
 		t.Fatalf("search matches = %#v", search)
@@ -52,7 +69,7 @@ execution: {entrypoint: main.sh}
 	if match["ref"] != identity["ref"] || match["digest"] != identity["digest"] {
 		t.Fatalf("search identity = %#v, want %#v", match, identity)
 	}
-	loaded := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_load", "arguments": identity}))
+	loaded := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_load", "arguments": identity}))
 	if loaded["description"] != "Greet a person" || loaded["digest"] != identity["digest"] {
 		t.Fatalf("loaded = %#v", loaded)
 	}
@@ -65,11 +82,11 @@ execution: {entrypoint: main.sh}
 	if len(id) != 2 {
 		t.Fatalf("missing run id: %s", output)
 	}
-	status := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_status", "arguments": map[string]any{"run_id": id[1]}}))
+	status := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_status", "arguments": map[string]any{"run_id": id[1]}}))
 	if status["state"] != "finished" || status["package_digest"] != identity["digest"] {
 		t.Fatalf("status = %#v", status)
 	}
-	evidence := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_evidence", "arguments": map[string]any{"run_id": id[1], "limit": 10}}))
+	evidence := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_evidence", "arguments": map[string]any{"run_id": id[1], "limit": 10}}))
 	encoded, _ := json.Marshal(evidence)
 	if evidence["state"] != "finished" || evidence["package_digest"] != identity["digest"] || evidence["permissions_status"] != "available" || strings.Contains(string(encoded), "private-output") {
 		t.Fatalf("evidence exposed output or wrong state: %s", encoded)
@@ -103,7 +120,7 @@ execution: {entrypoint: main.sh}
 	if err := os.RemoveAll(filepath.Dir(staged)); err != nil {
 		t.Fatal(err)
 	}
-	saved := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_evidence", "arguments": map[string]any{"run_id": id[1], "include_manifest": true}}))
+	saved := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_evidence", "arguments": map[string]any{"run_id": id[1], "include_manifest": true}}))
 	manifest := saved["manifest"].(map[string]any)
 	if manifest["yaml"] != string(original) || saved["package_digest"] != identity["digest"] {
 		t.Fatalf("historical evidence changed: %#v", saved)

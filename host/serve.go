@@ -345,9 +345,11 @@ func (s *server) trustPackage(name, publisher, version, path, digest, declared s
 	m, ok := s.ask("elicitation/create", map[string]any{
 		"message": fmt.Sprintf("A client asked to run the primitive %q %s from %s (digest %s) for the first time on this machine. It declares:\n\n%s\n\nA primitive can only do what it declares, and each change is asked of you separately. Run it?",
 			name, strings.TrimSpace("by "+publisher+" v"+version), path, digest, declared),
+		// Goose labels a field with its name and description, not its
+		// title, so the description says what the box agrees to.
 		"requestedSchema": map[string]any{
 			"type":       "object",
-			"properties": map[string]any{"approve": map[string]any{"type": "boolean", "title": "Run this primitive", "default": false}},
+			"properties": map[string]any{"approve": map[string]any{"type": "boolean", "title": "Run this primitive", "description": "run this primitive", "default": false}},
 			"required":   []string{"approve"},
 		},
 	})
@@ -400,7 +402,7 @@ var runTool = map[string]any{
 		"properties": map[string]any{
 			"ref":    map[string]any{"type": "string", "description": "Exact publisher/name@version returned by tap_search."},
 			"digest": map[string]any{"type": "string", "description": "Exact package digest returned by tap_search."},
-			"args":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Arguments passed to the program. A primitive whose inputSchema (see tap_load) names fields takes exactly one: its input object as a JSON string, e.g. [\"{\\\"candidate\\\": \\\"abc\\\"}\"]."},
+			"args":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Arguments passed to the program. If tap_load declares input fields, pass one element: the input object encoded as a JSON string in args[0]."},
 		},
 		"required":             []string{"ref", "digest"},
 		"additionalProperties": false,
@@ -516,6 +518,7 @@ func (s *server) handle(m rpcMessage) {
 		// (autotrust.go). Decided each run and never kept.
 		var autoKinds []string
 		autoTrusted, notAuto := false, ""
+		var confirmedReads []string
 		if !canElicit {
 			if _, pm, err := packageDigest(packagePath); err == nil {
 				home, _ := os.UserHomeDir()
@@ -525,6 +528,19 @@ func (s *server) handle(m rpcMessage) {
 				} else {
 					notAuto = because
 				}
+			}
+			// Gemini CLI asked the person before this call, with the
+			// package's declarations (gemini_confirm.go): their yes trusts
+			// it, and covers the web reads it declares, kept as a fetch
+			// prompt's answer is.
+			if confirmed, why := s.geminiConfirmed("tap_run", p.Arguments); confirmed {
+				truster = func(string, string, string, string, string, string) bool { return true }
+				if _, pm, err := packageDigest(packagePath); err == nil {
+					confirmedReads = readFetchKinds(pm)
+				}
+				logf("trust      %s: the person allowed it in Gemini CLI's own confirmation", packagePath)
+			} else if why != "" && notAuto != "" {
+				notAuto += "; " + why
 			}
 		}
 		if !autoTrusted {
@@ -543,11 +559,16 @@ func (s *server) handle(m rpcMessage) {
 			s.toolError(m.ID, err.Error())
 			return
 		}
+		for _, kind := range confirmedReads {
+			if err := store.addFetchGrant(digest, kind); err != nil {
+				logf("trust      could not keep the approval %q: %v", kind, err)
+			}
+		}
 		if args.Digest == "" {
 			args.Digest = digest
 		}
 		o := Options{
-			Package: packagePath, ExpectedDigest: args.Digest, Args: args.Args, Journal: s.journal, Approve: approve, Choose: choose,
+			Package: packagePath, ExpectedDigest: args.Digest, Args: args.Args, Journal: s.journal, Approve: approve, Choose: choose, AskTool: s.toolAsker(canElicit),
 			FetchOrigins: store.fetchOrigins(args.Digest), FetchGrants: append(store.fetchGrants(args.Digest), autoKinds...),
 			RememberGrant: func(kind string) {
 				if err := store.addFetchGrant(args.Digest, kind); err != nil {
@@ -595,6 +616,7 @@ func (s *server) replyRun(id *json.RawMessage, res *Result, err error, canElicit
 	if res.RunID != "" {
 		text += "\n[run " + res.RunID + "]"
 	}
+	text += runStatsText(res)
 	if res.Unknown > 0 {
 		text += fmt.Sprintf("\n[%d change(s) have an unknown outcome and need a person to check]", res.Unknown)
 	}
@@ -697,6 +719,10 @@ func clientFor(name string) string {
 		return "gemini"
 	case "goose-cli": // goose 1.53, also under goose acp
 		return "goose"
+	case "copilot-cli": // GitHub Copilot CLI 1.0.9x
+		return "copilot"
+	case "Cursor": // cursor-agent 2026.10
+		return "cursor"
 	}
 	if name == "" {
 		return "unknown"

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,8 @@ import (
 // part of a TAP run it answers nothing and Gemini carries on. For one that is,
 // it carries the result to the run and asks Gemini to make the next call, or,
 // at the end, to call tap_result, whose short answer replaces the chain.
+// Before tap_save and a first tap_run (BeforeTool) it makes Gemini ask the
+// person (gemini_confirm.go).
 func hookCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 1 && args[0] == "windsurf" {
 		home, err := os.UserHomeDir()
@@ -35,7 +38,19 @@ func hookCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	out, err := geminiAfterTool(stdin, dir)
+	raw, err := io.ReadAll(stdin)
+	var out map[string]any
+	if err == nil {
+		var ev struct {
+			Event string `json:"hook_event_name"`
+		}
+		json.Unmarshal(raw, &ev)
+		if ev.Event == "BeforeTool" {
+			out, err = geminiBeforeTool(raw, dir)
+		} else {
+			out, err = geminiAfterTool(bytes.NewReader(raw), dir)
+		}
+	}
 	if err != nil {
 		// A hook that fails must not break the user's session: say why on
 		// standard error, which Gemini logs, and change nothing.

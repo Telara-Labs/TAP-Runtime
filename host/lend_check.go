@@ -8,22 +8,23 @@ import (
 )
 
 // unlendableTools says why a primitive cannot run on a client that cannot
-// lend its connections, or lends only pinned ones, and how to fix the
-// package; empty when it can run. On OpenCode an agent declared git as a
-// tool (capability git.shell), saved it, and every later run was refused:
-// the program was a host program, which belongs under commands, and the save
-// gave no sign it would never run there. On Kilo an agent declared an
-// unpinned "shell" tool the same way; Kilo does not list its tools, so only
-// a pinned tool can bind there.
+// lend its connections, and how to fix the package; empty when it can run.
+// On OpenCode an agent declared git as a tool (capability git.shell), saved
+// it, and every later run was refused: the program was a host program, which
+// belongs under commands, and the save gave no sign it would never run there.
+// A client that lends its connections without listing them (Kilo, Gemini CLI)
+// has each declared capability resolved when the primitive runs (resolve.go),
+// so an unpinned tool is not refused here.
 func unlendableTools(client string, m *mf.Manifest) string {
 	if client == "" || client == "unknown" || m == nil {
 		return ""
 	}
-	lends := lendsConnections(client)
-	pinsOnly := client == "kilo" || relayClient(client)
+	if lendsConnections(client) {
+		return ""
+	}
 	var cannot []string
 	for _, t := range m.Tools {
-		if t.Optional || (lends && (!pinsOnly || t.Pin != nil)) {
+		if t.Optional {
 			continue
 		}
 		cannot = append(cannot, fmt.Sprintf("%s (%s)", t.Alias, t.Capability))
@@ -31,13 +32,5 @@ func unlendableTools(client string, m *mf.Manifest) string {
 	if len(cannot) == 0 {
 		return ""
 	}
-	why := client + " cannot lend its connections to a primitive"
-	if lends {
-		why = client + " does not tell the runner which tools it has, so only a tool pinned as pin: {server: <server>, tool: <tool>} can bind"
-	}
-	fix := "or mark the tool optional: true"
-	if lends {
-		fix = "or pin the tool, or mark it optional: true"
-	}
-	return fmt.Sprintf("%s, so tools: %s can never bind here. Declare a program the primitive runs (git, kubectl) under commands:, and a web read under fetch:, %s", why, strings.Join(cannot, ", "), fix)
+	return fmt.Sprintf("%s cannot lend its connections to a primitive, so tools: %s can never bind here. Declare a program the primitive runs (git, kubectl) under commands:, and a web read under fetch:, or mark the tool optional: true", client, strings.Join(cannot, ", "))
 }

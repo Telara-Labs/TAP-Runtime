@@ -8,9 +8,10 @@
   Windsurf and Copilot CLI. Registration alone does not prove execution;
   their native connection handoff remains limited (docs/bridge-research.md).
   The source HTTP frontend can instead use an explicitly configured generic
-  MCP backend, as described below. Claude Code, Codex and Cursor have passed
-  the same real read workflow through that frontend; controlled writes and
-  the remaining clients are still pending. The runner also runs from a
+  MCP backend, as described below. On v0.1.8, one two-read workflow passed
+  once each from Claude Code, Codex, Cursor CLI, Copilot CLI, VS Code, Goose
+  and Windsurf through that frontend. It has not been repeated on a later
+  release, and no write was tested. The runner also runs from a
   terminal with no agent, for primitives that use no tools.
 - **The connections a primitive uses**, already connected in that client (for
   example Gmail), and any host program it declares (`git`, `kubectl`).
@@ -21,8 +22,9 @@ No Telara account, registry or gateway is needed.
 
 ## TAP Local collection
 
-The MCP server is named `tap`. Its fixed tools are `tap_search`, `tap_load`,
-`tap_run`, `tap_status`, and `tap_evidence`. Search finds installed v3
+The MCP server is named `tap`. Its seven fixed tools are `tap_search`,
+`tap_load`, `tap_run`, `tap_status`, `tap_evidence`, `tap_save` and
+`tap_result`. Search finds installed v3
 primitives in the user's TAP collection and saved primitive folders for
 Claude Code and Codex. Ordinary `SKILL.md` folders are not treated as TAP
 primitives. Load returns the manifest's declared inputs and effects. Run uses
@@ -164,7 +166,7 @@ irm <release>/install.ps1 | iex
 ```
 
 `<release>` is the address of a release's files, such as
-`https://github.com/Telara-Labs/TAP-Runtime/releases/download/v0.1.15`.
+`https://github.com/Telara-Labs/TAP-Runtime/releases/download/vX.Y.Z`.
 Choose the version you intend to install.
 
 The script downloads the runner for this machine and checks it against a
@@ -195,10 +197,25 @@ it again changes nothing.
 connections through Goose's ACP request `_goose/unstable/tools/call`, which
 Goose marks unstable and runs only in auto mode. A primitive's tool calls
 therefore show no Goose approval prompt, whatever mode Goose is set to.
-The runner's own gate still applies. Goose annotates no tool, so each one is
-treated as a write and needs the runner's approval, which `tap serve` asks
-for through the agent. A tool set to `never_allow` in Goose is refused.
-Tested with Goose 1.53.0.
+The runner's own gate still applies. Goose's tool list carries no
+annotations, so each tool is treated as a write and needs the runner's
+approval, which `tap serve` asks for through the agent.
+
+`goose session` shows the runner's questions (MCP elicitation) in the
+terminal as Yes/No prompts, with a number field where a change can be
+allowed more than once: saving a primitive, its first run, and each change.
+On Goose 1.53.0 these were shown and answered, and a file write, a Jira read
+through a remote MCP server and a click through Playwright MCP ran only
+after the person agreed. Time spent answering does not count toward the
+runner's handoff, so the result still reaches the model.
+
+`goose run` cannot ask anything. Goose itself confirms nothing without a
+terminal: in `approve` and `smart_approve` modes `goose run` stops with an
+error, and in `auto` mode it allows every tool (Goose's
+`crates/goose-cli/src/session/mod.rs`). So under `goose run` the runner does
+only what `auto` mode already lets the agent do unasked: saving, and a
+primitive that only reads. Every other change is refused. A tool set to
+`never_allow` in Goose is refused.
 
 **Kilo CLI: the runner is the only approval, and tools are pinned.** For a
 primitive's tool calls the runner starts its own `kilo serve` (with Kilo's
@@ -210,7 +227,16 @@ MCP server's tools, so a primitive run through Kilo must pin each tool it
 uses (`pin: {server, tool}`), as for Gemini CLI. A tool switched off
 (`tools: {"server_tool": false}`) or denied (`permission: {"server_tool":
 "deny"}`) in Kilo's configuration is refused. The Kilo Code VS Code
-extension cannot lend its connections. Tested with Kilo CLI 7.8.3.
+extension cannot lend its connections. The bridge was tested live with Kilo
+CLI 7.8.3.
+
+**Kilo CLI, Crush, OpenCode: drafts stay in the workspace.** These agents
+may refuse, or ask before, touching a folder outside the one they work in;
+`kilo run` refuses with nobody to ask. The tap-author skill therefore drafts
+a primitive, its brief, cases and receipts in the workspace's `.tap/drafts/`,
+which `tap discover brief`, `validate` and `save` keep out of git with a
+`.gitignore`. Saving copies the package into the TAP collection, written by
+the runner, so the agent never writes outside its workspace.
 
 Options: `--client AGENTS|none` and `--dir DIR` (default `~/.local/bin`).
 Windows takes `-Client` and `-Dir`, and installs to
@@ -249,23 +275,43 @@ connections in different clients.
 
 ## Gemini CLI
 
-**Experimental.** Hook execution was tested against a stand-in, not live Gemini.
-The existing `oauth-personal` profile in Gemini CLI 0.62.0 returned
-`IneligibleTierError`, so native hook approval and tool filtering could not be
-verified with that account.
+**Experimental.** Run live on Gemini CLI 0.63.0 with a Gemini API key, in
+its interactive terminal in the default approval mode and headless (`-p`) in
+yolo mode. Tool filtering (`includeTools`, `excludeTools`) has not been run.
 
 ```
 tap install --client gemini
 ```
 
 Gemini CLI has no way for a program to call its tools, but its hooks can ask
-it to make a call. So the runner registers two things in
-`~/.gemini/settings.json`: itself as the MCP server `tap`, and an `AfterTool`
-hook. When the model calls `tap_run`, the hook has Gemini make each tool call
-the primitive asks for, with Gemini's own connection and its own approval,
-carries each result to the runner, and ends with `tap_result`. The model sees
-only the primitive's output. A copy of the settings file as it was is kept
-beside it as `settings.json.tap-backup`.
+it to make a call. So the runner registers three things in
+`~/.gemini/settings.json`: itself as the MCP server `tap`, an `AfterTool`
+hook and a `BeforeTool` hook. When the model calls `tap_run`, the `AfterTool`
+hook has Gemini make each tool call the primitive asks for, with Gemini's own
+connection, carries each result to the runner, and ends with `tap_result`.
+The model sees only the primitive's output. A copy of the settings file as it
+was is kept beside it as `settings.json.tap-backup`.
+
+**Approval is Gemini's own.** Gemini shows no other program's prompts (it
+does not support MCP elicitation), so the runner uses Gemini's confirmation:
+
+- Each tool call a primitive makes is a call Gemini makes, confirmed the way
+  Gemini confirms a call from its model. In the default approval mode it asks
+  before each one; "No" stops the call.
+- Before `tap_save`, and before the first run of a primitive that is not yet
+  trusted, the `BeforeTool` hook makes Gemini ask, even in yolo mode and
+  after "allow for this session", with the runner's question in the dialog:
+  what the primitive declares. Allowing a first run trusts that version and
+  allows the `GET` and `HEAD` requests it declares.
+- A change Gemini never sees (a file write, a program, a web write) cannot be
+  confirmed there and is refused.
+- Headless (`gemini -p`) nobody can answer, so the hook asks nothing. There a
+  save works only in yolo mode, a primitive that only reads runs where
+  Gemini's settings let it read unasked, and anything else needs `tap trust`.
+
+In the default mode Gemini also asks before each of TAP's own tools, searches
+included. Choosing "Allow all server tools for this session" for `tap` keeps
+the save and first-run questions.
 
 Gemini does not tell other programs which tools it has, so on Gemini a
 primitive must pin each tool it uses: `pin: {server: <server>, tool: <tool>}`,
@@ -274,22 +320,64 @@ with the server's name as it appears in Gemini's settings.
 ## VS Code (GitHub Copilot)
 
 **Preview.** Extension source is in [`vscode/`](../vscode/README.md).
-The published v0.1.15 release has no VSIX asset. A locally packaged VSIX can
-be installed from VS Code's Extensions view, under "Install from VSIX...".
+Releases include `tap-vscode-<version>.vsix` (0.2.18 does). Install it from
+VS Code's Extensions view, under "Install from VSIX...".
 
 It registers the runner with VS Code as the MCP server "TAP Runtime", so there is
 nothing to add to `mcp.json`, and it lets the runner call the tools VS Code
 exposes through its public tool API. In VS Code 1.140, the Local chat harness
 exposed the tested real MCP tools, while the newer Copilot SDK harness omitted
 MCP tools from `lm.tools`. Connecting a server alone does not establish its
-visibility through this extension. Calls use VS Code's connections. The runner obtains required approval
-itself; extension-dispatched calls cannot rely on VS Code's native confirmation.
-Tools bind by name and schema, as on Claude Code and Codex. Native Copilot on
-v0.1.15 rendered separate package-trust and fetch-origin forms; an approved
-public GET passed and a later declined fetch was refused before execution.
+visibility through this extension. Calls use VS Code's connections. The runner
+names an MCP tool by its server and the server's own tool name, as on other
+clients (VS Code lists it as `mcp_<server>_<tool>`), so pins match it.
+VS Code gives tool input schemas, so tools bind by name and schema, as on
+Codex. Claude Code gives no schemas, so there a tool binds by name only (see
+T18 in the [threat model](threat-model.md)).
+
+**Who confirms a change.** VS Code itself, in its own UI. When Copilot agent
+mode calls `tap_run`, VS Code asks the person first (`tap_run` is not
+read-only), unless they have set it to be approved automatically. Each change
+the primitive then makes (a file write, a command, a request, a tool that is
+not known to be read-only) is asked by the runner as an MCP elicitation,
+which VS Code's MCP client shows: in the chat that called `tap_run`, or,
+with no chat, as a notification whose Respond button opens the form. Only an
+explicit yes lets the change happen. VS Code's own auto-approval settings do
+not answer these forms. A call the extension makes for a primitive carries
+no chat invocation token, because an extension only gets one from a chat
+request it handles itself; for such a call VS Code shows a modal dialog
+before a tool that is not read-only, after the runner's form (read in VS
+Code's source; the test profile approves tool calls automatically, so the
+run did not show that dialog). Measured on
+current source with VS Code 1.141 and a profile of the test's own
+(`go test ./host -run LiveVSCodeConfirm -live-vscode-confirm`): a file write
+approved in VS Code's form was written and a declined one was refused before
+anything was written; a Playwright browser primitive approved in the form
+passed, and declined, made no browser call. VS Code gives no tool
+annotations to extensions, so a gateway such as Telara, whose catalog tool
+must be known to be read-only before the runner trusts it, is not bound
+through VS Code.
 
 The extension finds `tap` in `~/.local/bin`, on PATH, or at the
 `tapRuntime.path` setting. macOS and Linux only for now.
+
+## Copilot CLI
+
+`tap install --client copilot-cli` runs `copilot mcp add tap -- <path>/tap serve`.
+Copilot CLI asks the person itself before it calls a tool that is not
+read-only ("Do you want to use this tool?"), so `tap_save` and `tap_run` are
+asked there first. It also shows the runner's own questions: Copilot CLI
+advertises MCP elicitation, and in its interactive terminal UI each one is a
+form ("tap needs information"; enter accepts, ctrl+d declines). In `copilot
+-p` it declines every form, so a save or a change is refused there. Measured
+on current source with Copilot CLI 1.0.94, a terminal and a runner home of
+the test's own, the forms answered at the keyboard by the test
+(`go test ./host -run LiveCopilotCLI -live-copilot-cli`): a primitive was
+saved with `tap_save`, found again with `tap_search` in a new session, and
+run; its file write happened after a yes and was refused after a no. With
+`--mcp-url` (Copilot CLI does not lend its own connections to a server it
+starts), a Jira comment through the Telara gateway was posted after a yes and
+refused after a no, and a Playwright browser primitive passed after a yes.
 
 ## claude.ai, in the browser
 

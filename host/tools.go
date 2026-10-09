@@ -37,6 +37,10 @@ type binding struct {
 	// PinnedServer is the server name the manifest pins when this client
 	// connects that server under another name (Server).
 	PinnedServer string `json:"pinned_server,omitempty"`
+	// ResolvedBy says how the tool was found on a client that does not list
+	// its tools, and Verified what was checked before it bound (resolve.go).
+	ResolvedBy string `json:"resolved_by,omitempty"`
+	Verified   string `json:"verified,omitempty"`
 	// ContractChecked says the tool's input schema was checked against the
 	// capability's contract at admission. ResultChecked says each answer is
 	// checked against the contract as it arrives. Schema is the digest of
@@ -55,6 +59,7 @@ type binding struct {
 	dispatch        *telaraDispatch `json:"-"`
 	operationArgs   map[string]any  `json:"-"`
 	operationEffect string          `json:"-"`
+	browser         *browserDriver  `json:"-"` // the runner's own browser capability
 }
 
 // admission is the outcome of resolving a manifest against a client.
@@ -104,22 +109,61 @@ func bridgeName(name string) string {
 // discover registry's Bridge flag must agree (TestRegistryBridgeMatchesRunner).
 func lendsConnections(client string) bool {
 	switch client {
-	case "claude", "codex", "goose", "kilo":
+	case "claude", "codex", "goose", "kilo", "copilot", "opencode", "crush", "cursor", "cursor-cli":
 		return true
 	}
 	return relayClient(client)
 }
 
-func openBridge(client string, p bridge.Proc) (bridge.Bridge, error) {
+// chromeServer is the server Claude Code loads only when started with --chrome.
+const chromeServer = "claude-in-chrome"
+
+// usesChrome says whether m pins a Claude in Chrome tool, or declares the
+// runner's browser, which Claude in Chrome may provide.
+func usesChrome(m *mf.Manifest) bool {
+	for _, t := range m.Tools {
+		if t.Pin != nil && t.Pin.Server == chromeServer {
+			return true
+		}
+		if t.Pin == nil && isBrowserCapability(t.Capability) {
+			return true
+		}
+	}
+	return false
+}
+
+func openBridge(client string, p bridge.Proc, m *mf.Manifest) (bridge.Bridge, error) {
 	switch client {
 	case "claude":
+		// The second copy of Claude Code loads Claude in Chrome only with
+		// --chrome. Pass it only for a primitive that pins that server or
+		// declares the runner's browser, so every other run starts as before.
+		if m != nil && usesChrome(m) {
+			return bridge.NewClaudeIn(p, "--chrome")
+		}
 		return bridge.NewClaudeIn(p)
 	case "codex":
 		return bridge.NewCodexIn(p)
 	case "goose":
 		return bridge.NewGooseIn(p)
-	case "kilo":
-		return bridge.NewKiloIn(p)
+	case "kilo", "opencode":
+		// The person's own session, through the TAP relay plugin in it,
+		// when one is running; else the runner's own connections to the
+		// servers in the client's configuration that carry no secret.
+		if b, err := bridge.NewSessionRelay(client, p); err == nil {
+			return b, nil
+		} else if !bridge.IsNoSessionRelay(err) {
+			logf("%-10s the session's TAP relay did not answer (%v); using the client's configuration", client, err)
+		}
+		return bridge.NewConfigBridgeIn(client, p)
+	case "copilot":
+		return bridge.NewCopilotIn(p)
+	case "crush":
+		// Crush has no way to run a tool for another program: the runner
+		// connects to the servers in Crush's own configuration.
+		return bridge.NewConfigBridgeIn("crush", p)
+	case "cursor", "cursor-cli":
+		return bridge.NewConfigBridgeIn("cursor", p)
 	case "":
 		return nil, fmt.Errorf("this primitive declares tools and no client was detected; pass --client claude or --client codex")
 	}
@@ -236,6 +280,23 @@ func admitOnce(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 	}
 	a.inv = inv
 	for _, d := range decls {
+		if isBrowserCapability(d.Capability) {
+			bd, refusal, absent, err := admitBrowser(d, b, inv)
+			if err != nil {
+				return nil, false, err
+			}
+			if refusal != "" {
+				missing = missing || absent
+				if d.Optional {
+					a.Skipped = append(a.Skipped, d.Alias)
+					logf("optional   %-10s not bound: %s", d.Alias, refusal)
+					continue
+				}
+				return nil, missing, fmt.Errorf("tool %q (%s): %s", d.Alias, d.Capability, refusal)
+			}
+			a.Bindings = append(a.Bindings, bd)
+			continue
+		}
 		bd := binding{Alias: d.Alias, Capability: d.Capability, Declared: d.Effect}
 		refusal, absent := "", false
 		contract := byLabel[d.Capability]
@@ -509,6 +570,9 @@ func callTool(a *admission, b bridge.Bridge, rq request, approve bool, journal i
 		logf("  REFUSED  call %s  (not a bound alias)", rq.Alias)
 		record("refused_undeclared", nil)
 		return reply{Refused: "alias not declared, or declared optional and not bound"}
+	}
+	if bd.browser != nil {
+		return callBrowser(bd, rq, approve, journal)
 	}
 	var effect, refused, nested string
 	if rq.callAssessment != nil {

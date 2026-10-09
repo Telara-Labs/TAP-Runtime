@@ -1,7 +1,17 @@
 # Connection previews
 
-Call `tap_load` with an installed primitive's exact `ref` and `digest`. In
-addition to its declarations, the result contains `connection_preview`.
+Call `tap_load` with an installed primitive's exact `ref` and `digest` for a
+compact text summary of inputs, permissions and connections. TAP uses standard
+MCP text content, so clients do not need a custom renderer. Exact identities
+and complete input constraints are retained; empty declaration sections and
+output schemas are kept out of the default view. Each binding shows its
+resolution status, base effect and any approval or runtime-check requirement.
+
+For scripts or full manifest inspection, add `"detail": true`. This returns
+the complete JSON contract, including `connection_preview`, output schemas,
+capability definitions and pins. There is one payload per response, avoiding
+duplicate text/structured content. This is an explicit change to the default
+text format: existing JSON parsers must request `detail: true`.
 
 ```json
 {

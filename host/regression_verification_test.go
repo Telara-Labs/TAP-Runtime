@@ -135,7 +135,7 @@ func TestVerificationStatusEvidenceAfterUnknownOutcomeResume(t *testing.T) {
 	}
 	id := onlyRun(t, c.runs)
 	inspect := func(tool string) map[string]any {
-		return toolObject(t, c.call("tools/call", map[string]any{"name": tool, "arguments": map[string]any{"run_id": id}}))
+		return toolObject(t, c.callDetail("tools/call", map[string]any{"name": tool, "arguments": map[string]any{"run_id": id}}))
 	}
 	if got := inspect("tap_status"); got["state"] != "interrupted" {
 		t.Fatalf("interrupted status: %#v", got)
@@ -178,7 +178,7 @@ func TestVerificationStatusEvidenceAfterFailedGuest(t *testing.T) {
 		t.Fatalf("failed guest: result=%+v err=%v", res, err)
 	}
 	for _, tool := range []string{"tap_status", "tap_evidence"} {
-		got := toolObject(t, c.call("tools/call", map[string]any{"name": tool, "arguments": map[string]any{"run_id": res.RunID}}))
+		got := toolObject(t, c.callDetail("tools/call", map[string]any{"name": tool, "arguments": map[string]any{"run_id": res.RunID}}))
 		if got["state"] != "finished" {
 			t.Fatalf("%s failed state: %#v", tool, got)
 		}
@@ -254,11 +254,11 @@ func TestVerificationSearchBeyondTwentyPackages(t *testing.T) {
 	search := func(args map[string]any) map[string]any {
 		return c.call("tools/call", map[string]any{"name": "tap_search", "arguments": args})
 	}
-	all := toolObject(t, search(map[string]any{"query": "dev.verify"}))
+	all := toolObject(t, search(map[string]any{"query": "dev.verify", "detail": true}))
 	if matches, _ := all["matches"].([]any); len(matches) != 20 {
 		t.Fatalf("default search beyond 20 entries: %#v", all)
 	}
-	last := toolObject(t, search(map[string]any{"query": "probe-24"}))
+	last := toolObject(t, search(map[string]any{"query": "probe-24", "detail": true}))
 	if matches, _ := last["matches"].([]any); len(matches) != 1 {
 		t.Fatalf("last primitive is undiscoverable by specific query: %#v", last)
 	}

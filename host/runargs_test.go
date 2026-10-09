@@ -28,7 +28,7 @@ func TestRunRefusesFlagStyleArgsForAnInputSchema(t *testing.T) {
 		return c.call("tools/call", map[string]any{"name": "tap_run", "arguments": map[string]any{"ref": identity["ref"], "digest": identity["digest"], "args": args}})
 	}
 	bad := call("--candidate", "3c39fceb", "--base_tag", "v19.4.0")
-	if bad["isError"] != true || !strings.Contains(toolText(t, bad), `{\"candidate\": ..., \"base_tag\": ...}`) {
+	if bad["isError"] != true || !strings.Contains(toolText(t, bad), `{"candidate": ..., "base_tag": ...}`) || strings.Contains(toolText(t, bad), `\"`) {
 		t.Fatalf("flag-style args = %#v", bad)
 	}
 	missing := call(`{"candidate": "3c39fceb"}`)
@@ -39,7 +39,7 @@ func TestRunRefusesFlagStyleArgsForAnInputSchema(t *testing.T) {
 	if ok["isError"] == true || !strings.Contains(toolText(t, ok), "program-ran") {
 		t.Fatalf("JSON object args = %#v", ok)
 	}
-	loaded := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_load", "arguments": identity}))
+	loaded := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_load", "arguments": identity}))
 	if hint, _ := loaded["args"].(string); !strings.Contains(hint, "one element") {
 		t.Fatalf("tap_load gives no args hint: %#v", loaded)
 	}

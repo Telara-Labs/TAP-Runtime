@@ -9,13 +9,14 @@ import (
 	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 )
 
-// Found testing OpenCode: the agent declared git as a tool, saved the
-// package, and every later run was refused because OpenCode cannot lend its
-// connections. The save now says so, with the fix.
+// Found testing OpenCode, before it had a bridge: the agent declared git as
+// a tool, saved the package, and every later run was refused because the
+// client could not lend its connections. The save now says so, with the
+// fix. Windsurf still cannot lend.
 func TestSaveRefusesToolsTheClientCannotLend(t *testing.T) {
 	saveHome(t)
 	old := testClientName
-	testClientName = "opencode"
+	testClientName = "windsurf"
 	t.Cleanup(func() { testClientName = old })
 	c := startServer(t, true, accept)
 	draft := authoredDraft(t)
@@ -31,15 +32,15 @@ func TestSaveRefusesToolsTheClientCannotLend(t *testing.T) {
 
 func TestUnlendableToolsOnlyNamesRequiredToolsOnClientsThatCannotLend(t *testing.T) {
 	m := &mf.Manifest{Tools: []mf.Tool{{Alias: "git", Capability: "git.shell", Effect: "read"}, {Alias: "mail", Capability: "gmail.threads.search", Effect: "read", Optional: true}}}
-	if why := unlendableTools("opencode", m); !strings.Contains(why, "git (git.shell)") || strings.Contains(why, "mail") {
-		t.Fatalf("opencode: %q", why)
+	if why := unlendableTools("windsurf", m); !strings.Contains(why, "git (git.shell)") || strings.Contains(why, "mail") {
+		t.Fatalf("windsurf: %q", why)
 	}
 	for _, client := range []string{"claude", "codex", "goose", "", "unknown"} {
 		if why := unlendableTools(client, m); why != "" {
 			t.Fatalf("%s: %q", client, why)
 		}
 	}
-	if why := unlendableTools("crush", &mf.Manifest{Tools: []mf.Tool{{Alias: "mail", Optional: true}}}); why != "" {
+	if why := unlendableTools("windsurf", &mf.Manifest{Tools: []mf.Tool{{Alias: "mail", Optional: true}}}); why != "" {
 		t.Fatalf("optional only: %q", why)
 	}
 }

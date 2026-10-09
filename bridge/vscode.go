@@ -19,8 +19,11 @@ import (
 // runner as an MCP server and gives it a private local socket; over it the
 // runner lists the editor's language model tools, the MCP servers the user
 // connected included, and calls them with vscode.lm.invokeTool. The editor
-// makes each call with its own connection, and shows its own confirmation
-// where the tool asks for one.
+// makes each call with its own connection. Such a call carries no chat
+// invocation token, so VS Code does not show it in the chat: a tool that asks
+// for confirmation puts up a modal dialog instead, which cancellation does
+// not close. The runner therefore asks the person itself, with an MCP
+// elicitation that VS Code shows in the chat that called tap_run.
 type VSCode struct {
 	conn net.Conn
 	sc   *bufio.Scanner
@@ -29,6 +32,9 @@ type VSCode struct {
 	n       int
 	version string
 	askSet  map[string]bool
+	// editorNames maps a tool as the runner names it (server and the
+	// server's own tool name) back to the name VS Code calls it by.
+	editorNames map[[2]string]string
 }
 
 // NewVSCode connects to the extension's socket.
@@ -102,6 +108,7 @@ func (v *VSCode) Asks(t bind.Tool) (bool, error) {
 		v.askSet = cached
 		v.mu.Unlock()
 	}
+	t.Name = v.editorName(t)
 	for key := range cached {
 		if askKeyCovers(key, t) {
 			return true, nil
@@ -166,6 +173,7 @@ func (v *VSCode) Inventory() ([]bind.Tool, error) {
 	}
 	list, _ := r["tools"].([]any)
 	var out []bind.Tool
+	names := map[[2]string]string{}
 	for _, x := range list {
 		t, _ := x.(map[string]any)
 		name, _ := t["name"].(string)
@@ -173,9 +181,63 @@ func (v *VSCode) Inventory() ([]bind.Tool, error) {
 			continue
 		}
 		schema, _ := t["inputSchema"].(map[string]any)
-		out = append(out, bind.Tool{Server: serverOf(t), Name: name, Schema: schema, Annotated: bind.Unknown})
+		server, tool := splitEditorName(name, t)
+		names[[2]string{server, tool}] = name
+		out = append(out, bind.Tool{Server: server, Name: tool, Schema: schema, Annotated: bind.Unknown})
 	}
+	v.mu.Lock()
+	v.editorNames = names
+	v.mu.Unlock()
 	return out, nil
+}
+
+// splitEditorName names an MCP tool by its server and the server's own tool
+// name, as every other client does, so pins, gateway adapters and capability
+// matching see the same names in VS Code. VS Code lists an MCP tool as
+// mcp_<server>_<tool>, where <server> is the server's own name lowercased,
+// with characters other than letters, digits, "_", "." and "-" made "_", and
+// cut to 13 characters (VS Code's McpPrefixGenerator); a dot in the tool's
+// name becomes "_". A tag "mcp:<server>" names the server outright. Without
+// one, the server is read up to the first "_", which is wrong only for a
+// server whose own name has one; the tool is then still called by its VS
+// Code name. Built-in tools keep their name, under "vscode".
+func splitEditorName(name string, t map[string]any) (server, tool string) {
+	server = serverOf(t)
+	rest, isMCP := strings.CutPrefix(name, "mcp_")
+	if !isMCP {
+		return server, name
+	}
+	if server != "vscode" {
+		if after, ok := strings.CutPrefix(rest, editorPrefix(server)+"_"); ok && after != "" {
+			return server, after
+		}
+		return server, name
+	}
+	if i := strings.Index(rest, "_"); i > 0 && i < len(rest)-1 {
+		return rest[:i], rest[i+1:]
+	}
+	return server, name
+}
+
+var notInPrefix = regexp.MustCompile(`[^a-z0-9_.-]+`)
+
+// editorPrefix is a server name as VS Code writes it inside a tool name.
+func editorPrefix(server string) string {
+	s := notInPrefix.ReplaceAllString(strings.ToLower(server), "_")
+	if len(s) > 13 {
+		s = s[:13]
+	}
+	return s
+}
+
+// editorName is the name VS Code calls a tool by.
+func (v *VSCode) editorName(t bind.Tool) string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if n, ok := v.editorNames[[2]string{t.Server, t.Name}]; ok {
+		return n
+	}
+	return t.Name
 }
 
 // serverOf names the tool's source as the editor tags it, or "vscode" when
@@ -198,7 +260,7 @@ func (v *VSCode) Call(t bind.Tool, args map[string]any) (string, error) {
 	if args == nil {
 		args = map[string]any{}
 	}
-	r, err := v.request(map[string]any{"op": "call", "name": t.Name, "input": args})
+	r, err := v.request(map[string]any{"op": "call", "name": v.editorName(t), "input": args})
 	if err != nil {
 		return "", err
 	}

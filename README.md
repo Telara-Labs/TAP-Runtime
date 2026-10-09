@@ -91,29 +91,36 @@ applies:
 | Agent | State | How the runner reaches its tools | Approval |
 |---|---|---|---|
 | Claude Code | supported | Claude Code's control channel | Claude Code's, plus the runner's |
-| Codex (CLI and app) | supported | Codex's app-server | Codex's, plus the runner's |
-| Gemini CLI | experimental | a hook that has Gemini make each call | Gemini's |
-| Goose | experimental | Goose's ACP tool call (marked unstable by Goose) | the runner's only |
+| Codex | CLI supported; app preview | Codex's app-server. Codex's browser (`cua_repl`) answers only inside a Codex turn, so it is lent from a Codex session, never from a runner started elsewhere; connected-tool reads from the app are not yet verified | Codex's, plus the runner's |
+| Gemini CLI | experimental | a hook that has Gemini make each call | Gemini's own confirmation: it confirms each call, and a hook has it ask before a save or a first run; nothing is asked under `-p` |
+| Goose | experimental | Goose's ACP tool call (marked unstable by Goose) | the runner's only, shown as prompts by `goose session`; `goose run` cannot show them |
 | Kilo CLI | experimental | `kilo serve`'s MCP call route (marked experimental by Kilo); tools must be pinned | the runner's only |
-| VS Code (GitHub Copilot) | preview | an extension using tools exposed by VS Code; Local chat MCP reads exercised, Copilot SDK visibility limited | the runner's; native trust and fetch forms exercised; extension write/stall release acceptance remains separate |
+| VS Code (GitHub Copilot) | preview | an extension using tools exposed by VS Code; Local chat MCP reads exercised, Copilot SDK visibility limited | VS Code's: its confirmation of `tap_run`, then the runner's forms shown in VS Code's own UI; a write approved and declined there on current source (VS Code 1.141) |
 | claude.ai (web) | preview | a page published as an Artifact: [docs/web.md](docs/web.md) | only connector tools annotated read-only are permitted |
 
-What has been run end to end, on a clean Linux machine with nothing saved,
-asking only the task and never naming TAP. Ask 1 is a first-time task (the
-agent should search TAP and offer nothing); ask 2 is the same kind of task in
-a new session (it should offer to save it, and save it once the person says
-yes); ask 3, in another new session, should run the saved primitive.
+What has been run end to end on the current source (not yet released), on a
+clean Linux container with nothing saved, asking only the task and never
+naming TAP. Ask 1 is a first-time task (the agent should search TAP and offer
+nothing); ask 2 is the same kind of task in a new session (it should offer to
+save it, and save it once the person says yes); ask 3, in another new session,
+should run the saved primitive. Each count is rounds that passed out of rounds
+run. Every agent except Claude Code and Codex used Gemini 3 Flash.
 
-| Agent (model) | Shows TAP's prompts | Ask 1 | Ask 2: offer, save | Ask 3: reuse |
+| Agent | Shows TAP's prompts | Ask 1 | Ask 2: offer, save | Ask 3: reuse |
 |---|---|---|---|---|
-| Claude Code (Claude) | yes | pass 6/6 | pass 4/4 | pass 4/4 |
-| Codex (GPT) | yes | pass 3/3 | 2 of 3 offered; saved | pass 2/2 |
-| Goose, interactive (DeepSeek V4.1 Flash) | yes | pass | pass | pass |
-| Goose, `goose run` | no | pass | pass | refused: no terminal for the prompt |
-| OpenCode (DeepSeek V4.1 Flash) | no | pass | pass (saved from its shell) | pass since v0.2.7 (reads-only, no prompt needed) |
-| Kilo CLI (DeepSeek V4.1 Flash) | no | pass | pass | pass since v0.2.7 (reads-only, no prompt needed) |
-| Gemini CLI, `-p` (Gemini) | no | pass | offered; its headless policy blocked the save | not reached |
-| Crush (DeepSeek V4.1 Flash) | no | answered without calling TAP | same | same |
+| Claude Code (Claude), terminal UI | yes: save, run and web-origin prompts shown and answered | pass 3/3 | pass 3/3 | pass 3/3 |
+| Codex (GPT) | not reached in these rounds | pass 2/2 | offered 1 of 2; not completed (stopped before the account's usage limit ran out) | not reached |
+| Goose, interactive | yes: save, first-run, write and limit prompts shown and answered in `goose session` (direct runs: a file write, a Jira read through a remote MCP gateway, a Playwright click) | 0/2 with a remote MCP gateway also connected: the model used the gateway's tools and never searched TAP | 0/1: told it was asked before, did not offer | 0/1: answered with the gateway's tools |
+| Goose, `goose run` | no | pass 3/3 | 0/3: no offer, or no answer within 15 minutes | not reached |
+| OpenCode | no | pass 3/3 | pass 3/3, drafted in the workspace | pass 3/3, reads-only with no prompt |
+| Kilo CLI, `kilo run` | no | pass 3/3 | pass 3/3, drafted in the workspace with no permission prompt | pass 3/3, reads-only with no prompt |
+| Gemini CLI, `-p` | no | pass 3/3 | 0/3: no answer within 15 minutes (model API errors in 2 of 3) | not reached |
+| Gemini CLI, interactive, default approval mode (with a remote MCP gateway and Playwright MCP also connected) | Gemini's own confirmation, with TAP's save and first-run questions in it | pass 4/6 (the other 2 used the gateway's tools first and never searched TAP) | pass 5/5: offered and saved after the person allowed it, 4 through `tap_save` | 0/3: one refused (a capability with no matching tool, which Gemini cannot list), one refused (a dispatcher tool whose read effect could not be verified), one ran a saved program that made no tool calls |
+| Crush, `crush run` | no | pass 3/3 | pass 3/3, drafted in the workspace | pass 2/3 (third: the saved package declared a web read as a tool instead of under `fetch:`, which Crush cannot lend) |
+
+On every ask 2 where it was recorded (all agents but Claude Code and Codex),
+TAP's search told the agent the task had been asked before; a missing offer or
+save above is the agent's or its model's behaviour.
 
 An agent that cannot show a prompt is never given an approval for a change.
 Since v0.2.7 a primitive that only reads runs there when the agent's own
@@ -244,7 +251,17 @@ The tool list does not grow with the number of primitives. A client that
 cannot show an approval prompt receives no implicit approval. Package trust,
 fetch grants and tool bindings are separate owner decisions.
 
-`tap_load` adds a flat `connection_preview` for the exact requested ref and
+Search, load, status and evidence return compact readable text by default using
+standard MCP content. TAP sends one text representation, without duplicating the
+payload in `structuredContent`. Input constraints, exact references/digests,
+permission declarations and connection warnings remain visible. Full output
+schemas and capability definitions are available with `tap_load`'s
+`detail: true`; all four inspection tools accept this option to return their
+complete JSON contract for programmatic callers. Scripts that parse these
+tools' text as JSON must request it explicitly. Run/result program output and approval
+behavior are unchanged. Clients still control the surrounding tool-call UI.
+
+`tap_load` shows a connection summary for the exact requested ref and
 digest. It resolves possible tool aliases against one current host inventory,
 showing connection and tool names, declared and base effects, and write gates.
 Missing, ambiguous and refused aliases stay visible. Dispatcher operations
@@ -252,6 +269,7 @@ require a runtime effect check. A client without live inventory reports
 `inventory_unavailable`; it does not claim the package's pins are connected.
 The preview executes no tools, prompts nobody and grants no trust. Execution
 resolves again. See [connection previews](docs/connection-preview.md).
+The full flat `connection_preview` object is included with `detail: true`.
 
 `tap_evidence` ties a run to its executed package digest and saved manifest.
 It returns declared tool, command, file and network permissions from that

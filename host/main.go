@@ -35,7 +35,6 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 
-	"github.com/Telara-Labs/TAP-Runtime/bind"
 	"github.com/Telara-Labs/TAP-Runtime/bridge"
 	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 	"github.com/Telara-Labs/TAP-Runtime/discover"
@@ -139,7 +138,11 @@ type Options struct {
 	// Choose settles two servers that fit one capability equally well. Nil
 	// means nobody can be asked, and the run is refused until a choice is kept
 	// (`tap bind`).
-	Choose    Chooser
+	Choose Chooser
+	// AskTool asks the client which of its tools fills a capability that
+	// nothing else resolved, on a client that does not list its tools. Nil
+	// means nobody can be asked, and the run is blocked with the question.
+	AskTool   ToolAsker
 	Journal   io.Writer
 	InterpDir string
 	CacheDir  string
@@ -202,6 +205,14 @@ type Result struct {
 	Ran       int
 	Refused   int
 	Admission *admission
+	// Calls counts the tool calls this run made (not replayed, not refused),
+	// FailedCalls those that failed, Elapsed the run's wall time and Inputs
+	// how many items it was given (runstats.go). They tell the caller what
+	// the run cost, which is what an author improves.
+	Calls       int
+	FailedCalls int
+	Elapsed     time.Duration
+	Inputs      int
 }
 
 // usageText is what `tap` with no arguments, and `tap help`, print.
@@ -212,7 +223,7 @@ const usageText = `usage: tap [--approve] [--resume RUN] <package-dir> [args...]
        tap install --client <agent>|all|detected [--remove] [--print]
        tap serve
        tap trust PACKAGE-DIR
-       tap bind --client NAME CAPABILITY SERVER
+       tap bind --client NAME CAPABILITY SERVER[/TOOL]
        tap fetch
        tap diff [--json] <old-package-dir> <new-package-dir>
        tap manifest check|complete <package-dir>
@@ -513,13 +524,8 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	br := o.Bridge
 	if len(m.Tools) > 0 {
 		if br == nil && o.relay != nil {
-			// The client does not say which tools it has, so a tool binds
-			// only where the primitive names it.
-			for _, d := range m.Tools {
-				if d.Pin == nil && !d.Optional {
-					return nil, fmt.Errorf("tool %q: %s does not tell the runner which tools it has, so each tool must be pinned, as pin: {server: <server>, tool: <tool>}", d.Alias, o.relayClient)
-				}
-			}
+			// The client does not say which tools it has: the declared
+			// capabilities are resolved below (resolve.go).
 			br = newRelayBridge(o.relay, o.relayClient, o.relayVersion, m.Tools, o.Proc.Wd())
 		}
 		if br == nil && o.VSCodeSocket != "" {
@@ -546,7 +552,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				// reach Codex's app-server, or the network, from there.
 				return nil, fmt.Errorf("this command runs inside Codex's sandbox, which has no network, so the runner cannot borrow Codex's connections from here; save the package (tap discover save, approved to run outside the sandbox) and run it with the tap_run tool")
 			}
-			br, err = openBridge(c, o.Proc)
+			br, err = openBridge(c, o.Proc, &m)
 			if err != nil {
 				if why := unlendableTools(c, &m); why != "" {
 					return nil, fmt.Errorf("%s", why)
@@ -554,20 +560,21 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				return nil, err
 			}
 			defer br.Close()
-			// A client that cannot list its tools (Kilo) is given the
-			// primitive's pinned tools, as the Gemini relay is.
-			if pb, ok := br.(bridge.PinnedOnly); ok {
-				var pins []bind.Tool
-				for _, d := range m.Tools {
-					if d.Pin == nil {
-						if !d.Optional {
-							return nil, fmt.Errorf("tool %q: %s does not tell the runner which tools it has, so each tool must be pinned, as pin: {server: <server>, tool: <tool>}", d.Alias, c)
-						}
-						continue
+		}
+		// A client that cannot list its tools (Kilo, the Gemini relay) has
+		// each declared capability resolved on its own: pins, a kept
+		// mapping, known names on configured servers, then one question.
+		decls := m.Tools
+		var resolved map[string]resolution
+		if pb, ok := br.(bridge.PinnedOnly); ok {
+			decls, resolved, err = resolveUnlisted(&m, pb, newFileBindings(defaultBindingsPath()), o.AskTool)
+			if err != nil {
+				if run != nil && o.Resume == "" {
+					if recordErr := run.Finish("refused", time.Now().UTC()); recordErr != nil {
+						err = errors.Join(err, fmt.Errorf("recording admission refusal: %w", recordErr))
 					}
-					pins = append(pins, bind.Tool{Server: d.Pin.Server, Name: d.Pin.Tool, Annotated: bind.Unknown})
 				}
-				pb.UsePins(pins)
+				return nil, err
 			}
 		}
 		choose := o.Choose
@@ -577,7 +584,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				return o.Choose(p)
 			}
 		}
-		adm, err = admitWith(newFileBindings(defaultBindingsPath()), choose, m.Tools, br, m.Capabilities...)
+		adm, err = admitWith(newFileBindings(defaultBindingsPath()), choose, decls, br, m.Capabilities...)
 		if err != nil {
 			// A fresh run refused admission before any backend call began.
 			// A resumed run may already contain an unanswered write, so leave
@@ -589,6 +596,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			return nil, err
 		}
+		noteResolutions(adm, resolved)
+		// Tabs the runner's browser opened are closed when the run ends,
+		// whether or not the program closed them.
+		defer adm.closeBrowsers()
 		logf("client     %s %s", adm.Client, adm.Version)
 		if !adm.Tested {
 			logf("WARNING    this runner was not run against %s %s; proceeding (recorded on the receipt)", adm.Client, adm.Version)
@@ -605,6 +616,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			if b.ResultChecked {
 				note += "; answers are checked"
+			}
+			if b.ResolvedBy != "" {
+				note += "; resolved by " + b.ResolvedBy
 			}
 			logf("bound      %-10s %-26s -> %s / %s  score %.3f  declared %s, annotated %s  (%s)", b.Alias, b.Capability, b.Server, b.Tool, b.Score, b.Declared, b.Annotated, note)
 			if b.Gated {
@@ -1051,6 +1065,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 						res.Refused++
 					} else if !replayed && rq.Method != "tools" && rq.Method != "canwrite" {
 						res.Ran++
+						if rq.Method == "call" {
+							res.Calls++
+							if rp.Exit != 0 {
+								res.FailedCalls++
+							}
+						}
 					}
 					rp.ID = rq.ID
 					encMu.Lock()
@@ -1109,6 +1129,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return nil, fmt.Errorf("the primitive ended without a result")
 	}
 	res.Exit, res.Stdout, res.Stderr = final.Exit, final.Stdout, final.Stderr
+	res.Elapsed, res.Inputs = time.Since(t0), inputItems(o.Args)
 	outcome = "completed"
 	if res.Exit != 0 {
 		outcome = "failed"

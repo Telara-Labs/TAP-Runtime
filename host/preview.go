@@ -57,7 +57,7 @@ func (s *server) previewConnections(m *mf.Manifest) connectionPreview {
 	case s.vscodeSocket != "":
 		b, err = bridge.NewVSCode(s.vscodeSocket)
 	default:
-		b, err = openBridge(client, s.proc)
+		b, err = openBridge(client, s.proc, m)
 	}
 	if err != nil {
 		// Client errors may contain endpoints, credentials or response bodies.

@@ -73,7 +73,7 @@ func TestInstallReconcilesSavedSkillsForNewClient(t *testing.T) {
 	// the actual MCP server and WebAssembly interpreter, not a model fixture.
 	c := startServer(t, true, accept)
 	userConfigDir = func() (string, error) { return filepath.Dir(filepath.Dir(collection)), nil }
-	res := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "greet"}}))
+	res := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "greet"}}))
 	matches, _ := res["matches"].([]any)
 	if len(matches) != 1 {
 		t.Fatalf("matches %#v", res)

@@ -26,8 +26,8 @@ func checkRunArgs(m *mf.Manifest, args []string) string {
 	}
 	var obj map[string]any
 	if len(args) != 1 || json.Unmarshal([]byte(args[0]), &obj) != nil || obj == nil {
-		return "this primitive takes one argument: a JSON object of its inputs, as a string, for example args: [\"" +
-			strings.ReplaceAll(exampleInput(props, required), `"`, `\"`) + "\"]. tap_load shows its inputSchema."
+		return "this primitive takes one argument: encode its input object as a JSON string in args[0]. Input fields: " +
+			exampleInput(props, required) + ". tap_load shows its input constraints."
 	}
 	var missing []string
 	for _, k := range required {

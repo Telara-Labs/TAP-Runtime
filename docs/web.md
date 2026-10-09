@@ -1,10 +1,11 @@
 # Running primitives in claude.ai
 
-**Preview.** A primitive can run inside claude.ai, in the browser, using the
-connectors your claude.ai account already has. The tested path publishes a
-worker as an Artifact and makes connector calls through claude.ai's account
-connections; no runner installation or manual credential entry was needed for
-those checks.
+**Preview.** The worker page is built to run a primitive inside claude.ai, in
+the browser, using the connectors your claude.ai account already has. The worker is published as an
+Artifact and makes connector calls through claude.ai's account connections; no
+runner installation or credential entry is involved. This path has not been
+run in claude.ai on the current release, and no recorded claude.ai run is
+published.
 
 ## How it works
 
@@ -20,20 +21,12 @@ Artifact and keep it open in a tab while you chat.
    results kept out of its output stay outside the conversation.
 
 The connector guard requires `readOnlyHint: true` and refuses a tool with
-`destructiveHint: true` or missing read-only metadata. The exact guard was
-exercised by signed v0.1.15 compiled worker jobs with Gmail search_threads,
-Calendar search_events, Drive search_files and Telara telara_tool_describe.
-Rendered rows and terminal database records agreed. These four representative
-reads do not establish every connector/tool or a desktop-companion connection.
-
-Published v0.1.15 undercounted failed provider attempts and did not forward the
-manifest's request budget to the browser worker. Corrected source `2f707f8`
-counts actual dispatch attempts, including provider errors, and applies
-`execution.limits.max_dispatches` (default 1000). A private developer Artifact
-recorded one failed provider attempt as one call and zero refusals; a batch
-with a two-request budget made two calls and refused the third. This correction
-was verified in a developer Artifact; the signed v0.1.15 baseline predates
-these fixes. Those developer checks do not establish signed-release acceptance.
+`destructiveHint: true` or missing read-only metadata. The page counts every
+dispatch attempt, including provider errors, and applies the manifest's
+`execution.limits.max_dispatches` (default 1000). Both are checked on the
+current source by tests that run the page's own code in Node with a stand-in
+provider (`TestTheWebPageRefusesAToolThatSaysItChangesState`,
+`TestWebConnectorAttemptsAndRequestBudget`), not against claude.ai.
 
 ## Build the page
 

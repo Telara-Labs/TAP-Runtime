@@ -49,11 +49,11 @@ func TestAdmissionRefusalHasTerminalStatusAndEvidence(t *testing.T) {
 			if snap.State != runlog.InspectFinished || snap.Outcome != "refused" || len(snap.Events) != 1 || snap.Events[0].Phase != "finish" {
 				t.Fatalf("a known admission refusal looks interrupted: %+v", snap)
 			}
-			status := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_status", "arguments": map[string]any{"run_id": id}}))
+			status := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_status", "arguments": map[string]any{"run_id": id}}))
 			if status["state"] != "finished" || status["outcome"] != "refused" {
 				t.Fatalf("status = %#v", status)
 			}
-			evidence := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_evidence", "arguments": map[string]any{"run_id": id}}))
+			evidence := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_evidence", "arguments": map[string]any{"run_id": id}}))
 			events, _ := evidence["events"].([]any)
 			if evidence["state"] != "finished" || len(events) != 1 || events[0].(map[string]any)["outcome"] != "refused" {
 				t.Fatalf("evidence = %#v", evidence)

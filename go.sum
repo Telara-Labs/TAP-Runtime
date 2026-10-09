@@ -1,7 +1,7 @@
 github.com/Telara-Labs/TAP-Runtime/contract v0.0.0-20261007231604-a5ccf9aa743a h1:zylGAPiOpOHwA0SDR9jolw/XZBu8/weTwkNp801Imic=
 github.com/Telara-Labs/TAP-Runtime/contract v0.0.0-20261007231604-a5ccf9aa743a/go.mod h1:2atPpygui15lzVgkvAh6Oj2Cg1UOm8rNZghYNEjs9X4=
-github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261008155217-1fa15ca313b5 h1:1lFEmLY+qL4yRuQKKzNGucbSWWaNL/Hk5nZnIJSo86o=
-github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261008155217-1fa15ca313b5/go.mod h1:JEmsjL0xVdZUWHuXDJ1FG0EKowgx+syeUelYr9fY4Nk=
+github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261009220833-f7a4c2b9b86b h1:G/elp9AiLNaCs1sO7z3JODgFWnXO5Gt4P3V0oUE9IyE=
+github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261009220833-f7a4c2b9b86b/go.mod h1:JEmsjL0xVdZUWHuXDJ1FG0EKowgx+syeUelYr9fY4Nk=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=
 github.com/cenkalti/backoff/v5 v5.0.3/go.mod h1:rkhZdG3JZukswDf7f0cwqPNk4K0sa+F97BxZthm/crw=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=

@@ -48,7 +48,7 @@ func TestSavedOncePointedEverywhereListedOnceAndRunnable(t *testing.T) {
 
 	search := func() []any {
 		t.Helper()
-		res := toolObject(t, c.call("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "greet"}}))
+		res := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "greet"}}))
 		m, _ := res["matches"].([]any)
 		return m
 	}

@@ -184,7 +184,7 @@ exports.activate=async()=>{await new Promise(r=>setTimeout(r,6000));
 		}
 		found := false
 		for _, tool := range inv {
-			found = found || tool.Name == "mcp_probe_search_issues"
+			found = found || (tool.Server == "probe" && tool.Name == "search_issues")
 		}
 		if found {
 			break
@@ -198,17 +198,17 @@ exports.activate=async()=>{await new Promise(r=>setTimeout(r,6000));
 			t.Fatal(err)
 		}
 		if ask {
-			asked[tool.Name] = true
+			asked[tool.Server+"/"+tool.Name] = true
 		}
 	}
 	t.Logf("tools the setting makes ask: %v", asked)
-	if !asked["mcp_probe_search_issues"] || asked["mcp_probe_create_issue"] {
+	if !asked["probe/search_issues"] || asked["probe/create_issue"] {
 		t.Errorf("the setting's probe/search_issues key did not make exactly that MCP tool ask: %v", asked)
 	}
-	if !asked["run_task"] {
+	if !asked["vscode/run_task"] {
 		t.Errorf("the setting's runTask key did not make run_task ask: %v", asked)
 	}
-	if asked["get_task_output"] || asked["vscode_listCodeUsages"] {
+	if asked["vscode/get_task_output"] || asked["vscode/vscode_listCodeUsages"] {
 		t.Errorf("a tool the setting does not name asks: %v", asked)
 	}
 }

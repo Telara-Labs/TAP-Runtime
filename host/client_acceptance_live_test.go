@@ -218,7 +218,7 @@ func TestLiveClientAcceptanceClaudeCodeAndCodex(t *testing.T) {
 				caller.SetApprovalExchange(approvalExchangeDir)
 			}
 
-			search, err := caller.Call("tap_search", map[string]any{"query": primitive})
+			search, err := caller.Call("tap_search", map[string]any{"query": primitive, "detail": true})
 			if err != nil {
 				t.Fatalf("tap_search: %v", err)
 			}
@@ -234,7 +234,7 @@ func TestLiveClientAcceptanceClaudeCodeAndCodex(t *testing.T) {
 			if len(found.Matches) != 1 || found.Matches[0].Ref != ref || found.Matches[0].Digest != digest {
 				t.Fatalf("tap_search did not return the installed identity and digest: %s", search)
 			}
-			loaded, err := caller.Call("tap_load", map[string]any{"ref": ref, "digest": digest})
+			loaded, err := caller.Call("tap_load", map[string]any{"ref": ref, "digest": digest, "detail": true})
 			if err != nil {
 				t.Fatalf("tap_load: %v", err)
 			}

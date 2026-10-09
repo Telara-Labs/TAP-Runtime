@@ -110,12 +110,15 @@ func TestAReadDeclarationDoesNotLetARunnerOfOtherCodeRunUnasked(t *testing.T) {
 	}
 }
 
-// Kilo does not list its tools, so an unpinned required tool can never bind
-// there; saving one is refused with the fix.
-func TestUnlendableToolsOnKiloNeedPins(t *testing.T) {
+// Kilo does not list its tools, and its declared capabilities are resolved
+// when a primitive runs, so saving an unpinned tool for Kilo is not refused.
+func TestUnlendableToolsOnKiloNeedNoPins(t *testing.T) {
 	m := &mf.Manifest{Tools: []mf.Tool{{Alias: "shell", Capability: "local.shell", Effect: "read"}}}
-	if why := unlendableTools("kilo", m); !strings.Contains(why, "pinned") || !strings.Contains(why, "commands:") {
+	if why := unlendableTools("kilo", m); why != "" {
 		t.Fatalf("kilo unpinned: %q", why)
+	}
+	if why := unlendableTools("gemini", m); why != "" {
+		t.Fatalf("gemini unpinned: %q", why)
 	}
 	m.Tools[0].Pin = &mf.Pin{Server: "local", Tool: "shell"}
 	if why := unlendableTools("kilo", m); why != "" {

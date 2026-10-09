@@ -8,6 +8,130 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **The runner provides the browser.** A primitive declares one tool,
+  `{alias: browser, capability: tap.browser.use, effect: write}`, and calls
+  `navigate`, `read` (a page function that returns JSON), `act` (`click`,
+  `scroll_into_view`, `insert_text`), `wait` and `close`. The runner finds the
+  browser the client already lends (Claude in Chrome, Codex's browser, or a
+  configured Playwright MCP server, including one started with `--extension`,
+  and Playwright tools listed with a prefix, as VS Code does), keeps the first
+  that passes the primitive's `ready` check (for example, signed in to the
+  site), opens and closes a tab of its own, and handles each browser's limits:
+  Codex evaluates page code read-only and stops it after about three seconds,
+  so its actions go through its own locator; Claude in Chrome cuts long
+  results, so long answers are read back in parts. A primitive no longer
+  carries code for each client. Navigation and actions need approval; reads
+  do not. `insert_text` replaces an element's content the way typing would,
+  so a primitive can fill a field and read it back before it submits.
+  Claude Code is started with `--chrome` only for a primitive that uses the
+  browser or pins Claude in Chrome. Codex lends its own browser only to a
+  runner started inside a Codex turn; otherwise a configured Playwright
+  server is used, and a refused Codex call returns a short message instead
+  of the tool's whole manual.
+
+- **Capabilities resolve on every client without pins.** On clients that do
+  not list their tools to the runner (Gemini CLI), each declared capability
+  is resolved on its own: a mapping kept from an earlier run, then servers in
+  the client's own configuration that fit it (a Playwright or Claude in
+  Chrome server for the browser, a Telara gateway's catalog for its
+  operations), then one question to the agent, "which of your tools does
+  this?", answered with one tool name. No tool list is sent to the model.
+  Answers are checked against the client's connected servers and kept per
+  client (`tap bind`); a tool's effect comes only from its server, never from
+  the answer. Nothing found stops the run with `blocked:` and the
+  capability's name. Pins still work, as overrides. Gemini's servers are read
+  from `GEMINI_CLI_HOME` and `GEMINI_CLI_SYSTEM_SETTINGS_PATH` when set, as
+  Gemini itself does. A pin on a gateway's `telara_execute_action` now also
+  lends that gateway's catalog, so its reads are checked instead of refused;
+  a capability that names the dispatcher (`gitlab.execute_action`) is refused
+  with the operation to declare instead.
+
+- **Primitives that call tools now run from more agents, unmodified.**
+  - GitHub Copilot CLI: each tool runs through Copilot's own headless session
+    and connections, with no model turn. Copilot applies the person's
+    permission rules; when Copilot asks, the runner answers only for the call
+    it is making, which the person has already allowed through TAP's prompt.
+    Interactive Copilot CLI shows that prompt; under `copilot -p` nothing can
+    be asked and a write is refused before it reaches Copilot.
+  - OpenCode and Kilo: `tap install` adds a small plugin, `tap-relay.js`, to
+    the client's plugin folder. Inside the person's session it connects to
+    the MCP servers the session is configured with, using the session's
+    resolved configuration and the sign-ins the client stored, and runs the
+    runner's calls there. The runner reaches it over a Unix socket only that
+    user can open, checks the socket's owner and the session's folder, sees
+    server names, tool lists and results but never headers, environment
+    values or tokens, and is refused when no TAP run is in progress in that
+    session.
+  - Crush and Cursor, and OpenCode or Kilo outside a session: the runner
+    connects to the servers in the client's own configuration that carry no
+    secret. A server with environment values, headers or a sign-in, a
+    disabled one, or (Cursor) one not approved in Cursor is not used, and the
+    runner says why.
+  - The runner no longer starts a Kilo server of its own: it set Kilo's
+    password and feature flag in the environment and listened on a TCP port.
+    Kilo no longer needs `KILO_EXPERIMENTAL_MCP_APPS`.
+  - VS Code names an MCP tool `mcp_<server>_<tool>`; the runner now reads it
+    as server and tool, as on other clients, so a pin such as
+    `{server: Playwright, tool: browser_navigate}` binds there.
+
+- **The person confirms changes in their own client.**
+  - VS Code: the runner's question is shown by VS Code, in the chat or as a
+    notification with a form. A write the person allowed was made and one
+    they declined was refused.
+  - Copilot CLI: the question appears as a form in the terminal (enter
+    accepts, ctrl+d declines), with the same results.
+  - Gemini CLI: `tap install --client gemini` adds a `BeforeTool` hook that
+    makes Gemini ask, in its own confirmation, before `tap_save` and before
+    the first run of a primitive that is not yet trusted, showing what it
+    declares, even outside yolo mode. Under `gemini -p` nothing can be asked
+    and the hook asks nothing. TAP's tools accept the `wait_for_previous`
+    argument Gemini CLI 0.63 adds to every call; before, `tap_save` and
+    `tap_run` refused those calls.
+  - Goose: `goose session` shows TAP's questions; the first-run question now
+    names what it agrees to. Time the person spends answering no longer counts
+    toward the 20-second handoff (except in Codex, whose tool call stops at
+    about 30 seconds); before, Goose's model received a still-running handle
+    instead of the result and ended its turn.
+
+- **Authors draft in their workspace.** Agents draft primitives in
+  `.tap/drafts/` inside the workspace instead of `~/tap-drafts`. `tap
+  discover brief` writes there by default, and `brief`, `validate`, `save`
+  and `tap_save` keep everything under `.tap/drafts/` out of git. Agents that
+  may only touch their workspace (Kilo, Crush and OpenCode run modes) refused
+  the old folder, so their saves never happened. Saving refuses a package
+  that holds an authoring brief, which quotes the person's session history,
+  whether named `BRIEF.md`, `brief.json` or renamed. The asked-before note in
+  `tap_search` points at the new folder.
+
+- **The authoring guidance covers any automatable work.** The tap-author
+  skill, the guide and the `tap discover brief` instructions now cover the
+  browser, desktop apps, shell and files, MCP connectors, HTTP APIs and steps
+  that need a person, with these rules: design what the program does, what it
+  hands back and the evidence that completes each step; write it for any
+  client, with each client's tool optional and `blocked` when none is bound,
+  never scripting one client's own objects; take inputs in the words a person
+  uses (a name, a ticket key) and find the rest in the program; declare the
+  operation (`gitlab.list_projects`), not a gateway's dispatcher; test normal,
+  empty, changed-count, missing-prerequisite, ambiguous, slow-loading and
+  no-backend cases through the real runner before saving; make it fast (count
+  round trips, index once per run, batch, loop inside the backend, no fixed
+  waits); and publish improved versions from real runs without reporting
+  anything unresolved as found. The guide also explains browser preflight,
+  identity and pagination evidence, bounded retries, virtualized lists,
+  reversed scrollers and background tabs, and records what each client lends.
+
+- **`tap_run` reports what a run cost.** Each result ends with a line of tool
+  calls, failed calls, refusals, input items and duration. When a run made at
+  least 50 tool calls and more than 20 per input item, one more line says the
+  author can publish a faster version and names the run to read with
+  `tap_evidence`.
+
+- **The docs state only what was run.** The README's agent table and the
+  client notes in the install guide, web guide, bridge research and threat
+  model now give results on the current source, per agent, or say what was
+  not run. The install guide lists all seven MCP tools and no longer says
+  Claude Code binds tools by schema; Claude Code gives the runner names only.
+
 - Saving an agent-authored primitive uses the host's standard confirmation
   policy, without an extra required checkbox. A canceled or failed prompt is
   reported as a client failure instead of saying the person refused. Codex
@@ -64,13 +188,18 @@ see [version review](docs/versioning.md).
   settings let its model do the same without asking. That covers web reads,
   as before, and now read-only programs such as `git log` where the agent
   runs shell commands unasked. Gemini CLI counts in yolo mode. When it does
-  not run, the refusal names the agent setting that asked. Saving a primitive
-  whose unpinned connection can never bind on Kilo or Gemini CLI is refused,
-  with the fix.
+  not run, the refusal names the agent setting that asked.
 
 - Failed MCP calls now preserve the tool's original error through Claude and
   Codex. An upstream permission error is no longer reported as a JSON result
   contract violation, and failed writes are never automatically retried.
+
+- TAP now tells agents to call `tap_search` at the start of every request,
+  even one that names a specific commit, ticket or file. Asked why they had
+  skipped it, agents quoted the old wording ("Not for one-off requests", "a
+  task that takes several tool calls"). When a task was asked before, the
+  search result now gives the exact line to end the answer with, offering to
+  save it.
 
 - Every agent session on a machine is now answered by one shared runner.
   An agent starts `tap serve` once per session, and some start dozens at a
@@ -101,13 +230,6 @@ see [version review](docs/versioning.md).
   every `tap_run` compiled its interpreter again, which took seconds of CPU
   per run and, with many sessions at once, much longer.
 
-- TAP now tells agents to call `tap_search` at the start of every request,
-  even one that names a specific commit, ticket or file. Asked why they had
-  skipped it, agents quoted the old wording ("Not for one-off requests", "a
-  task that takes several tool calls"). When a task was asked before, the
-  search result now gives the exact line to end the answer with, offering to
-  save it.
-
 - A repeat `tap discover` run now reads only what changed for every agent,
   not only for agents that keep one file per session. Cursor finds the
   conversations written since the last run from its key index and reads only
@@ -119,7 +241,7 @@ see [version review](docs/versioning.md).
   changed. Each run reads a few cached sessions again and compares them; if
   they differ, discover reads that agent in full and says so.
 
-- On an agent that cannot lend its connections (OpenCode, Crush), `tap_save`
+- On an agent that cannot lend its connections (Windsurf, Zed), `tap_save`
   refuses a primitive that requires a connection, and a run of one says how to
   fix it: declare a program such as `git` under `commands:` and a web read
   under `fetch:`. Before, such a primitive saved and was then refused on every
@@ -143,6 +265,14 @@ see [version review](docs/versioning.md).
   with its reason instead of ending the run. SQLite read deadlines grow with
   the store's size, and Cursor's queries read only the records they need, so
   a large Cursor store is read instead of timing out.
+
+- MCP inspection tools (`tap_search`, `tap_load`, `tap_status`, `tap_evidence`)
+  return compact readable text by default. `detail: true` returns the complete
+  JSON contract; existing JSON parsers must opt in. Load retains exact package
+  identity, all input constraints, permissions and connection warnings, with
+  full output schemas and capability definitions available on request. TAP
+  sends one representation per response. Execution results, approvals and
+  journal semantics are unchanged.
 
 ## 0.2.10
 

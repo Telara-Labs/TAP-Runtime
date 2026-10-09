@@ -42,6 +42,13 @@ presses have `readOnlyHint: false`, so TAP resolves them to effective
 per-primitive `--limit` for this explicitly local fixture only; without
 approval TAP refuses before dispatch.
 
+`site/counter.html` has a heading, a button and a count kept only in the page.
+Client-agnostic browser primitives use it to check that page JavaScript can
+read a page and press a control on each browser backend a client lends
+(Claude in Chrome, Playwright MCP or Codex's browser). Claude in Chrome asks
+for permission per origin, port included; open the fixture as
+`http://localhost:4173`, so one permission covers every run.
+
 Run input-validation tests without a browser server:
 
 ```sh

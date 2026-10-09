@@ -495,7 +495,7 @@ func noMatchNote(query string, h *historyLoad) string {
 	if rec.Sessions == 0 {
 		return "No saved primitive fits, and nothing like this was asked in earlier sessions. Do the task as usual."
 	}
-	return fmt.Sprintf("No saved primitive fits, but the person asked for this kind of task in %d earlier session(s), starting with %q. Do the task, then end your answer with this line, on its own: \"You have asked for this before. Want me to save it as a TAP primitive so it runs in one step next time?\" Do not save it unless they agree. If they do, the tap-author skill says how; start from the earlier request with: %s discover brief --task %s --out <folder>",
+	return fmt.Sprintf("No saved primitive fits, but the person asked for this kind of task in %d earlier session(s), starting with %q. Do the task, then end your answer with this line, on its own: \"You have asked for this before. Want me to save it as a TAP primitive so it runs in one step next time?\" Do not save it unless they agree. If they do, the tap-author skill says how; start from the earlier request with: %s discover brief --task %s --out .tap/drafts/<name>-brief",
 		rec.Sessions, rec.Example, runnerCommand(), rec.Ref)
 }
 

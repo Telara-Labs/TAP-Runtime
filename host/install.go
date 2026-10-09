@@ -280,7 +280,7 @@ func installOne(c agents.Client, home, self, name, scope string, env envFlags, p
 			// Gemini lends its connections through a hook (relay.go), which
 			// lives in its settings file beside its MCP servers.
 			if print {
-				fmt.Fprintf(stdout, "add to %s: mcpServers.%s runs %s serve --name %s%s; hooks.AfterTool runs %s\n", path, name, self, name, env.masked(), geminiHookCommand(self))
+				fmt.Fprintf(stdout, "add to %s: mcpServers.%s runs %s serve --name %s%s; hooks.AfterTool and hooks.BeforeTool run %s\n", path, name, self, name, env.masked(), geminiHookCommand(self))
 				return 0
 			}
 			if remove {
@@ -337,6 +337,16 @@ func installOne(c agents.Client, home, self, name, scope string, env envFlags, p
 				return 1
 			}
 			changed = changed || hc
+		}
+		if c.ID == "opencode" || c.ID == "kilo" {
+			// The relay plugin lends the session's own connections to the
+			// runner it starts.
+			rc, err := setRelayPlugin(path, remove)
+			if err != nil {
+				fmt.Fprintln(stderr, "not changed:", err)
+				return 1
+			}
+			changed = changed || rc
 		}
 		switch {
 		case !changed && remove:
@@ -478,7 +488,7 @@ func addGemini(path, name, self string, env envFlags) error {
 	settings := map[string]any{}
 	if len(strings.TrimSpace(string(raw))) > 0 {
 		if err := json.Unmarshal(raw, &settings); err != nil {
-			return fmt.Errorf("%s is not plain JSON (%v); add the hook by hand: hooks.AfterTool = [{\"matcher\": \".*\", \"hooks\": [{\"name\": \"tap\", \"type\": \"command\", \"command\": %q, \"timeout\": 600000}]}]", path, err, command)
+			return fmt.Errorf("%s is not plain JSON (%v); add the hooks by hand: hooks.AfterTool = [{\"matcher\": \".*\", \"hooks\": [{\"name\": \"tap\", \"type\": \"command\", \"command\": %q, \"timeout\": 600000}]}] and hooks.BeforeTool = [{\"matcher\": \"tap_(save|run)$\", \"hooks\": [{\"name\": \"tap\", \"type\": \"command\", \"command\": %q, \"timeout\": 30000}]}]", path, err, command, command)
 		}
 	}
 	servers, _ := settings["mcpServers"].(map[string]any)
@@ -500,26 +510,10 @@ func addGemini(path, name, self string, env envFlags) error {
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
-	var kept []any
-	groups, _ := hooks["AfterTool"].([]any)
-	for _, g := range groups {
-		if gm, ok := g.(map[string]any); ok {
-			if hs, ok := gm["hooks"].([]any); ok && len(hs) == 1 {
-				if h, ok := hs[0].(map[string]any); ok && h["name"] == "tap" {
-					continue
-				}
-			}
-		}
-		kept = append(kept, g)
+	for _, h := range geminiHooks(command) {
+		kept, _ := withoutTapHook(hooks[h.event])
+		hooks[h.event] = append(kept, h.group)
 	}
-	kept = append(kept, map[string]any{
-		"matcher": ".*",
-		"hooks": []any{map[string]any{
-			"name": "tap", "type": "command", "command": command, "timeout": 600000,
-			"description": "Carries TAP primitive tool calls; does nothing for other calls.",
-		}},
-	})
-	hooks["AfterTool"] = kept
 	settings["hooks"] = hooks
 	out, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
@@ -534,6 +528,53 @@ func addGemini(path, name, self string, env envFlags) error {
 		}
 	}
 	return os.WriteFile(path, append(out, '\n'), 0o600)
+}
+
+type geminiHook struct {
+	event string
+	group map[string]any
+}
+
+// geminiHooks are the runner's hooks in Gemini's settings: AfterTool
+// carries a primitive's tool calls (relay.go); BeforeTool makes Gemini ask
+// the person before tap_save and a first tap_run (gemini_confirm.go).
+func geminiHooks(command string) []geminiHook {
+	return []geminiHook{
+		{"AfterTool", map[string]any{
+			"matcher": ".*",
+			"hooks": []any{map[string]any{
+				"name": "tap", "type": "command", "command": command, "timeout": 600000,
+				"description": "Carries TAP primitive tool calls; does nothing for other calls.",
+			}},
+		}},
+		{"BeforeTool", map[string]any{
+			"matcher": "tap_(save|run)$",
+			"hooks": []any{map[string]any{
+				"name": "tap", "type": "command", "command": command, "timeout": 30000,
+				"description": "Has Gemini ask you before TAP saves a primitive or first runs one.",
+			}},
+		}},
+	}
+}
+
+// withoutTapHook is one event's hook groups without the runner's, and
+// whether it had one.
+func withoutTapHook(v any) ([]any, bool) {
+	groups, _ := v.([]any)
+	kept := []any{}
+	removed := false
+	for _, g := range groups {
+		if gm, ok := g.(map[string]any); ok {
+			if hs, ok := gm["hooks"].([]any); ok && len(hs) == 1 {
+				if h, ok := hs[0].(map[string]any); ok && h["name"] == "tap" {
+					removed = true
+					continue
+				}
+			}
+		}
+		kept = append(kept, g)
+	}
+	return kept, removed
 }
 
 // removeGemini takes the runner's server entry and its hook out of Gemini's
@@ -559,21 +600,11 @@ func removeGemini(path, name string) (bool, error) {
 		}
 	}
 	if hooks, ok := settings["hooks"].(map[string]any); ok {
-		groups, _ := hooks["AfterTool"].([]any)
-		kept := []any{}
-		for _, g := range groups {
-			if gm, ok := g.(map[string]any); ok {
-				if hs, ok := gm["hooks"].([]any); ok && len(hs) == 1 {
-					if h, ok := hs[0].(map[string]any); ok && h["name"] == "tap" {
-						changed = true
-						continue
-					}
-				}
+		for _, h := range geminiHooks("") {
+			if kept, removed := withoutTapHook(hooks[h.event]); removed {
+				hooks[h.event] = kept
+				changed = true
 			}
-			kept = append(kept, g)
-		}
-		if changed && groups != nil {
-			hooks["AfterTool"] = kept
 		}
 	}
 	if !changed {

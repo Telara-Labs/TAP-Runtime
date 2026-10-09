@@ -49,6 +49,7 @@ var tested = map[string][]string{
 	"codex":       {"0.147.0"},
 	"goose":       {"1.53.0"},
 	"kilo":        {"7.8.3"},
+	"copilot":     {"1.0.94"},
 }
 
 // Tested reports whether this runner was run against the client version.

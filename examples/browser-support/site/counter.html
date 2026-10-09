@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><title>TAP Browser Counter</title></head>
+<body><main><h1>TAP Browser Counter</h1>
+<p>Page JavaScript reads this heading and presses the button. The count lives only in this page.</p>
+<button id="add" type="button">Add one</button>
+<output id="count" aria-live="polite">0</output>
+<script>
+document.getElementById('add').addEventListener('click', () => {
+  const out = document.getElementById('count');
+  out.textContent = String(Number(out.textContent) + 1);
+});
+</script>
+</main></body>
+</html>

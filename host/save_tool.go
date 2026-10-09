@@ -37,6 +37,12 @@ func (s *server) handleSave(id *json.RawMessage, raw json.RawMessage, canElicit 
 		s.toolError(id, "tap_save needs an absolute package path")
 		return
 	}
+	// A draft under the workspace's .tap/drafts stays out of git, whichever
+	// way it is saved.
+	if err := author.IgnoreDrafts(dir, false); err != nil {
+		s.toolError(id, err.Error())
+		return
+	}
 	// Freeze the reviewed bytes before asking. An agent editing its draft while
 	// the prompt is open must not silently replace the approved program.
 	archive, _, err := author.PackageDir(dir)
@@ -86,7 +92,16 @@ func (s *server) handleSave(id *json.RawMessage, raw json.RawMessage, canElicit 
 		s.mu.Lock()
 		pid, name := s.agentPid, s.clientName
 		s.mu.Unlock()
-		ok, why := agentDoesUnasked(name, home, unaskedWrite, pid)
+		// Gemini CLI asks the person itself when TAP's hook requires it
+		// (gemini_confirm.go); the call arriving is their yes.
+		confirmed, notConfirmed := s.geminiConfirmed("tap_save", raw)
+		ok, why := confirmed, "the person allowed it in Gemini CLI's own confirmation"
+		if !ok {
+			ok, why = agentDoesUnasked(name, home, unaskedWrite, pid)
+			if notConfirmed != "" {
+				why = notConfirmed + ", and " + why
+			}
+		}
 		if !ok {
 			s.toolError(id, fmt.Sprintf("this client cannot ask the person to agree, and %s; they can save it with: %s discover save %s", why, runnerCommand(), dir))
 			return

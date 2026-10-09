@@ -244,7 +244,7 @@ func bindCommand(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if client == "" || (forget && len(rest) != 1) || (!forget && len(rest) != 2) {
-		fmt.Fprintln(stderr, "usage: tap bind --client NAME CAPABILITY SERVER\n       tap bind --client NAME --forget CAPABILITY\n       tap bind --list")
+		fmt.Fprintln(stderr, "usage: tap bind --client NAME CAPABILITY SERVER[/TOOL]\n       tap bind --client NAME --forget CAPABILITY\n       tap bind --list")
 		return 2
 	}
 	server := ""

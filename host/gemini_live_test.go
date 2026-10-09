@@ -83,7 +83,7 @@ echo "first open issue: $(tap call issue "{\"issue_key\":\"$key\"}" | jq -r '.ke
 
 	prompt := "Call the tap_run tool exactly once with ref " + identity["ref"].(string) + " and digest " + identity["digest"].(string) +
 		". Do not call any other tool. Then reply with exactly the text tap_run returned."
-	cmd := exec.Command(gemini, "-p", prompt, "--approval-mode", "yolo", "--skip-trust", "-m", "gemini-2.5-flash", "-o", "json")
+	cmd := exec.Command(gemini, "-p", prompt, "--approval-mode", "yolo", "--skip-trust", "-o", "json")
 	cmd.Dir = work
 	cmd.Env = append(os.Environ(), "HOME="+home, "GEMINI_API_KEY="+key)
 	done := make(chan struct{})

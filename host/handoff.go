@@ -61,6 +61,18 @@ func (h *heldRuns) forget(key string) {
 // ends within handoffAfter, or with a handle when it does not.
 func (s *server) runWithHandoff(id *json.RawMessage, ctx context.Context, o Options, canElicit bool) {
 	var handed atomic.Bool
+	// Time the person spends answering one of the run's questions is not
+	// the run being slow. Found in Goose: the run was handed off while the
+	// person was still answering its write question, the tool call returned
+	// a handle, and the model ended its turn without the result. Codex's
+	// tool call itself stops at about 30 s, so there the deadline stays.
+	var clock *promptClock
+	if o.Client != "codex" {
+		clock = &promptClock{start: time.Now()}
+		o.Approve = clock.approver(o.Approve)
+		o.Choose = clock.chooser(o.Choose)
+		o.AskTool = clock.toolAsker(o.AskTool)
+	}
 	o.Approve = boundedAfterHandoff(o.Approve, &handed)
 	o.Choose = boundedChooseAfterHandoff(o.Choose, &handed)
 	r := &heldRun{done: make(chan struct{})}
@@ -70,11 +82,24 @@ func (s *server) runWithHandoff(id *json.RawMessage, ctx context.Context, o Opti
 		r.res, r.err = Run(runCtx, o)
 		close(r.done)
 	}()
-	select {
-	case <-r.done:
-		s.replyRun(id, r.res, r.err, canElicit)
-		return
-	case <-time.After(handoffAfter):
+	for wait := handoffAfter; ; {
+		select {
+		case <-r.done:
+			s.replyRun(id, r.res, r.err, canElicit)
+			return
+		case <-time.After(wait):
+		}
+		if clock == nil {
+			break
+		}
+		ran, asking := clock.running()
+		if !asking && ran >= handoffAfter {
+			break
+		}
+		wait = handoffAfter - ran
+		if asking || wait < 10*time.Millisecond {
+			wait = handoffPoll
+		}
 	}
 	handed.Store(true)
 	key := s.held.add(r)
@@ -94,6 +119,82 @@ func (s *server) replyHeld(id *json.RawMessage, key string, r *heldRun, canElici
 		s.replyRun(id, r.res, r.err, canElicit)
 	case <-time.After(handoffAfter):
 		s.reply(id, map[string]any{"content": []any{map[string]any{"type": "text", "text": handoffText(key)}}})
+	}
+}
+
+// handoffPoll is how often a run that is waiting on the person is looked at.
+var handoffPoll = 250 * time.Millisecond
+
+// promptClock measures how long a run has run while none of its questions
+// was waiting on the person.
+type promptClock struct {
+	mu     sync.Mutex
+	start  time.Time
+	open   int
+	since  time.Time
+	paused time.Duration
+}
+
+func (c *promptClock) begin() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.open == 0 {
+		c.since = time.Now()
+	}
+	c.open++
+}
+
+func (c *promptClock) end() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.open--
+	if c.open == 0 {
+		c.paused += time.Since(c.since)
+	}
+}
+
+// running is the run's time not spent waiting on the person, and whether
+// a question is waiting now.
+func (c *promptClock) running() (time.Duration, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	paused := c.paused
+	if c.open > 0 {
+		paused += time.Since(c.since)
+	}
+	return time.Since(c.start) - paused, c.open > 0
+}
+
+func (c *promptClock) approver(inner Approver) Approver {
+	if inner == nil {
+		return nil
+	}
+	return func(a Ask) Grant {
+		c.begin()
+		defer c.end()
+		return inner(a)
+	}
+}
+
+func (c *promptClock) chooser(inner Chooser) Chooser {
+	if inner == nil {
+		return nil
+	}
+	return func(p Pick) (string, bool) {
+		c.begin()
+		defer c.end()
+		return inner(p)
+	}
+}
+
+func (c *promptClock) toolAsker(inner ToolAsker) ToolAsker {
+	if inner == nil {
+		return nil
+	}
+	return func(q ToolQuestion) (string, bool) {
+		c.begin()
+		defer c.end()
+		return inner(q)
 	}
 }
 

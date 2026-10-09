@@ -154,9 +154,27 @@ func TestCallGate(t *testing.T) {
 }
 
 func TestOpenBridgeRefusesClientsThatCannotDispatch(t *testing.T) {
-	for _, c := range []string{"cursor", "opencode", "grok"} {
-		if _, err := openBridge(c, bridge.Proc{}); err == nil || !strings.Contains(err.Error(), "cannot lend") {
+	for _, c := range []string{"windsurf", "zed", "grok"} {
+		if _, err := openBridge(c, bridge.Proc{}, nil); err == nil || !strings.Contains(err.Error(), "cannot lend") {
 			t.Errorf("%s: %v", c, err)
+		}
+	}
+}
+
+func TestOnlyAPrimitivePinningClaudeInChromeStartsClaudeWithChrome(t *testing.T) {
+	cases := []struct {
+		tools []mf.Tool
+		want  bool
+	}{
+		{nil, false},
+		{[]mf.Tool{{Alias: "pw", Pin: &mf.Pin{Server: "plugin:playwright:playwright", Tool: "browser_navigate"}}}, false},
+		{[]mf.Tool{{Alias: "nav", Capability: "browser.page.navigate"}}, false},
+		{[]mf.Tool{{Alias: "pw", Pin: &mf.Pin{Server: "plugin:playwright:playwright", Tool: "browser_navigate"}},
+			{Alias: "js", Optional: true, Pin: &mf.Pin{Server: "claude-in-chrome", Tool: "javascript_tool"}}}, true},
+	}
+	for i, c := range cases {
+		if got := usesChrome(&mf.Manifest{Tools: c.tools}); got != c.want {
+			t.Errorf("case %d: usesChrome = %v, want %v", i, got, c.want)
 		}
 	}
 }
