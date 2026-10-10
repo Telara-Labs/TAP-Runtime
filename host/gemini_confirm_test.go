@@ -13,10 +13,23 @@ import (
 	"time"
 )
 
+// notInCI takes the hosted runner out of the picture. geminiInteractive
+// reads CI and GITHUB_ACTIONS as "nobody can answer" before it looks at
+// the process at all, and every hosted runner sets both: without this a
+// test that describes an interactive Gemini is overruled by the machine
+// it runs on. The process tree below says what the process is; this says
+// what the environment is.
+func notInCI(t *testing.T) {
+	t.Helper()
+	t.Setenv("CI", "")
+	t.Setenv("GITHUB_ACTIONS", "")
+}
+
 // geminiTree makes this process look started by Gemini CLI (pid 1000)
 // through a wrapper, with the given command line and terminal.
 func geminiTree(t *testing.T, gemini []string, terminal bool) {
 	t.Helper()
+	notInCI(t)
 	oldArgs, oldTTY := processArgs, processHasTerminal
 	t.Cleanup(func() { processArgs, processHasTerminal = oldArgs, oldTTY })
 	processArgs = func(pid int) ([]string, int, bool) {
@@ -216,6 +229,7 @@ func TestGeminiProgramIsFoundByItsProgram(t *testing.T) {
 			t.Errorf("%v: %v, want %v", c.args, got, c.want)
 		}
 	}
+	notInCI(t)
 	old := processHasTerminal
 	t.Cleanup(func() { processHasTerminal = old })
 	processHasTerminal = func(int) bool { return true }

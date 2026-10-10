@@ -42,7 +42,7 @@ default:
 
 linux-amd64:
   stage: verify
-  image: golang:1.26.8
+  image: golang:1.26.9
   script: *suite
 
 # Published-artifact acceptance on the existing native GCP runner, when
@@ -50,7 +50,7 @@ linux-amd64:
 # version is set by the release command; no separate CI version setting.
 published-acceptance-linux-amd64:
   stage: verify
-  image: golang:1.26.8
+  image: golang:1.26.9
   when: manual
   allow_failure: true
   timeout: 30m
@@ -61,7 +61,7 @@ published-acceptance-linux-amd64:
 
 linux-arm64:
   stage: verify
-  image: golang:1.26.8
+  image: golang:1.26.9
   tags: [telara-arm64]
   script:
     - uname -m

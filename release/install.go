@@ -77,7 +77,13 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-os=$(uname -s | tr '[:upper:]' '[:lower:]')
+# Spelled out rather than tr '[:upper:]' '[:lower:]': BusyBox tr built
+# without CONFIG_FEATURE_TR_CLASSES reads a class as the literal set of its
+# own characters, so [:upper:] and [:lower:] line up u with l and turn Linux
+# into Linlx, and the installer then reports no program for this system. Found
+# under BusyBox 1.30.1 (Ubuntu), which the installer is tested against.
+# Explicit letters also do not depend on how the locale orders A-Z.
+os=$(uname -s | tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')
 arch=$(uname -m)
 case "$arch" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; esac
 sum=""

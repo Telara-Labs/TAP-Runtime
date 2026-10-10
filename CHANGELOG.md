@@ -274,6 +274,18 @@ see [version review](docs/versioning.md).
   sends one representation per response. Execution results, approvals and
   journal semantics are unchanged.
 
+- The runner is built with patched Go 1.26.9, which closes eleven standard
+  library advisories the 1.26.8 build reached in `net/http`, `net/textproto`,
+  `crypto/tls` and `html/template`, and `golang.org/x/net` moves to v0.60.0.
+  The `contract` and `discover` modules keep their own older Go: the advisories
+  they reported were in the standard library, not in anything they call.
+
+- `curl | sh` installs under BusyBox again, on every architecture. The
+  installer lowercased `uname -s` with `tr '[:upper:]' '[:lower:]'`, and a
+  BusyBox `tr` built without character classes reads a class as the literal
+  set of its own characters, which turned `Linux` into `Linlx`; the installer
+  then reported that the release had no program for this system and stopped.
+
 ## 0.2.10
 
 - Discover and agent-authored saves require a versioned changelog, reject
