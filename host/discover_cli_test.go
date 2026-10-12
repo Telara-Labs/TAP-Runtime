@@ -16,7 +16,7 @@ func TestDiscoverCLIHelpThroughPublishedModule(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	bin := filepath.Join(t.TempDir(), "tap")
-	build := exec.CommandContext(ctx, "go", "build", "-o", bin, "./host")
+	build := exec.CommandContext(ctx, "go", "build", "-ldflags", testRunnerLinkFlags(t), "-o", bin, "./host")
 	build.Dir = repoRoot
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("building the runner: %v\n%s", err, out)

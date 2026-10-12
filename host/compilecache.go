@@ -21,17 +21,25 @@ var compileCaches = struct {
 	byDir map[string]wazero.CompilationCache
 }{byDir: map[string]wazero.CompilationCache{}}
 
-// compilationCache is the process's cache for dir, kept on disk so the next
-// process finds the compiled interpreter too. An empty dir is the user cache
-// directory's.
-func compilationCache(dir string) (wazero.CompilationCache, error) {
-	if dir == "" {
-		base, err := os.UserCacheDir()
-		if err != nil {
-			return nil, err
-		}
-		dir = filepath.Join(base, "tap-runtime", "compiled")
+// compiledDir is the directory holding the compiled modules: the one given,
+// or the user cache directory's.
+func compiledDir(override string) (string, error) {
+	if override != "" {
+		return override, nil
 	}
+	return cacheSub("compiled")
+}
+
+// compilationCache is the process's cache for one module, kept on disk so the
+// next process finds the compiled module too. Each module has a directory of
+// its own, named by its SHA-256, under root (see cacheprune.go for why). An
+// empty root is the user cache directory's.
+func compilationCache(root, moduleSum string) (wazero.CompilationCache, error) {
+	root, err := compiledDir(root)
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(root, moduleSum)
 	compileCaches.Lock()
 	defer compileCaches.Unlock()
 	if c := compileCaches.byDir[dir]; c != nil {

@@ -111,7 +111,7 @@ func buildTap(t *testing.T) string {
 	if runtime.GOOS == "windows" {
 		exe += ".exe"
 	}
-	cmd := exec.Command("go", "build", "-o", exe, "./host")
+	cmd := exec.Command("go", "build", "-ldflags", testRunnerLinkFlags(t), "-o", exe, "./host")
 	cmd.Dir = repoRoot
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -139,7 +139,7 @@ func buildTapWithRelay(t *testing.T) string {
 	overlay, _ := json.Marshal(map[string]any{"Replace": map[string]string{filepath.Join(repoRoot, "host", "relaybin", "tap-relay"): filepath.Join(dir, "tap-relay")}})
 	os.WriteFile(filepath.Join(dir, "overlay.json"), overlay, 0o600)
 	exe := filepath.Join(t.TempDir(), "tap")
-	cmd := exec.Command("go", "build", "-tags", "relayembed", "-overlay", filepath.Join(dir, "overlay.json"), "-o", exe, "./host")
+	cmd := exec.Command("go", "build", "-ldflags", testRunnerLinkFlags(t), "-tags", "relayembed", "-overlay", filepath.Join(dir, "overlay.json"), "-o", exe, "./host")
 	cmd.Dir = repoRoot
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -386,4 +386,16 @@ func TestSessionsBecomeTheSmallRelay(t *testing.T) {
 	if n := countRunners(t, exe); n != 1 {
 		t.Fatalf("%d runners, want 1", n)
 	}
+}
+
+// testRunnerLinkFlags gives a runner built by a test the test binary's own
+// cache root as its default, so that running it never touches the cache of the
+// person running the tests.
+func testRunnerLinkFlags(t *testing.T) string {
+	t.Helper()
+	root, err := cacheRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "-X main.testCacheRoot=" + root
 }

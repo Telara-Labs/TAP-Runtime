@@ -8,6 +8,15 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **TAP keeps one version of what it uses.** The first start of a new TAP
+  version removes interpreters it no longer pins and compiled copies that
+  nothing uses any more, so the cache stays at one interpreter and about one
+  compiled copy of it (about 48 MB for shell primitives) instead of growing
+  with every release. Compiled copies are now kept in one folder per program.
+  `tap cache prune` does the clean-up on demand and prints what it removed and
+  the space freed; `tap cache` shows the cache size. Run
+  records keep their 30-day retention. The tests no longer write to the cache
+  of the person running them.
 - **`npm install -g @telaralabs/tap` downloads only the runner for your
   machine.** The runners now ship as one package per platform
   (`@telaralabs/tap-darwin-arm64`, `-darwin-x64`, `-linux-arm64`, `-linux-x64`,

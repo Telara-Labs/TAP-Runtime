@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/Telara-Labs/TAP-Runtime/journal"
@@ -128,11 +126,7 @@ func (s *server) runRoot() (string, error) {
 	if s.runsDir != "" {
 		return s.runsDir, nil
 	}
-	base, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(base, "tap-runtime", "runs"), nil
+	return cacheSub("runs")
 }
 
 func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMessage) {

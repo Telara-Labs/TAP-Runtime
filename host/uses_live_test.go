@@ -55,7 +55,7 @@ func TestLiveAPrimitiveUsesAPrimitiveThroughClaudeCode(t *testing.T) {
 		t.Skip("python3 is not installed, and the connected tool is a python program")
 	}
 	bin := filepath.Join(t.TempDir(), "host")
-	build := exec.Command("go", "build", "-o", bin, "./host")
+	build := exec.Command("go", "build", "-ldflags", testRunnerLinkFlags(t), "-o", bin, "./host")
 	build.Dir = repoRoot
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("building the runner: %v\n%s", err, out)

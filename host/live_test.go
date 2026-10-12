@@ -30,7 +30,7 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 	}
 	store := interpreterStore(t)
 	bin := filepath.Join(t.TempDir(), "host")
-	build := exec.Command("go", "build", "-o", bin, "./host")
+	build := exec.Command("go", "build", "-ldflags", testRunnerLinkFlags(t), "-o", bin, "./host")
 	build.Dir = repoRoot
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("building the runner: %v\n%s", err, out)
@@ -205,7 +205,7 @@ func TestLiveElicitationThroughCodex(t *testing.T) {
 	}
 	store := interpreterStore(t)
 	bin := filepath.Join(t.TempDir(), "host")
-	build := exec.Command("go", "build", "-o", bin, "./host")
+	build := exec.Command("go", "build", "-ldflags", testRunnerLinkFlags(t), "-o", bin, "./host")
 	build.Dir = repoRoot
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("building the runner: %v\n%s", err, out)

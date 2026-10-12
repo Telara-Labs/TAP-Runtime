@@ -257,6 +257,7 @@ const usageText = `usage: tap [--approve] [--resume RUN] <package-dir> [args...]
        tap web build --out FILE <package-dir>...
        tap kit export [--out DIR] [<package-dir>...]
        tap hook gemini
+       tap cache [prune]
        tap upgrade
        tap version
 
@@ -345,6 +346,9 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "hook" {
 		os.Exit(hookCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "cache" {
+		os.Exit(cacheCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "fetch" {
 		os.Exit(fetchCommand(os.Args[2:], os.Stdout, os.Stderr))
@@ -505,11 +509,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if !o.NoJournal {
 		root := o.RunsDir
 		if root == "" {
-			base, err := os.UserCacheDir()
-			if err != nil {
+			var err error
+			if root, err = cacheSub("runs"); err != nil {
 				return nil, err
 			}
-			root = filepath.Join(base, "tap-runtime", "runs")
 		}
 		runsRoot = root
 		if n := runlog.Sweep(root, o.RetentionDays, started); n > 0 {
@@ -747,7 +750,8 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			logf("limit      %s is declared and this runner does not enforce it", k)
 		}
 	}
-	if cache, err := compilationCache(o.CacheDir); err == nil {
+	pruneOnFirstStart(o.InterpDir, o.CacheDir, map[string]bool{sum: true})
+	if cache, err := compilationCache(o.CacheDir, sum); err == nil {
 		rc = rc.WithCompilationCache(cache)
 	} else {
 		logf("cache      none: %v", err)

@@ -310,7 +310,7 @@ func TestInstallIsSeenByGoose(t *testing.T) {
 	}
 	home := t.TempDir()
 	tap := filepath.Join(t.TempDir(), "tap")
-	build := exec.Command("go", "build", "-o", tap, "./host")
+	build := exec.Command("go", "build", "-ldflags", testRunnerLinkFlags(t), "-o", tap, "./host")
 	build.Dir = repoRoot
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v %s", err, out)

@@ -76,11 +76,7 @@ func storeDir(override string) (string, error) {
 	if override != "" {
 		return override, nil
 	}
-	base, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(base, "tap-runtime", "interpreters"), nil
+	return cacheSub("interpreters")
 }
 
 // obtain returns the interpreter's bytes, downloading it into the store on

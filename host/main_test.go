@@ -4,6 +4,7 @@ import (
 	agents "github.com/Telara-Labs/TAP-Runtime/discover/client"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -19,6 +20,12 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	userConfigDir = func() (string, error) { return dir, nil }
+	// Nor may a test fill the person's cache with interpreters, compiled
+	// modules or run records. The default roots resolve to a directory of the
+	// test binary's own. A test that needs the real one asks for it with
+	// useRealCache.
+	cacheDir := filepath.Join(dir, "cache")
+	cacheRoot = func() (string, error) { return cacheDir, nil }
 	// Detection also counts an agent's program on PATH; tests say what is
 	// installed, not the machine running them.
 	agents.LookPath = func(string) (string, error) { return "", exec.ErrNotFound }

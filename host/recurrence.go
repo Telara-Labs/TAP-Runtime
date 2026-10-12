@@ -180,11 +180,11 @@ type cachedRequest struct {
 const requestCacheVersion = 4
 
 func requestCachePath(client string) string {
-	base, err := os.UserCacheDir()
+	root, err := cacheRoot()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(base, "tap-runtime", "requests-"+client+".json")
+	return filepath.Join(root, "requests-"+client+".json")
 }
 
 // lockRequestCache waits until no other process is reading the agent's

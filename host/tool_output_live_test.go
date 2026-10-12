@@ -24,7 +24,7 @@ func TestLiveReadableClientOutput(t *testing.T) {
 	}
 	root := t.TempDir()
 	bin := filepath.Join(root, "tap")
-	build := exec.Command("go", "build", "-o", bin, "./host")
+	build := exec.Command("go", "build", "-ldflags", testRunnerLinkFlags(t), "-o", bin, "./host")
 	build.Dir = repoRoot
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v %s", err, out)

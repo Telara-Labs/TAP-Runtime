@@ -172,7 +172,7 @@ func TestLiveClientAcceptanceClaudeCodeAndCodex(t *testing.T) {
 	bin := ""
 	if !httpMode {
 		bin = filepath.Join(artifactDir, "tap")
-		build := exec.Command("go", "build", "-o", bin, "./host")
+		build := exec.Command("go", "build", "-ldflags", testRunnerLinkFlags(t), "-o", bin, "./host")
 		build.Dir = repoRoot
 		if out, err := build.CombinedOutput(); err != nil {
 			t.Fatalf("building TAP runner: %v\n%s", err, out)

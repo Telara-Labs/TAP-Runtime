@@ -73,6 +73,33 @@ still chooses tools; verify actual `tap_run` receipts before claiming it used
 one. Clients without a supported tool-connection bridge are not made runnable
 by registration alone. Start a fresh client session after setup.
 
+## Where TAP keeps files, and how it cleans them
+
+TAP keeps what it can rebuild in `tap-runtime` inside the user cache
+directory (`~/Library/Caches` on macOS, `~/.cache` on Linux, `%LocalAppData%`
+on Windows):
+
+| Folder | What it holds | Cleaned |
+|---|---|---|
+| `interpreters/` | the interpreters TAP downloads (shell, Python, JavaScript) | exactly one version of each is kept |
+| `compiled/` | the interpreters and compiled primitives, translated once for this machine; one folder per program, named by its SHA-256 | only the current TAP and engine version, for programs still in use |
+| `runs/` | one record per run | records older than `--retention-days` (30 by default) are removed |
+| `requests-<agent>.json` | the search words of earlier requests | not cleaned |
+
+The first time a new version of TAP starts, it removes the interpreters it no
+longer pins, the compiled copies of programs nothing uses any more, and
+compiled copies made by an older engine. A small file, `pruned-by`, records the
+version that did it, so it happens once per upgrade. A program is in use when
+it is a pinned interpreter or the compiled program of an installed primitive.
+A primitive run from a folder that is not installed is compiled again after an
+upgrade. A clean-up that fails is reported and never stops a run.
+
+`tap cache` prints how much space the cache takes. `tap cache prune` does the
+same clean-up on demand and prints what it removed and the space freed. Neither
+touches `runs/`, the primitives you installed, trust decisions, bindings or
+anything else outside the cache. The folders given with `--interpreters` and
+`--cache` are yours and are cleaned only by `tap cache prune --interpreters DIR --cache DIR`.
+
 ## Standard MCP execution with a configured backend
 
 Clients that cannot lend their own tool connections can use an explicitly

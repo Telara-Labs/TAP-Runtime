@@ -11,7 +11,12 @@ import (
 func buildInto(t *testing.T, dir, out, pkg string, env ...string) string {
 	t.Helper()
 	path := filepath.Join(dir, out)
-	cmd := exec.Command("go", "build", "-o", path, pkg)
+	args := []string{"build", "-o", path, pkg}
+	if pkg == "./host" {
+		// The runner's default cache is the test's own, not the person's.
+		args = []string{"build", "-ldflags", "-X main.testCacheRoot=" + filepath.Join(dir, "cache"), "-o", path, pkg}
+	}
+	cmd := exec.Command("go", args...)
 	cmd.Dir = ".."
 	cmd.Env = append(os.Environ(), env...)
 	if b, err := cmd.CombinedOutput(); err != nil {

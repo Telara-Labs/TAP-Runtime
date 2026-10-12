@@ -105,7 +105,7 @@ func TestInlineFileReplaceRunsThroughHostAndRespectsFileReach(t *testing.T) {
 		}
 	}
 	bin := filepath.Join(t.TempDir(), "tap"+exeSuffix)
-	build := exec.Command("go", "build", "-o", bin, "./host")
+	build := exec.Command("go", hostBuildArgs(t, bin)...)
 	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build TAP host: %v\n%s", err, output)

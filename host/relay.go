@@ -84,11 +84,7 @@ type relayHub struct {
 // relayDir is where a server keeps its socket and the calls its runs wait
 // on, private to the user. A variable so a test can move it.
 var relayDir = func() (string, error) {
-	base, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(base, "tap-runtime", "relay"), nil
+	return cacheSub("relay")
 }
 
 func newRelayHub(dir, name string) *relayHub {
