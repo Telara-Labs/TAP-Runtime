@@ -298,3 +298,38 @@ func TestKitConformance(t *testing.T) {
 		})
 	}
 }
+
+func TestKitExportIncludesWhatAParentUsesAtAnyDepth(t *testing.T) {
+	inDir(t)
+	fetch := func(origin string) string { return "fetch:\n  - {origin: \"" + origin + "\", methods: [GET]}\n" }
+	grandchild := pkgSpec{name: "grandchild", rest: fetch("https://deep.example.com")}.write(t)
+	child := pkgSpec{name: "child", rest: fetch("https://child.example.com") + "uses:\n" + use(t, "grandchild", grandchild, "read")}.write(t)
+	parent := pkgSpec{name: "parent", rest: fetch("https://parent.example.com") + "uses:\n" + use(t, "child", child, "read")}.write(t)
+
+	pkgs, err := kitPackages([]string{parent}, catalogOf(t, child, grandchild))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, err := kitRules(pkgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hosts []string
+	for _, r := range rules {
+		hosts = append(hosts, r.Host)
+	}
+	want := []string{"child.example.com", "deep.example.com", "parent.example.com"}
+	if !reflect.DeepEqual(hosts, want) {
+		t.Fatalf("hosts %v, want %v", hosts, want)
+	}
+
+	// A pinned child that is not installed is refused as a run would refuse it.
+	_, err = kitPackages([]string{parent}, catalogOf(t, grandchild))
+	if err == nil || !strings.Contains(err.Error(), "child needs dev.test/child@0.1.0") || !strings.Contains(err.Error(), "not installed here") {
+		t.Fatalf("missing child: %v", err)
+	}
+	_, err = kitPackages([]string{parent}, catalogOf(t, child))
+	if err == nil || !strings.Contains(err.Error(), "grandchild needs dev.test/grandchild") {
+		t.Fatalf("missing grandchild: %v", err)
+	}
+}

@@ -56,10 +56,13 @@ during the build and placed in the `agent` user's cache, so the sandbox needs
 no network access beyond the primitives' own origins.
 
 The Kit's version is the runner's version, so export from an installed release
-of `tap`; a build from source refuses. It covers the primitives you name or
-have installed. A primitive that runs others through `uses` needs the
-children's origins too: the children are installed primitives, so they are
-included when you export without package directories.
+of `tap`; a build from source refuses.
+
+A primitive that runs others through `uses` runs them in the same sandbox, so
+exporting a package directory also includes the `fetch` origins of everything
+it uses, at any depth. The children are found among your installed primitives
+by their pinned digest; one that is not installed is refused with the message
+a run would give.
 
 ## Checking a Kit
 

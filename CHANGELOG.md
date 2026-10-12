@@ -13,7 +13,8 @@ see [version review](docs/versioning.md).
   install the released runner, checked against the release checksums, and
   declare a `network-policy@2` whose allow list is the exact union of the
   `fetch` origins and methods of the primitives named, or of every installed
-  primitive. No credentials are declared. An origin the policy cannot hold
+  primitive, plus those of everything a named package uses, at any depth. No
+  credentials are declared. An origin the policy cannot hold
   (`http`, a port other than 443, a wildcard host) is refused by package and
   origin, not widened. It builds and pushes nothing. See
   [docs/sandbox-kits.md](docs/sandbox-kits.md).

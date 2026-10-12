@@ -245,7 +245,7 @@ func kitCommand(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
-	pkgs, err := kitPackages(fs.Args())
+	pkgs, err := kitPackages(fs.Args(), nil)
 	if err != nil {
 		fmt.Fprintln(stderr, "tap:", err)
 		return 1
@@ -272,7 +272,7 @@ func kitCommand(args []string, stdout, stderr io.Writer) int {
 // kitPackages loads the named package directories, or, with none named,
 // every primitive installed in the local catalog. Saved version history is
 // not installed: only the current copy of each primitive counts.
-func kitPackages(dirs []string) ([]kitPackage, error) {
+func kitPackages(dirs []string, catalog func() ([]catalogEntry, error)) ([]kitPackage, error) {
 	var pkgs []kitPackage
 	if len(dirs) == 0 {
 		entries, err := localCatalog()
@@ -290,14 +290,32 @@ func kitPackages(dirs []string) ([]kitPackage, error) {
 		return pkgs, nil
 	}
 	for _, dir := range dirs {
-		m, err := mf.Load(dir)
+		digest, m, err := packageDigest(dir)
 		if err != nil {
 			return nil, err
 		}
 		if problems := m.RunProblems(); len(problems) > 0 {
 			return nil, fmt.Errorf("%s cannot be run: %s", dir, strings.Join(problems, "; "))
 		}
-		pkgs = append(pkgs, kitPackage{Name: m.Metadata.Publisher + "/" + m.Metadata.Name, Manifest: m})
+		name := m.Metadata.Publisher + "/" + m.Metadata.Name
+		pkgs = append(pkgs, kitPackage{Name: name, Manifest: m})
+		if len(m.Uses) == 0 {
+			continue
+		}
+		// What a package uses runs inside the same sandbox, so its fetch
+		// origins are needed too, at any depth. A pinned child that is not
+		// installed is refused as a run would refuse it.
+		entries, err := localEntries(catalog)
+		if err != nil {
+			return nil, err
+		}
+		nodes, err := resolveUses(entries, m, digest)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		for _, n := range flattenUses(nodes, "") {
+			pkgs = append(pkgs, kitPackage{Name: name + " uses " + n.Name + " (" + n.Ref + ")", Manifest: n.Manifest})
+		}
 	}
 	return pkgs, nil
 }
