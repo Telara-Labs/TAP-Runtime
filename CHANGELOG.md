@@ -8,6 +8,23 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **WASI Preview 2 components run beside Preview 1 modules.** A compiled
+  `.wasm` entrypoint may now be a WebAssembly component (Component Model,
+  WASI 0.2), such as `rustc --target wasm32-wasip2` produces. The runner tells
+  the two apart by the file's preamble and runs either on the same engine,
+  under the same limits. A component gets what a module gets and nothing
+  more: its arguments, TAP's JSON-line protocol on standard input and output,
+  standard error, clocks and random bytes. It has no directories, environment
+  variables or working directory; socket creation and name lookup return
+  `access-denied`; every file, command, fetch and tool request goes through
+  the broker. A component that imports `wasi:http` or any interface outside
+  the WASI 0.2 `cli`, `io`, `clocks`, `filesystem`, `random` and `sockets`
+  packages, or that uses async, threads or more than one linear memory, is
+  refused before it runs. `tap discover build` accepts a built component and
+  `BUILD.json` records the artifact's `format` (`wasip1-module` or
+  `wasip2-component`); save refuses a receipt whose format does not match.
+  A Rust example is in `examples/languages/rust`. See
+  [compiled primitives](docs/compiled-primitives.md).
 - **The runner provides the browser.** A primitive declares one tool,
   `{alias: browser, capability: tap.browser.use, effect: write}`, and calls
   `navigate`, `read` (a page function that returns JSON), `act` (`click`,

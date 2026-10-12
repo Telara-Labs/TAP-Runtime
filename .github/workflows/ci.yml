@@ -55,8 +55,12 @@ jobs:
         run: cd contract && go test $(go list ./... | grep -v /buildbox) -count=1
       - name: Test discover
         run: cd discover && go test ./... -count=1
+      # The component tests build real WASI Preview 1 modules and Preview 2
+      # components with rustc; without these targets they skip.
+      - name: Rust WASI targets
+        run: rustup target add wasm32-wasip1 wasm32-wasip2
       - name: Test the runner
-        run: go test ./bind ./bridge ./conformance ./host ./journal ./release ./satisfy -count=1
+        run: go test ./bind ./bridge ./conformance ./host ./internal/component ./journal ./release ./satisfy -count=1
 
   windows:
     runs-on: windows-latest

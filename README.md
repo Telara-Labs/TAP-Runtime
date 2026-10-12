@@ -358,8 +358,9 @@ an author who had not read the runner's code.
   at the client about each kind of change.
 - Bash sends one request at a time. Python and JavaScript can send several
   together with `tap.call_many` / `tap.callMany`.
-- Compiled WASI Preview 1 `.wasm` packages are supported in the current source
-  through the same broker and sandbox. Go/C++ authors compile before saving;
+- Compiled WASI Preview 1 `.wasm` modules and WASI Preview 2 components are
+  supported in the current source through the same broker and sandbox. A
+  component gets no more than a module does. Go/C++/Rust authors compile before saving;
   execution requires the packaged module, not a host language runtime. See
   [compiled packages](docs/compiled-primitives.md). Releases through 0.2.9 predate this path; compiled support starts in 0.2.10.
 - Each run compiles its interpreter (about 2 seconds); `--cache DIR` keeps

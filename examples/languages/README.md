@@ -1,4 +1,4 @@
-# One tool, six languages
+# One tool, seven languages
 
 These independent packages implement the same operation with the same input
 and output: read a declared task file, parse JSON, select a status, extract the
@@ -34,11 +34,12 @@ launch your machine's Bash or jq.
 | [TypeScript](typescript/) | Types removed, then QuickJS-ng WASM | None; the runner does not type-check |
 | [Go](go/) | Packaged WASI Preview 1 module | Go's `wasip1/wasm` target; source and local TAP SDK included |
 | [C++](cpp/) | Packaged WASI Preview 1 module | WASI SDK compiler; source, TAP header and pinned JSON header included |
+| [Rust](rust/) | Packaged WASI Preview 2 component | `rustc` with the `wasm32-wasip2` target; source, broker client and JSON reader included, no crates |
 
 The source-interpreter examples work with published TAP 0.2.8. Compiled
 entrypoints require TAP 0.2.10 or this updated source runner; releases through
-0.2.9 refuse them. Any other language must emit a compatible WASI Preview 1 module and
-speak the same JSON-line broker protocol. This is a compatibility requirement,
+0.2.9 refuse them. Any other language must emit a compatible WASI Preview 1 module or
+WASI Preview 2 component and speak the same JSON-line broker protocol. This is a compatibility requirement,
 not a promise that every language/library has been tested.
 
 To prepare the compiled examples, build the current runner from source, then:
@@ -48,8 +49,11 @@ go build -o /tmp/tap-language-demo ./host
 /tmp/tap-language-demo discover build --approve-build examples/languages/go
 # Set cpp/compiler.json to your installed wasm32-wasip1-clang++ compiler first.
 /tmp/tap-language-demo discover build --approve-build examples/languages/cpp
+# Set rust/compiler.json to your toolchain's rustc (rustup which rustc) first.
+/tmp/tap-language-demo discover build --approve-build examples/languages/rust
 /tmp/tap-language-demo examples/languages/go '{"status":"open"}'
 /tmp/tap-language-demo examples/languages/cpp '{"status":"done"}'
+/tmp/tap-language-demo examples/languages/rust '{"status":"open"}'
 ```
 
 The build step is an explicit author operation and has the author's OS access.
@@ -59,7 +63,7 @@ Every example includes a changelog; on revision update version/manifest and
 changelog, and rebuild compiled output before validation or saving. See
 [compiled packages](../../docs/compiled-primitives.md).
 
-All six packages declare the same one-file read in `primitive.yaml`.
+All seven packages declare the same one-file read in `primitive.yaml`.
 Removing it makes the real runner refuse the request. Bad input fails before
 reading, and malformed task data fails rather than returning an empty success.
 The paths are relative to the runner's working directory, not to the package.
@@ -70,7 +74,7 @@ Run the actual interpreter tests with an explicit runner:
 python3 -B examples/languages/test_languages.py --runner /absolute/path/to/tap
 ```
 
-They run 36 guest invocations: twelve successful changed-input runs, twelve bad
-inputs, six malformed fixture reads, and six undeclared-read refusals.
-Build both compiled examples before running the matrix.
+They run 42 guest invocations: fourteen successful changed-input runs, fourteen
+bad inputs, seven malformed fixture reads, and seven undeclared-read refusals.
+Build the three compiled examples before running the matrix.
 See [verification](../VERIFICATION.md) for the recorded execution boundary.

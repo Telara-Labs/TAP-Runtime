@@ -39,9 +39,9 @@ another folder may have nobody to answer it. Run `tap discover brief` (below)
 first; it creates `.tap/drafts/` with a `.gitignore` that keeps everything in
 it out of git. Keep `cases.json` and receipts in `.tap/drafts/`, beside the
 package, not in it. The package holds `primitive.yaml` and one program (`main.py`,
-`main.js`, `main.ts` or `main.sh`). Go, C++ and other compiled languages
-use a packaged WASI Preview 1 `.wasm` entrypoint with source and an explicit
-build recipe. See the guide for the JSON-line SDK protocol. The guide, with every field, is
+`main.js`, `main.ts` or `main.sh`). Go, C++, Rust and other compiled languages
+use a packaged `.wasm` entrypoint (a WASI Preview 1 module or a WASI Preview 2
+component) with source and an explicit build recipe. See the guide for the JSON-line SDK protocol. The guide, with every field, is
 https://github.com/Telara-Labs/TAP-Runtime/blob/main/docs/writing-a-primitive.md
 
 ```yaml

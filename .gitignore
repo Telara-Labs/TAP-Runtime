@@ -4,6 +4,7 @@ bin/
 # Local compiled-example receipts belong with generated executables.
 /examples/languages/go/BUILD.json
 /examples/languages/cpp/BUILD.json
+/examples/languages/rust/BUILD.json
 cache/
 journal.jsonl
 

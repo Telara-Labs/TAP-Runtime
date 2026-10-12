@@ -38,6 +38,7 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/bridge"
 	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
 	"github.com/Telara-Labs/TAP-Runtime/discover"
+	"github.com/Telara-Labs/TAP-Runtime/internal/component"
 	runlog "github.com/Telara-Labs/TAP-Runtime/journal"
 )
 
@@ -478,11 +479,15 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	var wasmBytes []byte
 	var in interpreter
 	var sum string
+	var format component.Format
 	if filepath.Ext(m.Execution.Entrypoint) == ".wasm" {
 		// The package already contains the compiled program. Building source
 		// belongs to authoring; run grants no compiler or native subprocess.
 		wasmBytes, sum = script, digest(script)
 		in = interpreter{Kind: "wasm", File: m.Execution.Entrypoint, SHA256: sum}
+		if format, err = component.Detect(wasmBytes); err != nil {
+			return nil, fmt.Errorf("entrypoint %s: %w", m.Execution.Entrypoint, err)
+		}
 	} else {
 		store, err := storeDir(o.InterpDir)
 		if err != nil {
@@ -507,7 +512,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 
 	if kind == "wasm" {
-		logf("package    %s  entrypoint %s (compiled WASI)", m.Metadata.Name, m.Execution.Entrypoint)
+		what := "compiled WASI Preview 1 module"
+		if format == component.Component {
+			what = "compiled WASI Preview 2 component"
+		}
+		logf("package    %s  entrypoint %s (%s)", m.Metadata.Name, m.Execution.Entrypoint, what)
 		logf("module     %s (%d bytes) sha256:%s", in.File, len(wasmBytes), sum[:12])
 	} else {
 		logf("package    %s  entrypoint %s (source, not compiled)", m.Metadata.Name, m.Execution.Entrypoint)
@@ -675,11 +684,20 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	rt := wazero.NewRuntimeWithConfig(ctx, rc)
 	defer rt.Close(ctx)
-	wasi_snapshot_preview1.MustInstantiate(ctx, rt)
 
 	t0 := time.Now()
 	unlock := compileLock(wasmBytes)
-	compiled, err := rt.CompileModule(ctx, wasmBytes)
+	// A component gets its WASI 0.2 interfaces from package component, which
+	// supplies the same streams, clocks and random bytes and nothing more.
+	// It is not given the Preview 1 host module.
+	var compiled wazero.CompiledModule
+	var prog *component.Program
+	if format == component.Component {
+		prog, err = component.Load(ctx, rt, wasmBytes)
+	} else {
+		wasi_snapshot_preview1.MustInstantiate(ctx, rt)
+		compiled, err = rt.CompileModule(ctx, wasmBytes)
+	}
 	unlock()
 	if err != nil {
 		return nil, err
@@ -718,7 +736,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	defer bud.stop()
 	done := make(chan error, 1)
 	go func() {
-		_, err := rt.InstantiateModule(guestCtx, compiled, cfg)
+		var err error
+		if prog != nil {
+			err = prog.Run(guestCtx, componentConfig(args, toGuestR, fromGuestW, &guestErr, run))
+		} else {
+			_, err = rt.InstantiateModule(guestCtx, compiled, cfg)
+		}
 		stopGuest() // a finished guest has no remaining host work to dispatch
 		fromGuestW.Close()
 		done <- err

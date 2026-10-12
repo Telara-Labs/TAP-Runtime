@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-LANGUAGES = ("bash", "python", "javascript", "typescript", "go", "cpp")
+LANGUAGES = ("bash", "python", "javascript", "typescript", "go", "cpp", "rust")
 
 
 class LanguageRuntimeTest(unittest.TestCase):
