@@ -164,6 +164,9 @@ func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMe
 			Digest      string `json:"digest"`
 			Description string `json:"description,omitempty"`
 			Source      string `json:"source"`
+			// Attestation says whether the registry's signature on this
+			// package was verified; omitted for a package with none.
+			Attestation string `json:"attestation,omitempty"`
 		}
 		hits := make([]hit, 0)
 		for _, e := range searchCatalog(entries, a.Query, a.Limit) {
@@ -171,7 +174,7 @@ func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMe
 			if len(desc) > 1024 {
 				desc = desc[:1024]
 			}
-			hits = append(hits, hit{e.Ref, e.Digest, desc, e.Source})
+			hits = append(hits, hit{e.Ref, e.Digest, desc, e.Source, e.Attestation.label()})
 		}
 		reply := map[string]any{"matches": hits}
 		if len(hits) == 0 {
@@ -206,6 +209,9 @@ func (s *server) handleReadTool(id *json.RawMessage, name string, raw json.RawMe
 			"interface": m.Interface, "capabilities": m.Capabilities, "tools": m.Tools,
 			"commands": m.Commands, "files": m.Files, "fetch": m.Fetch,
 			"connection_preview": s.previewConnections(m)}
+		if label := e.Attestation.label(); label != "" {
+			loaded["attestation"] = label
+		}
 		if checkRunArgs(m, nil) != "" {
 			loaded["args"] = "one element: the input object encoded as a JSON string in args[0]"
 		}

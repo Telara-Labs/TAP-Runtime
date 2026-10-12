@@ -76,6 +76,38 @@ tap bind --list
 Use the actual connection name from your client. This is a persistent binding,
 not approval to perform writes through it.
 
+## Trust a registry's signing key
+
+A package pulled from a registry carries `ATTESTATION.json` and
+`ATTESTATION.sig` beside it. The runner checks them against the keys you trust,
+with no network:
+
+```sh
+tap trust-publisher add --publisher com.acme --key-id tap-attestation:v1 --public-key BASE64
+tap trust-publisher list
+tap trust-publisher remove --key-id tap-attestation:v1
+```
+
+The keys are kept in `trusted_publishers.json` in the runner's configuration
+directory (`tap/` under your user config directory), as entries of
+`publisher_prefix`, `key_id`, `alg` and `public_key_b64`. `--publisher` is a
+namespace such as `com.acme`; it covers `com.acme.tools` too, and no wildcard
+is accepted. Only `ed25519` is supported.
+
+What `tap_search` and `tap_load` show for such a package:
+
+- `verified by KEY-ID`: a key you trust for that publisher made the signature
+  and the attestation describes this package.
+- `attestation invalid: ...`: the files claim a signature and fail it, or
+  describe another package. `tap_run` refuses it. Pull it again from the registry.
+- `attestation present, not verified: ...`: well formed, but no key you trust
+  covers it. It runs as a package with no attestation would.
+- nothing: no attestation files, as for a primitive you wrote.
+
+A verified package is still asked about the first time and its changes are
+still approved; the signature says where it came from, not that it is safe to
+run.
+
 ## Refresh a stale saved pointer
 
 An old digest never executes new package bytes. Inspect the package currently

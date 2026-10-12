@@ -16,6 +16,9 @@ import (
 type catalogEntry struct {
 	Ref, Digest, Description, Path, Source string
 	Manifest                               *mf.Manifest
+	// Attestation is what checking the signed publish attestation beside the
+	// package found; absent when the package carries none.
+	Attestation attestationResult
 }
 
 // localCatalog scans only known primitive roots. Each root's immediate child
@@ -176,7 +179,8 @@ func readCatalogEntry(dir, source string) (catalogEntry, error) {
 		return catalogEntry{}, fmt.Errorf("primitive needs an exact publisher/name@version identity")
 	}
 	ref := m.Metadata.Publisher + "/" + m.Metadata.Name + "@" + m.Metadata.Version
-	return catalogEntry{Ref: ref, Digest: digest, Description: m.Metadata.Description, Path: abs, Source: source, Manifest: m}, nil
+	return catalogEntry{Ref: ref, Digest: digest, Description: m.Metadata.Description, Path: abs, Source: source, Manifest: m,
+		Attestation: checkAttestation(abs, m, newPublisherRoots().list())}, nil
 }
 
 func withinPath(root, candidate string) bool {

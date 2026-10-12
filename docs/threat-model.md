@@ -463,6 +463,28 @@ the same process under its own manifest. Unless stated, evidence is from
 | U8 | A resume repeats a child's change, or loses its output (X5, A7) | The parent's record names the child's run before it starts. A finished child's answer is replayed, not run again; an interrupted child is resumed and reports an in-progress change as unknown. A finished child's output is kept in its own record; an older record without it is unknown when the child can change anything and re-run when it only reads | `TestResumeReplaysAFinishedChildWithoutRunningIt`, `TestResumeContinuesAnInterruptedChildAndReportsItsUnknownWrite`, `TestResumeReadsAChildThatFinishedBeforeItsParentHeard` | Retention removes a child's record with its root's, so a child is never resumed from a record that outlived its parent | mitigated |
 | U9 | A tree runs where it cannot be held to these rules (X1) | A web page and a relay client (Gemini CLI and others) refuse a package that uses others, naming why | `TestWebBuildRefusesUses`, `TestUsesAreRefusedUnderTheRelay` | Hosted execution by a service is outside this runner | mitigated |
 
+## Signed releases
+
+A package installed from a registry can carry `ATTESTATION.json` (the exact
+bytes the registry signed) and `ATTESTATION.sig` (the key id and an Ed25519
+signature). At admission the runner checks the pair against the keys in
+`trusted_publishers.json` in its configuration directory, which `tap
+trust-publisher` manages. Nothing is fetched. Evidence is from
+`host/attestation_test.go` on macOS arm64.
+
+| ID | Threat | Mitigation as implemented | Evidence | Residual risk | Status |
+|---|---|---|---|---|---|
+| V1 | A forged attestation: a package claims a registry signed it (X4) | A pair that claims a signature and fails it is refused before any prompt or run: a signature that does not verify under a trusted key, a payload changed after signing, a malformed or symlinked file, one file without the other, an unsupported algorithm. `tap_search` and `tap_load` show the reason | `TestAttestationInvalidIsRefused`, `TestAdmissionRefusesAnInvalidAttestation` | A forged pair whose key is not in the trusted list is not refused: nothing can be said about it, so it is shown as "not verified" and treated as a package with none | mitigated for trusted keys |
+| V2 | A genuine attestation is copied onto another package (X4) | The runner compares the attested publisher, name and version with the package's manifest, and the attested artifact digest with the digest the installer recorded in `.telara-primitive.json`. A mismatch is refused whoever signed it, and before any key is consulted | `TestAttestationInvalidIsRefused` (name, version, publisher, digest cases) | The signed digest is that of the published tarball, which the runner cannot recompute from an unpacked folder. Someone who can edit both the package and the installer's marker can pair a real attestation with different files; the package digest trust of `tap trust` still applies to what runs. Closing this needs the signed attestation to carry the run digest | open |
+| V3 | A key signs for a publisher it should not (X4) | A trusted key is bound to a publisher prefix that must match on a dot boundary (`com.acme` covers `com.acme.tools`, not `com.acmex`). A key outside its prefix is "not verified" | `TestPublisherPrefixCoversOnADotBoundary`, `TestAttestationWithoutATrustedKeyIsUnverifiedNotRefused` | The registry's signing key is one key for every publisher in a tenant; the prefix limits what this machine accepts from it, not what the registry signs | partly mitigated |
+| V4 | The registry rotates its signing key (X4) | Each key version has its own id. The old version stays trusted until the person removes it with `tap trust-publisher remove`; a new version is added with `add`. Both verify | `TestTrustPublisherRoundTrip` | The runner does not learn of a rotation by itself: a package signed by a new version shows "not verified" until its key is added | accepted |
+| V5 | A stale key list keeps trusting a key the registry has retired (X4) | Keys are only what the person added. Nothing expires; `list` shows every one and `remove` withdraws it | `TestTrustPublisherRoundTrip` | A key that is compromised stays trusted until the person removes it | accepted |
+| V6 | The agent adds a trusted key from its shell (X2) | `tap trust-publisher add` takes the key as an explicit argument and a package cannot ask for it. The agent's own shell can run it; as with `tap trust`, the person's agent permissions are the control | `TestTrustPublisherRefusesBadInput` | An agent allowed to run shell commands can add a key; a key it adds only lets that key's own signatures show as verified, and verification grants no authority to run | accepted |
+
+Verification shows where a package came from. It does not approve anything:
+`tap trust`, effect approval and fetch grants apply to a verified package
+exactly as to any other.
+
 ## Summary of current status
 
 - Published v0.1.19 passed the complete applicable launch acceptance package on

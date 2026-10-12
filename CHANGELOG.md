@@ -8,6 +8,13 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **The runner checks a registry's signature on a package.** A package that
+  carries `ATTESTATION.json` and `ATTESTATION.sig` is checked at admission
+  against `trusted_publishers.json` in the runner's configuration directory.
+  `tap trust-publisher add|list|remove` manages the keys. `tap_search` and
+  `tap_load` show `verified by KEY-ID`; a pair that claims a signature and
+  fails it, or describes another package, is refused; a package with none, or
+  with a key you have not trusted, runs as before.
 - **Every guest can run a primitive listed under `uses`.** Python has
   `tap.run(alias, input)` and `tap.run_many`, JavaScript and TypeScript
   `tap.run` and `tap.runMany`, bash `tap run ALIAS [JSON]`, the Go SDK

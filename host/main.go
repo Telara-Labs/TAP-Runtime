@@ -249,6 +249,7 @@ const usageText = `usage: tap [--approve] [--resume RUN] <package-dir> [args...]
        tap install --client <agent>|all|detected [--remove] [--print]
        tap serve
        tap trust PACKAGE-DIR
+       tap trust-publisher add|list|remove
        tap bind --client NAME CAPABILITY SERVER[/TOOL]
        tap fetch
        tap diff [--json] <old-package-dir> <new-package-dir>
@@ -328,6 +329,9 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "trust" {
 		os.Exit(trustCommand(takeConfigDir(os.Args[2:]), os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "trust-publisher" {
+		os.Exit(trustPublisherCommand(takeConfigDir(os.Args[2:]), os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "bind" {
 		os.Exit(bindCommand(takeConfigDir(os.Args[2:]), os.Stdout, os.Stderr))
@@ -449,6 +453,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	if problems := declarationProblems(loaded); len(problems) > 0 {
 		return nil, fmt.Errorf("primitive.yaml declares what this runner will not allow:\n  - %s", strings.Join(problems, "\n  - "))
+	}
+	if why := attestationRefusal(o.Package, loaded); why != "" {
+		return nil, errors.New(why)
 	}
 	m := *loaded
 	// A subprocess is not contained. This

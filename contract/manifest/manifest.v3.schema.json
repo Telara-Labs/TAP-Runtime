@@ -423,7 +423,7 @@
       }
     },
     "provenance": {
-      "description": "A wasm blob is bytes no admin can read, so binding only its digest makes the approval theatre. Promotion binds SOURCE PLUS REPRODUCIBLE BUILD -- the publish pipeline of 14 section 5 rebuilds from these inputs and REFUSES if the digest differs. A SEALED package hands its source to the pipeline only; adopters receive the signed attestation instead, so 14 section 1's 'seal the how, never the what-it-touches' survives. A standalone host verifies that attestation against profile.json's trusted_publishers[] keys; it cannot reproduce the build, which is a trust root rather than a service dependency.",
+      "description": "A wasm blob is bytes no admin can read, so binding only its digest makes the approval theatre. Promotion binds SOURCE PLUS REPRODUCIBLE BUILD -- the publish pipeline of 14 section 5 rebuilds from these inputs and REFUSES if the digest differs. A SEALED package hands its source to the pipeline only; adopters receive the signed attestation instead, so 14 section 1's 'seal the how, never the what-it-touches' survives. A standalone host verifies that attestation against the keys in the runner's trusted_publishers list (tap trust-publisher); it cannot reproduce the build, which is a trust root rather than a service dependency.",
       "type": "object",
       "additionalProperties": false,
       "required": [

@@ -506,6 +506,10 @@ func (s *server) handle(m rpcMessage) {
 				s.toolError(m.ID, why)
 				return
 			}
+			if why := attestationRefusal(packagePath, loaded); why != "" {
+				s.toolError(m.ID, why)
+				return
+			}
 			if len(loaded.Uses) > 0 {
 				entries, err := s.catalog()
 				if err == nil {
@@ -517,6 +521,12 @@ func (s *server) handle(m rpcMessage) {
 				if err != nil {
 					s.toolError(m.ID, err.Error())
 					return
+				}
+				for _, n := range flattenUses(kids, "") {
+					if why := attestationRefusal(n.Path, n.Manifest); why != "" {
+						s.toolError(m.ID, why)
+						return
+					}
 				}
 			}
 		}
