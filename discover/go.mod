@@ -7,7 +7,7 @@ module github.com/Telara-Labs/TAP-Runtime/discover
 go 1.25.0
 
 require (
-	github.com/Telara-Labs/TAP-Runtime/contract v0.0.0-20261007231604-a5ccf9aa743a
+	github.com/Telara-Labs/TAP-Runtime/contract v0.0.0-20261012130002-55d5029b77cf
 	golang.org/x/mod v0.35.0
 	golang.org/x/sys v0.42.0
 	golang.org/x/term v0.41.0

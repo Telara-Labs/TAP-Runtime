@@ -17,6 +17,7 @@ import (
 
 	"github.com/Telara-Labs/TAP-Runtime/discover/history"
 	"github.com/Telara-Labs/TAP-Runtime/discover/model"
+	"github.com/Telara-Labs/TAP-Runtime/discover/pack"
 	"github.com/Telara-Labs/TAP-Runtime/discover/redact"
 	"github.com/Telara-Labs/TAP-Runtime/discover/retrieval"
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
@@ -51,6 +52,9 @@ type Brief struct {
 	// field is missing for a selected task.
 	Missing  []string      `json:"missing"`
 	Contract BriefContract `json:"contract"`
+	// Uses are installed primitives whose whole tool sequence the calls
+	// contain: proposals to run them instead of copying their steps.
+	Uses []UseSuggestion `json:"uses,omitempty"`
 }
 
 // LogicExample is one independently observed execution of the same shape.
@@ -89,13 +93,17 @@ type BriefEvidence struct {
 }
 
 type BriefStep struct {
-	N          int               `json:"n"`
-	SourceCall int               `json:"source_call,omitempty"`
-	Tool       string            `json:"tool"`
-	Command    string            `json:"command,omitempty"`
-	Args       map[string]string `json:"args,omitempty"`
-	Outcome    string            `json:"outcome"`
-	Output     string            `json:"output,omitempty"`
+	N          int    `json:"n"`
+	SourceCall int    `json:"source_call,omitempty"`
+	Tool       string `json:"tool"`
+	// Server and MCPTool are the exact MCP identity of the call where the
+	// client recorded it.
+	Server  string            `json:"server,omitempty"`
+	MCPTool string            `json:"mcp_tool,omitempty"`
+	Command string            `json:"command,omitempty"`
+	Args    map[string]string `json:"args,omitempty"`
+	Outcome string            `json:"outcome"`
+	Output  string            `json:"output,omitempty"`
 }
 
 // BriefField is one contract field: its value, and what established it. An
@@ -138,7 +146,7 @@ func NewBrief(s trace.Session, req int, cand *BriefCandidate) (*Brief, error) {
 		if c.Request != req {
 			continue
 		}
-		st := BriefStep{N: len(b.Evidence.Steps) + 1, SourceCall: len(b.Evidence.Steps) + 1, Tool: c.Tool, Command: redact.Redact(c.Command), Outcome: OutcomeName(c.Outcome), Output: redact.Redact(c.Output)}
+		st := BriefStep{N: len(b.Evidence.Steps) + 1, SourceCall: len(b.Evidence.Steps) + 1, Tool: c.Tool, Server: c.MCPServer, MCPTool: c.MCPTool, Command: redact.Redact(c.Command), Outcome: OutcomeName(c.Outcome), Output: redact.Redact(c.Output)}
 		if len(c.Args) > 0 {
 			st.Args = map[string]string{}
 			for k, v := range c.Args {
@@ -456,6 +464,9 @@ func BriefCommand(args []string, home string, out, errOut io.Writer) int {
 			b.LogicExamples = append(b.LogicExamples, LogicExample{SpanID: member.ID, Ref: OpaqueRef(src), Source: src, Evidence: example.Evidence})
 		}
 	}
+	if root, rerr := pack.CollectionDir(); rerr == nil {
+		b.Uses = SuggestUses(b.Evidence.Steps, InstalledPrimitives(root))
+	}
 	if *dir == "" {
 		*dir = filepath.Join(DraftsDir, "brief-"+b.Ref)
 	}
@@ -529,6 +540,13 @@ func (b *Brief) Markdown() string {
 			}
 			w.WriteString("\n")
 		}
+	}
+	if len(b.Uses) > 0 {
+		w.WriteString("## Installed primitives that already do part of this (a proposal)\n\nThe calls below contain the whole tool sequence of these saved primitives. Run them from the new primitive instead of copying their steps, if they do what this task needs:\n\n```yaml\n" + usesYAML(b.Uses) + "```\n\n")
+		for _, u := range b.Uses {
+			fmt.Fprintf(&w, "- `%s` (%s@%s) covers calls %v; call it with `tap.run(\"%s\", input)`.\n", u.Alias, u.Ref, u.Version, u.Steps, u.Alias)
+		}
+		w.WriteString("\n")
 	}
 	fmt.Fprintf(&w, "## Contract fields not yet established\n\n%s\n\n", strings.Join(b.Missing, ", "))
 	if b.Evidence.PreviousRequest != "" {
