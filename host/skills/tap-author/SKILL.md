@@ -91,6 +91,26 @@ interface:
   does not match), report it as incomplete. Never count incomplete evidence
   as a pass.
 
+## Use a primitive that already does part of it
+
+Before writing steps, call `tap_search` for a saved primitive that does part of
+the job (a few words, no values). If one fits, run it from yours instead of
+copying its steps: list it under `uses:` with its digest and ask for it with
+`tap.run(alias, input)` in Python, `tap.run` in JavaScript and TypeScript, or
+`tap run ALIAS JSON` in bash.
+
+```yaml
+uses:
+  - {alias: release_brief, ref: dev.telara/api-release-brief}
+```
+
+Write only the `alias` and `ref`, then run `tap manifest complete <dir> --write`:
+it fills the version, the digest and the highest effect from the installed
+primitive, and names the candidates if the ref matches several. A child runs
+under its own manifest and approvals and hands back only its output, so
+declare in yours only what your own steps need. If the declared `effect` is
+lower than what the child can do, the runner refuses it.
+
 ## Automating work in a browser, an app or anything a client provides
 
 Read the guide's

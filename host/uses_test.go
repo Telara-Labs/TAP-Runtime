@@ -141,16 +141,23 @@ type pkgSpec struct {
 	name string
 	exec string // more of the execution block, such as ", timeoutSeconds: 2"
 	rest string // top-level manifest lines
+	// entry and code are the program, when it is not the test guest.
+	entry string
+	code  []byte
 }
 
 func (p pkgSpec) write(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	manifest := fmt.Sprintf("apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.test, name: %s, version: 0.1.0}\nexecution: {entrypoint: main.wasm%s}\n%s", p.name, p.exec, p.rest)
+	entry, code := p.entry, p.code
+	if entry == "" {
+		entry, code = "main.wasm", stepperModule(t)
+	}
+	manifest := fmt.Sprintf("apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.test, name: %s, version: 0.1.0}\nexecution: {entrypoint: %s%s}\n%s", p.name, entry, p.exec, p.rest)
 	if err := os.WriteFile(filepath.Join(dir, "primitive.yaml"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "main.wasm"), stepperModule(t), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, entry), code, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return dir

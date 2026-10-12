@@ -1,0 +1,37 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata:
+  publisher: dev.telara
+  name: release-check
+  version: 0.1.0
+  description: Check whether a release is ready by combining its public release evidence with the open tasks in the task file.
+  output_description: A verdict with the reasons behind it, the open task count and the release evidence; never an approval to ship.
+interface:
+  inputSchema:
+    type: object
+    properties:
+      owner: {type: string}
+      repo: {type: string}
+      ref: {type: string}
+    required: [owner, repo, ref]
+  outputSchema:
+    type: object
+    properties:
+      repository: {type: string}
+      ref: {type: string}
+      ready: {type: boolean}
+      reasons: {type: array}
+      open_tasks: {type: integer}
+      release: {type: object}
+      evidence: {type: array}
+    required: [repository, ref, ready, reasons, open_tasks, evidence]
+execution:
+  entrypoint: main.py
+  timeoutSeconds: 60
+  limits: {max_dispatches: 10}
+# The two primitives it runs, pinned by digest. The digests change whenever
+# either of them does; tap manifest complete refreshes them from what is
+# installed here.
+uses:
+  - {alias: release_brief, ref: dev.telara/api-release-brief, version: 0.1.1, digest: 340600ac9a8b4f9604595b5742fc841e04f43ec116fe920805388fb18afb7e76, effect: read}
+  - {alias: open_tasks, ref: examples.telara.dev/task-summary-python, version: 0.1.0, digest: e6528ea3e1892792d760cd8059c974e650b0077eca09434f601727df4aa54039, effect: read}

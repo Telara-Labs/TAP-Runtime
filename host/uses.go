@@ -429,3 +429,71 @@ func usesChanges(old, next []mf.Use) []string {
 	}
 	return out
 }
+
+// completeUses fills the version, digest and effect of each uses entry that
+// leaves them out, from the installed primitive its ref names. A ref that
+// names several installed primitives is refused, and the candidates are
+// listed so the person can pin the one meant. An entry that gives a digest is
+// found by it. Fields already written are never replaced.
+func completeUses(m *mf.Manifest, entries []catalogEntry) error {
+	for i := range m.Uses {
+		u := &m.Uses[i]
+		if u.Version != "" && u.Digest != "" && u.Effect != "" {
+			continue
+		}
+		var found []catalogEntry
+		for _, e := range entries {
+			if refName(e.Ref) != u.Ref {
+				continue
+			}
+			if u.Digest != "" && !strings.EqualFold(e.Digest, u.Digest) {
+				continue
+			}
+			dup := false
+			for _, f := range found {
+				if f.Digest == e.Digest {
+					dup = true
+				}
+			}
+			if !dup {
+				found = append(found, e)
+			}
+		}
+		switch len(found) {
+		case 0:
+			return fmt.Errorf("uses %s: %s is not installed here; save or pull it first", u.Alias, u.Ref)
+		case 1:
+		default:
+			var names []string
+			for _, f := range found {
+				names = append(names, fmt.Sprintf("%s (%s)", f.Ref, shortDigest(f.Digest)))
+			}
+			return fmt.Errorf("uses %s: %s matches %d installed primitives: %s. Write the digest of the one you mean", u.Alias, u.Ref, len(found), strings.Join(names, ", "))
+		}
+		e := found[0]
+		if u.Version == "" {
+			u.Version = e.Manifest.Metadata.Version
+		}
+		if u.Digest == "" {
+			u.Digest = e.Digest
+		}
+		if u.Effect == "" {
+			kids, err := resolveUses(entries, e.Manifest, e.Digest)
+			if err != nil {
+				return fmt.Errorf("uses %s: %w", u.Alias, err)
+			}
+			u.Effect, _ = highestEffect(e.Manifest, kids)
+		}
+	}
+	return nil
+}
+
+// usesIncomplete says whether any uses entry leaves out what completion fills.
+func usesIncomplete(m *mf.Manifest) bool {
+	for _, u := range m.Uses {
+		if u.Version == "" || u.Digest == "" || u.Effect == "" {
+			return true
+		}
+	}
+	return false
+}

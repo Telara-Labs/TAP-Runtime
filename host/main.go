@@ -1486,6 +1486,23 @@ class _Tap:
             try: out.append(self._value(got[i]))
             except Exception as e: out.append(e)
         return out
+    def run(self, alias, input=None):
+        """Run a primitive listed under uses and return its output. A child
+        that fails raises, as a failed call does."""
+        return self._value(self._ask({"method": "run", "alias": alias, "input": input or {}}))
+    def run_many(self, runs):
+        """Like call_many, for primitives listed under uses: runs is a list
+        of (alias, input) pairs."""
+        ids = [self._send({"method": "run", "alias": a, "input": g or {}}) for a, g in runs]
+        got = {}
+        while len(got) < len(ids):
+            r = json.loads(_in.readline())
+            if r.get("id") in ids: got[r["id"]] = r
+        out = []
+        for i in ids:
+            try: out.append(self._value(got[i]))
+            except Exception as e: out.append(e)
+        return out
     def _cap(self, o):
         r = self._ask(o)
         if r.get("refused"): raise self._err(PermissionError, "refused", r["refused"])
@@ -1544,6 +1561,16 @@ globalThis.tap = {
   // calls were given. A call that failed is returned as its Error.
   callMany(calls) {
     const ids = calls.map(([alias, args]) => _send({ method: "call", alias, arguments: args ?? {} }));
+    const got = {};
+    while (Object.keys(got).length < ids.length) { const r = JSON.parse(std.in.getline()); if (ids.includes(r.id)) got[r.id] = r; }
+    return ids.map((i) => { try { return _value(got[i]); } catch (e) { return e; } });
+  },
+  // Runs a primitive listed under uses and returns its output. A child that
+  // fails throws, as a failed call does.
+  run(alias, input = {}) { return _value(_ask({ method: "run", alias, input })); },
+  // Sends every run, then reads every answer, as callMany does.
+  runMany(runs) {
+    const ids = runs.map(([alias, input]) => _send({ method: "run", alias, input: input ?? {} }));
     const got = {};
     while (Object.keys(got).length < ids.length) { const r = JSON.parse(std.in.getline()); if (ids.includes(r.id)) got[r.id] = r; }
     return ids.map((i) => { try { return _value(got[i]); } catch (e) { return e; } });

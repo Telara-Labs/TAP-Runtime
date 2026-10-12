@@ -122,3 +122,27 @@ func TestReturnEmitsFinalFrame(t *testing.T) {
 		t.Fatalf("return frame = %q", out.String())
 	}
 }
+
+func TestRunEncodesAliasAndInputAndReturnsTheOutput(t *testing.T) {
+	var out bytes.Buffer
+	client := NewWithIO(strings.NewReader(`{"id":"r1","result":"{\"ok\":true}"}`+"\n"), &out)
+	reply, err := client.Run("child", map[string]any{"name": "x"})
+	if err != nil || reply.Result != `{"ok":true}` {
+		t.Fatalf("Run() = %#v, %v", reply, err)
+	}
+	if out.String() != "{\"alias\":\"child\",\"id\":\"r1\",\"input\":{\"name\":\"x\"},\"method\":\"run\"}\n" {
+		t.Fatalf("run request = %q", out.String())
+	}
+}
+
+func TestRunTurnsAFailedChildIntoAFailedError(t *testing.T) {
+	client := NewWithIO(strings.NewReader(`{"id":"r1","exit":70,"stderr":"output did not match"}`+"\n"), &bytes.Buffer{})
+	reply, err := client.Run("child", nil)
+	var tapErr *Error
+	if !errors.As(err, &tapErr) || tapErr.Code != ErrFailed || tapErr.Detail != "run failed: output did not match" {
+		t.Fatalf("Run() = %#v, %v; want failed error", reply, err)
+	}
+	if _, err := client.Run("", nil); err == nil {
+		t.Fatal("an empty alias was sent")
+	}
+}

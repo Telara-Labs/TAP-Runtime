@@ -8,6 +8,18 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **Every guest can run a primitive listed under `uses`.** Python has
+  `tap.run(alias, input)` and `tap.run_many`, JavaScript and TypeScript
+  `tap.run` and `tap.runMany`, bash `tap run ALIAS [JSON]`, the Go SDK
+  `Client.Run` and the C++ SDK `Client::run`. A child that fails raises or
+  returns an error, as a failed call does. `tap manifest complete` fills the
+  `version`, `digest` and `effect` of a `uses` entry from the installed
+  primitive, and refuses a ref that matches several, naming them.
+  `examples/release-check` is a primitive made of two others.
+  `tap discover brief` proposes a `uses` block for a saved primitive whose
+  whole tool sequence, each tool pinned to a server and a tool, the request's
+  calls contain in order. The tap-author skill tells an agent to search for
+  an existing primitive and pin it instead of copying its steps.
 - **A primitive can run other primitives.** A manifest may list `uses`, each
   entry an alias, a `publisher/name` ref, a version and the run digest of the
   child package, with the highest effect the child declares. The program asks

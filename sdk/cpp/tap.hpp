@@ -163,6 +163,24 @@ class Client {
     return true;
   }
 
+  bool run(const std::string& alias, const nlohmann::json& input,
+           Reply& reply, Error& error) {
+    if (alias.empty()) {
+      error = {ErrorCode::protocol, false, "primitive alias must not be empty"};
+      return false;
+    }
+    if (!input.is_object()) {
+      error = {ErrorCode::protocol, false, "primitive input must be an object"};
+      return false;
+    }
+    if (!request("run", {{"alias", alias}, {"input", input}}, reply, error)) return false;
+    if (reply.exit != 0) {
+      error = {ErrorCode::failed, false, "run failed: " + reply.stderr_text};
+      return false;
+    }
+    return true;
+  }
+
   bool finish(const std::string& stdout_text, const std::string& stderr_text,
               int exit_code, Error& error) {
     if (exit_code < 0) {
@@ -176,7 +194,7 @@ class Client {
  private:
   static bool allowed_method(const std::string& method) {
     return method == "tools" || method == "call" || method == "exec" ||
-           method == "read" || method == "write" || method == "fetch";
+           method == "read" || method == "write" || method == "fetch" || method == "run";
   }
 
   using FieldCheck = bool (*)(const nlohmann::json&);

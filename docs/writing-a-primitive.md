@@ -255,6 +255,13 @@ input object, and receives the child's output:
 {"id":"7","method":"run","alias":"fetch_release","input":{"owner":"x","repo":"y"}}
 ```
 
+Each guest has a helper: `tap.run(alias, input)` in Python (and `tap.run_many`
+for several at once), `tap.run(alias, input)` and `tap.runMany` in JavaScript
+and TypeScript, `tap run ALIAS JSON` in bash, `Client.Run` in the Go SDK and
+`Client::run` in the C++ SDK. Like a failed `call`, a child that fails raises
+or returns an error. [`examples/release-check`](../examples/release-check/)
+is a working parent that runs two others.
+
 The reply carries the child's output as `result` and its exit code as `exit`.
 A child that fails (a non-zero exit, or output that does not fit its declared
 `outputSchema`, exit 70) is a result to inspect, as with `exec`. A request the
@@ -294,6 +301,12 @@ What a child may do:
   reported unknown, not repeated.
 - A web page (`tap web build`) cannot use other primitives, and neither can a
   run through a relay client such as Gemini CLI.
+
+Write only `alias` and `ref` in an entry and `tap manifest complete` fills the
+`version`, `digest` and `effect` from the installed primitive; a ref that
+matches several is refused and the candidates named. `tap discover brief`
+lists saved primitives whose whole tool sequence the earlier request's calls
+contain, with the block to paste.
 
 `tap manifest check`, `tap diff` and saving a package check the pins, the
 depth and the declared effects. `tap diff` lists the children added, removed

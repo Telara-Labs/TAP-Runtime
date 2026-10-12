@@ -39,6 +39,7 @@ type request struct {
 	Method     string         `json:"method"`
 	Alias      string         `json:"alias,omitempty"`
 	Arguments  map[string]any `json:"arguments,omitempty"`
+	Input      map[string]any `json:"input,omitempty"`
 	Command    string         `json:"command,omitempty"`
 	Args       []string       `json:"args,omitempty"`
 	Stdout     string         `json:"stdout,omitempty"`
@@ -377,6 +378,7 @@ func runWC(hc interp.HandlerContext, args []string) error {
 //
 //	tap tools                      the aliases that are bound, one per line
 //	tap call <alias> [json]        call a tool; its result goes to stdout
+//	tap run <alias> [json]         run a primitive listed under uses; its output goes to stdout
 func runTap(hc interp.HandlerContext, args []string) error {
 	if len(args) == 1 && args[0] == "tools" {
 		send(request{Method: "tools"})
@@ -418,8 +420,33 @@ func runTap(hc interp.HandlerContext, args []string) error {
 		}
 		return nil
 	}
+	if len(args) >= 2 && args[0] == "run" {
+		input := map[string]any{}
+		if len(args) > 2 {
+			if err := json.Unmarshal([]byte(args[2]), &input); err != nil {
+				fmt.Fprintf(hc.Stderr, "tap run: input is not a JSON object: %v\n", err)
+				return interp.ExitStatus(2)
+			}
+		}
+		send(request{Method: "run", Alias: args[1], Input: input})
+		var rp reply
+		if err := recv(&rp); err != nil {
+			fmt.Fprintf(hc.Stderr, "tap run: host did not answer: %v\n", err)
+			return interp.ExitStatus(125)
+		}
+		if rp.Refused != "" {
+			fmt.Fprintf(hc.Stderr, "tap run %s: REFUSED by host: %s\n", args[1], rp.Refused)
+			return interp.ExitStatus(126)
+		}
+		if rp.Exit != 0 {
+			io.WriteString(hc.Stderr, rp.Stderr+"\n")
+			return interp.ExitStatus(uint8(rp.Exit))
+		}
+		fmt.Fprintln(hc.Stdout, rp.Result)
+		return nil
+	}
 	if len(args) < 2 || args[0] != "call" {
-		fmt.Fprintln(hc.Stderr, "usage: tap tools | tap call <alias> [json] | tap fetch <url> [method]")
+		fmt.Fprintln(hc.Stderr, "usage: tap tools | tap call <alias> [json] | tap run <alias> [json] | tap fetch <url> [method]")
 		return interp.ExitStatus(2)
 	}
 	arguments := map[string]any{}

@@ -71,7 +71,7 @@ type rawResponse struct {
 
 var allowedMethods = map[string]bool{
 	"tools": true, "call": true, "exec": true,
-	"read": true, "write": true, "fetch": true,
+	"read": true, "write": true, "fetch": true, "run": true,
 }
 
 // Client sends one request at a time and matches each answer by request ID.
@@ -170,6 +170,27 @@ func (c *Client) Call(alias string, arguments map[string]any) (Reply, error) {
 	}
 	if reply.Exit != 0 {
 		return reply, &Error{Code: ErrFailed, Detail: "call failed: " + reply.Stderr}
+	}
+	return reply, nil
+}
+
+// Run runs one primitive listed under uses, giving it an input object, and
+// preserves its output in Reply.Result. A child that fails (a non-zero exit,
+// or output that does not fit what it declared) is reported as a failure
+// with its stderr, as a failed Call is.
+func (c *Client) Run(alias string, input map[string]any) (Reply, error) {
+	if alias == "" {
+		return Reply{}, &Error{Code: ErrProtocol, Detail: "primitive alias must not be empty"}
+	}
+	if input == nil {
+		input = map[string]any{}
+	}
+	reply, err := c.Request("run", map[string]any{"alias": alias, "input": input})
+	if err != nil {
+		return reply, err
+	}
+	if reply.Exit != 0 {
+		return reply, &Error{Code: ErrFailed, Detail: "run failed: " + reply.Stderr}
 	}
 	return reply, nil
 }

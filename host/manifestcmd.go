@@ -76,6 +76,16 @@ func manifestCommand(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "%s: %s is what its source builds to, %s (rebuilt in %.1fs)\n", m.Metadata.Name, r.Entrypoint, r.Shipped, r.Seconds)
 		return 0
 	case "complete":
+		if usesIncomplete(m) {
+			entries, err := localEntries(nil)
+			if err == nil {
+				err = completeUses(m, entries)
+			}
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+		}
 		if problems := m.RunProblems(); len(problems) > 0 {
 			fmt.Fprintf(stderr, "%s cannot be run yet, so it is not completed:\n", m.Metadata.Name)
 			for _, p := range problems {

@@ -146,3 +146,19 @@ and C++ SDK tests cover combined unknown/refused frames and failed connector
 calls. The independent Opus 5.5 review findings were corrected before release.
 Releases through TAP 0.2.9 predate this compiled path and refuse `.wasm`
 entrypoints. Compiled examples require TAP 0.2.10 or this updated source runner.
+
+## Release check: a primitive that uses primitives
+
+[`release-check`](release-check/) runs `api-release-brief` and the Python
+task summary through `uses`, each pinned by digest. Repeat the checks:
+
+```sh
+go test ./host -run 'TestReleaseCheck'
+tap manifest check examples/release-check   # after saving the two children
+```
+
+The Go tests confirm that both pins match the examples as they are now, that
+the tree resolves with no under-declared effect, and (where GitHub's API and
+the Python interpreter are reachable) that the parent returns a verdict with
+the children's evidence. A live run needs the two children saved first; see
+the package README. The children's own unit suites above still apply.

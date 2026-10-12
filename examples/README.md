@@ -33,6 +33,7 @@ remain visible in the result. See the package README for all input fields.
 | [Desktop document text](desktop-document-text/) | Convert a local document into text | macOS host programs |
 | [Desktop open for review](desktop-open-review/) | Reveal a local file for a person to review | macOS host programs; effect approval |
 | [API release brief](api-release-brief/) | Summarize public GitHub release evidence | Declared GitHub API origin |
+| [Release check](release-check/) | Combine two other primitives, a release brief and the open tasks, into one verdict | Declared GitHub API origin, through `uses` |
 | [Connector meeting brief](connector-meeting-brief/) | Combine a calendar window and a bounded mail search | The documented connected Calendar and Gmail tools |
 | [Connector draft reply](connector-draft-reply/) | Create an email draft for review | The documented connected Gmail tool; effect approval |
 | [Connector issue triage](connector-issue-triage/) | Inspect a bounded Jira queue | The documented connected Jira tool |

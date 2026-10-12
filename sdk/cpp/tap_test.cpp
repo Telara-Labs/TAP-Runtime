@@ -86,6 +86,28 @@ int main() {
     assert(reply.exit == 1 && reply.stderr_text == "connector failed");
   }
   {
+    std::istringstream input(R"({"id":"r1","result":"{\"ok\":true}"})" "\n");
+    std::ostringstream output;
+    tap::Client client(input, output);
+    tap::Reply reply;
+    tap::Error error;
+    assert(client.run("child", {{"name", "x"}}, reply, error));
+    assert(reply.result == R"({"ok":true})");
+    const auto frame = nlohmann::json::parse(output.str());
+    assert(frame["method"] == "run" && frame["alias"] == "child");
+    assert(frame["input"]["name"] == "x");
+  }
+  {
+    std::istringstream input(R"({"id":"r1","exit":70,"stderr":"output did not match"})" "\n");
+    std::ostringstream output;
+    tap::Client client(input, output);
+    tap::Reply reply;
+    tap::Error error;
+    assert(!client.run("child", nlohmann::json::object(), reply, error));
+    assert(error.code == tap::ErrorCode::failed);
+    assert(error.detail == "run failed: output did not match");
+  }
+  {
     std::istringstream input(R"({"id":"r1","exit":126,"status":429})" "\n");
     std::ostringstream output;
     tap::Client client(input, output);
