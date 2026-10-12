@@ -100,10 +100,11 @@ func BuildPackage(dir string) (*pack.BuildReceipt, error) {
 	if before != after {
 		return nil, fmt.Errorf("authoring files changed during build; retry with stable inputs")
 	}
-	if len(artifact) < 8 || string(artifact[:8]) != "\x00asm\x01\x00\x00\x00" {
-		return nil, fmt.Errorf("build did not produce a WebAssembly module")
+	format, err := pack.WasmFormat(artifact)
+	if err != nil {
+		return nil, fmt.Errorf("build did not produce a WebAssembly module or component")
 	}
-	r := &pack.BuildReceipt{Kind: "tap.build/v1", SourceDigest: before, ArtifactDigest: checked.Shipped, Entrypoint: entry, Toolchain: m.Provenance.Toolchain, Build: m.Provenance.Build}
+	r := &pack.BuildReceipt{Kind: "tap.build/v1", SourceDigest: before, ArtifactDigest: checked.Shipped, Entrypoint: entry, Format: format, Toolchain: m.Provenance.Toolchain, Build: m.Provenance.Build}
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, entry)), 0o755); err != nil {
 		return nil, err
 	}

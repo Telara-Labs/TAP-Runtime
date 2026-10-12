@@ -23,8 +23,33 @@ type BuildReceipt struct {
 	SourceDigest   string `json:"source_digest"`
 	ArtifactDigest string `json:"artifact_digest"`
 	Entrypoint     string `json:"entrypoint"`
-	Toolchain      string `json:"toolchain"`
-	Build          string `json:"build"`
+	// Format is read from the built artifact: FormatModule or
+	// FormatComponent. Receipts written before it existed omit it; they
+	// always describe a module.
+	Format    string `json:"format,omitempty"`
+	Toolchain string `json:"toolchain"`
+	Build     string `json:"build"`
+}
+
+// The compiled entrypoint formats the runner executes.
+const (
+	// FormatModule is a core WebAssembly module (WASI Preview 1).
+	FormatModule = "wasip1-module"
+	// FormatComponent is a WebAssembly component (WASI Preview 2).
+	FormatComponent = "wasip2-component"
+)
+
+// WasmFormat names the kind of WebAssembly binary b holds, from its preamble.
+func WasmFormat(b []byte) (string, error) {
+	if len(b) >= 8 {
+		switch string(b[:8]) {
+		case "\x00asm\x01\x00\x00\x00":
+			return FormatModule, nil
+		case "\x00asm\x0d\x00\x01\x00":
+			return FormatComponent, nil
+		}
+	}
+	return "", fmt.Errorf("compiled entrypoint is not a WebAssembly module (WASI Preview 1) or component (WASI Preview 2)")
 }
 
 // ContentDigest binds all regular package files, excluding only generated TAP
@@ -134,8 +159,9 @@ func CheckLifecycle(dir, root string) (*manifest.Manifest, error) {
 		if _, err := os.Stat(filepath.Join(dir, m.Provenance.Source)); err != nil {
 			return nil, fmt.Errorf("compiled source is missing: %w", err)
 		}
-		if len(artifact) < 8 || string(artifact[:8]) != "\x00asm\x01\x00\x00\x00" {
-			return nil, fmt.Errorf("compiled entrypoint is not a WebAssembly module")
+		format, err := WasmFormat(artifact)
+		if err != nil {
+			return nil, err
 		}
 		var r BuildReceipt
 		b, err := os.ReadFile(filepath.Join(dir, BuildReceiptFile))
@@ -149,7 +175,7 @@ func CheckLifecycle(dir, root string) (*manifest.Manifest, error) {
 		if err != nil {
 			return nil, err
 		}
-		if r.Kind != "tap.build/v1" || r.SourceDigest != source || r.ArtifactDigest != bytesDigest(artifact) || r.Entrypoint != entry || r.Toolchain != m.Provenance.Toolchain || r.Build != m.Provenance.Build {
+		if r.Kind != "tap.build/v1" || r.SourceDigest != source || r.ArtifactDigest != bytesDigest(artifact) || r.Entrypoint != entry || (r.Format != format && (r.Format != "" || format != FormatModule)) || r.Toolchain != m.Provenance.Toolchain || r.Build != m.Provenance.Build {
 			return nil, fmt.Errorf("compiled artifact or source/manifest changed since build; run tap discover build --approve-build <package> again")
 		}
 	}
