@@ -16,7 +16,7 @@ func TestTimeAnsweringAQuestionDoesNotHandTheRunOff(t *testing.T) {
 	os.MkdirAll("out", 0o755)
 	slow := func(p map[string]any) map[string]any {
 		if strings.Contains(p["message"].(string), "wants to") {
-			time.Sleep(600 * time.Millisecond)
+			time.Sleep(2500 * time.Millisecond)
 		}
 		return accept(p)
 	}
@@ -30,8 +30,10 @@ files:
 `, "echo one > out/a.txt && echo written\n"))
 	// Warm the interpreter so the deadline measures the question alone.
 	c.call("tools/call", map[string]any{"name": "tap_run", "arguments": identity})
+	// The deadline sits well above a warm run on a loaded CI runner and well
+	// below the time the person takes to answer.
 	old := handoffAfter
-	handoffAfter = 300 * time.Millisecond
+	handoffAfter = 1500 * time.Millisecond
 	t.Cleanup(func() { handoffAfter = old })
 	res := c.call("tools/call", map[string]any{"name": "tap_run", "arguments": identity})
 	if text := toolText(t, res); !strings.Contains(text, "written") || strings.Contains(text, "tap_result") {
