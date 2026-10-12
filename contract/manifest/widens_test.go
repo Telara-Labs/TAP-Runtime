@@ -79,6 +79,54 @@ func TestWidening(t *testing.T) {
 	}
 }
 
+func TestWideningCountsUsesChanges(t *testing.T) {
+	d1 := strings.Repeat("a1", 32)
+	d2 := strings.Repeat("b2", 32)
+	use := func(alias, ref, digest, effect string) string {
+		return "  - {alias: " + alias + ", ref: " + ref + ", version: 1.0.0, digest: " + digest + ", effect: " + effect + "}\n"
+	}
+	base := approved + "uses:\n" + use("brief", "dev.telara/brief", d1, "read")
+	for name, c := range map[string]struct {
+		next string
+		want string // a fragment of what widened, or "" for nothing
+	}{
+		"nothing changed":                     {base, ""},
+		"an entry removed":                    {approved, ""},
+		"an alias renamed":                    {approved + "uses:\n" + use("summary", "dev.telara/brief", d1, "read"), ""},
+		"the effect lowered":                  {approved + "uses:\n" + use("brief", "dev.telara/brief", d1, "read"), ""},
+		"a new entry":                         {base + use("other", "dev.telara/other", d1, "read"), "uses dev.telara/other: not used before"},
+		"a changed digest":                    {approved + "uses:\n" + use("brief", "dev.telara/brief", d2, "read"), "pinned to a different version"},
+		"a higher effect":                     {approved + "uses:\n" + use("brief", "dev.telara/brief", d1, "write"), "now declared write"},
+		"a first use on a manifest with none": {base, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			from := base
+			if name == "the effect lowered" {
+				from = approved + "uses:\n" + use("brief", "dev.telara/brief", d1, "write")
+			}
+			if name == "a first use on a manifest with none" {
+				from = approved
+				c.want = "uses dev.telara/brief: not used before"
+			}
+			a, err := Parse([]byte(from))
+			if err != nil {
+				t.Fatal(err)
+			}
+			n, err := Parse([]byte(c.next))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := strings.Join(Widening(a, n), "; ")
+			if c.want == "" && got != "" {
+				t.Fatalf("widens: %s", got)
+			}
+			if c.want != "" && !strings.Contains(got, c.want) {
+				t.Fatalf("want %q, got %q", c.want, got)
+			}
+		})
+	}
+}
+
 // Found by the promotion gate's tests: two manifests Widening
 // cannot read compared as "nothing widened".
 func TestAManifestThatCannotBeComparedWidens(t *testing.T) {

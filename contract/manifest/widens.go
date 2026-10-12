@@ -132,6 +132,31 @@ func Widening(approved, next *Manifest) []string {
 		}
 	}
 
+	// A use is another primitive this one may run. Which one is decided by
+	// the digest, so a new ref, a re-pinned digest and a higher effect all widen.
+	// Renaming an alias or removing an entry does not.
+	usedBefore := map[string][]Use{}
+	for _, u := range approved.Uses {
+		usedBefore[u.Ref] = append(usedBefore[u.Ref], u)
+	}
+	for _, u := range next.Uses {
+		prior := usedBefore[u.Ref]
+		same := -1
+		for _, p := range prior {
+			if p.Digest == u.Digest && rank[p.Effect] > same {
+				same = rank[p.Effect]
+			}
+		}
+		switch {
+		case len(prior) == 0:
+			add("uses %s: not used before", u.Ref)
+		case same < 0:
+			add("uses %s: pinned to a different version (%s)", u.Ref, u.Digest)
+		case rank[u.Effect] > same:
+			add("uses %s: now declared %s", u.Ref, u.Effect)
+		}
+	}
+
 	if approved.Runtime() == RuntimeWasm && next.Runtime() != RuntimeWasm {
 		add("execution.runtime: moved from the contained tier to %s", next.Runtime())
 	}

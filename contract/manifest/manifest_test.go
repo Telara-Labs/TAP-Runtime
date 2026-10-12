@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -227,5 +228,58 @@ func TestCapabilityName(t *testing.T) {
 		if got := CapabilityName(in); got != want {
 			t.Errorf("%q -> %q, want %q", in, got, want)
 		}
+	}
+}
+
+const pinDigest = "3f9a3f9a3f9a3f9a3f9a3f9a3f9a3f9a3f9a3f9a3f9a3f9a3f9a3f9a3f9a3f9a"
+
+func TestUsesMayRunAndMayBePublished(t *testing.T) {
+	s := short + "uses:\n  - {alias: fetch_release, ref: dev.telara/api-release-brief, version: 0.1.1, digest: " + pinDigest + ", effect: read}\n"
+	m := parse(t, s)
+	if p := m.RunProblems(); len(p) != 0 {
+		t.Fatalf("a manifest with a pinned use cannot run: %v", p)
+	}
+	full := m.Complete("dev.telara")
+	full.Metadata.Description = "d"
+	for i := range full.Capabilities {
+		full.Capabilities[i].Question = "q"
+		full.Capabilities[i].ID = CapabilityID("q", full.Capabilities[i].Args, full.Capabilities[i].Result)
+	}
+	if p := full.PublishProblems(); len(p) != 0 {
+		t.Fatalf("a manifest with a pinned use cannot be published: %v", p)
+	}
+}
+
+func TestUsesAreRefusedWhenTheyDoNotPin(t *testing.T) {
+	good := "{alias: fetch_release, ref: dev.telara/api-release-brief, version: 0.1.1, digest: " + pinDigest + ", effect: read}"
+	many := ""
+	for i := 0; i < MaxUses+1; i++ {
+		many += fmt.Sprintf("  - {alias: u%d, ref: dev.telara/p%d, version: 1.0.0, digest: %s, effect: read}\n", i, i, pinDigest)
+	}
+	for name, c := range map[string]struct{ uses, want string }{
+		"no digest":               {"  - {alias: a, ref: dev.telara/p, version: 1.0.0, effect: read}\n", "digest"},
+		"a tag instead":           {"  - {alias: a, ref: dev.telara/p, version: 1.0.0, digest: latest, effect: read}\n", "digest"},
+		"a short digest":          {"  - {alias: a, ref: dev.telara/p, version: 1.0.0, digest: 3f9a, effect: read}\n", "digest"},
+		"an upper-case digest":    {"  - {alias: a, ref: dev.telara/p, version: 1.0.0, digest: " + strings.ToUpper(pinDigest) + ", effect: read}\n", "digest"},
+		"an unknown effect":       {"  - {alias: a, ref: dev.telara/p, version: 1.0.0, digest: " + pinDigest + ", effect: admin}\n", "effect"},
+		"no effect":               {"  - {alias: a, ref: dev.telara/p, version: 1.0.0, digest: " + pinDigest + "}\n", "effect"},
+		"a bad alias":             {"  - {alias: Not-Ok, ref: dev.telara/p, version: 1.0.0, digest: " + pinDigest + ", effect: read}\n", "alias"},
+		"a ref without a name":    {"  - {alias: a, ref: p, version: 1.0.0, digest: " + pinDigest + ", effect: read}\n", "ref"},
+		"a tool's alias":          {"  - {alias: threads, ref: dev.telara/p, version: 1.0.0, digest: " + pinDigest + ", effect: read}\n", "already used"},
+		"an alias used twice":     {"  - " + good + "\n  - " + good + "\n", "already used"},
+		"more than the allowance": {many, "at most"},
+	} {
+		m := parse(t, short+"uses:\n"+c.uses)
+		p := strings.Join(m.RunProblems(), "\n")
+		if !strings.Contains(p, c.want) {
+			t.Errorf("%s: want a problem mentioning %q, got %q", name, c.want, p)
+		}
+	}
+}
+
+func TestAUseWithAnUnknownFieldIsRefusedWhenLoaded(t *testing.T) {
+	_, err := Parse([]byte(short + "uses:\n  - {alias: a, ref: dev.telara/p, version: 1.0.0, digest: " + pinDigest + ", effect: read, range: \"^1\"}\n"))
+	if err == nil {
+		t.Fatal("a use with a version range field was accepted")
 	}
 }

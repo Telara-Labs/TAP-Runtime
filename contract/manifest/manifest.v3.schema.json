@@ -65,9 +65,53 @@
       "items": {
         "$ref": "#/$defs/fetchOrigin"
       }
+    },
+    "uses": {
+      "description": "Other primitives this one may run, each pinned by the run digest of the child package. The digest binds, so this primitive's own digest pins every child beneath it. A child runs under its own manifest only and inherits nothing from this one. effect is the highest effect class the child declares, counting what it uses in turn.",
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "$ref": "#/$defs/use"
+      }
     }
   },
   "$defs": {
+    "use": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alias",
+        "ref",
+        "version",
+        "digest",
+        "effect"
+      ],
+      "properties": {
+        "alias": {
+          "$ref": "#/$defs/alias"
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^[^/\\s]+/[^/\\s]+$"
+        },
+        "version": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "effect": {
+          "enum": [
+            "read",
+            "write",
+            "destructive",
+            "financial",
+            "identity-admin"
+          ]
+        }
+      }
+    },
     "alias": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]{0,63}$"

@@ -46,6 +46,7 @@ type Manifest struct {
 	Commands     []Command    `yaml:"commands,omitempty" json:"commands,omitempty"`
 	Files        []File       `yaml:"files,omitempty" json:"files,omitempty"`
 	Fetch        []Fetch      `yaml:"fetch,omitempty" json:"fetch,omitempty"`
+	Uses         []Use        `yaml:"uses,omitempty" json:"uses,omitempty"`
 	Oracle       any          `yaml:"oracle,omitempty" json:"oracle,omitempty"`
 	Requires     any          `yaml:"requires,omitempty" json:"requires,omitempty"`
 	Execution    Execution    `yaml:"execution" json:"execution"`
@@ -110,6 +111,21 @@ type Fetch struct {
 	Methods []string `yaml:"methods,omitempty" json:"methods,omitempty"`
 }
 
+// Use is another primitive this one may run. The digest binds it: it is the
+// run digest of the child package, so this manifest's own digest pins the
+// whole tree beneath it. Version is informational. Effect is the highest effect
+// class the child declares, counting everything it uses in turn.
+type Use struct {
+	Alias   string `yaml:"alias" json:"alias"`
+	Ref     string `yaml:"ref" json:"ref"`
+	Version string `yaml:"version" json:"version"`
+	Digest  string `yaml:"digest" json:"digest"`
+	Effect  string `yaml:"effect" json:"effect"`
+}
+
+// MaxUses is the most primitives one manifest may use.
+const MaxUses = 16
+
 type Execution struct {
 	Runtime        string         `yaml:"runtime,omitempty" json:"runtime,omitempty"`
 	Entrypoint     string         `yaml:"entrypoint" json:"entrypoint"`
@@ -140,6 +156,8 @@ var (
 	fullLabelRe = regexp.MustCompile(`^[a-z][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+/([a-z][a-z0-9_.-]{0,127})@[0-9]+$`)
 	shortLabel  = regexp.MustCompile(`^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$`)
 	envRe       = regexp.MustCompile(`^[A-Za-z_*?\[][A-Za-z0-9_*?\[\]!^-]*$`)
+	digestRe    = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	useRefRe    = regexp.MustCompile(`^[^/\s]+/[^/\s]+$`)
 	effects     = map[string]bool{"read": true, "write": true, "destructive": true, "financial": true, "identity-admin": true}
 )
 
@@ -221,6 +239,27 @@ func (m *Manifest) RunProblems() []string {
 		}
 		if t.Pin != nil && (t.Pin.Server == "" || t.Pin.Tool == "") && t.Pin.Client == "" {
 			add("tools[%d] (%s) has a pin that names nothing", i, t.Alias)
+		}
+	}
+	if len(m.Uses) > MaxUses {
+		add("uses lists %d primitives; at most %d are allowed", len(m.Uses), MaxUses)
+	}
+	for i, u := range m.Uses {
+		switch {
+		case !aliasRe.MatchString(u.Alias):
+			add("uses[%d].alias %q must be lower-case letters, digits and underscores, starting with a letter", i, u.Alias)
+		case seen[u.Alias]:
+			add("uses[%d].alias %q is already used by a tool or another use", i, u.Alias)
+		}
+		seen[u.Alias] = true
+		if !useRefRe.MatchString(u.Ref) {
+			add("uses[%d] (%s) ref %q must be written publisher/name", i, u.Alias, u.Ref)
+		}
+		if !digestRe.MatchString(u.Digest) {
+			add("uses[%d] (%s) digest %q must be the 64 lower-case hex characters of the child's run digest; ranges, tags and latest are not accepted", i, u.Alias, u.Digest)
+		}
+		if !effects[u.Effect] {
+			add("uses[%d] (%s) declares effect %q; it must be read, write, destructive, financial or identity-admin", i, u.Alias, u.Effect)
 		}
 	}
 	for i, c := range m.Commands {
