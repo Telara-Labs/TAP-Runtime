@@ -59,6 +59,24 @@ jobs:
       # components with rustc; without these targets they skip.
       - name: Rust WASI targets
         run: rustup target add wasm32-wasip1 wasm32-wasip2
+      # The C++ tests build with wasm32-wasip1-clang++ from wasi-sdk; without
+      # it they skip. The Windows job does not install it and keeps skipping
+      # them.
+      - name: Install wasi-sdk 34
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) asset=wasi-sdk-34.0-x86_64-linux ;;
+            Linux-ARM64) asset=wasi-sdk-34.0-arm64-linux ;;
+            macOS-ARM64) asset=wasi-sdk-34.0-arm64-macos ;;
+            macOS-X64) asset=wasi-sdk-34.0-x86_64-macos ;;
+            *) echo "no wasi-sdk build for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/$asset.tar.gz" -o "$RUNNER_TEMP/wasi-sdk.tar.gz"
+          mkdir -p "$RUNNER_TEMP/wasi-sdk"
+          tar -xzf "$RUNNER_TEMP/wasi-sdk.tar.gz" -C "$RUNNER_TEMP/wasi-sdk" --strip-components=1
+          echo "$RUNNER_TEMP/wasi-sdk/bin" >> "$GITHUB_PATH"
+      - name: Build the C++ language example
+        run: python3 examples/languages/cpp/build.py
       - name: Test the runner
         run: go test ./bind ./bridge ./conformance ./host ./internal/component ./journal ./release ./satisfy -count=1
 

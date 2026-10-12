@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -141,5 +142,69 @@ func TestTheCppSDKRunHelperPassesItsTests(t *testing.T) {
 	}
 	if out, err := exec.Command(bin).CombinedOutput(); err != nil {
 		t.Fatalf("the C++ SDK test failed: %v\n%s", err, out)
+	}
+}
+
+const cppParent = `#include <iostream>
+#include <string>
+
+#include <nlohmann/json.hpp>
+#include <tap.hpp>
+
+int main() {
+  tap::Client client(std::cin, std::cout);
+  tap::Reply ok, bad;
+  tap::Error error;
+  if (!client.run("kid", {{"print", "{\"answer\":42}"}}, ok, error)) {
+    client.finish("", error.detail, 1, error);
+    return 0;
+  }
+  const bool second = client.run("kid", {{"print", "x"}, {"exit", 3}}, bad, error);
+  const std::string code = second ? "ok" : (error.code == tap::ErrorCode::failed ? "failed" : "other");
+  client.finish(ok.result + " " + code + "\n", "", 0, error);
+  return 0;
+}
+`
+
+// A C++ parent built with the header's Client::run, run in the sandbox. The
+// compiler is found as the C++ language example finds it: the name in its
+// compiler.json, on PATH. Without one, the test skips.
+func TestACppParentRunsAPrimitiveInTheSandbox(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRoot, "examples", "languages", "cpp", "compiler.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Compiler string `json:"compiler"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.Compiler == "" {
+		t.Fatalf("compiler.json: %v", err)
+	}
+	compiler, err := exec.LookPath(cfg.Compiler)
+	if err != nil {
+		t.Skipf("%s is not on PATH; install wasi-sdk to build C++ for WASI", cfg.Compiler)
+	}
+	work := t.TempDir()
+	src := filepath.Join(work, "main.cpp")
+	if err := os.WriteFile(src, []byte(cppParent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wasm := filepath.Join(work, "main.wasm")
+	cmd := exec.Command(compiler, "-std=c++17", "-fno-exceptions", "-O2",
+		"-I", filepath.Join(repoRoot, "sdk", "cpp"), "-I", filepath.Join(repoRoot, "examples", "languages", "cpp", "vendor"),
+		"-o", wasm, src)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("building a C++ primitive with Client::run: %v\n%s", err, out)
+	}
+	code, err := os.ReadFile(wasm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := runParent(t, pkgSpec{entry: "main.wasm", code: code}, "")
+	if strings.TrimSpace(res.Stdout) != `{"answer":42} failed` {
+		t.Fatalf("got %q (stderr %q)", res.Stdout, res.Stderr)
+	}
+	if len(res.Children) != 2 {
+		t.Fatalf("%d children were recorded, want both runs", len(res.Children))
 	}
 }
