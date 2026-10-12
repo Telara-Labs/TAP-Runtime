@@ -48,6 +48,10 @@ type Header struct {
 	ManifestDigest  string    `json:"manifest_digest,omitempty"`
 	ManifestBytes   int       `json:"manifest_bytes,omitempty"`
 	EvidenceVersion int       `json:"evidence_version,omitempty"`
+	// ParentRunID and ParentRequestID are set on a run that another primitive
+	// started: the run and the request that started it.
+	ParentRunID     string `json:"parent_run_id,omitempty"`
+	ParentRequestID string `json:"parent_request_id,omitempty"`
 }
 
 // Record is one line of the index.
@@ -64,6 +68,9 @@ type Record struct {
 	Header  *Header         `json:"header,omitempty"`
 	Outcome string          `json:"outcome,omitempty"`
 	Call    *CallIdentity   `json:"call,omitempty"`
+	// Child is the run a begun request started, written before that run
+	// starts so that an interruption leaves the link behind.
+	Child string `json:"child_run_id,omitempty"`
 }
 
 // CallIdentity names the binding assessed for a request, without its arguments
@@ -301,6 +308,22 @@ func (j *Journal) Begin(id, method, digest, effect string, at time.Time) error {
 
 // BeginCall adds resolved identity to the same durable begin used for replay.
 func (j *Journal) BeginCall(id, method, digest, effect string, call *CallIdentity, at time.Time) error {
+	return j.begin(id, method, digest, effect, call, "", at)
+}
+
+// BeginChild records a request that starts another run, naming that run.
+func (j *Journal) BeginChild(id, method, digest, effect, child string, at time.Time) error {
+	return j.begin(id, method, digest, effect, nil, child, at)
+}
+
+// Child is the run that the request with this id started, or "".
+func (j *Journal) Child(id string) string {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.begun[id].Child
+}
+
+func (j *Journal) begin(id, method, digest, effect string, call *CallIdentity, child string, at time.Time) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	// What the program read to compute this request is on disk before the
@@ -320,7 +343,7 @@ func (j *Journal) BeginCall(id, method, digest, effect string, call *CallIdentit
 		}
 		call = &bounded
 	}
-	r := Record{Phase: "begin", ID: id, Method: method, Digest: digest, Effect: effect, Call: call, At: at}
+	r := Record{Phase: "begin", ID: id, Method: method, Digest: digest, Effect: effect, Call: call, Child: child, At: at}
 	if err := j.append(r); err != nil {
 		return err
 	}
@@ -357,6 +380,67 @@ func (j *Journal) Finish(outcome string, at time.Time) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	return j.append(Record{Phase: "finish", Outcome: outcome, At: at})
+}
+
+// FinishWith records that the run ended, and what it returned, so that the
+// run that started it can read the output after a crash. A result too large
+// for a line is kept as a blob, as a request's answer is.
+func (j *Journal) FinishWith(outcome string, reply []byte, at time.Time) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	r := Record{Phase: "finish", Outcome: outcome, Bytes: len(reply), At: at}
+	if len(reply) <= InlineLimit {
+		r.Reply = reply
+	} else {
+		sum := sha256.Sum256(reply)
+		r.Blob = hex.EncodeToString(sum[:])
+		path := filepath.Join(j.dir, "blobs", r.Blob)
+		if _, err := os.Stat(path); err != nil {
+			if err := writeDurable(path, reply); err != nil {
+				return err
+			}
+		}
+	}
+	return j.append(r)
+}
+
+// FinishedReply reads the end of a run that has finished. finished is false
+// for a run that has not, and reply is empty for a run that ended without
+// storing what it returned.
+func FinishedReply(root, runID string) (reply []byte, outcome string, finished bool, err error) {
+	if !runIDRe.MatchString(runID) {
+		return nil, "", false, fmt.Errorf("run id %q is not usable", runID)
+	}
+	dir := filepath.Join(root, runID)
+	f, err := os.Open(filepath.Join(dir, "index.jsonl"))
+	if err != nil {
+		return nil, "", false, fmt.Errorf("no run %s: %w", runID, err)
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64<<10), 64<<20)
+	var fin Record
+	for sc.Scan() {
+		var r Record
+		if json.Unmarshal(sc.Bytes(), &r) == nil && r.Phase == "finish" {
+			fin, finished = r, true
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, "", false, err
+	}
+	if !finished {
+		return nil, "", false, nil
+	}
+	switch {
+	case len(fin.Reply) > 0:
+		reply = append([]byte(nil), fin.Reply...)
+	case fin.Blob != "":
+		if reply, err = os.ReadFile(filepath.Join(dir, "blobs", filepath.Base(fin.Blob))); err != nil {
+			return nil, fin.Outcome, true, err
+		}
+	}
+	return reply, fin.Outcome, true, nil
 }
 
 func (j *Journal) Close() error {

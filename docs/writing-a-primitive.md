@@ -229,6 +229,76 @@ commands if the primitive runs a `read` program such as `git log`. A write, or a
 person each time it is a new kind of change. From the command line, add
 `--approve` to let a primitive that fetches run.
 
+### Using other primitives
+
+A primitive can run other primitives. List each one under `uses`, pinned by its
+digest:
+
+```yaml
+uses:
+  - alias: fetch_release              # unique among tools and uses
+    ref: dev.example/api-release-brief   # publisher/name
+    version: 0.1.1                    # informational; the digest is what binds
+    digest: 3f9a...                   # 64 hex characters: the child's run digest
+    effect: read                      # the highest effect the child declares
+```
+
+The digest is the sha256 of the child's `primitive.yaml` followed by its
+entrypoint. Because it is written into your manifest, your own digest pins
+everything beneath you: change a child and your digest changes. Ranges, tags
+and "latest" are not accepted. At most 16 entries.
+
+The program asks for a child with a `run` request, giving the alias and an
+input object, and receives the child's output:
+
+```json
+{"id":"7","method":"run","alias":"fetch_release","input":{"owner":"x","repo":"y"}}
+```
+
+The reply carries the child's output as `result` and its exit code as `exit`.
+A child that fails (a non-zero exit, or output that does not fit its declared
+`outputSchema`, exit 70) is a result to inspect, as with `exec`. A request the
+runner will not make (an unknown alias, an input that does not fit the child's
+`inputSchema`, no time left) comes back refused. `tools` also lists the
+aliases under `uses`. Input and output are held to the declared schema's
+required keys and the types of its top-level fields.
+
+What a child may do:
+
+- **A child runs under its own manifest only.** It is bound, gated and
+  granted on its own digest. It gets nothing your manifest declares (fetch
+  origins, files, tools, commands), and you get nothing from it but its
+  output.
+- **The effect you declare is checked.** The runner works out the highest
+  effect a child declares, counting what it uses in turn. If that is higher
+  than the `effect` you wrote, nothing runs: `fetch_release is declared read
+  but dev.example/api-release-brief can write (tool jira.issue.comment).
+  Declare effect: write.`
+- **Children are found by digest in the local catalog**, the same set
+  `tap_search` shows. Nothing is fetched. A child that is not installed is
+  reported before your program starts, as is one further down the tree.
+- **One budget.** Your `timeoutSeconds` and `limits.max_dispatches` cover the
+  whole tree: a child cannot outlast your clock, and every request a child
+  makes counts against your limit. A person's thinking time while a child asks
+  for approval does not use anyone's clock.
+- **Approvals stay with the child.** Each change a child makes is asked of the
+  person by the child, naming the path (`release-check › fetch_release`).
+  Grants never pass between you and a child. `--approve` on the command line
+  applies to the whole tree because the person typed it for this run.
+- **The first time a tree runs**, the person is shown what you and every child
+  declare and says yes once. Each child's digest is kept.
+- At most 4 `run` requests are in flight at once from one primitive, at most
+  4 levels of primitives go down, and a primitive cannot use itself.
+- **Resuming** a run replays a finished child's answer without running it. A
+  child that was interrupted is resumed, and a change it had in progress is
+  reported unknown, not repeated.
+- A web page (`tap web build`) cannot use other primitives, and neither can a
+  run through a relay client such as Gemini CLI.
+
+`tap manifest check`, `tap diff` and saving a package check the pins, the
+depth and the declared effects. `tap diff` lists the children added, removed
+and re-pinned.
+
 ### Checking a manifest
 
 ```

@@ -79,6 +79,9 @@ the host it needs and how to run it.
   approved read origin is kept for that version, so later runs do not ask.
   Local file reads need no effect prompt; tool reads still follow the client's
   ask rules and the server's annotations.
+- Runs other primitives a primitive lists under `uses`, pinned by digest. Each
+  child runs under its own manifest, approvals and record; the parent receives
+  only its output, and one deadline and request limit cover the tree.
 - Replays recorded responses when a run resumes. An interrupted change with
   an unknown outcome is left for a person to check.
 

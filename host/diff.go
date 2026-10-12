@@ -213,6 +213,7 @@ func comparePackages(oldDir, newDir string) (*packageDiff, error) {
 			r.Review = append(r.Review, field.name+" changed; review binding, runtime, and caller assumptions.")
 		}
 	}
+	r.Review = append(r.Review, usesChanges(old.manifest.Uses, next.manifest.Uses)...)
 	r.AuthorityWidening = append(r.AuthorityWidening, mf.Widening(old.manifest, next.manifest)...)
 	if len(r.Changes) == 0 {
 		r.Review = append(r.Review, "Manifest bytes changed without a parsed field change (for example formatting). The execution digest and trust identity still changed.")

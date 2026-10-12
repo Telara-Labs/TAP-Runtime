@@ -97,6 +97,22 @@ func (b *budget) stop() {
 	b.timer.Stop()
 }
 
+// left is how much time the budget has now.
+func (b *budget) left() time.Duration {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.stopped {
+		return 0
+	}
+	if b.paused > 0 {
+		return b.remaining
+	}
+	if l := b.remaining - time.Since(b.since); l > 0 {
+		return l
+	}
+	return 0
+}
+
 func (b *budget) expired() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()

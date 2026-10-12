@@ -134,22 +134,44 @@ type Truster func(name, publisher, version, path, digest, declared string) bool
 // package whose digest is kept runs. Otherwise the person is asked; with
 // nobody to ask (ask is nil), local-reach packages require prior owner trust.
 func admitPackage(store *trustStore, ask Truster, dir string) (refusal string) {
+	return admitPackageTree(store, ask, dir, nil)
+}
+
+// admitPackageTree is admitPackage for a package and the primitives it uses.
+// The person is asked once, shown what every one of them declares, labelled
+// with the name it is used under. A yes keeps the digest of each.
+func admitPackageTree(store *trustStore, ask Truster, dir string, kids []*useNode) (refusal string) {
 	digest, m, err := packageDigest(dir)
 	if err != nil {
 		return "" // Run reports a package that cannot be read
 	}
-	if !needsPackageTrust(m) {
+	nodes := flattenUses(kids, "")
+	need := needsPackageTrust(m) && !store.has(digest)
+	for _, n := range nodes {
+		if needsPackageTrust(n.Manifest) && !store.has(n.Digest) {
+			need = true
+		}
+	}
+	if !need {
 		return ""
 	}
-	if store.has(digest) {
-		return ""
+	declared := declares(m)
+	for _, n := range nodes {
+		declared += fmt.Sprintf("\nuses %s (%s@%s):\n  %s", n.Name, n.Ref, n.Version, strings.ReplaceAll(declares(n.Manifest), "\n", "\n  "))
 	}
 	abs, _ := filepath.Abs(dir)
-	if ask == nil || !ask(m.Metadata.Name, m.Metadata.Publisher, m.Metadata.Version, abs, digest[:12], declares(m)) {
+	if ask == nil || !ask(m.Metadata.Name, m.Metadata.Publisher, m.Metadata.Version, abs, digest[:12], declared) {
 		return fmt.Sprintf("the person did not agree to run %s from %s; in a client that cannot show this question, review the package and run: tap trust %q", m.Metadata.Name, abs, abs)
 	}
-	if err := store.add(digest, m.Metadata.Name, abs); err != nil {
-		logf("trust      could not keep the answer for %s: %v", m.Metadata.Name, err)
+	if needsPackageTrust(m) {
+		if err := store.add(digest, m.Metadata.Name, abs); err != nil {
+			logf("trust      could not keep the answer for %s: %v", m.Metadata.Name, err)
+		}
+	}
+	for _, n := range nodes {
+		if err := store.add(n.Digest, m.Metadata.Name+"/"+n.Name, n.Path); err != nil {
+			logf("trust      could not keep the answer for %s: %v", n.Name, err)
+		}
 	}
 	return ""
 }

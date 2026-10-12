@@ -1,6 +1,7 @@
 package journal
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -152,7 +153,8 @@ func (l *Lease) Release() {
 }
 
 // Sweep removes the records of runs that ended more than days ago. A run that is held is never removed. days of 0 or less keeps
-// everything. It returns how many it removed.
+// everything. It returns how many it removed. A run that another run started
+// is kept while that run is, and removed together with it.
 func Sweep(root string, days int, now time.Time) int {
 	if days <= 0 {
 		return 0
@@ -162,28 +164,86 @@ func Sweep(root string, days int, now time.Time) int {
 		return 0
 	}
 	cutoff := now.Add(-time.Duration(days) * 24 * time.Hour)
-	removed := 0
+	var names []string
+	children := map[string][]string{} // a run to the runs it started
+	isChild := map[string]bool{}
 	for _, e := range entries {
 		if !e.IsDir() || !runIDRe.MatchString(e.Name()) {
 			continue
 		}
-		dir := filepath.Join(root, e.Name())
-		if _, err := os.Stat(filepath.Join(dir, "index.jsonl")); err != nil {
+		if _, err := os.Stat(filepath.Join(root, e.Name(), "index.jsonl")); err != nil {
 			continue // not a run record; not ours to remove
 		}
-		if held, err := readLease(filepath.Join(dir, "lease.json")); err == nil && now.Before(held.Expires) && alive(held.PID) {
+		names = append(names, e.Name())
+	}
+	present := map[string]bool{}
+	for _, n := range names {
+		present[n] = true
+	}
+	for _, n := range names {
+		if p := parentOf(filepath.Join(root, n)); p != "" && p != n && present[p] {
+			children[p] = append(children[p], n)
+			isChild[n] = true
+		}
+	}
+	// tree lists a run and every run beneath it.
+	var tree func(n string) []string
+	tree = func(n string) []string {
+		out := []string{n}
+		for _, c := range children[n] {
+			out = append(out, tree(c)...)
+		}
+		return out
+	}
+	removed := 0
+	for _, name := range names {
+		if isChild[name] {
 			continue
 		}
-		newest := time.Time{}
-		filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
-			if err == nil && info.ModTime().After(newest) {
-				newest = info.ModTime()
+		members := tree(name)
+		held, newest := false, time.Time{}
+		for _, m := range members {
+			dir := filepath.Join(root, m)
+			if l, err := readLease(filepath.Join(dir, "lease.json")); err == nil && now.Before(l.Expires) && alive(l.PID) {
+				held = true
 			}
-			return nil
-		})
-		if newest.Before(cutoff) && os.RemoveAll(dir) == nil {
+			filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+				if err == nil && info.ModTime().After(newest) {
+					newest = info.ModTime()
+				}
+				return nil
+			})
+		}
+		if held || !newest.Before(cutoff) {
+			continue
+		}
+		ok := true
+		for _, m := range members {
+			if os.RemoveAll(filepath.Join(root, m)) != nil {
+				ok = false
+			}
+		}
+		if ok {
 			removed++
 		}
 	}
 	return removed
+}
+
+// parentOf is the run that started the run in dir, from its header, or "".
+func parentOf(dir string) string {
+	f, err := os.Open(filepath.Join(dir, "index.jsonl"))
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	line, err := bufio.NewReaderSize(f, 1<<20).ReadBytes('\n')
+	if err != nil && len(line) == 0 {
+		return ""
+	}
+	var r Record
+	if json.Unmarshal(line, &r) != nil || r.Header == nil {
+		return ""
+	}
+	return r.Header.ParentRunID
 }

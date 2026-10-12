@@ -8,6 +8,24 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **A primitive can run other primitives.** A manifest may list `uses`, each
+  entry an alias, a `publisher/name` ref, a version and the run digest of the
+  child package, with the highest effect the child declares. The program asks
+  for one with a `run` request (`{"method":"run","alias":"...","input":{...}}`)
+  and receives its output. A child runs under its own manifest, bindings and
+  approvals, with its own run record, and inherits nothing from its parent;
+  the parent gets nothing from it but its output. A child is found only by
+  digest among the installed primitives, and a missing one, a cycle, more than
+  four levels, or an effect declared lower than the child's own is refused
+  before anything runs. One deadline and one `max_dispatches` cover the tree,
+  and every ancestor's clock stops while a person is asked. The first-run
+  question shows every primitive in the tree and one yes keeps each digest.
+  Approval prompts name the path (`parent › child`). Resuming replays a
+  finished child and resumes an interrupted one, reporting a change it had in
+  progress as unknown. `tap_save`, `tap manifest check` and `tap discover save`
+  check the pins, `tap diff` lists children added, removed and re-pinned, and
+  a changed `uses` counts as widening. Web pages and relay clients (Gemini CLI)
+  refuse a package that uses others. Packages without `uses` behave as before.
 - **WASI Preview 2 components run beside Preview 1 modules.** A compiled
   `.wasm` entrypoint may now be a WebAssembly component (Component Model,
   WASI 0.2), such as `rustc --target wasm32-wasip2` produces. The runner tells

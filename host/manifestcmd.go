@@ -47,6 +47,11 @@ func manifestCommand(args []string, stdout, stderr io.Writer) int {
 			level, problems = "publish", m.PublishProblems()
 		}
 		if len(problems) == 0 {
+			if why := usesCheckDir(dir, nil); why != "" {
+				problems = []string{why}
+			}
+		}
+		if len(problems) == 0 {
 			fmt.Fprintf(stdout, "%s: may be %s\n", m.Metadata.Name, map[string]string{"run": "run", "publish": "published"}[level])
 			return 0
 		}

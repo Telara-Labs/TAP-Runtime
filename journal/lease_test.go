@@ -145,3 +145,51 @@ func TestSweep(t *testing.T) {
 		}
 	}
 }
+
+// A run another run started is kept while that run is, and goes with it.
+func TestSweepKeepsAChildWithItsRootAndRemovesThemTogether(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now()
+	age := func(run string, days int) {
+		when := now.Add(-time.Duration(days) * 24 * time.Hour)
+		filepath.Walk(filepath.Join(root, run), func(p string, _ os.FileInfo, _ error) error {
+			return os.Chtimes(p, when, when)
+		})
+	}
+	mk := func(id, parent string) {
+		h := header(id)
+		h.ParentRunID = parent
+		j, err := Create(root, h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		j.Close()
+	}
+	mk("run-root-0001", "")
+	mk("run-kid-00001", "run-root-0001")
+	mk("run-grand-001", "run-kid-00001")
+	mk("run-other-001", "")
+	mk("run-stray-001", "run-gone-0001") // its root is already gone
+	// The root is old; the child it started is not, so the tree is kept.
+	age("run-root-0001", 45)
+	age("run-grand-001", 45)
+	age("run-other-001", 45)
+	age("run-stray-001", 45)
+	if n := Sweep(root, 30, now); n != 2 {
+		t.Fatalf("removed %d, want the unrelated run and the stray one", n)
+	}
+	for _, run := range []string{"run-root-0001", "run-kid-00001", "run-grand-001"} {
+		if _, err := os.Stat(filepath.Join(root, run)); err != nil {
+			t.Errorf("%s was removed while a run in its tree is recent", run)
+		}
+	}
+	age("run-kid-00001", 45)
+	if n := Sweep(root, 30, now); n != 1 {
+		t.Fatalf("removed %d, want the whole tree counted once", n)
+	}
+	for _, run := range []string{"run-root-0001", "run-kid-00001", "run-grand-001"} {
+		if _, err := os.Stat(filepath.Join(root, run)); err == nil {
+			t.Errorf("%s was kept after its tree aged out", run)
+		}
+	}
+}

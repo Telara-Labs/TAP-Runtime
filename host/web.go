@@ -113,6 +113,8 @@ func buildWebPage(store string, packages []string) ([]byte, map[string]any, erro
 			return nil, nil, refuse("it declares files, and a web page has no machine")
 		case len(m.Fetch) > 0:
 			return nil, nil, refuse("it declares web requests, which an Artifact is not allowed to make")
+		case len(m.Uses) > 0:
+			return nil, nil, refuse("it uses other primitives, and a web page answers only pinned read-only connector tools")
 		}
 		raw, err := os.ReadFile(filepath.Join(dir, m.Execution.Entrypoint))
 		if err != nil {

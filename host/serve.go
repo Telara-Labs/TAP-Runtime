@@ -498,10 +498,26 @@ func (s *server) handle(m rpcMessage) {
 			s.toolError(m.ID, err.Error())
 			return
 		}
+		// What the primitive uses is found, and checked, before anything is
+		// asked of the person.
+		var kids []*useNode
 		if loaded, err := mf.Load(packagePath); err == nil {
 			if why := checkRunArgs(loaded, args.Args); why != "" {
 				s.toolError(m.ID, why)
 				return
+			}
+			if len(loaded.Uses) > 0 {
+				entries, err := s.catalog()
+				if err == nil {
+					var self string
+					if self, _, err = packageDigest(packagePath); err == nil {
+						kids, err = resolveUses(entries, loaded, self)
+					}
+				}
+				if err != nil {
+					s.toolError(m.ID, err.Error())
+					return
+				}
 			}
 		}
 		var approve Approver
@@ -517,12 +533,24 @@ func (s *server) handle(m rpcMessage) {
 		// its own configuration already lets its model read the web unasked
 		// (autotrust.go). Decided each run and never kept.
 		var autoKinds []string
+		childKinds := map[string][]string{}
 		autoTrusted, notAuto := false, ""
 		var confirmedReads []string
 		if !canElicit {
 			if _, pm, err := packageDigest(packagePath); err == nil {
 				home, _ := os.UserHomeDir()
-				if ok, because := autoTrustReads(pm, name, home, s.agentPid); ok {
+				ok, because := autoTrustReads(pm, name, home, s.agentPid)
+				// Every primitive beneath it must qualify too.
+				for _, n := range flattenUses(kids, "") {
+					if !ok {
+						break
+					}
+					ok, because = autoTrustReads(n.Manifest, name, home, s.agentPid)
+					if ok {
+						childKinds[n.Digest] = readFetchKinds(n.Manifest)
+					}
+				}
+				if ok {
 					autoTrusted, autoKinds = true, readFetchKinds(pm)
 					logf("trust      %s runs without a prompt: it only reads, and %s", pm.Metadata.Name, because)
 				} else {
@@ -544,7 +572,7 @@ func (s *server) handle(m rpcMessage) {
 			}
 		}
 		if !autoTrusted {
-			if why := admitPackage(store, truster, packagePath); why != "" {
+			if why := admitPackageTree(store, truster, packagePath, kids); why != "" {
 				if notAuto != "" {
 					// Say which of the agent's own settings kept it from
 					// running: the approval belongs to the agent.
@@ -574,6 +602,15 @@ func (s *server) handle(m rpcMessage) {
 				if err := store.addFetchGrant(args.Digest, kind); err != nil {
 					logf("trust      could not keep the approval %q: %v", kind, err)
 				}
+			},
+			catalog: s.catalog,
+			authFor: func(digest string) childAuth {
+				grants := append(store.fetchGrants(digest), childKinds[digest]...)
+				return childAuth{Origins: store.fetchOrigins(digest), Grants: grants, Remember: func(kind string) {
+					if err := store.addFetchGrant(digest, kind); err != nil {
+						logf("trust      could not keep the approval %q: %v", kind, err)
+					}
+				}}
 			},
 			InterpDir: s.interpDir, CacheDir: s.cacheDir, RunsDir: s.runsDir, RetentionDays: s.retention, NoJournal: s.noRecord, TelemetryPayloads: s.payloads, Client: clientFor(name),
 			MCPURL: s.mcpURL, MCPHeaderFile: s.mcpHeaderFile, MCPServerName: s.mcpServerName, Proc: s.proc,

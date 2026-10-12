@@ -173,3 +173,63 @@ func must(t *testing.T, err error) {
 		t.Fatal(err)
 	}
 }
+
+// A run that another run started names it, and what it returned is kept in
+// its finish record for a parent that stopped before it heard.
+func TestAChildRunKeepsWhatItReturned(t *testing.T) {
+	root := t.TempDir()
+	parent, err := Create(root, header("run-parent-001"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parent.Close()
+	if err := parent.BeginChild("r1", "run", "digest", "write", "run-child-0001", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := parent.Child("r1"); got != "run-child-0001" {
+		t.Fatalf("the begin record names %q", got)
+	}
+	h := header("run-child-0001")
+	h.ParentRunID, h.ParentRequestID = "run-parent-001", "r1"
+	child, err := Create(root, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, finished, err := FinishedReply(root, "run-child-0001"); err != nil || finished {
+		t.Fatalf("an unfinished run reads as finished: %v %v", finished, err)
+	}
+	big := make([]byte, InlineLimit+10)
+	for i := range big {
+		big[i] = 'a'
+	}
+	want := `{"stdout":"` + string(big) + `"}`
+	if err := child.FinishWith("completed", []byte(want), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	child.Close()
+	reply, outcome, finished, err := FinishedReply(root, "run-child-0001")
+	if err != nil || !finished || outcome != "completed" || string(reply) != want {
+		t.Fatalf("the finish record gave back %d bytes, %q, finished=%v, %v", len(reply), outcome, finished, err)
+	}
+	// A run that finished without keeping anything says so.
+	plain, err := Create(root, header("run-plain-0001"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain.Finish("completed", time.Now())
+	plain.Close()
+	reply, _, finished, err = FinishedReply(root, "run-plain-0001")
+	if err != nil || !finished || len(reply) != 0 {
+		t.Fatalf("an older record: %d bytes, finished=%v, %v", len(reply), finished, err)
+	}
+	// And the parent's record, reopened, still names the child.
+	parent.Close()
+	reopened, err := Open(root, "run-parent-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if reopened.Child("r1") != "run-child-0001" {
+		t.Fatalf("the link was lost on reopening")
+	}
+}

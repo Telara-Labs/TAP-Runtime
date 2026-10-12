@@ -58,6 +58,7 @@ func runStatsText(res *Result) string {
 		text += fmt.Sprintf(", %d answered from the record", res.Replayed)
 	}
 	text += "]"
+	text += childrenText(res.Children, "  ")
 	if hint := improveHint(res.Calls, inputs, res.RunID); hint != "" {
 		text += "\n[" + hint + "]"
 	}
@@ -74,4 +75,21 @@ func improveHint(calls, inputs int, runID string) string {
 		hint += "; tap_evidence on run " + runID + " shows each call"
 	}
 	return hint
+}
+
+// childrenText lists the primitives a run ran, one line each, indented by
+// depth.
+func childrenText(children []ChildRun, indent string) string {
+	var text string
+	for _, c := range children {
+		text += fmt.Sprintf("\n[%s%s: exit %d, %d tool call(s), %d failed, %d refused", indent, c.Alias, c.Exit, c.Calls, c.FailedCalls, c.Refused)
+		if c.Unknown > 0 {
+			text += fmt.Sprintf(", %d unknown", c.Unknown)
+		}
+		if c.RunID != "" {
+			text += ", run " + c.RunID
+		}
+		text += "]" + childrenText(c.Children, indent+"  ")
+	}
+	return text
 }

@@ -34,6 +34,7 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/Telara-Labs/TAP-Runtime/bridge"
 	mf "github.com/Telara-Labs/TAP-Runtime/contract/manifest"
@@ -67,9 +68,15 @@ type request struct {
 	URL        string            `json:"url"`
 	HTTPMethod string            `json:"http_method"`
 	Headers    map[string]string `json:"headers"`
+	// Input is what a run request hands the primitive it runs.
+	Input map[string]any `json:"input,omitempty"`
 	// Only the host may resolve a call's effect. Keep one assessment for
 	// its journal, approval and dispatch; the guest cannot supply it.
 	callAssessment *callAssessment
+	// The host names the run a run request starts, and keeps what it learned.
+	childRun    string
+	resumeChild bool
+	info        *childInfo
 }
 
 type callAssessment struct {
@@ -88,11 +95,13 @@ type reply struct {
 	Refused string   `json:"refused,omitempty"`
 	Result  string   `json:"result,omitempty"`
 	Tools   []string `json:"tools,omitempty"`
-	Stdout  string   `json:"stdout"`
-	Stderr  string   `json:"stderr"`
-	Exit    int      `json:"exit"`
-	Stdin   string   `json:"stdin"`
-	Status  int      `json:"status,omitempty"`
+	// Uses lists the aliases of the primitives this one may run.
+	Uses   []string `json:"uses,omitempty"`
+	Stdout string   `json:"stdout"`
+	Stderr string   `json:"stderr"`
+	Exit   int      `json:"exit"`
+	Stdin  string   `json:"stdin"`
+	Status int      `json:"status,omitempty"`
 	// Gated is set when the only thing missing is a person's agreement.
 	Gated bool `json:"gated,omitempty"`
 }
@@ -190,6 +199,20 @@ type Options struct {
 	// that id has been recorded as begun and before it is acted on.
 	stopAfter  int
 	stopDuring string
+
+	// tree is this run's place among the primitives that started it. Nil for
+	// the primitive that was asked for.
+	tree *runTree
+	// catalog lists the primitives installed here, where a pinned child is
+	// looked for. Nil means the local catalog.
+	catalog func() ([]catalogEntry, error)
+	// authFor gives a child what was kept for its own digest. Nil means nothing.
+	authFor func(digest string) childAuth
+	// childHook and stopAfterChild are for tests: the first changes a
+	// child's options before it starts, the second ends the run as a crash
+	// would, once a child has finished and before its parent heard.
+	childHook      func(alias string, co *Options)
+	stopAfterChild bool
 }
 
 // errInterrupted is what Run returns when a test stops it.
@@ -214,6 +237,8 @@ type Result struct {
 	FailedCalls int
 	Elapsed     time.Duration
 	Inputs      int
+	// Children are the primitives this one ran, with what each did.
+	Children []ChildRun
 }
 
 // usageText is what `tap` with no arguments, and `tap help`, print.
@@ -293,6 +318,12 @@ func main() {
 		// Find recurring work in this machine's agent history and draft it as
 		// primitives. Local only; needs no Telara.
 		discover.Version = version
+		if len(os.Args) > 3 && os.Args[2] == "save" {
+			if why := usesCheckDir(os.Args[len(os.Args)-1], nil); why != "" {
+				fmt.Fprintln(os.Stderr, "tap:", why)
+				os.Exit(1)
+			}
+		}
 		os.Exit(discover.Command(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "trust" {
@@ -435,7 +466,29 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return nil, fmt.Errorf("the selected primitive changed since discovery; search again")
 	}
 
+	// Every primitive this one uses is found, and checked against what its
+	// user declared for it, before anything runs.
+	tree := o.tree
+	if tree == nil {
+		tree = newRootTree(dispatchesFor(m.Execution.Limits), m.Metadata.Name, pkgDigest)
+	}
+	if len(m.Uses) > 0 {
+		if o.relay != nil {
+			return nil, fmt.Errorf("%s uses other primitives, which the %s client cannot run yet: its tool calls are made one program at a time", m.Metadata.Name, o.relayClient)
+		}
+		if o.tree == nil {
+			entries, err := localEntries(o.catalog)
+			if err != nil {
+				return nil, err
+			}
+			if tree.uses, err = resolveUses(entries, &m, pkgDigest); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	var run *runlog.Journal
+	var runsRoot string
 	args := o.Args
 	started := time.Now().UTC()
 	if !o.NoJournal {
@@ -447,6 +500,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			}
 			root = filepath.Join(base, "tap-runtime", "runs")
 		}
+		runsRoot = root
 		if n := runlog.Sweep(root, o.RetentionDays, started); n > 0 {
 			logf("removed the records of %d run(s) older than %d days", n, o.RetentionDays)
 		}
@@ -465,7 +519,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			logf("resuming   %s: %d request(s) already answered, %d left unanswered", o.Resume, done, open)
 		} else {
 			abs, _ := filepath.Abs(o.Package)
-			run, err = runlog.CreateWithManifest(root, runlog.Header{RunID: runlog.NewRunID(started), Package: abs, PackageDigest: pkgDigest, Args: o.Args, Started: started}, rawManifest)
+			hdr := runlog.Header{RunID: runlog.NewRunID(started), Package: abs, PackageDigest: pkgDigest, Args: o.Args, Started: started,
+				ParentRunID: tree.parentRun, ParentRequestID: tree.parentReq}
+			if tree.runID != "" {
+				hdr.RunID = tree.runID
+			}
+			run, err = runlog.CreateWithManifest(root, hdr, rawManifest)
 			if err != nil {
 				return nil, err
 			}
@@ -732,8 +791,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	// The clock starts when the program does, not while the interpreter is
 	// being compiled.
-	bud := newBudget(timeoutFor(m.Execution.TimeoutSeconds), stopGuest)
+	limit := timeoutFor(m.Execution.TimeoutSeconds)
+	if tree.timeCap > 0 && tree.timeCap < limit {
+		limit = tree.timeCap
+	}
+	bud := newBudget(limit, stopGuest)
 	defer bud.stop()
+	chain := append(append([]*budget{}, tree.ancestors...), bud)
 	done := make(chan error, 1)
 	go func() {
 		var err error
@@ -802,9 +866,18 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			if preapproved[kind] {
 				g = Grant{OK: true, Limit: Unlimited}
 			} else if o.Approve != nil {
-				bud.pause()
-				g = o.Approve(Ask{Primitive: m.Metadata.Name, Effect: effect, Kind: forPrompt(kind), Example: forPrompt(example), Done: a.done})
-				bud.resume()
+				// Nobody's time is used while a person decides, so every
+				// primitive above this one waits with it. One approver
+				// serves the tree, so questions go one at a time.
+				for _, b := range chain {
+					b.pause()
+				}
+				tree.askMu.Lock()
+				g = o.Approve(Ask{Primitive: tree.asker(), Effect: effect, Kind: forPrompt(kind), Example: forPrompt(example), Done: a.done})
+				tree.askMu.Unlock()
+				for _, b := range chain {
+					b.resume()
+				}
 			}
 			// A read fetch the person approved is kept for this version, so
 			// its next run does not ask again; a change is asked each run.
@@ -860,6 +933,15 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			return "write"
 		case "write":
 			return "write"
+		case "run":
+			// What the primitive's user declared for it. The child's own
+			// changes are asked about by the child, under its own manifest.
+			for _, u := range tree.uses {
+				if u.Alias == rq.Alias {
+					return u.Declared
+				}
+			}
+			return "write"
 		case "fetch":
 			if mth := strings.ToUpper(rq.HTTPMethod); mth == "" || mth == "GET" || mth == "HEAD" {
 				return "read"
@@ -869,6 +951,135 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		return "read"
 	}
 
+	// runUse runs a primitive this one uses, in this process, under its own
+	// manifest. The request itself is not gated: the child asks for each of
+	// its own changes, and asking here as well would ask twice.
+	runSem := make(chan struct{}, maxConcurrentRuns)
+	runUse := func(rq request) reply {
+		info := rq.info
+		if info == nil {
+			info = &childInfo{}
+		}
+		var node *useNode
+		for _, u := range tree.uses {
+			if u.Alias == rq.Alias {
+				node = u
+			}
+		}
+		if node == nil {
+			return reply{Refused: fmt.Sprintf("%q is not one of the primitives this one uses", rq.Alias)}
+		}
+		if tree.depth+1 > maxUseDepth {
+			return reply{Refused: fmt.Sprintf("primitives may use others only %d levels down", maxUseDepth)}
+		}
+		for _, d := range tree.digests {
+			if d == node.Digest {
+				return reply{Refused: node.Alias + " would run a primitive that is already running above it"}
+			}
+		}
+		var args []string
+		if rq.Input != nil {
+			b, _ := json.Marshal(rq.Input)
+			args = []string{string(b)}
+		}
+		if node.Manifest.Interface != nil {
+			in := rq.Input
+			if in == nil {
+				in = map[string]any{}
+			}
+			if why := checkObject(node.Manifest.Interface.InputSchema, in); why != "" {
+				return reply{Refused: fmt.Sprintf("the input to %s does not match its inputSchema: %s", node.Alias, why)}
+			}
+		}
+		select {
+		case runSem <- struct{}{}:
+			defer func() { <-runSem }()
+		case <-guestCtx.Done():
+			return reply{Refused: "the run was stopped before " + node.Alias + " could start"}
+		}
+		timeCap := bud.left()
+		for _, b := range tree.ancestors {
+			if l := b.left(); l < timeCap {
+				timeCap = l
+			}
+		}
+		if timeCap <= 0 {
+			return reply{Refused: "no time is left in this run for " + node.Alias}
+		}
+		childID, resume := rq.childRun, rq.resumeChild
+		parentRun := ""
+		if run != nil {
+			parentRun = run.Header.RunID
+		}
+		if resume && runsRoot != "" {
+			switch stored, _, finished, ferr := runlog.FinishedReply(runsRoot, childID); {
+			case ferr != nil && errors.Is(ferr, os.ErrNotExist):
+				resume = false // it never got as far as a record
+			case ferr == nil && finished && len(stored) > 0:
+				// It finished and the answer was lost on the way back.
+				var sr storedResult
+				if json.Unmarshal(stored, &sr) == nil {
+					info.unknown = sr.Unknown
+					info.run = &ChildRun{Alias: node.Alias, Ref: node.Ref, Digest: node.Digest, RunID: childID, Exit: sr.Exit, Unknown: sr.Unknown}
+					return childReply(node, sr)
+				}
+			case ferr == nil && finished:
+				// An older record kept no output. Reading again is safe only
+				// for a primitive that cannot change anything.
+				if effectRank[node.Effect] > 0 {
+					info.unknown = 1
+					return reply{Unknown: true, Refused: node.Alias + " finished before an earlier run stopped, and its output was not kept; it can make changes, so whether they happened is unknown"}
+				}
+				resume = false
+				childID = runlog.NewRunID(time.Now().UTC())
+			}
+		}
+		auth := childAuth{}
+		if o.authFor != nil {
+			auth = o.authFor(node.Digest)
+		}
+		co := Options{
+			Package: node.Path, ExpectedDigest: node.Digest, Args: args,
+			Approve: o.Approve, Choose: o.Choose, AskTool: o.AskTool,
+			FetchOrigins: auth.Origins, FetchGrants: auth.Grants, RememberGrant: auth.Remember,
+			Journal: o.Journal, InterpDir: o.InterpDir, CacheDir: o.CacheDir, PyLib: o.PyLib, Client: o.Client,
+			Bridge: br, MCPURL: o.MCPURL, MCPHeaderFile: o.MCPHeaderFile, MCPServerName: o.MCPServerName,
+			VSCodeSocket: o.VSCodeSocket, Proc: o.Proc,
+			RunsDir: runsRoot, NoJournal: o.NoJournal, TelemetryPayloads: o.TelemetryPayloads,
+			catalog: o.catalog, authFor: o.authFor, childHook: o.childHook,
+		}
+		if resume {
+			co.Resume = childID
+		}
+		co.tree = tree.below(node, chain, parentRun, rq.ID, childID, timeCap)
+		if o.childHook != nil {
+			o.childHook(node.Alias, &co)
+		}
+		cctx := guestCtx
+		if tel != nil {
+			cctx = trace.ContextWithSpan(guestCtx, tel.root)
+		}
+		cres, err := Run(cctx, co)
+		if err != nil {
+			if errors.Is(err, errInterrupted) {
+				info.err = err
+				return reply{}
+			}
+			return reply{Refused: fmt.Sprintf("%s could not run: %v", node.Alias, err)}
+		}
+		if o.stopAfterChild {
+			info.err = errInterrupted
+			return reply{}
+		}
+		info.unknown = cres.Unknown
+		info.run = &ChildRun{
+			Alias: node.Alias, Ref: node.Ref, Digest: node.Digest, RunID: cres.RunID, Exit: cres.Exit,
+			Calls: cres.Calls, FailedCalls: cres.FailedCalls, Refused: cres.Refused, Unknown: cres.Unknown,
+			Elapsed: cres.Elapsed, Children: cres.Children,
+		}
+		return childReply(node, storedResult{Exit: cres.Exit, Stdout: cres.Stdout, Stderr: cres.Stderr, Unknown: cres.Unknown})
+	}
+
 	act := func(rq request) reply {
 		switch rq.Method {
 		case "tools":
@@ -876,7 +1087,12 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			if adm != nil {
 				rp.Tools = adm.aliases()
 			}
+			for _, u := range tree.uses {
+				rp.Uses = append(rp.Uses, u.Alias)
+			}
 			return rp
+		case "run":
+			return runUse(rq)
 		case "call":
 			kind, example := "call "+rq.Alias, "call "+rq.Alias
 			if adm != nil {
@@ -923,9 +1139,14 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			dispatches++
 			over := dispatches > maxDispatches
 			dispatchMu.Unlock()
+			overTree := tree.countDispatch()
 			if over {
 				logf("  REFUSED  %s  (over limits.max_dispatches = %d)", rq.Method, maxDispatches)
 				return reply{Refused: fmt.Sprintf("the primitive has made its %d requests (limits.max_dispatches)", maxDispatches)}
+			}
+			if overTree {
+				logf("  REFUSED  %s  (the run is over its limits.max_dispatches = %d)", rq.Method, tree.max)
+				return reply{Refused: fmt.Sprintf("the primitives of this run have made their %d requests (limits.max_dispatches of the primitive that was asked for)", tree.max)}
 			}
 		}
 		return inner(rq)
@@ -938,6 +1159,24 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	}
 	var resMu, encMu sync.Mutex
 	var stopped atomic.Bool
+
+	// afterRun takes what running a child taught, once it has answered. An
+	// error is the run stopping as a crash would.
+	afterRun := func(rq request) error {
+		if rq.info == nil {
+			return nil
+		}
+		if rq.info.err != nil {
+			return rq.info.err
+		}
+		resMu.Lock()
+		res.Unknown += rq.info.unknown
+		if rq.info.run != nil {
+			res.Children = append(res.Children, *rq.info.run)
+		}
+		resMu.Unlock()
+		return nil
+	}
 
 	// answer produces the reply to one request: from the record when the run
 	// has answered it before, and by acting otherwise.
@@ -952,9 +1191,13 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 		// Asking whether a write is allowed changes nothing and is not
 		// recorded. Everything else is.
+		if rq.Method == "run" {
+			rq.info = &childInfo{}
+		}
 		if run == nil || rq.ID == "" || rq.Method == "canwrite" {
 			assess()
-			return act(rq), false, nil
+			rp = act(rq)
+			return rp, false, afterRun(rq)
 		}
 		id := rq.ID
 		content := rq
@@ -978,7 +1221,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			// Nothing was recorded after it began. A read is asked again.
 			// A change may or may not have happened, and doing it again
 			// could do it twice: it goes to a person.
-			if effect := run.Effect(id); effect != "read" {
+			if effect := run.Effect(id); effect != "read" && rq.Method != "run" {
 				logf("  UNKNOWN  %s %s  (%s, in progress when the earlier run stopped)", rq.Method, id, effect)
 				rp = reply{Unknown: true, Refused: "the outcome of this " + effect + " is unknown: an earlier run stopped while it was in progress"}
 				b, _ := json.Marshal(rp)
@@ -1005,7 +1248,23 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 				}
 			}
 		}
-		if err := run.BeginCall(id, rq.Method, digest, effectOf(rq), identity, time.Now().UTC()); err != nil {
+		if rq.Method == "run" {
+			// The run this starts is named before it starts, so a crash
+			// leaves the link behind. One that began and was interrupted is
+			// resumed under the name it already has.
+			child := ""
+			if state == runlog.Interrupted {
+				child = run.Child(id)
+			}
+			rq.resumeChild = child != ""
+			if child == "" {
+				child = runlog.NewRunID(time.Now().UTC())
+			}
+			rq.childRun = child
+			if err := run.BeginChild(id, rq.Method, digest, effectOf(rq), child, time.Now().UTC()); err != nil {
+				return reply{}, false, err
+			}
+		} else if err := run.BeginCall(id, rq.Method, digest, effectOf(rq), identity, time.Now().UTC()); err != nil {
 			return reply{}, false, err
 		}
 		if o.stopDuring == id {
@@ -1013,6 +1272,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			return reply{}, false, errInterrupted
 		}
 		rp = act(rq)
+		if err := afterRun(rq); err != nil {
+			return reply{}, false, err
+		}
 		outcome := "ran"
 		if rp.Refused != "" {
 			outcome = "refused"
@@ -1117,8 +1379,8 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		go io.Copy(io.Discard, fromGuestR)
 		stopGuest()
 		<-done
-		msg := fmt.Sprintf("the primitive ran past its time limit of %s and was stopped", timeoutFor(m.Execution.TimeoutSeconds))
-		audit("timed_out", "run", "", map[string]any{"limit_seconds": int(timeoutFor(m.Execution.TimeoutSeconds) / time.Second)})
+		msg := fmt.Sprintf("the primitive ran past its time limit of %s and was stopped", limit)
+		audit("timed_out", "run", "", map[string]any{"limit_seconds": int(limit / time.Second)})
 		logf("%s", msg)
 		if run != nil {
 			run.Finish(outcome, time.Now().UTC())
@@ -1162,8 +1424,17 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		outcome = "completed_with_refusals"
 	}
 	if run != nil {
-		if err := run.Finish(outcome, time.Now().UTC()); err != nil {
-			return nil, err
+		var ferr error
+		if tree.parentRun != "" {
+			// A run another run started keeps what it returned, for a
+			// parent that stops before it hears.
+			b, _ := json.Marshal(storedResult{Exit: res.Exit, Stdout: res.Stdout, Stderr: res.Stderr, Unknown: res.Unknown})
+			ferr = run.FinishWith(outcome, b, time.Now().UTC())
+		} else {
+			ferr = run.Finish(outcome, time.Now().UTC())
+		}
+		if ferr != nil {
+			return nil, ferr
 		}
 		if res.Replayed > 0 {
 			logf("%d request(s) were answered from the record and not made again", res.Replayed)

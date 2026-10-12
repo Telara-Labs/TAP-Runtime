@@ -74,6 +74,10 @@ func (s *server) handleSave(id *json.RawMessage, raw json.RawMessage, canElicit 
 		s.toolError(id, err.Error())
 		return
 	}
+	if why := usesCheckDir(snapshot, s.catalog); why != "" {
+		s.toolError(id, why+"; fix it and call tap_save again")
+		return
+	}
 	ref := m.Metadata.Publisher + "/" + m.Metadata.Name + "@" + m.Metadata.Version
 	s.mu.Lock()
 	client := clientFor(s.clientName)
