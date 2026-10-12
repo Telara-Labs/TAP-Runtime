@@ -8,6 +8,17 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **`npm install -g @telaralabs/tap` downloads only the runner for your
+  machine.** The runners now ship as one package per platform
+  (`@telaralabs/tap-darwin-arm64`, `-darwin-x64`, `-linux-arm64`, `-linux-x64`,
+  `-win32-x64`, each about 13 MB), and `@telaralabs/tap` depends on all five as
+  optional dependencies so npm installs the one that matches. The install is
+  about 13 MB instead of 66 MB. The runner is still checked against its
+  recorded SHA-256 before every run, `tap setup` and `tap upgrade` work as
+  before, and an install with `--ignore-scripts` still gives a working `tap`.
+  If the matching package is missing (npm run with `--omit=optional`, or a
+  lockfile from another operating system), `tap` says so and tells you to
+  reinstall without omitting optional dependencies.
 - **`tap kit export` writes a Docker Sandbox Kit for the runner.** It writes
   a mixin descriptor (`tap.yaml`) and its dockerfile (`tap.dockerfile`) that
   install the released runner, checked against the release checksums, and

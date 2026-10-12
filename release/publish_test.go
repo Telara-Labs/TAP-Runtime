@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,6 +21,8 @@ type fakeHosts struct {
 	runs     int
 	calls    []string
 	failRun  bool
+	viewed   []string        // every npm view argument, in order
+	missing  map[string]bool // pkg@version that npm lacks although the version is published
 }
 
 func (f *fakeHosts) run(dir string) func(name string, args ...string) (string, error) {
@@ -34,8 +39,9 @@ func (f *fakeHosts) run(dir string) func(name string, args ...string) (string, e
 			}
 			return string(out), err
 		case "npm": // npm view <pkg>@<v> version
+			f.viewed = append(f.viewed, args[1])
 			v := args[1][strings.LastIndex(args[1], "@")+1:]
-			if f.npm[v] {
+			if f.npm[v] && !f.missing[args[1]] {
 				return v + "\n", nil
 			}
 			return "", fmt.Errorf("E404")
@@ -108,7 +114,7 @@ func releaseRepo(t *testing.T) string {
 
 func publisher(dir string, f *fakeHosts, version string, plan bool) *Publisher {
 	return &Publisher{Dir: dir, Version: version, GitHubRepo: "o/r", Origin: "origin", GitHub: "github",
-		Package: "@telaralabs/tap", Workflow: "release.yml", Plan: plan, Run: f.run(dir), Wait: time.Second,
+		Packages: npmPackageNames(), Workflow: "release.yml", Plan: plan, Run: f.run(dir), Wait: time.Second,
 		Build: func(tag, out string) error {
 			for i := 0; i < 12; i++ {
 				os.WriteFile(filepath.Join(out, fmt.Sprintf("f%d", i)), []byte(tag), 0o644)
@@ -283,5 +289,140 @@ func TestSetPackageVersionKeepsTheRestOfTheFile(t *testing.T) {
 	out, ok := setPackageVersion(in, "0.1.4")
 	if !ok || out != strings.Replace(in, "0.1.3", "0.1.4", 1) || packageVersion(out) != "0.1.4" {
 		t.Fatalf("%v %q", ok, out)
+	}
+}
+
+// The plan names all six npm packages in publish order, platform packages
+// first and the main package last.
+func TestPublishPlanListsEverySixNPMPackagesInOrder(t *testing.T) {
+	dir := releaseRepo(t)
+	f := &fakeHosts{releases: map[string]int{}, npm: map[string]bool{}}
+	r := publisher(dir, f, "0.1.4", true).Publish()
+	var detail string
+	for _, s := range r.Steps {
+		if s.Name == "npm" {
+			detail = s.Detail
+		}
+	}
+	last := -1
+	for _, name := range []string{"tap-darwin-arm64", "tap-darwin-x64", "tap-linux-arm64", "tap-linux-x64", "tap-win32-x64", "@telaralabs/tap\n"} {
+		i := strings.Index(detail+"\n", name)
+		if i < 0 || i <= last {
+			t.Fatalf("%s is missing or out of order in the plan:\n%s", name, detail)
+		}
+		last = i
+	}
+	if got := npmPackageNames(); len(got) != 6 || got[5] != "@telaralabs/tap" {
+		t.Fatalf("the main package must be published last: %v", got)
+	}
+}
+
+// A release counts as published only when npm serves every package; one
+// missing package sends the workflow out again.
+func TestPublishWaitsForAllSixPackages(t *testing.T) {
+	dir := releaseRepo(t)
+	f := &fakeHosts{releases: map[string]int{"v0.1.4": 12}, npm: map[string]bool{"0.1.4": true}, missing: map[string]bool{"@telaralabs/tap-linux-x64@0.1.4": true}}
+	p := publisher(dir, f, "0.1.4", false)
+	if p.npmHas() {
+		t.Fatal("npm lacks a platform package yet the release counted as published")
+	}
+	if got := p.npmMissing(); len(got) != 1 || got[0] != "@telaralabs/tap-linux-x64" {
+		t.Fatalf("missing %v", got)
+	}
+	delete(f.missing, "@telaralabs/tap-linux-x64@0.1.4")
+	f.viewed = nil
+	if !p.npmHas() || len(f.viewed) != 6 {
+		t.Fatalf("every package must be checked: %v", f.viewed)
+	}
+}
+
+// The staging step writes the six packages from one release: each platform
+// package with its own os and cpu and only its runner, the main package at
+// the same version with the five as optional dependencies, in publish order.
+func TestStagedNPMPackagesMatchTheReleaseTool(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed; the npm staging cannot run")
+	}
+	root := t.TempDir()
+	rel := filepath.Join(root, "release")
+	os.MkdirAll(rel, 0o755)
+	var sums []string
+	write := func(name, body string) {
+		os.WriteFile(filepath.Join(rel, name), []byte(body), 0o755)
+		sum := sha256.Sum256([]byte(body))
+		sums = append(sums, hex.EncodeToString(sum[:])+"  "+name)
+	}
+	for _, f := range []string{"darwin-arm64", "darwin-amd64", "linux-arm64", "linux-amd64", "windows-amd64.exe"} {
+		write("tap-0.1.4-"+f, "runner "+f)
+	}
+	write("THIRD_PARTY_NOTICES.txt", "notices")
+	os.WriteFile(filepath.Join(rel, "SHA256SUMS"), []byte(strings.Join(sums, "\n")+"\n"), 0o644)
+	out := filepath.Join(root, "packages")
+	cmd := exec.Command(node, filepath.Join("..", "npm", "pack.cjs"), "--allow-unsigned-for-tests", rel, out)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, b)
+	}
+	var order struct {
+		Version      string
+		PublishOrder []struct{ Name, Dir string }
+	}
+	readJSON := func(path string, into any) {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(b, into); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readJSON(filepath.Join(out, "packages.json"), &order)
+	want := NPMPackages()
+	if order.Version != "0.1.4" || len(order.PublishOrder) != len(want) {
+		t.Fatalf("%+v", order)
+	}
+	for i, w := range want {
+		got := order.PublishOrder[i]
+		if got.Name != w.Name {
+			t.Fatalf("package %d is %s, the release tool expects %s", i, got.Name, w.Name)
+		}
+		var pkg struct {
+			Name, Version        string
+			OS, CPU              []string
+			OptionalDependencies map[string]string
+		}
+		readJSON(filepath.Join(out, got.Dir, "package.json"), &pkg)
+		if pkg.Version != "0.1.4" {
+			t.Fatalf("%s is at %s", w.Name, pkg.Version)
+		}
+		if w.OS == "" { // the main package
+			if len(pkg.OS) != 0 || len(pkg.OptionalDependencies) != 5 {
+				t.Fatalf("main package %+v", pkg)
+			}
+			for _, dep := range want[:5] {
+				if pkg.OptionalDependencies[dep.Name] != "0.1.4" {
+					t.Fatalf("optional dependency %s: %v", dep.Name, pkg.OptionalDependencies)
+				}
+			}
+			continue
+		}
+		if strings.Join(pkg.OS, ",") != w.OS || strings.Join(pkg.CPU, ",") != strings.Join(w.CPU, ",") {
+			t.Fatalf("%s declares os %v cpu %v, want %s %v", w.Name, pkg.OS, pkg.CPU, w.OS, w.CPU)
+		}
+		var files []string
+		filepath.WalkDir(filepath.Join(out, got.Dir), func(p string, d os.DirEntry, _ error) error {
+			if !d.IsDir() {
+				rel, _ := filepath.Rel(filepath.Join(out, got.Dir), p)
+				files = append(files, filepath.ToSlash(rel))
+			}
+			return nil
+		})
+		bin := "bin/tap"
+		if w.OS == "win32" {
+			bin = "bin/tap.exe"
+		}
+		if strings.Join(files, " ") != strings.Join([]string{"LICENSE", "README.md", "THIRD_PARTY_NOTICES.txt", bin, "package.json"}, " ") {
+			t.Fatalf("%s holds %v", w.Name, files)
+		}
 	}
 }

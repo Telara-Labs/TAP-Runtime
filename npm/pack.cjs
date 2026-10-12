@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
-const fs = require('node:fs');
 const path = require('node:path');
-const { stagePackage } = require('./lib/pack.cjs');
+const { stagePackages } = require('./lib/pack.cjs');
 
 function usage() {
   return 'usage: node npm/pack.cjs <release-directory> <output-directory>';
@@ -19,14 +18,16 @@ if (require.main === module) {
     process.exitCode = 2;
   } else {
     try {
-      const packageDir = stagePackage({
+      const staged = stagePackages({
         templateDir: __dirname,
         releaseDir: path.resolve(releaseDir),
         outputDir: path.resolve(outputDir),
         allowUnsigned,
       });
-      console.log(`staged ${JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8')).name}@${JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8')).version} at ${packageDir}`);
-      console.log(`create the installable archive with: npm pack ${packageDir}`);
+      for (const { name, dir } of staged.publishOrder) {
+        console.log(`staged ${name}@${staged.version} at ${path.join(staged.outputDir, dir)}`);
+      }
+      console.log('publish them in that order; packages.json lists it');
     } catch (error) {
       console.error(`tap npm pack: ${error.message}`);
       process.exitCode = 1;

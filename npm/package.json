@@ -16,7 +16,6 @@
     "test": "node --test test/*.test.cjs"
   },
   "files": [
-    "assets/",
     "bin/tap.cjs",
     "LICENSE",
     "lib/",

@@ -350,17 +350,16 @@ func TestDiscoverMakesNoNetworkConnections(t *testing.T) {
 }
 
 // nativeRunner is the platform binary the npm package runs, checked by the
-// package against its sha256 before every run.
+// package against its sha256 before every run. npm installs only the platform
+// package for this machine beside the main package.
 func nativeRunner(t *testing.T, m *machine, tap string) string {
 	t.Helper()
-	assets, _ := filepath.Glob(filepath.Join(filepath.Dir(filepath.Dir(tap)), "lib", "node_modules", "@telaralabs", "tap", "assets", "tap-*"))
-	for _, a := range assets {
-		if strings.Contains(a, runtime.GOOS) && strings.Contains(a, goarch()) {
-			return a
-		}
+	installed := filepath.Join(filepath.Dir(filepath.Dir(tap)), "lib", "node_modules", "@telaralabs", "tap", "node_modules", "@telaralabs")
+	runners, _ := filepath.Glob(filepath.Join(installed, "tap-*", "bin", "tap*"))
+	if len(runners) != 1 {
+		t.Fatalf("want exactly the runner for %s/%s in %s, found %v", runtime.GOOS, goarch(), installed, runners)
 	}
-	t.Fatalf("no runner for %s/%s in %v", runtime.GOOS, goarch(), assets)
-	return ""
+	return runners[0]
 }
 
 func goarch() string { return runtime.GOARCH }

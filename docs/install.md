@@ -147,7 +147,18 @@ explicit: run `npm exec -- tap setup` in that project. VS Code uses the
 separate extension below. Browser-only chats do not inherit a local MCP
 registration.
 
-The package is published from a signed five-platform release. Find assets
+The package is published from a signed five-platform release. npm installs
+only the runner for your machine: `@telaralabs/tap` lists one package per
+platform (`@telaralabs/tap-darwin-arm64`, `-darwin-x64`, `-linux-arm64`,
+`-linux-x64`, `-win32-x64`) as optional dependencies, each declaring its
+operating system and CPU, so an install downloads about 13 MB rather than all
+five runners. Every platform package has the same version as `@telaralabs/tap`,
+and `tap` checks the runner's SHA-256 against the digest recorded in
+`@telaralabs/tap` before each run. If `tap` reports that the platform package
+is not installed, npm skipped it (`--no-optional` or `--omit=optional`) or the
+`node_modules` or lockfile came from another operating system or CPU:
+reinstall with `npm install -g @telaralabs/tap`, without omitting optional
+dependencies. Find assets
 for the same version as your package on the
 [GitHub releases page](https://github.com/Telara-Labs/TAP-Runtime/releases).
 

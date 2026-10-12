@@ -148,7 +148,9 @@ To run TAP inside a Docker sandbox, `tap kit export` writes a Sandbox Kit; see
 npm install -g @telaralabs/tap
 ```
 
-installs the `tap` CLI. `tap setup` then connects it, as the MCP server
+installs the `tap` CLI and the one runner that matches your machine (about
+13 MB; the other platforms' runners are separate packages npm skips). `tap
+setup` then connects it, as the MCP server
 `tap`, to every supported agent installed on the machine and says what it
 connected. It also refreshes discoverable skill pointers for saved primitives
 in the shared TAP collection, so normal task requests can find them without

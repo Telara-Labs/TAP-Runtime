@@ -1,24 +1,17 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { faucetFrame, platformKey, upgrade } = require('../lib/runner.cjs');
+const { faucetFrame, upgrade } = require('../lib/runner.cjs');
+const fixture = require('./fixture.cjs');
 
 const pipe = { isTTY: false, write() {} };
 
 function fakePackage(version) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tap-npm-'));
-  fs.mkdirSync(path.join(dir, 'assets'));
-  const body = Buffer.from('#!/bin/sh\n');
-  fs.writeFileSync(path.join(dir, 'assets', 'tap'), body, { mode: 0o755 });
-  const sha256 = crypto.createHash('sha256').update(body).digest('hex');
-  fs.writeFileSync(path.join(dir, 'runner-assets.json'), JSON.stringify({ assets: { [platformKey()]: { file: 'tap', sha256 } } }));
-  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: '@telaralabs/tap', version }));
-  return dir;
+  return fixture.fakePackage({ version });
 }
 
 // fakeNpm answers npm view and npm root like npm would, with the new package
@@ -34,7 +27,7 @@ function fakeNpm(latest, globalRoot, calls, { installStatus = 0 } = {}) {
 }
 
 function globalWith(version) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tap-global-'));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tap-global-')));
   const pkg = fakePackage(version);
   fs.mkdirSync(path.join(root, '@telaralabs'));
   fs.renameSync(pkg, path.join(root, '@telaralabs', 'tap'));
@@ -49,7 +42,7 @@ test('upgrade installs the newer version and runs the new runner setup', async (
   assert.equal(await upgrade(dir, { output: (l) => lines.push(l), spawn: fakeNpm('0.1.20', root, calls), stream: pipe }), 0);
   assert.deepEqual(calls.find((c) => c[1][0] === 'install')[1], ['install', '--global', '@telaralabs/tap@0.1.20']);
   const setupCall = calls.find((c) => c[1][0] === 'setup');
-  assert.equal(setupCall[0], path.join(root, '@telaralabs', 'tap', 'assets', 'tap'));
+  assert.equal(setupCall[0], fixture.runnerOf(path.join(root, '@telaralabs', 'tap')));
   assert.match(lines.join('\n'), /0\.1\.8 to 0\.1\.20/);
   assert.match(lines.join('\n'), /Restart your agents/);
 });

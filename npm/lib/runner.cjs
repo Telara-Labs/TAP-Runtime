@@ -13,7 +13,16 @@ function platformKey(platform = process.platform, arch = process.arch) {
   return `${normalizedPlatform}/${normalizedArch}`;
 }
 
-function resolveRunner(packageDir, platform = process.platform, arch = process.arch) {
+function reinstallHint(packageName) {
+  return `${packageName} is not installed next to @telaralabs/tap. It is an optional dependency, so it is missing when ` +
+    'npm was run with --no-optional or --omit=optional, or when the lockfile or node_modules came from another operating system or CPU. ' +
+    'Reinstall without omitting optional dependencies: npm install -g @telaralabs/tap';
+}
+
+// resolveRunner finds the runner in the platform package npm installed beside
+// this one and checks it against the digest recorded in runner-assets.json.
+// resolve is injectable so tests can stand in for node's module lookup.
+function resolveRunner(packageDir, platform = process.platform, arch = process.arch, { resolve = require.resolve } = {}) {
   const key = platformKey(platform, arch);
   const manifest = JSON.parse(fs.readFileSync(path.join(packageDir, 'runner-assets.json'), 'utf8'));
   const asset = manifest.assets[key];
@@ -22,9 +31,35 @@ function resolveRunner(packageDir, platform = process.platform, arch = process.a
     throw new Error(`TAP has no prebuilt runner for ${key}. Prebuilt runners: ${supported}. ` +
       'On another platform, build it from source: go install github.com/Telara-Labs/TAP-Runtime/host@latest (it installs as host; rename it to tap).');
   }
-  const runner = path.join(packageDir, 'assets', asset.file);
-  const digest = crypto.createHash('sha256').update(fs.readFileSync(runner)).digest('hex');
-  if (digest !== asset.sha256) throw new Error(`TAP runner ${asset.file} failed its SHA-256 check`);
+  let packageJson;
+  try {
+    packageJson = resolve(`${asset.package}/package.json`, { paths: [packageDir] });
+  } catch (error) {
+    if (error && error.code !== 'MODULE_NOT_FOUND') throw error;
+    throw new Error(reinstallHint(asset.package));
+  }
+  if (manifest.version && JSON.parse(fs.readFileSync(packageJson, 'utf8')).version !== manifest.version) {
+    throw new Error(`${asset.package} is not version ${manifest.version}, the version of @telaralabs/tap. ` +
+      'Reinstall both together: npm install -g @telaralabs/tap');
+  }
+  const runner = path.join(path.dirname(packageJson), asset.file);
+  let bytes;
+  try {
+    bytes = fs.readFileSync(runner);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    throw new Error(`${asset.package} does not contain its runner (${asset.file}). Reinstall: npm install -g @telaralabs/tap`);
+  }
+  if (crypto.createHash('sha256').update(bytes).digest('hex') !== asset.sha256) {
+    throw new Error(`TAP runner ${asset.package} failed its SHA-256 check`);
+  }
+  if (process.platform !== 'win32') {
+    try {
+      if (!(fs.statSync(runner).mode & 0o111)) fs.chmodSync(runner, 0o755);
+    } catch {
+      // A read-only install still runs if the mode was kept.
+    }
+  }
   return runner;
 }
 

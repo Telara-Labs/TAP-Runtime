@@ -34,9 +34,12 @@ type Publisher struct {
 	GitHubRepo string // owner/name on GitHub
 	Origin     string // GitLab remote name
 	GitHub     string // GitHub remote name
-	Package    string // npm package name
-	Workflow   string // GitHub Actions workflow that publishes to npm
-	Plan       bool
+	// Packages are the npm packages of one release, in publish order: the
+	// platform packages first, the main package last, because the main
+	// package depends on the others at the same version.
+	Packages []string
+	Workflow string // GitHub Actions workflow that publishes to npm
+	Plan     bool
 	// Run runs a program in Dir and returns its standard output.
 	Run func(name string, args ...string) (string, error)
 	// Build builds and verifies the signed release of tag into out.
@@ -257,9 +260,9 @@ func (p *Publisher) Publish() Report {
 	// with npm Trusted Publishing.
 	switch {
 	case published:
-		add("npm", "skipped", p.Package+"@"+p.Version+" already published")
+		add("npm", "skipped", fmt.Sprintf("all %d packages are already published at %s", len(p.Packages), p.Version))
 	case p.Plan:
-		add("npm", "planned", "run "+p.Workflow+" with tag "+tag+", wait for it, then confirm npm shows "+p.Version)
+		add("npm", "planned", "run "+p.Workflow+" with tag "+tag+" to publish, in this order:\n"+strings.Join(p.Packages, "\n")+"\nwait for it, then confirm npm shows "+p.Version+" of all "+fmt.Sprint(len(p.Packages)))
 	default:
 		before, _ := p.Run("gh", "run", "list", "--repo", p.GitHubRepo, "--workflow", p.Workflow, "--limit", "1", "--json", "databaseId", "--jq", ".[0].databaseId")
 		if _, err := p.Run("gh", "workflow", "run", p.Workflow, "--repo", p.GitHubRepo, "--ref", "main", "-f", "tag="+tag); err != nil {
@@ -283,19 +286,59 @@ func (p *Publisher) Publish() Report {
 		deadline := time.Now().Add(p.Wait)
 		for !p.npmHas() {
 			if time.Now().After(deadline) {
-				return fail("npm", fmt.Sprintf("workflow run %s passed but npm does not show %s yet", id, p.Version))
+				return fail("npm", fmt.Sprintf("workflow run %s passed but npm does not show %s yet for: %s", id, p.Version, strings.Join(p.npmMissing(), ", ")))
 			}
 			time.Sleep(5 * time.Second)
 		}
-		add("npm", "done", fmt.Sprintf("%s@%s published by workflow run %s", p.Package, p.Version, id))
+		add("npm", "done", fmt.Sprintf("%d packages at %s published by workflow run %s: %s", len(p.Packages), p.Version, id, strings.Join(p.Packages, ", ")))
 	}
 	return r
 }
 
-// npmHas reports whether npm serves this version.
+// npmHas reports whether npm serves this version of every package.
 func (p *Publisher) npmHas() bool {
-	out, err := p.Run("npm", "view", p.Package+"@"+p.Version, "version")
-	return err == nil && strings.TrimSpace(out) == p.Version
+	return len(p.npmMissing()) == 0
+}
+
+// npmMissing lists the packages npm does not yet serve at this version.
+func (p *Publisher) npmMissing() []string {
+	var missing []string
+	for _, name := range p.Packages {
+		out, err := p.Run("npm", "view", name+"@"+p.Version, "version")
+		if err != nil || strings.TrimSpace(out) != p.Version {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+// NPMPackage is one package of the npm release.
+type NPMPackage struct {
+	Name string
+	OS   string
+	CPU  []string
+}
+
+// NPMPackages are the platform packages, each holding one runner, then the
+// main package, which installs the right one. The order is the publish order.
+// It matches npm/lib/platforms.cjs, which stages them.
+func NPMPackages() []NPMPackage {
+	return []NPMPackage{
+		{"@telaralabs/tap-darwin-arm64", "darwin", []string{"arm64"}},
+		{"@telaralabs/tap-darwin-x64", "darwin", []string{"x64"}},
+		{"@telaralabs/tap-linux-arm64", "linux", []string{"arm64"}},
+		{"@telaralabs/tap-linux-x64", "linux", []string{"x64"}},
+		{"@telaralabs/tap-win32-x64", "win32", []string{"x64", "arm64"}},
+		{Name: "@telaralabs/tap"},
+	}
+}
+
+func npmPackageNames() []string {
+	var names []string
+	for _, p := range NPMPackages() {
+		names = append(names, p.Name)
+	}
+	return names
 }
 
 var versionField = regexp.MustCompile(`("version"\s*:\s*")([^"]*)(")`)

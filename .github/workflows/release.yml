@@ -53,23 +53,62 @@ jobs:
       - name: Test npm packaging
         run: node --test npm/test/*.test.cjs
 
-      - name: Stage npm package
-        run: node npm/pack.cjs dist "$RUNNER_TEMP/tap-npm-package"
+      - name: Stage npm packages
+        run: node npm/pack.cjs dist "$RUNNER_TEMP/tap-npm-packages"
 
-      - name: Match package version to release tag
+      - name: Match package versions to release tag
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           expected="${RELEASE_TAG#v}"
-          actual="$(node -p "require('$RUNNER_TEMP/tap-npm-package/package.json').version")"
-          if [ "$actual" != "$expected" ]; then
-            echo "Release tag $RELEASE_TAG contains runner version $actual" >&2
+          count=0
+          for dir in "$RUNNER_TEMP"/tap-npm-packages/*/; do
+            actual="$(node -p "require('${dir}package.json').version")"
+            if [ "$actual" != "$expected" ]; then
+              echo "Release tag $RELEASE_TAG contains runner version $actual in $dir" >&2
+              exit 1
+            fi
+            count=$((count + 1))
+          done
+          if [ "$count" -ne 6 ]; then
+            echo "Expected six staged packages, found $count" >&2
             exit 1
           fi
 
       - name: Set up npm Trusted Publishing
         run: npm install --global npm@11.5.1
 
-      - name: Publish package
-        run: npm publish "$RUNNER_TEMP/tap-npm-package" --access public
+      # The platform packages go first, the main package last: the main
+      # package depends on the others at the same version. A package npm
+      # already serves is skipped, so a rerun finishes a partial publish.
+      - name: Publish packages
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('$RUNNER_TEMP/tap-npm-packages/packages.json').version")"
+          mapfile -t order < <(node -e "for (const p of require('$RUNNER_TEMP/tap-npm-packages/packages.json').publishOrder) console.log(p.name + ' ' + p.dir)")
+          for entry in "${order[@]}"; do
+            name="${entry% *}"
+            dir="${entry#* }"
+            if [ "$(npm view "$name@$version" version 2>/dev/null || true)" = "$version" ]; then
+              echo "$name@$version is already published"
+              continue
+            fi
+            npm publish "$RUNNER_TEMP/tap-npm-packages/$dir" --access public
+          done
+
+      - name: Wait for npm to serve all six packages
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('$RUNNER_TEMP/tap-npm-packages/packages.json').version")"
+          for name in $(node -p "require('$RUNNER_TEMP/tap-npm-packages/packages.json').publishOrder.map((p) => p.name).join(' ')"); do
+            for attempt in $(seq 1 60); do
+              if [ "$(npm view "$name@$version" version 2>/dev/null || true)" = "$version" ]; then
+                echo "$name@$version is served"
+                continue 2
+              fi
+              sleep 5
+            done
+            echo "npm does not serve $name@$version" >&2
+            exit 1
+          done
