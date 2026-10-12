@@ -139,6 +139,8 @@ explicit direct MCP backend; registration alone does not prove execution or
 approval support. Headless clients may need explicit trust, fetch grants and
 tool bindings. See [docs/bridge-research.md](docs/bridge-research.md) and
 [docs/headless-and-sharing.md](docs/headless-and-sharing.md).
+To run TAP inside a Docker sandbox, `tap kit export` writes a Sandbox Kit; see
+[docs/sandbox-kits.md](docs/sandbox-kits.md).
 
 ## Install
 

@@ -255,6 +255,7 @@ const usageText = `usage: tap [--approve] [--resume RUN] <package-dir> [args...]
        tap diff [--json] <old-package-dir> <new-package-dir>
        tap manifest check|complete <package-dir>
        tap web build --out FILE <package-dir>...
+       tap kit export [--out DIR] [<package-dir>...]
        tap hook gemini
        tap upgrade
        tap version
@@ -350,6 +351,9 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "manifest" {
 		os.Exit(manifestCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "kit" {
+		os.Exit(kitCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "diff" {
 		os.Exit(diffCommand(os.Args[2:], os.Stdout, os.Stderr))

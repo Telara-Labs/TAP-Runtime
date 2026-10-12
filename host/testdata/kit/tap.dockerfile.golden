@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+# The TAP runner 0.2.23 as an overlay. The released binary is checked against
+# the release's SHA256SUMS before it is installed. The interpreters the runner
+# would otherwise download on first use are fetched here, at build time, so the
+# sandbox needs no network access beyond the primitives' own fetch origins.
+FROM alpine:3.22 AS fetch
+ARG TARGETARCH
+RUN apk add --no-cache curl
+WORKDIR /work
+RUN set -eu; \
+    base=https://github.com/Telara-Labs/TAP-Runtime/releases/download/v0.2.23; \
+    name=tap-0.2.23-linux-${TARGETARCH}; \
+    curl -fsSLO "$base/SHA256SUMS"; \
+    curl -fsSLO "$base/$name"; \
+    grep " $name\$" SHA256SUMS | sha256sum -c -; \
+    install -D -m 0755 "$name" /out/usr/local/bin/tap; \
+    /out/usr/local/bin/tap fetch --interpreters /out/home/agent/.cache/tap-runtime/interpreters; \
+    chown -R 1000:1000 /out/home/agent
+
+FROM scratch
+COPY --from=fetch /out /

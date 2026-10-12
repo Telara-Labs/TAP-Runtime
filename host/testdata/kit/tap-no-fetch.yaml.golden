@@ -1,0 +1,12 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: TAP runner
+description: The TAP runner, with network access limited to the origins its primitives declare
+sourceUrl: https://github.com/Telara-Labs/TAP-Runtime
+licenses:
+  - MIT
+kind: mixin
+version: 0.2.23
+provides:
+  - tap@0.2.23
+dockerfile: tap.dockerfile

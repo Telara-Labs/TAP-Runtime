@@ -8,6 +8,15 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **`tap kit export` writes a Docker Sandbox Kit for the runner.** It writes
+  a mixin descriptor (`tap.yaml`) and its dockerfile (`tap.dockerfile`) that
+  install the released runner, checked against the release checksums, and
+  declare a `network-policy@2` whose allow list is the exact union of the
+  `fetch` origins and methods of the primitives named, or of every installed
+  primitive. No credentials are declared. An origin the policy cannot hold
+  (`http`, a port other than 443, a wildcard host) is refused by package and
+  origin, not widened. It builds and pushes nothing. See
+  [docs/sandbox-kits.md](docs/sandbox-kits.md).
 - **The runner checks a registry's signature on a package.** A package that
   carries `ATTESTATION.json` and `ATTESTATION.sig` is checked at admission
   against `trusted_publishers.json` in the runner's configuration directory.
