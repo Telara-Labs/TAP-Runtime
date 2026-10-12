@@ -14,7 +14,9 @@ see [version review](docs/versioning.md).
   `tap trust-publisher add|list|remove` manages the keys. `tap_search` and
   `tap_load` show `verified by KEY-ID`; a pair that claims a signature and
   fails it, or describes another package, is refused; a package with none, or
-  with a key you have not trusted, runs as before.
+  with a key you have not trusted, runs as before. The signature covers the
+  package's run digest, so files swapped under a genuine attestation are
+  refused; an attestation signed before it carried one shows as not verified.
 - **Every guest can run a primitive listed under `uses`.** Python has
   `tap.run(alias, input)` and `tap.run_many`, JavaScript and TypeScript
   `tap.run` and `tap.runMany`, bash `tap run ALIAS [JSON]`, the Go SDK

@@ -19,9 +19,10 @@ package main
 //	absent      no attestation files: a local primitive, unsigned by design
 //
 // What the signature binds is the publisher, name, version and artifact digest
-// of the package as it was published. The runner compares those to the
-// package's manifest and to the digest the installer recorded; it cannot
-// recompute the published tarball's digest from an unpacked folder.
+// of the package as it was published, and its run digest: the same digest
+// tap_run pins, which the runner recomputes from the files on disk. An
+// attestation without a run digest (signed before content binding) says
+// nothing about the files, so it is shown as not verified.
 
 import (
 	"crypto/ed25519"
@@ -226,6 +227,7 @@ type attestationPayload struct {
 	Publisher      string `json:"publisher"`
 	Name           string `json:"name"`
 	Version        string `json:"version"`
+	RunDigest      string `json:"run_digest"`
 }
 
 func invalidAttestation(format string, a ...any) attestationResult {
@@ -283,6 +285,18 @@ func checkAttestation(dir string, m *mf.Manifest, roots []publisherRoot) attesta
 	if !att.Validated {
 		return invalidAttestation("the publish it attests did not pass validation")
 	}
+	// The run digest ties the signature to this package's content: the same
+	// digest tap_run pins. Files swapped under a genuine attestation differ here,
+	// whoever signed it.
+	if att.RunDigest != "" {
+		own, _, err := packageDigest(dir)
+		if err != nil {
+			return invalidAttestation("this package's digest could not be computed: %v", err)
+		}
+		if att.RunDigest != own {
+			return invalidAttestation("it attests run digest %s but this package digests to %s; its files are not the ones that were signed", att.RunDigest, own)
+		}
+	}
 
 	var covering []publisherRoot
 	for _, r := range roots {
@@ -297,6 +311,10 @@ func checkAttestation(dir string, m *mf.Manifest, roots []publisherRoot) attesta
 	for _, r := range covering {
 		if key, err := base64.StdEncoding.DecodeString(r.PublicKeyB64); err == nil && len(key) == ed25519.PublicKeySize &&
 			ed25519.Verify(key, payload, sig) {
+			if att.RunDigest == "" {
+				return attestationResult{State: attestationUnverified, KeyID: sf.KeyID,
+					Reason: "signed before content binding: the signature does not cover this package's files"}
+			}
 			return attestationResult{State: attestationVerified, KeyID: sf.KeyID}
 		}
 	}

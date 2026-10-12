@@ -97,11 +97,14 @@ is accepted. Only `ed25519` is supported.
 What `tap_search` and `tap_load` show for such a package:
 
 - `verified by KEY-ID`: a key you trust for that publisher made the signature
-  and the attestation describes this package.
+  and the attestation describes this package, including its files: the signed
+  run digest equals the digest of the manifest and entrypoint on disk.
 - `attestation invalid: ...`: the files claim a signature and fail it, or
-  describe another package. `tap_run` refuses it. Pull it again from the registry.
+  describe another package, or the files are not the ones that were signed.
+  `tap_run` refuses it. Pull it again from the registry.
 - `attestation present, not verified: ...`: well formed, but no key you trust
-  covers it. It runs as a package with no attestation would.
+  covers it, or it was signed before attestations carried a run digest. It runs
+  as a package with no attestation would.
 - nothing: no attestation files, as for a primitive you wrote.
 
 A verified package is still asked about the first time and its changes are

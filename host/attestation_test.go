@@ -37,11 +37,27 @@ func newRegistry(t *testing.T, prefix, keyID string) registry {
 	}}
 }
 
-func payloadJSON(publisher, name, version, digest string, validated bool) []byte {
-	b, _ := json.Marshal(map[string]any{
-		"validated": validated, "artifact_digest": digest, "publisher": publisher, "name": name, "version": version,
-	})
+// payloadJSON is what the registry signs. runDigest is the package's run
+// digest; empty leaves the field out, as an attestation signed before content
+// binding does.
+func payloadJSON(publisher, name, version, artifact, runDigest string, validated bool) []byte {
+	m := map[string]any{
+		"validated": validated, "artifact_digest": artifact, "publisher": publisher, "name": name, "version": version,
+	}
+	if runDigest != "" {
+		m["run_digest"] = runDigest
+	}
+	b, _ := json.Marshal(m)
 	return b
+}
+
+func runDigestOf(t *testing.T, dir string) string {
+	t.Helper()
+	d, _, err := packageDigest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
 }
 
 // attest writes ATTESTATION.json and ATTESTATION.sig into dir the way the
@@ -59,8 +75,9 @@ func (r registry) attest(t *testing.T, dir string, payload []byte) {
 	}
 }
 
-func goodPayload() []byte {
-	return payloadJSON("com.acme.tools", "greeter", "1.2.0", "sha256:aa", true)
+// goodPayload is a genuine attestation of the package in dir.
+func goodPayload(t *testing.T, dir string) []byte {
+	return payloadJSON("com.acme.tools", "greeter", "1.2.0", "sha256:aa", runDigestOf(t, dir), true)
 }
 
 func attestedPackage(t *testing.T) string {
@@ -84,7 +101,7 @@ func check(t *testing.T, dir string, roots ...publisherRoot) attestationResult {
 
 func TestAttestationVerifiedByATrustedKey(t *testing.T) {
 	dir, reg := attestedPackage(t), newRegistry(t, "com.acme", "tap-attestation:v1")
-	reg.attest(t, dir, goodPayload())
+	reg.attest(t, dir, goodPayload(t, dir))
 	r := check(t, dir, reg.root)
 	if r.State != attestationVerified || r.KeyID != "tap-attestation:v1" || r.label() != "verified by tap-attestation:v1" {
 		t.Fatalf("result %+v label %q", r, r.label())
@@ -100,7 +117,7 @@ func TestAttestationAbsentChangesNothing(t *testing.T) {
 
 func TestAttestationWithoutATrustedKeyIsUnverifiedNotRefused(t *testing.T) {
 	dir, reg := attestedPackage(t), newRegistry(t, "com.acme", "tap-attestation:v1")
-	reg.attest(t, dir, goodPayload())
+	reg.attest(t, dir, goodPayload(t, dir))
 	other := newRegistry(t, "com.acme", "another-key:v1")
 	elsewhere := newRegistry(t, "com.other", "tap-attestation:v1")
 	elsewhere.root.PublicKeyB64 = reg.root.PublicKeyB64
@@ -127,47 +144,47 @@ func TestAttestationInvalidIsRefused(t *testing.T) {
 		want  string
 	}{
 		{"signed by a different key under the same id", func(t *testing.T, dir string) {
-			newRegistry(t, "com.acme", "tap-attestation:v1").attest(t, dir, goodPayload())
+			newRegistry(t, "com.acme", "tap-attestation:v1").attest(t, dir, goodPayload(t, dir))
 		}, func() []publisherRoot { return []publisherRoot{good.root} }, "does not verify"},
 		{"payload changed after signing", func(t *testing.T, dir string) {
-			good.attest(t, dir, goodPayload())
-			os.WriteFile(filepath.Join(dir, attestationFile), append(goodPayload(), ' '), 0o644)
+			good.attest(t, dir, goodPayload(t, dir))
+			os.WriteFile(filepath.Join(dir, attestationFile), append(goodPayload(t, dir), ' '), 0o644)
 		}, func() []publisherRoot { return []publisherRoot{good.root} }, "does not verify"},
 		{"attests another name", func(t *testing.T, dir string) {
-			good.attest(t, dir, payloadJSON("com.acme.tools", "other", "1.2.0", "sha256:aa", true))
+			good.attest(t, dir, payloadJSON("com.acme.tools", "other", "1.2.0", "sha256:aa", runDigestOf(t, dir), true))
 		}, func() []publisherRoot { return []publisherRoot{good.root} }, "name"},
 		{"attests another version", func(t *testing.T, dir string) {
-			good.attest(t, dir, payloadJSON("com.acme.tools", "greeter", "9.9.9", "sha256:aa", true))
+			good.attest(t, dir, payloadJSON("com.acme.tools", "greeter", "9.9.9", "sha256:aa", runDigestOf(t, dir), true))
 		}, nil, "version"},
 		{"attests another publisher", func(t *testing.T, dir string) {
-			good.attest(t, dir, payloadJSON("com.evil", "greeter", "1.2.0", "sha256:aa", true))
+			good.attest(t, dir, payloadJSON("com.evil", "greeter", "1.2.0", "sha256:aa", runDigestOf(t, dir), true))
 		}, nil, "publisher"},
 		{"attests another artifact digest", func(t *testing.T, dir string) {
-			good.attest(t, dir, payloadJSON("com.acme.tools", "greeter", "1.2.0", "sha256:bb", true))
+			good.attest(t, dir, payloadJSON("com.acme.tools", "greeter", "1.2.0", "sha256:bb", runDigestOf(t, dir), true))
 		}, nil, "artifact digest"},
 		{"publish did not validate", func(t *testing.T, dir string) {
-			good.attest(t, dir, payloadJSON("com.acme.tools", "greeter", "1.2.0", "sha256:aa", false))
+			good.attest(t, dir, payloadJSON("com.acme.tools", "greeter", "1.2.0", "sha256:aa", runDigestOf(t, dir), false))
 		}, nil, "validation"},
 		{"signature file missing", func(t *testing.T, dir string) {
-			good.attest(t, dir, goodPayload())
+			good.attest(t, dir, goodPayload(t, dir))
 			os.Remove(filepath.Join(dir, attestationSigFile))
 		}, nil, attestationSigFile},
 		{"payload file missing", func(t *testing.T, dir string) {
-			good.attest(t, dir, goodPayload())
+			good.attest(t, dir, goodPayload(t, dir))
 			os.Remove(filepath.Join(dir, attestationFile))
 		}, nil, attestationFile},
 		{"signature is not base64", func(t *testing.T, dir string) {
-			good.attest(t, dir, goodPayload())
+			good.attest(t, dir, goodPayload(t, dir))
 			os.WriteFile(filepath.Join(dir, attestationSigFile), []byte(`{"key_id":"k","alg":"ed25519","signature":"!!"}`), 0o644)
 		}, nil, "base64"},
 		{"unsupported algorithm", func(t *testing.T, dir string) {
-			good.attest(t, dir, goodPayload())
+			good.attest(t, dir, goodPayload(t, dir))
 			os.WriteFile(filepath.Join(dir, attestationSigFile), []byte(`{"key_id":"k","alg":"rsa","signature":"AA=="}`), 0o644)
 		}, nil, "not supported"},
 		{"attestation is a symlink", func(t *testing.T, dir string) {
-			good.attest(t, dir, goodPayload())
+			good.attest(t, dir, goodPayload(t, dir))
 			target := filepath.Join(t.TempDir(), "elsewhere.json")
-			os.WriteFile(target, goodPayload(), 0o644)
+			os.WriteFile(target, goodPayload(t, dir), 0o644)
 			os.Remove(filepath.Join(dir, attestationFile))
 			os.Symlink(target, filepath.Join(dir, attestationFile))
 		}, nil, "regular file"},
@@ -208,7 +225,7 @@ func stageAttested(t *testing.T, c *client, reg registry, mutate func(dir string
 		[]byte(`{"ref":"com.acme.tools/greeter@1.2.0","artifact_digest":"sha256:aa"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	reg.attest(t, dir, goodPayload())
+	reg.attest(t, dir, goodPayload(t, dir))
 	if mutate != nil {
 		mutate(dir)
 	}
@@ -258,7 +275,7 @@ func TestAdmissionRefusesAnInvalidAttestation(t *testing.T) {
 	reg := newRegistry(t, "com.acme", "tap-attestation:v1")
 	trustKey(t, reg)
 	_, identity := stageAttested(t, c, reg, func(dir string) {
-		os.WriteFile(filepath.Join(dir, attestationFile), append(goodPayload(), ' '), 0o644) // tampered after signing
+		os.WriteFile(filepath.Join(dir, attestationFile), append(goodPayload(t, dir), ' '), 0o644) // tampered after signing
 	})
 
 	if got := searchLabel(t, c); !strings.HasPrefix(got, "attestation invalid") {
@@ -356,5 +373,79 @@ func TestTrustPublisherRefusesBadInput(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cfg, "tap", "trusted_publishers.json")); !os.IsNotExist(err) {
 		t.Fatal("a refused add must write nothing")
+	}
+}
+
+func TestAttestationBindsTheRunDigestOfThePackage(t *testing.T) {
+	reg := newRegistry(t, "com.acme", "tap-attestation:v1")
+
+	t.Run("matching digest verifies", func(t *testing.T) {
+		dir := attestedPackage(t)
+		reg.attest(t, dir, goodPayload(t, dir))
+		if r := check(t, dir, reg.root); r.State != attestationVerified {
+			t.Fatalf("result %+v", r)
+		}
+	})
+
+	t.Run("files swapped under a real attestation are refused", func(t *testing.T) {
+		dir := attestedPackage(t)
+		reg.attest(t, dir, goodPayload(t, dir)) // a genuine, correctly signed attestation
+		if err := os.WriteFile(filepath.Join(dir, "main.sh"), []byte("echo swapped\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for name, roots := range map[string][]publisherRoot{"key trusted": {reg.root}, "no key trusted": nil} {
+			r := check(t, dir, roots...)
+			if r.State != attestationInvalid || !strings.Contains(r.Reason, "run digest") {
+				t.Fatalf("%s: result %+v, want invalid on the run digest", name, r)
+			}
+		}
+	})
+
+	t.Run("an edited manifest is refused too", func(t *testing.T) {
+		dir := attestedPackage(t)
+		reg.attest(t, dir, goodPayload(t, dir))
+		edited := strings.Replace(attestedManifest, "Greet a person", "Greet a person and read mail", 1)
+		if err := os.WriteFile(filepath.Join(dir, "primitive.yaml"), []byte(edited), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if r := check(t, dir, reg.root); r.State != attestationInvalid || !strings.Contains(r.Reason, "run digest") {
+			t.Fatalf("result %+v", r)
+		}
+	})
+
+	t.Run("no run digest means signed before content binding", func(t *testing.T) {
+		dir := attestedPackage(t)
+		reg.attest(t, dir, payloadJSON("com.acme.tools", "greeter", "1.2.0", "sha256:aa", "", true))
+		r := check(t, dir, reg.root)
+		if r.State != attestationUnverified || !strings.Contains(r.Reason, "signed before content binding") {
+			t.Fatalf("result %+v", r)
+		}
+		if !strings.HasPrefix(r.label(), "attestation present, not verified: signed before content binding") {
+			t.Fatalf("label %q", r.label())
+		}
+	})
+}
+
+func TestAdmissionRefusesFilesSwappedUnderARealAttestation(t *testing.T) {
+	c := startServer(t, true, accept)
+	reg := newRegistry(t, "com.acme", "tap-attestation:v1")
+	trustKey(t, reg)
+	dir, _ := stageAttested(t, c, reg, nil)
+
+	// The attestation is genuine and verified until the program is replaced.
+	if got := searchLabel(t, c); got != "verified by tap-attestation:v1" {
+		t.Fatalf("before the swap: %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.sh"), []byte("echo swapped\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	search := toolObject(t, c.callDetail("tools/call", map[string]any{"name": "tap_search", "arguments": map[string]any{"query": "greet"}}))
+	match := search["matches"].([]any)[0].(map[string]any)
+	if label, _ := match["attestation"].(string); !strings.HasPrefix(label, "attestation invalid") || !strings.Contains(label, "run digest") {
+		t.Fatalf("after the swap: %q", label)
+	}
+	run := c.call("tools/call", map[string]any{"name": "tap_run", "arguments": map[string]any{"ref": match["ref"], "digest": match["digest"]}})
+	if run["isError"] != true || !strings.Contains(toolText(t, run), "refused") || strings.Contains(toolText(t, run), "swapped") {
+		t.Fatalf("a package whose files are not the signed ones must be refused, and not run: %#v", run)
 	}
 }
