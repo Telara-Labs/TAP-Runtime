@@ -99,6 +99,7 @@ func TestConfigBridgeCursorNeedsItsApprovals(t *testing.T) {
 // With the Cursor CLI, a server the person has not approved in Cursor is
 // not used. Cursor's approvals are only read.
 func TestLiveConfigBridgeCursorHonoursApprovals(t *testing.T) {
+	requireLiveClientTests(t)
 	agent, err := exec.LookPath("cursor-agent")
 	if err != nil {
 		t.Skip("not run: cursor-agent is not installed")

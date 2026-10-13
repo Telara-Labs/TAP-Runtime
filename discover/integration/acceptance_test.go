@@ -1,10 +1,9 @@
 package integration
 
-// Acceptance cases C01-C24 of the discover execution plan
-// (tap-discover-review-2026-09-29/CLAUDE-EXECUTION-PLAN.md, section 6).
-// Each case builds a sanitized synthetic history, runs discovery, and
-// asserts an observable result: a report field, a draft's text, or what the
-// drafted program actually does when run against a stand-in for tap.
+// Acceptance cases C01-C24 for discovery. Each case builds a sanitized
+// synthetic history, runs discovery, and asserts an observable result: a
+// report field, a draft's text, or what the drafted program does when run
+// against a stand-in for tap.
 
 import (
 	"encoding/json"

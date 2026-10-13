@@ -5,17 +5,76 @@ Issues and pull requests are welcome.
 ## Build and test
 
 ```
-go build -o bin/tap ./host
-go vet ./... && go test ./...
-(cd contract && go vet ./... && go test ./...)
-(cd discover && go vet ./... && go test ./...)
+GOWORK=off go build -o /tmp/tap ./host
+GOWORK=off go vet ./... && GOWORK=off go test ./... -count=1 -timeout 20m
+(cd contract && GOWORK=off go test ./... -count=1)
+(cd discover && GOWORK=off go test ./... -count=1)
+node --test vscode/extension.test.js
+node --test npm/test/*.test.cjs
+python3 -B -m unittest discover -s examples/browser-support -v
+python3 -B -m unittest discover -s examples/desktop-support -v
+python3 -B -m unittest discover -s examples/api-release-brief -v
+python3 -B -m unittest discover -s examples/connector-meeting-brief -v
+python3 -B -m unittest discover -s examples/connector-draft-reply -v
+python3 -B -m unittest discover -s examples/connector-issue-triage -v
+python3 -B -m unittest discover -s examples/languages -p 'test_*.py' -v
 ```
 
 Go 1.26. Tests that need an installed agent (Claude Code, Codex, Goose, Kilo,
 Gemini CLI), `sqlite3`, `zstd` or the network skip themselves when it is
-missing, and say so. CI runs these suites on Linux (amd64, arm64) and Windows
+missing, and say so. CI runs the Go suites on Linux (amd64, arm64) and Windows
 (amd64); on Windows the runner's suite runs the packages that start no host
-program, plus one primitive in the sandbox.
+program, plus one primitive in the sandbox. The language discovery command
+reports an explicit skip unless supplied an explicit runner; it does not turn
+a skipped acceptance test into a pass.
+
+Tests that start installed agent clients or use configured accounts are
+excluded by default. To opt into those tests, run
+`GOWORK=off go test ./host -count=1 -live-clients`. The cross-client Jira read
+acceptance is a separate explicit run:
+
+```
+GOWORK=off go test ./host -run '^TestLiveClientAcceptanceClaudeCodeAndCodex$' -count=1 -v -live-client-acceptance
+```
+
+It uses the connected Jira account; its optional controlled write requires a
+prepared write plan and an explicit approval directory.
+
+## Run the language acceptance matrix
+
+The seven-language acceptance script executes real TAP guests, including
+permission-refusal and malformed-data cases. It requires the Rust
+`wasm32-wasip2` target and WASI SDK 34 with `wasm32-wasip1-clang++` available.
+The Go, C++, and Rust guest builds use
+[`examples/languages/README.md`](examples/languages/README.md). Build the
+compiled guests first (the generated `main.wasm` files are ignored):
+
+```
+rustup target add wasm32-wasip2
+GOOS=wasip1 GOARCH=wasm go build -C examples/languages/go -trimpath -buildvcs=false -o main.wasm .
+python3 examples/languages/cpp/build.py
+python3 examples/languages/rust/build.py
+```
+
+The source-built runner has no packaged shell interpreter. Put the runner and
+shell guest in a fresh cache, then run the acceptance script with that runner:
+
+```
+mkdir -p /tmp/tap-language-cache/interpreters
+GOWORK=off go build -ldflags "-X main.testCacheRoot=/tmp/tap-language-cache" -o /tmp/tap-language ./host
+GOOS=wasip1 GOARCH=wasm go build -o /tmp/tap-language-cache/interpreters/sh.wasm ./guest-sh
+python3 -B examples/languages/test_languages.py --runner /tmp/tap-language
+```
+
+The repository has three Go modules. The root
+`github.com/Telara-Labs/TAP-Runtime` module builds the `tap` program and pins
+the `contract` and `discover` modules at pseudo-versions. Therefore root
+commands test the pinned module versions, not uncommitted edits in the sibling
+directories. Run each changed module's suite from its own directory. To make
+a module change available to the root module, publish the module revision
+first, then update the root pin with `go get` and commit the resulting
+`go.mod` and `go.sum` changes. Do not use a local replacement as release
+evidence.
 
 ## Layout
 
@@ -31,10 +90,16 @@ program, plus one primitive in the sandbox.
 | `conformance/` | the kit that tests any runner from outside |
 | `release/` | reproducible, signed release builds |
 | `npm/` | the npm package |
-| `examples/`, `pkg/` | primitives used by docs and tests |
+| `examples/` | runnable primitives used by docs and tests |
+| `testdata/primitives/` | regression-fixture primitives used by tests; not the public example gallery |
+| `discover/history/testdata/` | redacted or synthetic agent-history fixtures |
 
 ## Conventions
 
+- Keep private issue references, internal decision notes and AI-session links
+  out of public prose and incoming commit messages. CI checks public Markdown,
+  schema descriptions, Go comments, and the incoming commit range for these
+  references and AI coauthor attributions.
 - Tests run against real things: a real sandbox, a real agent when one is
   installed, real recorded sessions (redacted) under `testdata/`. Mocks of
   the runner's own parts are avoided.

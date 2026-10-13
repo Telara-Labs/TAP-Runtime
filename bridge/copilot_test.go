@@ -67,6 +67,7 @@ func copilotHome(t *testing.T) []string {
 // (not Copilot's own), calls one with no model turn, answering Copilot's own
 // permission request for that call, and returns a failed call as an error.
 func TestLiveCopilotBridge(t *testing.T) {
+	requireLiveClientTests(t)
 	if _, err := exec.LookPath("copilot"); err != nil {
 		t.Skip("copilot is not installed")
 	}

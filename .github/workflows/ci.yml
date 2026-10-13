@@ -24,6 +24,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26.9"
@@ -33,11 +35,27 @@ jobs:
           package-manager-cache: false
       - name: Test the VS Code extension
         run: node --test vscode/extension.test.js
+      - name: Test the npm launcher
+        run: node --test npm/test/*.test.cjs
+      - name: Check public commit messages
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            head_sha="${{ github.event.pull_request.head.sha }}"
+            base_sha="$(git merge-base "$base_sha" "$head_sha")"
+          else
+            base_sha="${{ github.event.before }}"
+            head_sha="${{ github.sha }}"
+          fi
+          if [ "$base_sha" = "0000000000000000000000000000000000000000" ]; then
+            base_sha="$(git rev-parse "${head_sha}^")"
+          fi
+          go run ./cmd/public-check --commit-base "$base_sha" --commit-head "$head_sha"
       - name: Tools the store readers use (sqlite3, zstd)
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3 zstd
       - name: Format
-        run: test -z "$(gofmt -l acceptance bind bridge conformance contract host journal release satisfy guest-sh internal discover)"
+        run: test -z "$(gofmt -l acceptance bind bridge cmd conformance contract host internal journal release satisfy guest-sh sdk/go/tap discover)"
       - name: Vet
         run: go vet ./... && (cd contract && go vet ./...) && (cd discover && go vet ./...)
       - name: Check known Go vulnerabilities
@@ -55,6 +73,15 @@ jobs:
         run: cd contract && go test $(go list ./... | grep -v /buildbox) -count=1
       - name: Test discover
         run: cd discover && go test ./... -count=1
+      - name: Test Python examples and language harness
+        run: |
+          python3 -B -m unittest discover -s examples/browser-support -v
+          python3 -B -m unittest discover -s examples/desktop-support -v
+          python3 -B -m unittest discover -s examples/api-release-brief -v
+          python3 -B -m unittest discover -s examples/connector-meeting-brief -v
+          python3 -B -m unittest discover -s examples/connector-draft-reply -v
+          python3 -B -m unittest discover -s examples/connector-issue-triage -v
+          python3 -B -m unittest discover -s examples/languages -p 'test_*.py' -v
       # The component tests build real WASI Preview 1 modules and Preview 2
       # components with rustc, and Preview 3 components with the beta
       # toolchain (wasm32-wasip3 is not in a stable release yet); without
@@ -81,8 +108,18 @@ jobs:
           echo "$RUNNER_TEMP/wasi-sdk/bin" >> "$GITHUB_PATH"
       - name: Build the C++ language example
         run: python3 examples/languages/cpp/build.py
-      - name: Test the runner
-        run: go test ./bind ./bridge ./conformance ./host ./internal/component ./journal ./release ./satisfy -count=1
+      - name: Build the Go language example
+        run: GOOS=wasip1 GOARCH=wasm go build -C examples/languages/go -trimpath -buildvcs=false -o main.wasm .
+      - name: Build the Rust language example
+        run: python3 examples/languages/rust/build.py
+      - name: Test the source-language examples with this checkout's runner
+        run: |
+          mkdir -p "${RUNNER_TEMP}/tap-language-cache/interpreters"
+          go build -ldflags "-X main.testCacheRoot=${RUNNER_TEMP}/tap-language-cache" -o "${RUNNER_TEMP}/tap-language" ./host
+          GOOS=wasip1 GOARCH=wasm go build -o "${RUNNER_TEMP}/tap-language-cache/interpreters/sh.wasm" ./guest-sh
+          python3 -B examples/languages/test_languages.py --runner "${RUNNER_TEMP}/tap-language"
+      - name: Test all root-module packages
+        run: go test ./... -count=1 -timeout 20m
 
   windows:
     runs-on: windows-latest
@@ -97,6 +134,8 @@ jobs:
           package-manager-cache: false
       - name: Test the VS Code extension
         run: node --test vscode/extension.test.js
+      - name: Test the npm launcher
+        run: node --test npm/test/*.test.cjs
       # The runner's suite drives Unix programs, and contract's build box and
       # rebuild are the Linux build sandbox: on Windows the portable packages
       # run, discover runs in full, and the runner and interpreter build (as
@@ -105,7 +144,7 @@ jobs:
         shell: bash
         run: (cd contract && go test ./glob ./manifest -count=1) && (cd discover && go test ./... -count=1)
       - name: Test the runner's portable packages
-        run: go test ./bind ./journal ./satisfy -count=1
+        run: go test ./bind ./journal ./satisfy ./internal/publiccheck ./sdk/go/tap -count=1
       - name: Test native Windows acceptance helpers
         run: go test ./acceptance/launch -count=1
       - name: Test the Windows dialing guard

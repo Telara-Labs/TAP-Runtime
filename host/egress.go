@@ -97,7 +97,7 @@ func reachable(host string, ip net.IP) error {
 // connected to. A proxy from the environment is honored, as it is for every
 // other program on the machine: the connection to the proxy is allowed, and
 // the origin is checked as far as this machine can see it, because the proxy
-// resolves the name where it runs (TENG-3099, found testing a proxy).
+// resolves the name where it runs.
 func guardedTransport() *http.Transport { return guardedTransportVia(http.ProxyFromEnvironment) }
 
 func guardedTransportVia(proxyFor func(*http.Request) (*url.URL, error)) *http.Transport {

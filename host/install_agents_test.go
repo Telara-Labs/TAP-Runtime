@@ -170,6 +170,7 @@ func TestInstallDetectedWritesEachAgentsConfig(t *testing.T) {
 // reported as not run. The person's real configuration is never touched:
 // HOME points at the temporary home.
 func TestInstallIsSeenByEachAgentCLI(t *testing.T) {
+	requireLiveClientTests(t)
 	if testing.Short() {
 		t.Skip("runs agent CLIs")
 	}
@@ -294,6 +295,7 @@ func connectedAt(c agents.Client, path string) bool {
 // extension and lists the runner's own tools. The person's configuration is
 // never touched.
 func TestInstallIsSeenByGoose(t *testing.T) {
+	requireLiveClientTests(t)
 	if testing.Short() {
 		t.Skip("runs goose")
 	}

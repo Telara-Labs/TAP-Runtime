@@ -47,6 +47,7 @@ for line in sys.stdin:
 // connected tool and makes one change the person approves. Claude Code is
 // started headless, so its control channel stands where its window would be.
 func TestLiveAPrimitiveUsesAPrimitiveThroughClaudeCode(t *testing.T) {
+	requireLiveClientTests(t)
 	claude, err := bridge.ClaudeExecutable()
 	if err != nil {
 		t.Skip("claude is not installed")

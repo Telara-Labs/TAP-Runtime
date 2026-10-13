@@ -31,7 +31,7 @@ provider (`TestTheWebPageRefusesAToolThatSaysItChangesState`,
 ## Build the page
 
 ```
-tap web build --out tap-worker.html pkg/recent-mail-web
+tap web build --out tap-worker.html examples/recent-mail-web
 ```
 
 It prints the capabilities the page must be published with, for example:
@@ -77,7 +77,7 @@ With the worker open in a tab, ask Claude in any claude.ai chat:
 | Host programs, files, web requests | not available: a web page has no machine |
 
 `tap web build` refuses a primitive that needs anything else, and says why.
-`pkg/recent-mail-web` is a working example.
+`examples/recent-mail-web` is a working example.
 
 ## Limits
 

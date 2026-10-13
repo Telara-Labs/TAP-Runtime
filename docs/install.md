@@ -3,16 +3,13 @@
 ## What the machine needs
 
 - **An agent that can lend its connections**, for a primitive that calls
-  tools: Claude Code, Codex, VS Code (with the extension below), Gemini CLI
-  (experimental), Goose or the Kilo CLI (both experimental, see below). `tap install` also connects the TAP MCP server to Cursor,
-  Windsurf and Copilot CLI. Registration alone does not prove execution;
-  their native connection handoff remains limited (docs/bridge-research.md).
-  The source HTTP frontend can instead use an explicitly configured generic
-  MCP backend, as described below. On v0.1.8, one two-read workflow passed
-  once each from Claude Code, Codex, Cursor CLI, Copilot CLI, VS Code, Goose
-  and Windsurf through that frontend. It has not been repeated on a later
-  release, and no write was tested. The runner also runs from a
-  terminal with no agent, for primitives that use no tools.
+  tools. `tap install` registers the TAP MCP server with available clients;
+  registration alone does not prove execution or approval support. The source
+  HTTP frontend can instead use an explicitly configured generic MCP backend,
+  as described below. See the [compatibility evidence snapshot](compatibility-0.2.28.md)
+  for dated client results, exact provenance where recorded, and gaps that
+  remain untested or were not repeated on the current package. The runner
+  also runs from a terminal with no agent, for primitives that use no tools.
 - **The connections a primitive uses**, already connected in that client (for
   example Gmail), and any host program it declares (`git`, `kubectl`).
 - **Network on first use**, to download interpreters. `tap fetch`
@@ -386,8 +383,9 @@ no chat invocation token, because an extension only gets one from a chat
 request it handles itself; for such a call VS Code shows a modal dialog
 before a tool that is not read-only, after the runner's form (read in VS
 Code's source; the test profile approves tool calls automatically, so the
-run did not show that dialog). Measured on
-current source with VS Code 1.141 and a profile of the test's own
+run did not show that dialog). A historical live test used
+VS Code 1.141 and a profile of the test's own; its exact source revision
+was not recorded
 (`go test ./host -run LiveVSCodeConfirm -live-vscode-confirm`): a file write
 approved in VS Code's form was written and a declined one was refused before
 anything was written; a Playwright browser primitive approved in the form
@@ -407,9 +405,9 @@ read-only ("Do you want to use this tool?"), so `tap_save` and `tap_run` are
 asked there first. It also shows the runner's own questions: Copilot CLI
 advertises MCP elicitation, and in its interactive terminal UI each one is a
 form ("tap needs information"; enter accepts, ctrl+d declines). In `copilot
--p` it declines every form, so a save or a change is refused there. Measured
-on current source with Copilot CLI 1.0.94, a terminal and a runner home of
-the test's own, the forms answered at the keyboard by the test
+-p` it declines every form, so a save or a change is refused there. A historical live test used
+Copilot CLI 1.0.94, a terminal and a runner home of the test's own; its
+exact source revision was not recorded. The forms were answered at the keyboard by the test
 (`go test ./host -run LiveCopilotCLI -live-copilot-cli`): a primitive was
 saved with `tap_save`, found again with `tap_search` in a new session, and
 run; its file write happened after a yes and was refused after a no. With
@@ -475,16 +473,10 @@ The installed program is named `host`; rename it to `tap`.
 
 ## Tested on
 
-| Platform | State |
-|---|---|
-| macOS arm64 | full source suite and native Claude/Codex reads; full v0.1.14 launch package passed locally with isolated HOME/PATH and existing Go caches |
-| Linux amd64, arm64 | source suite in CI; clean native v0.1.14 launch package passed, including public npm, installer and BusyBox/truncation checks |
-| Windows amd64 | portable source suites in native CI; clean v0.1.14 launch package passed, including actual PowerShell installation and npm/README flow |
-| macOS amd64 (Intel) | clean native v0.1.14 launch package passed, including public installer and npm/README flow |
-
-The four clean hosted v0.1.14 results are in
-[this workflow](https://github.com/Telara-Labs/TAP-Runtime/actions/runs/37373338835).
-The Apple Silicon hosted job was cancelled before any steps; its local
-functional pass is a separate receipt. These are version-specific launch
-checks, not the complete host suite or a five-platform v0.1.15 acceptance run.
-Windows ACL behavior remains unverified.
+The source and release workflows cover multiple operating systems, but their
+results answer different questions. Source test coverage does not establish a
+published install path, and a launch check for one release does not establish
+client compatibility or security behavior. See the [versioned compatibility
+evidence snapshot](compatibility-0.2.28.md) for the recorded platform checks,
+their limits, and the exact release each result covered. Check the matching
+workflow for the release you intend to install.

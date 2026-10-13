@@ -8,6 +8,21 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **Public repository and contributor checks are clearer.** Local agent and
+  account tests now require the explicit `-live-clients` Go test flag. Public
+  CI runs the Go SDK, npm launcher, Python gallery and language-harness tests,
+  and builds all seven language examples before their real runner acceptance.
+  Public prose and incoming commit messages are checked for internal process
+  references and AI attribution. Historical client and launch reports now have
+  a separate compatibility snapshot with their provenance limits.
+- **Examples and regression fixtures have separate homes.** Runnable public
+  samples live in `examples/`; the unchanged regression packages formerly in
+  `pkg/` live in `testdata/primitives/`. Contributor guidance explains the
+  three Go modules and how a published module revision reaches the runner.
+- **The runner has smaller internal boundaries.** Package admission,
+  interpreter setup, approval allowances, request dispatch and session replay
+  are separated into typed helpers while preserving the CLI and execution
+  contract.
 - **WASI Preview 3 components run.** A packaged `.wasm` component that needs
   WASI Preview 3 (WASI 0.3, async, streams, futures, as Rust's
   `wasm32-wasip3` target builds) no longer fails to load: it runs in the

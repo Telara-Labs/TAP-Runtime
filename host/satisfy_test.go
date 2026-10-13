@@ -191,6 +191,7 @@ func TestAnAnswerIsHeldToTheContract(t *testing.T) {
 
 // Binding against the real Codex inventory, name first and schema second.
 func TestLiveSatisfactionAgainstCodex(t *testing.T) {
+	requireLiveClientTests(t)
 	if _, err := exec.LookPath("codex"); err != nil {
 		t.Skip("codex is not installed")
 	}
@@ -219,17 +220,32 @@ func TestLiveSatisfactionAgainstCodex(t *testing.T) {
 	}
 	t.Logf("gmail.search_emails takes %v, requires %v", names, search.Schema["required"])
 
-	try := func(what string, args map[string]any) {
+	try := func(what string, args map[string]any) (*admission, error) {
 		cap := mf.Capability{Label: "dev.telara/gmail.emails.search@1", Question: "q", Args: args, Result: map[string]any{"type": "object"}}
 		a, err := admit([]toolDecl{{Alias: "s", Capability: cap.Label, Effect: "read"}}, c, cap)
 		if err != nil {
 			t.Logf("%-52s -> refused: %.220s", what, err)
-			return
+			return nil, err
 		}
 		t.Logf("%-52s -> bound %s / %s", what, a.byAlias["s"].Server, a.byAlias["s"].Tool)
+		return a, nil
 	}
-	try("a loose contract: query only", schema([]string{"query"}, "query", "string"))
-	try("a contract that sends pageSize, which it does not take", contract().Args)
+	loose, err := try("a loose contract: query only", schema([]string{"query"}, "query", "string"))
+	if err != nil {
+		t.Fatalf("query-only contract was refused: %v", err)
+	}
+	if got := loose.byAlias["s"].Tool; got != search.Name {
+		t.Fatalf("query-only contract bound %q, want %q", got, search.Name)
+	}
+	if _, err := try("a contract that sends pageSize, which it does not take", contract().Args); err == nil || !strings.Contains(err.Error(), `"pageSize"`) {
+		t.Fatalf("incompatible pagination contract was not refused for pageSize: %v", err)
+	}
 	// The connector's own schema, as a contract.
-	try("a contract copied from the connector's schema", search.Schema)
+	own, err := try("a contract copied from the connector's schema", search.Schema)
+	if err != nil {
+		t.Fatalf("the connector's own schema was refused: %v", err)
+	}
+	if got := own.byAlias["s"].Tool; got != search.Name {
+		t.Fatalf("the connector schema bound %q, want %q", got, search.Name)
+	}
 }

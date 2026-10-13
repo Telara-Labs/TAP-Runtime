@@ -1,8 +1,8 @@
 # Synthetic fixtures
 
-These fixtures were written by hand, not captured from a real run (decision,
-2026-10-02, TENG-3117: the agents below need a sign-in this machine does not
-have). Each follows the format its agent's own code writes, read from that
+These fixtures were written by hand, not captured from a real run because
+some agents were not signed in on the capture machine. Each follows the format
+its agent's own code writes, read from that
 code, and exercises the edge cases of the format:
 
 - gemini-cli/: Gemini CLI 0.62 session log (bundle loadConversationRecord):
@@ -16,12 +16,12 @@ code, and exercises the edge cases of the format:
 
 Real-run fixtures replace these when a real session is available.
 
-# Real-run fixtures (R3-R6)
+# Real-run fixtures
 
 opencode/, kilo/, goose/, crush/, continue/, cline-cli/ and aider/ are real
 sessions, run on 2026-10-02 with the agent's own CLI against Fireworks
 (deepseek-v4p1-flash) and the fixture MCP server (`discover-fixture mcp`),
-on the scripted task of plan §6.4, then captured with cmd/discover-fixture
+on the same scripted task, then captured with cmd/discover-fixture
 (redacted, databases as SQL). The *.json / config.yaml files beside them
 are the agents' MCP configuration with the commands replaced.
 
@@ -30,11 +30,11 @@ fixture MCP server as `tracker`), kept to its user and assistant lines with
 the working directory scrubbed. integration/equivalence_test.go reads it
 beside the real runs above that reach MCP (all but Aider): the seven
 agents give the same replayable steps, and discovery over the seven finds one search > lookup primitive
-whose executions come from each agent (TENG-3124). The Cursor CLI run
+whose executions come from each agent. The Cursor CLI run
 needs `cursor-agent login`; Gemini CLI refused this account
 (UNSUPPORTED_CLIENT).
 
-# Three real runs per agent (TENG-3124, 2026-10-04)
+# Three real runs per agent (2026-10-04)
 
 scripted3/<agent>/ holds three real sessions per agent: the scripted task
 run three times, each run a new session searching with a different JQL. The
@@ -53,14 +53,14 @@ session_meta trimmed to its identity fields.
 
 integration/each_agent_test.go runs discovery on each agent's history
 alone. It must find the search > lookup primitive with an execution from
-each of the three sessions. Before TENG-3160/3162 that failed for Codex
+each of the three sessions. Earlier versions failed for Codex
 (MCP results read from the "Wall time / Output:" envelope), Gemini
 (<untrusted_context> wrapper) and Qwen (tool_call dispatcher).
 
 Not run: Cursor CLI (its stored login is stale), Copilot CLI (the account's
 Copilot policy is off), Amp (needs a sign-in), and the GUI-only Cursor IDE,
 VS Code, Windsurf, Zed, Roo and Antigravity. The Cursor IDE reader is
-tested on current real shapes in history/cursor_shapes_test.go (TENG-3163).
+tested against real session shapes in history/cursor_shapes_test.go.
 
 # VS Code extension tasks (R3)
 
@@ -70,7 +70,7 @@ execute_command, and one older Cline task with the XML tool form. No
 extension is signed in on this machine; the Cline CLI fixture (cline-cli/)
 is a real run.
 
-# R5
+# Additional captured formats
 
 - copilot-cli/: Copilot CLI events.jsonl (deja-vu docs/registry/copilot.md
   and github/copilot-cli issues): bash, MCP via mcp-config.json names, a
@@ -78,7 +78,7 @@ is a real run.
 - zed/: threads.db as SQL, one zstd-compressed 0.3.0 thread and one legacy
   0.2.0 json thread (Zed crates/agent/src/db.rs layout).
 
-# R6
+# More captured formats
 
 - windsurf/: transcripts as Windsurf's post_cascade_response_with_transcript
   hook writes them (docs.devin.ai/desktop/cascade/hooks), plus TAP's archive

@@ -128,7 +128,7 @@ func TestLiveClientAcceptanceClaudeCodeAndCodex(t *testing.T) {
 		}
 	} else {
 		// The generated follow-up is a write to. Keep its driving list
-		// empty while enabling the TENG-3159 comment-list read below.
+		// empty while enabling the follow-up comment-list read below.
 		if !strings.Contains(string(main), `"step_4"`) || !strings.Contains(string(main), `telara_task_create_items`) {
 			t.Fatal("expected task-create follow-up step is absent; inspect the current primitive before running")
 		}

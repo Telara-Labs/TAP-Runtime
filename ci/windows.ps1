@@ -42,7 +42,7 @@ try {
   # contract/ and discover/ come from the public module proxy.
 
   Step "go version" { go version }
-  Step "tests: bind, journal, satisfy" { go test ./bind ./journal ./satisfy -count=1 }
+  Step "tests: bind, journal, satisfy, publiccheck, and Go SDK" { go test ./bind ./journal ./satisfy ./internal/publiccheck ./sdk/go/tap -count=1 }
   Push-Location contract
   try { Step "tests: contract glob, manifest" { go test ./glob ./manifest -count=1 } } finally { Pop-Location }
   # discover reads local files only. Windows has no sqlite3 program, so its
@@ -60,7 +60,7 @@ try {
   Set-Content -Path work/in/x.txt -Value "read-on-windows"
   Push-Location work
   try {
-    Step "run a primitive in the sandbox" { ../tap.exe --interpreters ../store --runs ../runs --approve ../pkg/windows-smoke }
+    Step "run a primitive in the sandbox" { ../tap.exe --interpreters ../store --runs ../runs --approve ../testdata/primitives/windows-smoke }
     if (-not (Test-Path out/y.txt) -or ((Get-Content out/y.txt) -notmatch "written-on-windows")) {
       Say "FAILED: the approved write did not happen"; throw "the approved write did not happen"
     }

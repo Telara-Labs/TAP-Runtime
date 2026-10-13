@@ -29,6 +29,7 @@ func TestGeminiTrackerServer(t *testing.T) {
 // tap_run returns. Needs gemini on PATH and GEMINI_API_KEY; the person's
 // Gemini settings are never touched (HOME is a temporary directory).
 func TestLiveGeminiRunsAPrimitiveThroughItsOwnTools(t *testing.T) {
+	requireLiveClientTests(t)
 	if testing.Short() {
 		t.Skip("runs gemini")
 	}

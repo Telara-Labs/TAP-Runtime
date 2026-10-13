@@ -46,6 +46,7 @@ func gooseOnPath(t *testing.T) {
 // Goose annotates nothing, so each tool is gated as a write by the runner,
 // the only approval on this path.
 func TestARunCallsToolsThroughGoose(t *testing.T) {
+	requireLiveClientTests(t)
 	if testing.Short() {
 		t.Skip("runs goose")
 	}

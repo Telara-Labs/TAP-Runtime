@@ -14,6 +14,7 @@ import (
 // with one tool name; the runner checks it against the server real Kilo
 // reports connected, binds it, keeps it, and runs the call through Kilo.
 func TestKiloCapabilityIsAskedOnceThroughElicitation(t *testing.T) {
+	requireLiveClientTests(t)
 	if testing.Short() {
 		t.Skip("runs kilo")
 	}

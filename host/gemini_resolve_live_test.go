@@ -20,6 +20,7 @@ import (
 // GEMINI_API_KEY; the person's Gemini settings are never touched (HOME is a
 // temporary directory).
 func TestLiveGeminiResolvesAnUnpinnedCapability(t *testing.T) {
+	requireLiveClientTests(t)
 	if testing.Short() {
 		t.Skip("runs gemini")
 	}

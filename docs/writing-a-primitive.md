@@ -31,7 +31,7 @@ print("hello")
 tap hello/
 ```
 
-`pkg/hello-sh`, `pkg/hello-py` and `pkg/hello-ts` are this, in each language.
+`examples/hello-sh`, `examples/hello-py` and `examples/hello-ts` are this, in each language.
 They use nothing, so they run on any machine.
 
 ## Languages
@@ -315,9 +315,9 @@ and re-pinned.
 ### Checking a manifest
 
 ```
-tap manifest check pkg/hello-py              # may it run?
-tap manifest check --publish pkg/hello-py    # may it be published?
-tap manifest complete pkg/hello-py           # the full form, with TODO: where a person must write
+tap manifest check examples/hello-py              # may it run?
+tap manifest check --publish examples/hello-py    # may it be published?
+tap manifest complete examples/hello-py           # the full form, with TODO: where a person must write
 ```
 
 The full format is `contract/manifest/manifest.v3.schema.json`. Running needs
@@ -326,9 +326,9 @@ only what is above. Publishing to a registry needs the full form.
 ## Running
 
 ```
-tap pkg/hello-py                   # changes are refused
-tap --approve pkg/deploy-check-py  # changes are allowed, all of them
-tap --approve --limit 3 pkg/x      # at most 3 changes of each kind
+tap examples/hello-py                   # changes are refused
+tap --approve examples/deploy-check-py  # changes are allowed, all of them
+tap --approve --limit 3 examples/x      # at most 3 changes of each kind
 ```
 
 A positive limit is total consent for each kind in that CLI invocation.
@@ -509,7 +509,7 @@ search took about 10 calls. Read the list once, build an index in the
 program, then answer every input from it. Search first where search is
 reliable, and fall back to the shared index, not to a fresh walk per item.
 
-**Batch.** Send independent calls together (`call_many`, see `pkg/fan-out`),
+**Batch.** Send independent calls together (`call_many`, see `examples/fan-out`),
 and ask for many records per call when the tool takes a page size or a list
 of IDs.
 
@@ -724,13 +724,13 @@ or window you opened for the purpose.
 
 | Package | Shows |
 |---|---|
-| `pkg/hello-sh`, `hello-py`, `hello-ts` | the smallest primitive, in each language. Needs nothing |
-| `pkg/recent-mail` | a tool bound from whichever Gmail connector the client has |
-| `pkg/recent-mail-sh` | the same, in bash |
-| `pkg/fan-out` | several calls sent together with `call_many` |
-| `pkg/draft-gate` | a `write` tool, asked of the person first |
-| `pkg/repo-report-sh` | `fetch` and `files`, and what is refused outside them |
-| `pkg/deploy-check-py`, `deploy-check-js` | host programs, including a refused `destructive` one |
+| `examples/hello-sh`, `hello-py`, `hello-ts` | the smallest primitive, in each language. Needs nothing |
+| `examples/recent-mail` | a tool bound from whichever Gmail connector the client has |
+| `examples/recent-mail-sh` | the same, in bash |
+| `examples/fan-out` | several calls sent together with `call_many` |
+| `examples/draft-gate` | a `write` tool, asked of the person first |
+| `examples/repo-report-sh` | `fetch` and `files`, and what is refused outside them |
+| `examples/deploy-check-py`, `deploy-check-js` | host programs, including a refused `destructive` one |
 
 ## Keep a package revision consistent
 

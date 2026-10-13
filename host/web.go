@@ -28,7 +28,7 @@ var webRunner string
 // primitive by adding a job to the page's database and reads the answer from
 // the same place.
 //
-//	host web build --out tap-worker.html pkg/recent-mail-web [more packages]
+//	host web build --out tap-worker.html examples/recent-mail-web [more packages]
 //
 // It also prints the capabilities the page must be published with: an
 // Artifact may call only the connector tools it declares.

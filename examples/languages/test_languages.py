@@ -16,9 +16,19 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 LANGUAGES = ("bash", "python", "javascript", "typescript", "go", "cpp", "rust")
+RUNNER = None
+CACHE = None
 
 
 class LanguageRuntimeTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if RUNNER is None:
+            raise unittest.SkipTest(
+                "language acceptance needs an explicit TAP runner; run "
+                "python3 -B examples/languages/test_languages.py --runner /absolute/path/to/tap"
+            )
+
     def setUp(self):
         self.scratch = tempfile.TemporaryDirectory(prefix="tap-language-test-")
         self.addCleanup(self.scratch.cleanup)
@@ -138,11 +148,16 @@ class LanguageRuntimeTest(unittest.TestCase):
         self.assertIn("not installed here", result.stderr)
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    global RUNNER, CACHE
     parser = argparse.ArgumentParser()
     parser.add_argument("--runner", required=True)
-    args, remaining = parser.parse_known_args()
+    args, remaining = parser.parse_known_args(argv)
     RUNNER = str(Path(args.runner).resolve(strict=True))
     with tempfile.TemporaryDirectory(prefix="tap-language-cache-") as cache:
         CACHE = Path(cache)
         unittest.main(argv=[__file__] + remaining, verbosity=2)
+
+
+if __name__ == "__main__":
+    main()

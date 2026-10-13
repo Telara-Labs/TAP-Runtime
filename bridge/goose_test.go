@@ -58,6 +58,7 @@ func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 // tools (not Goose's own), calls one with no model turn even though the
 // user's mode is approve, and returns a failed call as an error.
 func TestLiveGooseBridge(t *testing.T) {
+	requireLiveClientTests(t)
 	env := gooseHome(t, false)
 	g, err := newGoose(gooseBin(t), env)
 	if err != nil {
@@ -103,6 +104,7 @@ func TestLiveGooseBridge(t *testing.T) {
 }
 
 func TestLiveGooseNeverAllowIsDenied(t *testing.T) {
+	requireLiveClientTests(t)
 	g, err := newGoose(gooseBin(t), gooseHome(t, true))
 	if err != nil {
 		t.Fatal(err)

@@ -79,6 +79,7 @@ func chromeTools(inv []bind.Tool) []string {
 // and localhost allowed in the extension's site permissions; it skips, saying
 // which, when one is missing. It opens one tab and closes it.
 func TestLiveClaudeInChromeBindsOnlyForAPrimitiveThatPinsIt(t *testing.T) {
+	requireLiveClientTests(t)
 	if _, err := bridge.ClaudeExecutable(); err != nil {
 		t.Skip("claude is not installed")
 	}
@@ -164,6 +165,7 @@ func TestLiveClaudeInChromeBindsOnlyForAPrimitiveThatPinsIt(t *testing.T) {
 // the runner says where the call can succeed instead of passing on the tool's
 // manual as the error.
 func TestLiveCodexBrowserRefusesARunnerOutsideACodexTurn(t *testing.T) {
+	requireLiveClientTests(t)
 	if os.Getenv("CODEX_THREAD_ID") != "" {
 		t.Skip("running inside a Codex session, which has a turn to give")
 	}

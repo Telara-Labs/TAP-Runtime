@@ -1,7 +1,8 @@
 # Gallery verification
 
-Evidence for TENG-3259. These are recorded checks of the example packages,
-not a promise that every connected account or client will behave identically.
+These are historical checks of example packages recorded on 2026-10-07. The
+source revision and runner version are stated per section where known. These
+results do not promise that every connected account or client behaves the same.
 
 All twelve new manifests passed the source-built runner's `manifest check`.
 The owning repository's `go test ./...` passed, including the host package.
@@ -30,7 +31,7 @@ requests, zero refusals, exit 0. It used no client bridge or account. The
 source-built runner was based on commit
 `5dc7c0394ad76d125cdf632d3de5a895167552c8` plus these example files.
 
-## Gateway operation binding (TENG-3261)
+## Gateway operation binding
 
 The three connector packages introduced operation binding in version 0.2.0 (current revision 0.2.1 adds the authoring changelog) and declare unpinned
 operations with parameter/result contracts. Guest arguments use the operation's
@@ -38,7 +39,7 @@ normal names, rather than Telara's `params_` transport names. The host discovers
 the connected gateway's catalog metadata and wraps the selected operation.
 
 Real source-built Codex 0.147.0 runs verified unpinned Jira issue search and
-Calendar/Gmail reads. Jira returned TENG-3261; Calendar and Gmail returned valid
+Calendar/Gmail reads. Jira returned one issue; Calendar and Gmail returned valid
 empty lists for the chosen window/query. These runs do not establish populated
 event, pagination or arbitrary other-connector compatibility. The unpinned
 Gmail draft operation bound and then refused without approval, with zero writes.
@@ -55,7 +56,7 @@ operation bindings refuse when their current effect cannot be verified.
 The local root Go suite, contract and discover module suites, npm's 15 tests,
 the 27 example Python tests, static checks and all twelve gallery manifest
 checks passed during verification. Final source and release receipts are
-recorded on TENG-3261. Other gateways require their own discovery adapter;
+recorded with the gateway test evidence. Other gateways require their own discovery adapter;
 matching the name alone does not translate incompatible parameter semantics.
 
 ## Repeat the checks
@@ -82,7 +83,7 @@ python3 -B -m unittest discover -s examples/connector-issue-triage -v
 Follow each package's README for live execution. Review inputs and effects
 before granting approval; account writes are separate from these unit checks.
 
-## Source-language showcase and onboarding corrections (TENG-3259)
+## Source-language showcase and onboarding
 
 The [language examples](languages/) were run with the actual public signed
 macOS arm64 TAP 0.2.8 binary, rather than a global install or a substitute
@@ -117,7 +118,7 @@ and failed because `AUTHORING.json` was absent. The guidance now requires an
 adapted, provenance-backed authored package instead of claiming a gallery
 folder can be saved as-is.
 
-## Compiled-language authoring and execution (TENG-3059, TENG-3275)
+## Compiled-language authoring and execution
 
 The updated source runner executes packaged WASI Preview 1 modules directly.
 Go and C++ now implement the same task extraction as the four source languages.
@@ -143,7 +144,7 @@ configured gateway/account and operation, not arbitrary MCP implementations.
 The complete host suite passed in 715.131 seconds; the complete release suite
 passed in 230.564 seconds after fixing its clean archive export hang. The Go
 and C++ SDK tests cover combined unknown/refused frames and failed connector
-calls. The independent Opus 5.5 review findings were corrected before release.
+calls. Independent review findings were corrected before release.
 Releases through TAP 0.2.9 predate this compiled path and refuse `.wasm`
 entrypoints. Compiled examples require TAP 0.2.10 or this updated source runner.
 

@@ -24,6 +24,7 @@ import (
 // Claude Code is started headless, so its control channel stands where its
 // window would be. That a window shows the same prompt is not tested here.
 func TestLiveElicitationThroughClaudeCode(t *testing.T) {
+	requireLiveClientTests(t)
 	claude, err := bridge.ClaudeExecutable()
 	if err != nil {
 		t.Skip("claude is not installed")
@@ -200,6 +201,7 @@ func TestLiveElicitationThroughClaudeCode(t *testing.T) {
 // its own, mcpServer/elicitation/request, which this test answers the way
 // Codex's own window would.
 func TestLiveElicitationThroughCodex(t *testing.T) {
+	requireLiveClientTests(t)
 	if _, err := exec.LookPath("codex"); err != nil {
 		t.Skip("codex is not installed")
 	}

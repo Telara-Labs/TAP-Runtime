@@ -56,6 +56,7 @@ except PermissionError as e:
 // person's yes (what tap serve has when the client cannot ask) the write is
 // refused before anything reaches Copilot; with it, the write is made once.
 func TestLiveCopilotWriteNeedsThePersonsYes(t *testing.T) {
+	requireLiveClientTests(t)
 	if testing.Short() {
 		t.Skip("runs copilot")
 	}

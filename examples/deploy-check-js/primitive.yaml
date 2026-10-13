@@ -1,0 +1,18 @@
+apiVersion: primitives.telara.dev/v3
+kind: Primitive
+metadata:
+  publisher: examples.telara.dev
+  name: deploy-check-js
+  version: 0.1.1
+  description: Read deployment status from a chosen Kubernetes namespace and show denied undeclared commands.
+execution: {runtime: tap-wasm-v1, entrypoint: main.js}
+interface:
+  inputSchema:
+    type: object
+    properties:
+      namespace: {type: string, description: "Kubernetes namespace; defaults to default"}
+    additionalProperties: false
+commands:
+  - {command: git, globals: ["-C <any>"], args: [log, "*"], effect: read}
+  - {command: kubectl, globals: ["--context minikube", "-n <any>"], args: [get, "*"], effect: read}
+  - {command: tr, args: ["*"], effect: read}

@@ -91,47 +91,22 @@ The runner calls a primitive's tools through the agent you run it from, with
 that agent's own connections. How each agent lends them, and whose approval
 applies:
 
-| Agent | State | How the runner reaches its tools | Approval |
-|---|---|---|---|
-| Claude Code | supported | Claude Code's control channel | Claude Code's, plus the runner's |
-| Codex | CLI supported; app preview | Codex's app-server. Codex's browser (`cua_repl`) answers only inside a Codex turn, so it is lent from a Codex session, never from a runner started elsewhere; connected-tool reads from the app are not yet verified | Codex's, plus the runner's |
-| Gemini CLI | experimental | a hook that has Gemini make each call | Gemini's own confirmation: it confirms each call, and a hook has it ask before a save or a first run; nothing is asked under `-p` |
-| Goose | experimental | Goose's ACP tool call (marked unstable by Goose) | the runner's only, shown as prompts by `goose session`; `goose run` cannot show them |
-| Kilo CLI | experimental | `kilo serve`'s MCP call route (marked experimental by Kilo); tools must be pinned | the runner's only |
-| VS Code (GitHub Copilot) | preview | an extension using tools exposed by VS Code; Local chat MCP reads exercised, Copilot SDK visibility limited | VS Code's: its confirmation of `tap_run`, then the runner's forms shown in VS Code's own UI; a write approved and declined there on current source (VS Code 1.141) |
-| claude.ai (web) | preview | a page published as an Artifact: [docs/web.md](docs/web.md) | only connector tools annotated read-only are permitted |
+| Agent path | State | How the runner reaches tools |
+|---|---|---|
+| Claude Code | supported | Claude Code control channel |
+| Codex CLI | supported | Codex app-server; native UI tools may require caller turn metadata |
+| Codex app | preview | Connected-tool reads through the app have not been verified; browser context is available only during a Codex turn |
+| Gemini CLI | experimental | Gemini hook relay |
+| Goose | experimental | Goose ACP tool-call extension |
+| Kilo CLI | experimental | Kilo's experimental MCP call route |
+| VS Code (GitHub Copilot) | preview | TAP extension using VS Code's tool interface |
+| claude.ai (web) | preview | Artifact page described in [docs/web.md](docs/web.md) |
 
-What has been run end to end on the current source (not yet released), on a
-clean Linux container with nothing saved, asking only the task and never
-naming TAP. Ask 1 is a first-time task (the agent should search TAP and offer
-nothing); ask 2 is the same kind of task in a new session (it should offer to
-save it, and save it once the person says yes); ask 3, in another new session,
-should run the saved primitive. Each count is rounds that passed out of rounds
-run. Every agent except Claude Code and Codex used Gemini 3 Flash.
-
-| Agent | Shows TAP's prompts | Ask 1 | Ask 2: offer, save | Ask 3: reuse |
-|---|---|---|---|---|
-| Claude Code (Claude), terminal UI | yes: save, run and web-origin prompts shown and answered | pass 3/3 | pass 3/3 | pass 3/3 |
-| Codex (GPT) | not reached in these rounds | pass 2/2 | offered 1 of 2; not completed (stopped before the account's usage limit ran out) | not reached |
-| Goose, interactive | yes: save, first-run, write and limit prompts shown and answered in `goose session` (direct runs: a file write, a Jira read through a remote MCP gateway, a Playwright click) | 0/2 with a remote MCP gateway also connected: the model used the gateway's tools and never searched TAP | 0/1: told it was asked before, did not offer | 0/1: answered with the gateway's tools |
-| Goose, `goose run` | no | pass 3/3 | 0/3: no offer, or no answer within 15 minutes | not reached |
-| OpenCode | no | pass 3/3 | pass 3/3, drafted in the workspace | pass 3/3, reads-only with no prompt |
-| Kilo CLI, `kilo run` | no | pass 3/3 | pass 3/3, drafted in the workspace with no permission prompt | pass 3/3, reads-only with no prompt |
-| Gemini CLI, `-p` | no | pass 3/3 | 0/3: no answer within 15 minutes (model API errors in 2 of 3) | not reached |
-| Gemini CLI, interactive, default approval mode (with a remote MCP gateway and Playwright MCP also connected) | Gemini's own confirmation, with TAP's save and first-run questions in it | pass 4/6 (the other 2 used the gateway's tools first and never searched TAP) | pass 5/5: offered and saved after the person allowed it, 4 through `tap_save` | 0/3: one refused (a capability with no matching tool, which Gemini cannot list), one refused (a dispatcher tool whose read effect could not be verified), one ran a saved program that made no tool calls |
-| Crush, `crush run` | no | pass 3/3 | pass 3/3, drafted in the workspace | pass 2/3 (third: the saved package declared a web read as a tool instead of under `fetch:`, which Crush cannot lend) |
-
-On every ask 2 where it was recorded (all agents but Claude Code and Codex),
-TAP's search told the agent the task had been asked before; a missing offer or
-save above is the agent's or its model's behaviour.
-
-An agent that cannot show a prompt is never given an approval for a change.
-Since v0.2.7 a primitive that only reads runs there when the agent's own
-settings already let its model read the web without asking (OpenCode, Kilo,
-Crush with `fetch` allowed, Goose in `auto` mode); anything else still needs
-`tap trust`. Whether to offer saving is the agent's call;
-TAP tells it when a task has come before. macOS and Windows pass the install
-and runner tests in CI; this agent flow has not been run on them yet.
+Installing the TAP MCP server does not establish that a client can execute a
+primitive's connected tools or present its approval questions. Support and
+approval behavior vary by client. See the [versioned compatibility evidence](docs/compatibility-0.2.28.md)
+for the dated test matrix, its provenance, and the cases that were not reached
+or were not repeated on the current release.
 
 Other agents can connect to the local MCP server where they support MCP.
 Tool execution depends on a supported bridge, an experimental relay, or an
@@ -177,15 +152,10 @@ signature against a trusted public key is a separate step:
 Releases are built for macOS (arm64, amd64), Linux (amd64, arm64) and
 Windows (amd64). CI tests the source on Linux, macOS and Windows. Each release
 has a separate Launch acceptance workflow (`acceptance/launch`) for npm,
-the install scripts and `go install` on all five platforms. Check the matching
-workflow result before claiming those release installs passed. Historical
-v0.1.12 passed on all five platforms
-([run](https://github.com/Telara-Labs/TAP-Runtime/actions/runs/37360314957)).
-v0.1.14 passed clean native launch checks on both Linux architectures, Windows
-and Intel macOS ([run](https://github.com/Telara-Labs/TAP-Runtime/actions/runs/37373338835)).
-Its Apple Silicon launch checks passed locally with an isolated HOME and PATH,
-using existing Go caches; the clean hosted job was cancelled before any steps.
-Those results do not establish a complete five-platform v0.1.15 launch run.
+the install scripts and `go install` on all five platforms. Check the workflow
+for the specific release before claiming those installs passed. Historical
+launch results and their platform-specific limits are recorded in the
+[compatibility evidence snapshot](docs/compatibility-0.2.28.md).
 
 ## Find primitives in your own history
 
@@ -205,9 +175,9 @@ discover does not run them, so validate a draft before you rely on it.
 ## Write one
 
 ```
-tap pkg/recent-mail                     # run a primitive folder
-tap manifest check pkg/recent-mail      # may it run?
-tap manifest complete pkg/recent-mail   # the publishable form
+tap examples/recent-mail                     # run a primitive folder
+tap manifest check examples/recent-mail      # may it run?
+tap manifest complete examples/recent-mail   # the publishable form
 ```
 
 Start with [docs/writing-a-primitive.md](docs/writing-a-primitive.md) and the
@@ -222,8 +192,8 @@ does not have is an error, so a misspelt bound never reads as no bound.
 ## Runs are recorded, and a stopped run can continue
 
 ```
-tap pkg/recent-mail                     # prints its run id
-tap --resume <run id> pkg/recent-mail
+tap examples/recent-mail                     # prints its run id
+tap --resume <run id> examples/recent-mail
 ```
 
 A run that stops is continued by starting the program again and answering
@@ -307,9 +277,6 @@ supports `tap trust --fetch-origin https://example.com PACKAGE-DIR` for an exact
 declared origin and package digest. The grant is lost when package bytes
 change. This option shipped in v0.1.13; plain package trust revokes existing
 fetch grants for that digest.
-Historical read check with Claude Code 2.1.287 and the published v0.1.4
-binary: a model searched, ran and read the status of a primitive through the
-five tools.
 
 ## Telemetry
 
@@ -329,13 +296,20 @@ go install github.com/Telara-Labs/TAP-Runtime/host@latest   # installs as host; 
 or from a clone:
 
 ```
-go build -o bin/tap ./host
-go test ./... && (cd contract && go test ./...) && (cd discover && go test ./...)
+GOWORK=off go build -o bin/tap ./host
+GOWORK=off go test -count=1 ./... && (cd contract && GOWORK=off go test -count=1 ./...) && (cd discover && GOWORK=off go test -count=1 ./...)
 ```
 
-The repository holds three Go modules: the runner (root), `contract` (the
-manifest format and its validation) and `discover`. Tests that need an
-installed agent, `sqlite3` or the network skip themselves when it is missing.
+The repository holds three Go modules: the root `github.com/Telara-Labs/TAP-Runtime`
+module builds the `tap` program, `contract/` owns the manifest format and its
+validation, and `discover/` reads agent histories and proposes primitives.
+The root module depends on pinned pseudo-versions of `contract` and `discover`;
+root commands use those pins, not edits in the sibling directories. Test a
+module change from that module's directory. To update a root dependency,
+publish the module revision first, then update the root pin with `go get` and
+commit the resulting `go.mod` and `go.sum` changes. Do not use a local
+replacement as release evidence. Tests that need an installed agent,
+`sqlite3` or the network skip themselves when it is missing.
 
 On first use the runner downloads the interpreter for the entrypoint's
 language into the user cache directory and checks it against a pinned sha256

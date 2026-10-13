@@ -22,23 +22,50 @@ default:
     # versions go.mod names, as for anyone building from source.
 
 .suite: &suite
-  - test -z "$(gofmt -l acceptance bind bridge conformance contract host internal journal release satisfy guest-sh)"
-  - go vet ./bind ./bridge ./conformance/... ./host ./internal/component ./journal ./release ./satisfy ./guest-sh
+  - test -z "$(gofmt -l acceptance bind bridge cmd conformance contract host internal journal release satisfy guest-sh sdk/go/tap)"
+  - go vet ./...
   - go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
   - (cd contract && go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...)
   - (cd discover && go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...)
   - (cd contract && go vet ./... && go test ./... -count=1)
   - GOOS=wasip1 GOARCH=wasm go build -o /dev/null ./guest-sh
-  # The VS Code extension is packaged by npm exec vsce in the release tests;
-  # golang:1.26 has no Node, and they failed here from v0.1.20 on.
+  # The Go image has no Node; install the public JS test runtime explicitly.
   - command -v npm >/dev/null || (apt-get update -qq && apt-get install -y -qq nodejs npm >/dev/null)
   # Shared runners can run several times slower when busy; host and the
   # conformance kit take about five minutes on an idle one.
-  - go test ./bind ./bridge ./conformance ./host ./internal/component ./journal ./release ./satisfy -count=1 -timeout 20m
+  - go test ./... -count=1 -timeout 20m
+  - |
+    if [ -n "${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}" ]; then
+      base_sha="$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+    else
+      base_sha="$CI_COMMIT_BEFORE_SHA"
+    fi
+    head_sha="$CI_COMMIT_SHA"
+    if [ "$base_sha" = "0000000000000000000000000000000000000000" ]; then
+      base_sha="$(git rev-parse "${head_sha}^")"
+    fi
+    if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+      git fetch --unshallow --no-tags origin
+    fi
+    if ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null; then
+      git fetch --no-tags origin "$base_sha"
+    fi
+    go run ./cmd/public-check --commit-base "$base_sha" --commit-head "$head_sha"
   # discover reads agents' stores with the sqlite3 and zstd programs; with
   # them installed its store readers are tested, not skipped.
   - command -v sqlite3 >/dev/null && command -v zstd >/dev/null || (apt-get update -qq && apt-get install -y -qq sqlite3 zstd >/dev/null)
   - (cd discover && test -z "$(gofmt -l .)" && go vet ./... && go test ./... -count=1)
+  - command -v node >/dev/null || (apt-get update -qq && apt-get install -y -qq nodejs npm >/dev/null)
+  - node --test vscode/extension.test.js
+  - node --test npm/test/*.test.cjs
+  - command -v python3 >/dev/null || (apt-get update -qq && apt-get install -y -qq python3 >/dev/null)
+  - python3 -B -m unittest discover -s examples/browser-support -v
+  - python3 -B -m unittest discover -s examples/desktop-support -v
+  - python3 -B -m unittest discover -s examples/api-release-brief -v
+  - python3 -B -m unittest discover -s examples/connector-meeting-brief -v
+  - python3 -B -m unittest discover -s examples/connector-draft-reply -v
+  - python3 -B -m unittest discover -s examples/connector-issue-triage -v
+  - python3 -B -m unittest discover -s examples/languages -p 'test_*.py' -v
 
 linux-amd64:
   stage: verify

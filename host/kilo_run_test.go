@@ -51,6 +51,7 @@ func kiloOnPath(t *testing.T) string {
 // through real Kilo. Kilo's own approval is not shown on this path, so the
 // runner's gate decides; an unpinned tool is refused with the reason.
 func TestARunCallsToolsThroughKilo(t *testing.T) {
+	requireLiveClientTests(t)
 	if testing.Short() {
 		t.Skip("runs kilo")
 	}
@@ -115,6 +116,7 @@ tap call issue "{\"issue_key\":\"$key\"}" | jq -r '.key'
 // tap install --client kilo writes Kilo's entry shape, and real Kilo starts
 // the installed runner as a connected MCP server.
 func TestInstallIsSeenByKilo(t *testing.T) {
+	requireLiveClientTests(t)
 	if testing.Short() {
 		t.Skip("runs kilo")
 	}

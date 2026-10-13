@@ -11,10 +11,11 @@ import (
 	"github.com/Telara-Labs/TAP-Runtime/bind"
 )
 
-// These run against the real clients installed on this machine, through their
-// real control channels. They are skipped where a client is not installed.
+// These run against real clients through their control channels. They require
+// -live-clients and skip when the selected client is not installed.
 
 func TestLiveClaudeInventoryAndDenyRules(t *testing.T) {
+	requireLiveClientTests(t)
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Skip("claude is not installed")
 	}
@@ -57,6 +58,7 @@ func TestLiveClaudeInventoryAndDenyRules(t *testing.T) {
 }
 
 func TestLiveCodexInventory(t *testing.T) {
+	requireLiveClientTests(t)
 	if _, err := exec.LookPath("codex"); err != nil {
 		t.Skip("codex is not installed")
 	}
@@ -88,6 +90,7 @@ func TestLiveCodexInventory(t *testing.T) {
 // rules are read from it. This reads the real one and checks only that the
 // read works and is consistent with the tools the same Codex lists.
 func TestLiveCodexRulesAreReadable(t *testing.T) {
+	requireLiveClientTests(t)
 	if _, err := exec.LookPath("codex"); err != nil {
 		t.Skip("codex is not installed")
 	}
@@ -218,9 +221,10 @@ if(m.method==="initialize")r({protocolVersion:m.params.protocolVersion,capabilit
 else if(m.method==="tools/list")r({tools:[{name:"search_issues",description:"x",inputSchema:{type:"object",properties:{}},annotations:{readOnlyHint:true}},{name:"create_issue",description:"y",inputSchema:{type:"object",properties:{}}}]});
 else if(m.id!==undefined)r({});}});`
 
-// TENG-3101: an "ask" rule, given to one Claude Code process, is read from its
-// own list of permission rules and puts a call in front of the person.
+// An "ask" rule, given to one Claude Code process, is read from its own list
+// of permission rules and puts a call in front of the person.
 func TestLiveClaudeAskRulesAreReported(t *testing.T) {
+	requireLiveClientTests(t)
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Skip("claude is not installed")
 	}
@@ -251,10 +255,11 @@ func TestLiveClaudeAskRulesAreReported(t *testing.T) {
 	}
 }
 
-// TENG-3101: Codex's own configuration, read through its real app-server, says
-// which MCP tools are switched off and which always prompt. The configuration is
-// a throwaway CODEX_HOME, so no real setting is touched.
+// Codex's own configuration, read through its real app-server, says which MCP
+// tools are switched off and which always prompt. The configuration is a
+// throwaway CODEX_HOME, so no real setting is touched.
 func TestLiveCodexRulesFromAConfigFile(t *testing.T) {
+	requireLiveClientTests(t)
 	if _, err := exec.LookPath("codex"); err != nil {
 		t.Skip("codex is not installed")
 	}

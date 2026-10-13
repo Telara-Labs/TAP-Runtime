@@ -1,7 +1,6 @@
 package integration
 
-// Regressions from the Gate D audit of advertised recommendations
-// (tap-discover-review-2026-09-29/eval/GATE-D-REPORT.md). Each was a
+// Regressions from the advertised-recommendation evaluation. Each was a
 // confirmed false positive on the frozen corpus.
 
 import (

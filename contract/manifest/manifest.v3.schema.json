@@ -244,7 +244,7 @@
       }
     },
     "oracle": {
-      "description": "A tool reply alone cannot assert the business result. Under a program model the PREDICATE IS GUEST CODE, where it can be arbitrary; the manifest declares only which capabilities the oracle reads back through, so a reviewer can see the verification path. There is deliberately no predicate language here -- that would be the interpreter the 2026-09-28 ruling rejected. Stated plainly: the check itself is unverifiable by the host. The run report carries the verdict, including `unknown` when external state cannot be established.",
+      "description": "A tool reply alone cannot assert the business result. Under a program model the predicate is guest code and may be arbitrary; the manifest declares only which capabilities the oracle reads back through, so a reviewer can see the verification path. There is no separate predicate language: the host cannot independently verify the guest's check. The run report carries the verdict, including `unknown` when external state cannot be established.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -272,7 +272,7 @@
       "additionalProperties": false,
       "properties": {
         "sampling": {
-          "description": "Model calls from inside the primitive, mapped to MCP sampling/createMessage. decision 5: the author should encode stable decisions as code and reserve model calls for specified ambiguity. A client that does not offer sampling refuses the package at admission.",
+          "description": "Model calls from inside the primitive, mapped to MCP sampling/createMessage. Authors should encode stable decisions as code and reserve model calls for specified ambiguity. A client that does not offer sampling refuses the package at admission.",
           "type": "object",
           "additionalProperties": false,
           "required": [
@@ -423,7 +423,7 @@
       }
     },
     "provenance": {
-      "description": "A wasm blob is bytes no admin can read, so binding only its digest makes the approval theatre. Promotion binds SOURCE PLUS REPRODUCIBLE BUILD -- the publish pipeline of 14 section 5 rebuilds from these inputs and REFUSES if the digest differs. A SEALED package hands its source to the pipeline only; adopters receive the signed attestation instead, so 14 section 1's 'seal the how, never the what-it-touches' survives. A standalone host verifies that attestation against the keys in the runner's trusted_publishers list (tap trust-publisher); it cannot reproduce the build, which is a trust root rather than a service dependency.",
+      "description": "A wasm blob is bytes an administrator cannot inspect, so binding only its digest is insufficient for source review. Promotion binds source plus reproducible build: the publish pipeline rebuilds these inputs and refuses if the digest differs. A sealed package hands source to the pipeline only; adopters receive the signed attestation. A standalone host verifies that attestation against the keys in the runner's trusted_publishers list (`tap trust-publisher`); it cannot reproduce the build, which remains a trust root rather than a service dependency.",
       "type": "object",
       "additionalProperties": false,
       "required": [
