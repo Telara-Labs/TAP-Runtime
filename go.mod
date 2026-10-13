@@ -3,8 +3,8 @@ module github.com/Telara-Labs/TAP-Runtime
 go 1.26.9
 
 require (
-	github.com/Telara-Labs/TAP-Runtime/contract v0.0.0-20261012130002-55d5029b77cf
-	github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261012143047-6f2b9fa1e8e7
+	github.com/Telara-Labs/TAP-Runtime/contract v0.0.0-20261013143224-fafad389ed21
+	github.com/Telara-Labs/TAP-Runtime/discover v0.0.0-20261013143352-4c65ce93d5e5
 	github.com/evanw/esbuild v0.25.10
 	github.com/itchyny/gojq v0.12.19
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
