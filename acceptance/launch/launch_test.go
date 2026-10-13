@@ -182,7 +182,7 @@ func TestNpmInstallAndReadme(t *testing.T) {
 	want(t, m.run("", tap), 2, "usage: tap")
 	want(t, m.run("", tap, "setup"), 0, "No agent TAP can connect to is installed here.", "then run: tap setup")
 	want(t, m.run("", tap, "install", "--client", "all", "--print"), 0)
-	want(t, m.run("", tap, "not-a-primitive"), 2, "is not a primitive folder")
+	want(t, m.run("", tap, "not-a-primitive"), 2, `unknown command "not-a-primitive"`, "there is no primitive folder by that name")
 
 	// discover with no history says so and what to do.
 	want(t, m.run("", tap, "discover"), 0, "No agent history found on this machine.")

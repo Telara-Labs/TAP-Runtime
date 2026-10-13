@@ -8,6 +8,9 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **Launch acceptance follows the current unknown-command diagnostic.** The
+  published-runner check requires exit code 2 and verifies both the unknown
+  command and missing primitive-folder guidance.
 - **Public repository and contributor checks are clearer.** Local agent and
   account tests now require the explicit `-live-clients` Go test flag. Public
   CI runs the Go SDK, npm launcher, Python gallery and language-harness tests,
