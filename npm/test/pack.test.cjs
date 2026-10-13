@@ -92,7 +92,12 @@ test('stages six packages: five platform packages and the main one, from one ver
     const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).forEach((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : files.push(path.relative(path.join(outputDir, dir), path.join(d, e.name)).split(path.sep).join('/'))));
     walk(path.join(outputDir, dir));
     assert.deepEqual(files.sort(), [binary, 'LICENSE', 'README.md', 'THIRD_PARTY_NOTICES.txt', 'package.json'].sort(), name);
-    if (!binary.endsWith('.exe')) assert.equal(fs.statSync(path.join(outputDir, dir, binary)).mode & 0o111, 0o111);
+    // Windows does not expose POSIX execute bits through stat(). Keep this
+    // permission check on Unix; package contents and platform resolution are
+    // still verified on every platform.
+    if (process.platform !== 'win32' && !binary.endsWith('.exe')) {
+      assert.equal(fs.statSync(path.join(outputDir, dir, binary)).mode & 0o111, 0o111);
+    }
   }
 
   const main = read('tap', 'package.json');
