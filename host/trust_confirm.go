@@ -6,6 +6,8 @@ import (
 	"os"
 	"runtime"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 // Testing Kilo, which cannot show TAP's prompts: when a primitive was refused,
@@ -27,6 +29,12 @@ var ttyPath = func() string {
 var confirmTrust = askAtTerminal
 
 func askAtTerminal(summary string) (ok bool, err error) {
+	// CONIN$ exists even when a process's stdin is redirected. Opening it in
+	// CI or another noninteractive caller would wait for an answer that nobody
+	// can provide, so require the caller's actual stdin to be a terminal first.
+	if runtime.GOOS == "windows" && !term.IsTerminal(int(os.Stdin.Fd())) {
+		return false, fmt.Errorf("standard input is not a terminal")
+	}
 	tty, err := os.OpenFile(ttyPath, os.O_RDWR, 0)
 	if err != nil {
 		return false, err

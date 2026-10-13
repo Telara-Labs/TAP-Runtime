@@ -148,7 +148,7 @@ jobs:
       - name: Test native Windows acceptance helpers
         run: go test ./acceptance/launch -count=1
       - name: Test the Windows dialing guard
-        run: go test ./host -count=1 -run '^(TestDeclarationsThatCannotBeMeantAreRefused|TestANameThatResolvesToTheMachineItselfIsNotReached|TestADeclaredLoopbackOriginStillWorks|TestAFetchGoesThroughAProxyTheEnvironmentNames|TestAProxyDoesNotLetAnOriginBeAMetadataAddress)$'
+        run: go test ./host -count=1 -run '^(TestWindowsRedirectedTrustPromptRefusesBeforeOpeningConsole|TestDeclarationsThatCannotBeMeantAreRefused|TestANameThatResolvesToTheMachineItselfIsNotReached|TestADeclaredLoopbackOriginStillWorks|TestAFetchGoesThroughAProxyTheEnvironmentNames|TestAProxyDoesNotLetAnOriginBeAMetadataAddress)$'
       - name: Build the runner and the Bash interpreter
         shell: bash
         run: go build -o tap.exe ./host && GOOS=wasip1 GOARCH=wasm go build -o sh.wasm ./guest-sh

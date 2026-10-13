@@ -65,10 +65,35 @@ func TestPublishedWindowsConfigRoundtrip(t *testing.T) {
 			args := func(command string, tail ...string) []string {
 				return append(append([]string{command}, c.args...), tail...)
 			}
-			want(t, m.run("", tap, args("trust", primitive)...), 0, "trusted:")
-			want(t, m.run("", tap, args("trust", "--list")...), 0, digest[:12], primitive)
+			// A published noninteractive command must refuse trust instead of
+			// trying to read a human answer from the Windows console. It must not
+			// create a grant as a side effect of that refusal.
+			want(t, m.run("", tap, args("trust", primitive)...), 1, "no terminal to ask")
 			trustPath := filepath.Join(c.dir, "tap", "trusted.json")
-			b, err := os.ReadFile(trustPath)
+			if _, err := os.Stat(trustPath); !os.IsNotExist(err) {
+				t.Fatalf("refused trust created a grant at %s: %v", trustPath, err)
+			}
+
+			// Seed an explicit fixture for the independent list/forget/config
+			// roundtrip. This represents a prior human approval; redirected stdin
+			// is never treated as approval by this test.
+			if err := os.MkdirAll(filepath.Dir(trustPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			approved := map[string]struct {
+				Name string `json:"name"`
+				Path string `json:"path"`
+				At   string `json:"at"`
+			}{digest: {Name: "approved fixture", Path: primitive, At: "2026-10-13T00:00:00Z"}}
+			b, err := json.MarshalIndent(approved, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(trustPath, append(b, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			want(t, m.run("", tap, args("trust", "--list")...), 0, digest[:12], primitive)
+			b, err = os.ReadFile(trustPath)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -92,6 +117,7 @@ func TestPublishedWindowsConfigRoundtrip(t *testing.T) {
 			}
 			windowsPrivateACL(t, bindingPath)
 			want(t, m.run("", tap, args("trust", "--forget", digest)...), 0, "forgot 1 package(s)")
+			windowsPrivateACL(t, trustPath)
 			want(t, m.run("", tap, args("trust", "--list")...), 0, "no packages are trusted")
 			want(t, m.run("", tap, args("bind", "--client", "acceptance", "--forget", "fs.read")...), 0, "forgot the choice")
 			want(t, m.run("", tap, args("bind", "--list")...), 0, "no choices are kept")

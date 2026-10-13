@@ -8,6 +8,10 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **Windows trust confirmation fails closed when stdin is redirected.** A
+  noninteractive process now refuses `tap trust` before opening the inherited
+  console, instead of waiting for a person it cannot reach. Trust still
+  requires the person to confirm from an interactive terminal.
 - **Launch acceptance follows the current unknown-command diagnostic.** The
   published-runner check requires exit code 2 and verifies both the unknown
   command and missing primitive-folder guidance.
