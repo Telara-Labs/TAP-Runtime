@@ -14,8 +14,11 @@
 // component is loaded.
 //
 // Only the synchronous canonical ABI with UTF-8 strings is supported. A
-// component that uses async, threads, its own resource types or a component
-// import other than a WASI interface is refused with a message that says so.
+// component that uses threads, its own resource types or a component import
+// other than a WASI interface is refused with a message that says so. A
+// component that needs WASI Preview 3 (async, streams, futures, the WASI 0.3
+// interfaces) is recognised by Preview3 and run by the runner in wasmtime;
+// Load refuses it with an error that wraps ErrPreview3.
 package component
 
 import "fmt"

@@ -38,8 +38,11 @@ launch your machine's Bash or jq.
 
 The source-interpreter examples work with published TAP 0.2.8. Compiled
 entrypoints require TAP 0.2.10 or this updated source runner; releases through
-0.2.9 refuse them. Any other language must emit a compatible WASI Preview 1 module or
-WASI Preview 2 component and speak the same JSON-line broker protocol. This is a compatibility requirement,
+0.2.9 refuse them. Any other language must emit a compatible WASI Preview 1 module,
+WASI Preview 2 component or WASI Preview 3 component and speak the same JSON-line
+broker protocol. The Rust example's source also builds for Rust's `wasm32-wasip3`
+target (a beta toolchain at the time of writing); that build runs in wasmtime and
+returns the same output with the same broker requests. This is a compatibility requirement,
 not a promise that every language/library has been tested.
 
 To prepare the compiled examples, build the current runner from source, then:

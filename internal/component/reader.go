@@ -18,6 +18,10 @@ func fail(format string, a ...any) { panic(formatError{fmt.Sprintf(format, a...)
 // continue, so programming errors are not reported as malformed input.
 func catch(err *error) {
 	if r := recover(); r != nil {
+		if m, ok := r.(preview3Marker); ok {
+			*err = fmt.Errorf("%w: %s; this loader runs WASI 0.2 components, and the runner hands Preview 3 ones to wasmtime", ErrPreview3, m.why)
+			return
+		}
 		fe, ok := r.(formatError)
 		if !ok {
 			panic(r)

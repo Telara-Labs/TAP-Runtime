@@ -116,8 +116,11 @@ func interfaceName(full string) string {
 		}
 		fail("the component imports %s, which TAP does not provide; a primitive reaches files, commands, the network and tools through the broker", full)
 	}
+	if isPreview3Version(version) {
+		needsPreview3("it imports %s", full)
+	}
 	if version != "" && !strings.HasPrefix(version, "0.2.") {
-		fail("the component imports %s; this runner supplies WASI 0.2 interfaces", full)
+		fail("the component imports %s; this runner supplies WASI 0.2 and 0.3 interfaces", full)
 	}
 	return base
 }
@@ -339,7 +342,7 @@ func (s *space) readOpts(r *reader) canonOpts {
 			it := s.coreFuncs[r.idx(len(s.coreFuncs), "core function")]
 			o.postReturn = &it
 		default:
-			fail("the component uses async canonical options, which TAP does not support")
+			needsPreview3("it uses async canonical options")
 		}
 	}
 	for _, it := range []*coreItem{o.realloc, o.postReturn, o.memory} {
@@ -381,8 +384,10 @@ func (s *space) canonDef(r *reader) {
 		s.coreFuncs = append(s.coreFuncs, coreItem{sort: coreFunc, host: &hostFunc{iface: t.iface, name: t.resource, drop: true}})
 	case 0x02, 0x04:
 		fail("the component defines its own resource types, which TAP does not support")
+	case 0x40, 0x41, 0x42:
+		fail("the component uses thread built-ins, which TAP does not support")
 	default:
-		fail("the component uses async, thread or error-context built-ins, which TAP does not support")
+		needsPreview3("it uses async or error-context built-ins")
 	}
 }
 

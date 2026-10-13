@@ -199,7 +199,7 @@ func (g *guestStderr) Write(p []byte) (int, error) {
 		var boundary [64]byte
 		n := copy(boundary[:], g.tail[:g.tailLen])
 		n += copy(boundary[n:], p[:min(len(p), 32)])
-		g.memoryFailure = outOfMemory(string(boundary[:n])) || bytes.Contains(p, []byte("out of memory")) || bytes.Contains(p, []byte("MemoryError"))
+		g.memoryFailure = outOfMemory(string(boundary[:n])) || bytes.Contains(p, []byte("out of memory")) || bytes.Contains(p, []byte("MemoryError")) || bytes.Contains(p, []byte(rustAllocFailure))
 	}
 	if len(p) >= 32 {
 		g.tailLen = copy(g.tail[:], p[len(p)-32:])
@@ -238,7 +238,10 @@ func clipLines(s string, n int) string {
 }
 
 // outOfMemory reports whether a guest's error output says it ran out of memory
-// (the Go runtime of the bash interpreter and CPython both say so).
+// (the Go runtime of the bash interpreter and CPython both say so; a Rust
+// program says "memory allocation of N bytes failed").
 func outOfMemory(stderr string) bool {
-	return strings.Contains(stderr, "out of memory") || strings.Contains(stderr, "MemoryError")
+	return strings.Contains(stderr, "out of memory") || strings.Contains(stderr, "MemoryError") || strings.Contains(stderr, rustAllocFailure)
 }
+
+const rustAllocFailure = "memory allocation of "

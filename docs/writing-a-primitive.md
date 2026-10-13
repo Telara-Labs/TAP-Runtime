@@ -42,7 +42,7 @@ They use nothing, so they run on any machine.
 | `.py` | CPython 3.12 compiled to WebAssembly | the standard library, and `tap` |
 | `.js` | QuickJS-ng 0.17 | ES2023, `print`, `console.log`, `std` (`qjs:std`), and `tap` |
 | `.ts` | QuickJS-ng, after the runner removes the types | as `.js`. Types are removed, not checked |
-| `.wasm` | A packaged WASI Preview 1 module or WASI Preview 2 component | Go, C++, Rust or another compatible compiler; the TAP JSON-line broker protocol |
+| `.wasm` | A packaged WASI Preview 1 module or WASI Preview 2 component; a WASI Preview 3 component runs in a pinned official wasmtime ([compiled primitives](compiled-primitives.md#wasi-preview-3-components)) | Go, C++, Rust or another compatible compiler; the TAP JSON-line broker protocol |
 
 The runner downloads each interpreter the first time it is needed and checks
 it against a pinned sha256. `tap fetch` downloads them all ahead of time.

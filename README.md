@@ -230,7 +230,8 @@ A run that stops is continued by starting the program again and answering
 matching requests from the record. A change that was in progress when the
 run stopped is not repeated, and is reported as unknown for a person to
 check. This does not establish exactly-once behavior in remote systems. The program gets back the clock readings
-and random bytes it took before. One process holds a run at a time. Records
+and random bytes it took before, except a WASI Preview 3 component, whose
+readings are not recorded. One process holds a run at a time. Records
 are removed after 30 days; `--retention-days 0` keeps them.
 
 ## Review version changes
@@ -367,7 +368,10 @@ an author who had not read the runner's code.
   together with `tap.call_many` / `tap.callMany`.
 - Compiled WASI Preview 1 `.wasm` modules and WASI Preview 2 components are
   supported in the current source through the same broker and sandbox. A
-  component gets no more than a module does. Go/C++/Rust authors compile before saving;
+  component gets no more than a module does. WASI Preview 3 components run in
+  the official wasmtime 49.0.2, downloaded once (about 10 to 13 MB) the first
+  time one runs, with the same broker and no more authority; see
+  [WASI Preview 3 components](docs/compiled-primitives.md#wasi-preview-3-components). Go/C++/Rust authors compile before saving;
   execution requires the packaged module, not a host language runtime. See
   [compiled packages](docs/compiled-primitives.md). Releases through 0.2.9 predate this path; compiled support starts in 0.2.10.
 - Each run compiles its interpreter (about 2 seconds); `--cache DIR` keeps

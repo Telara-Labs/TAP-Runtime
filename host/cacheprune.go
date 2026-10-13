@@ -20,10 +20,12 @@ import (
 //
 // What stays in the cache directory:
 //
-//	interpreters/  one file per pinned interpreter (and its .sha256 note)
+//	interpreters/  one file per pinned interpreter (and its .sha256 note), and
+//	               the pinned wasmtime program once a Preview 3 component ran
 //	compiled/      one directory per module the runner still uses, named by the
 //	               module's SHA-256, holding only the current wazero version's
-//	               entries for it
+//	               entries for it, or the current wasmtime version's compiled
+//	               file for a Preview 3 component
 //	runs/          untouched here: it has its own retention (--retention-days)
 //
 // wazero names each compiled entry by a hash that includes its internal module
@@ -132,6 +134,7 @@ func currentInterpreters(interpDir string) (files map[string]bool, digests map[s
 	for _, in := range interpreters {
 		files[in.File] = true
 		files[in.File+".sha256"] = true
+		files[wasmtimeFile()] = true
 		switch {
 		case in.SHA256 != "":
 			digests[in.SHA256] = true
@@ -219,16 +222,18 @@ func pruneCaches(interpDir, compiledDir string, keep map[string]bool) pruneRepor
 				rep.remove(compiledDir, p)
 				continue
 			}
-			if !haveCurrent {
-				continue
-			}
 			inner, err := os.ReadDir(p)
 			if err != nil {
 				rep.Errors = append(rep.Errors, err)
 				continue
 			}
 			for _, w := range inner {
-				if w.IsDir() && strings.HasPrefix(w.Name(), "wazero-") && w.Name() != current {
+				// A wazero version that cannot be read from the build keeps
+				// every wazero directory: none is known to be stale.
+				if w.IsDir() && haveCurrent && strings.HasPrefix(w.Name(), "wazero-") && w.Name() != current {
+					rep.remove(compiledDir, filepath.Join(p, w.Name()))
+				}
+				if w.IsDir() && strings.HasPrefix(w.Name(), "wasmtime-") && w.Name() != wasmtimeCacheDirName() {
 					rep.remove(compiledDir, filepath.Join(p, w.Name()))
 				}
 			}

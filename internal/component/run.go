@@ -116,8 +116,11 @@ func findRun(s *space) *compFunc {
 		if base != "wasi:cli/run" {
 			continue
 		}
+		if isPreview3Version(version) {
+			needsPreview3("it exports %s", name)
+		}
 		if !strings.HasPrefix(version, "0.2.") {
-			fail("the component exports %s; this runner runs WASI 0.2 commands", name)
+			fail("the component exports %s; this runner runs WASI 0.2 and 0.3 commands", name)
 		}
 		inst, ok := v.(*compInstance)
 		if !ok || inst.exports == nil {

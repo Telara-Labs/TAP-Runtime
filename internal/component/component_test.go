@@ -221,7 +221,7 @@ func TestLoadRefusesWhatTAPDoesNotProvide(t *testing.T) {
 		{"wasi:http/outgoing-handler@0.2.0", "no direct network access"},
 		{"wasi:keyvalue/store@0.2.0", "does not provide"},
 		{"example:custom/thing", "does not provide"},
-		{"wasi:io/streams@0.3.0", "WASI 0.2"},
+		{"wasi:io/streams@0.3.0", "needs WASI Preview 3"},
 	} {
 		var err error
 		func() {
@@ -277,9 +277,10 @@ func TestLoadNeverPanicsOnTruncatedOrCorruptedInput(t *testing.T) {
 		defer rt.Close(ctx)
 		defer func() {
 			if r := recover(); r != nil {
-				t.Fatalf("Load panicked: %v", r)
+				t.Fatalf("Load or Preview3 panicked: %v", r)
 			}
 		}()
+		Preview3(b)
 		Load(ctx, rt, b)
 	}
 	step := max(1, len(wasm)/400)

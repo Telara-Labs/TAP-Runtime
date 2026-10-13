@@ -20,15 +20,31 @@ import (
 // test skips, saying why, where Rust or the target is not installed.
 func rustcFor(t *testing.T, mainRS, target string) []byte {
 	t.Helper()
+	return rustcWith(t, "", mainRS, target)
+}
+
+// rustcWith is rustcFor with a rustup toolchain ("beta"), or the default
+// one when toolchain is empty. wasm32-wasip3 is a target of the beta
+// toolchain only, until it reaches a stable release.
+func rustcWith(t *testing.T, toolchain, mainRS, target string) []byte {
+	t.Helper()
 	if _, err := exec.LookPath("rustc"); err != nil {
 		t.Skip("rustc is not installed; install Rust with the wasm32-wasip1 and wasm32-wasip2 targets to run this test")
 	}
 	out := filepath.Join(t.TempDir(), "main.wasm")
-	cmd := exec.Command("rustc", "--edition", "2021", "--target", target, "-C", "opt-level=s", "-C", "debuginfo=0", "-o", out, filepath.Base(mainRS))
+	var args []string
+	if toolchain != "" {
+		args = append(args, "+"+toolchain)
+	}
+	args = append(args, "--edition", "2021", "--target", target, "-C", "opt-level=s", "-C", "debuginfo=0", "-o", out, filepath.Base(mainRS))
+	cmd := exec.Command("rustc", args...)
 	cmd.Dir = filepath.Dir(mainRS)
 	if b, err := cmd.CombinedOutput(); err != nil {
 		if strings.Contains(string(b), "can't find crate for `std`") || strings.Contains(string(b), "target may not be installed") {
 			t.Skipf("the Rust %s target is not installed (rustup target add %s)", target, target)
+		}
+		if toolchain != "" && (strings.Contains(string(b), "is not installed") || strings.Contains(string(b), "+"+toolchain)) {
+			t.Skipf("the Rust %s toolchain is not installed (rustup toolchain install %s --profile minimal --target %s): %s", toolchain, toolchain, target, strings.TrimSpace(string(b)))
 		}
 		t.Fatalf("rustc --target %s: %v\n%s", target, err, b)
 	}

@@ -8,6 +8,19 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **WASI Preview 3 components run.** A packaged `.wasm` component that needs
+  WASI Preview 3 (WASI 0.3, async, streams, futures, as Rust's
+  `wasm32-wasip3` target builds) no longer fails to load: it runs in the
+  official wasmtime 49.0.2 in a separate process, with the same broker,
+  declarations, approvals, time limit and memory limit as any primitive and no
+  files, environment, network or HTTP of its own. The first such run downloads
+  wasmtime once (about 10 to 13 MB, about 60 to 70 MB on disk) and checks it
+  against digests shipped in the runner; a wasmtime already on `PATH` is used
+  instead only when it is that exact official build. The component is compiled
+  once, and later runs start in milliseconds. A resumed Preview 3 run does not
+  get back its earlier clock and random readings, which are not recorded.
+  Preview 1 modules and Preview 2 components are unchanged, and someone who
+  never runs a Preview 3 component never downloads wasmtime.
 - **Finished runs no longer keep their clock readings.** A run records the
   clock and random readings its program takes so that it can be resumed, and a
   program that polls the clock could leave hundreds of megabytes of them. A

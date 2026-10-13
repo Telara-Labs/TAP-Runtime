@@ -56,9 +56,13 @@ jobs:
       - name: Test discover
         run: cd discover && go test ./... -count=1
       # The component tests build real WASI Preview 1 modules and Preview 2
-      # components with rustc; without these targets they skip.
+      # components with rustc, and Preview 3 components with the beta
+      # toolchain (wasm32-wasip3 is not in a stable release yet); without
+      # these targets they skip.
       - name: Rust WASI targets
-        run: rustup target add wasm32-wasip1 wasm32-wasip2
+        run: |
+          rustup target add wasm32-wasip1 wasm32-wasip2
+          rustup toolchain install beta --profile minimal --target wasm32-wasip3
       # The C++ tests build with wasm32-wasip1-clang++ from wasi-sdk; without
       # it they skip. The Windows job does not install it and keeps skipping
       # them.

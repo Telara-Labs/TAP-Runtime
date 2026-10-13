@@ -67,7 +67,7 @@ func skipDefType(r *reader) (resource bool) {
 	case c == 0x69, c == 0x68: // own, borrow
 		r.u32()
 	case c == 0x66, c == 0x65:
-		fail("the component uses async streams or futures, which TAP does not support")
+		needsPreview3("it uses async streams or futures")
 	case c == 0x40: // func
 		skipFuncType(r)
 	case c == 0x41: // component type
@@ -91,7 +91,7 @@ func skipDefType(r *reader) (resource bool) {
 		skipOpt(r, func() { r.u32() })
 		return true
 	case c == 0x43, c == 0x3e:
-		fail("the component uses async functions or resources, which TAP does not support")
+		needsPreview3("it uses async functions or resources")
 	default:
 		fail("unknown type encoding 0x%02x", c)
 	}

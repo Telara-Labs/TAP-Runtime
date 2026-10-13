@@ -553,6 +553,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	var in interpreter
 	var sum string
 	var format component.Format
+	// A component that needs WASI Preview 3 runs in wasmtime (wasmtime.go);
+	// preview3Why says what in it needs Preview 3.
+	var preview3 bool
+	var preview3Why string
 	if filepath.Ext(m.Execution.Entrypoint) == ".wasm" {
 		// The package already contains the compiled program. Building source
 		// belongs to authoring; run grants no compiler or native subprocess.
@@ -560,6 +564,11 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		in = interpreter{Kind: "wasm", File: m.Execution.Entrypoint, SHA256: sum}
 		if format, err = component.Detect(wasmBytes); err != nil {
 			return nil, fmt.Errorf("entrypoint %s: %w", m.Execution.Entrypoint, err)
+		}
+		if format == component.Component {
+			if preview3, preview3Why, err = component.Preview3(wasmBytes); err != nil {
+				return nil, fmt.Errorf("entrypoint %s: %w", m.Execution.Entrypoint, err)
+			}
 		}
 	} else {
 		store, err := storeDir(o.InterpDir)
@@ -586,7 +595,10 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 
 	if kind == "wasm" {
 		what := "compiled WASI Preview 1 module"
-		if format == component.Component {
+		switch {
+		case preview3:
+			what = "compiled WASI Preview 3 component, run in wasmtime " + wasmtimeVersion + ": " + preview3Why
+		case format == component.Component:
 			what = "compiled WASI Preview 2 component"
 		}
 		logf("package    %s  entrypoint %s (%s)", m.Metadata.Name, m.Execution.Entrypoint, what)
@@ -751,28 +763,40 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		}
 	}
 	pruneOnFirstStart(o.InterpDir, o.CacheDir, map[string]bool{sum: true})
-	if cache, err := compilationCache(o.CacheDir, sum); err == nil {
-		rc = rc.WithCompilationCache(cache)
-	} else {
-		logf("cache      none: %v", err)
+	var rt wazero.Runtime
+	if !preview3 {
+		if cache, err := compilationCache(o.CacheDir, sum); err == nil {
+			rc = rc.WithCompilationCache(cache)
+		} else {
+			logf("cache      none: %v", err)
+		}
+		rt = wazero.NewRuntimeWithConfig(ctx, rc)
+		defer rt.Close(ctx)
 	}
-	rt := wazero.NewRuntimeWithConfig(ctx, rc)
-	defer rt.Close(ctx)
 
 	t0 := time.Now()
-	unlock := compileLock(wasmBytes)
 	// A component gets its WASI 0.2 interfaces from package component, which
 	// supplies the same streams, clocks and random bytes and nothing more.
-	// It is not given the Preview 1 host module.
+	// It is not given the Preview 1 host module. A Preview 3 component is
+	// compiled by wasmtime, which runs it in a process of its own.
 	var compiled wazero.CompiledModule
 	var prog *component.Program
-	if format == component.Component {
-		prog, err = component.Load(ctx, rt, wasmBytes)
+	var p3prog *wasmtimeProgram
+	if preview3 {
+		p3prog, err = prepareWasmtime(o.InterpDir, o.CacheDir, sum, m.Execution.Entrypoint, wasmBytes)
+		if err == nil && o.Resume != "" {
+			logf("note       a Preview 3 component reads the real clock and random bytes, which are not recorded; this resumed run replays its answered requests but not those readings")
+		}
 	} else {
-		wasi_snapshot_preview1.MustInstantiate(ctx, rt)
-		compiled, err = rt.CompileModule(ctx, wasmBytes)
+		unlock := compileLock(wasmBytes)
+		if format == component.Component {
+			prog, err = component.Load(ctx, rt, wasmBytes)
+		} else {
+			wasi_snapshot_preview1.MustInstantiate(ctx, rt)
+			compiled, err = rt.CompileModule(ctx, wasmBytes)
+		}
+		unlock()
 	}
-	unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -816,7 +840,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	done := make(chan error, 1)
 	go func() {
 		var err error
-		if prog != nil {
+		if p3prog != nil {
+			err = p3prog.run(guestCtx, args, toGuestR, fromGuestW, &guestErr)
+		} else if prog != nil {
 			err = prog.Run(guestCtx, componentConfig(args, toGuestR, fromGuestW, &guestErr, run))
 		} else {
 			_, err = rt.InstantiateModule(guestCtx, compiled, cfg)
