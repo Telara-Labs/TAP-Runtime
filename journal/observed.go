@@ -24,7 +24,8 @@ import (
 // the same when it is started again.
 type Observed struct {
 	mu   sync.Mutex
-	f    *os.File
+	f    *os.File // nil once discarded
+	path string
 	wall []int64 // unix nanoseconds
 	mono []int64
 	rnd  []byte
@@ -80,11 +81,14 @@ func OpenObserved(dir string) (*Observed, error) {
 	if err != nil {
 		return nil, err
 	}
-	o.f = f
+	o.f, o.path = f, path
 	return o, nil
 }
 
 func (o *Observed) record(kind byte, n int64, extra []byte) {
+	if o.f == nil {
+		return // discarded: the run has finished
+	}
 	buf := make([]byte, 9, 9+len(extra))
 	buf[0] = kind
 	binary.BigEndian.PutUint64(buf[1:], uint64(n))
@@ -149,6 +153,40 @@ func (o *Observed) Replaying() bool {
 
 // Sync puts the readings on disk. It is called before a request is recorded
 // as begun, so a request never outlives the readings it was computed from.
-func (o *Observed) Sync() error { return o.f.Sync() }
+func (o *Observed) Sync() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.f == nil {
+		return nil
+	}
+	return o.f.Sync()
+}
 
-func (o *Observed) Close() error { return o.f.Close() }
+func (o *Observed) Close() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.f == nil {
+		return nil
+	}
+	err := o.f.Close()
+	o.f = nil
+	return err
+}
+
+// discard closes the record and removes it. It is only for replaying an
+// unfinished run, and a finished run cannot be resumed, so once the run has
+// finished it is never read again. A program that keeps reading the clock
+// after that is given the real clock, unrecorded.
+func (o *Observed) discard() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.f != nil {
+		o.f.Close()
+		o.f = nil
+	}
+	o.wall, o.mono, o.rnd = nil, nil, nil
+	if err := os.Remove(o.path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}

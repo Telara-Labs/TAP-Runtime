@@ -8,6 +8,12 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **Finished runs no longer keep their clock readings.** A run records the
+  clock and random readings its program takes so that it can be resumed, and a
+  program that polls the clock could leave hundreds of megabytes of them. A
+  finished run cannot be resumed, so the readings are now removed when it
+  finishes, and the next run removes them from runs that finished before. The
+  rest of each run record keeps its 30-day retention.
 - **TAP keeps one version of what it uses.** The first start of a new TAP
   version removes interpreters it no longer pins and compiled copies that
   nothing uses any more, so the cache stays at one interpreter and about one

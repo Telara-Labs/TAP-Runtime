@@ -379,7 +379,21 @@ func (j *Journal) End(id, outcome string, reply []byte, at time.Time) error {
 func (j *Journal) Finish(outcome string, at time.Time) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.append(Record{Phase: "finish", Outcome: outcome, At: at})
+	if err := j.append(Record{Phase: "finish", Outcome: outcome, At: at}); err != nil {
+		return err
+	}
+	j.discardObserved()
+	return nil
+}
+
+// discardObserved removes the clock and random readings of a run that has
+// finished. They exist only to resume it, and a program that polls the clock
+// can leave hundreds of megabytes of them. A record that cannot be removed
+// now is removed by Sweep later; it never fails the run.
+func (j *Journal) discardObserved() {
+	if j.Observed != nil {
+		j.Observed.discard()
+	}
 }
 
 // FinishWith records that the run ended, and what it returned, so that the
@@ -401,7 +415,11 @@ func (j *Journal) FinishWith(outcome string, reply []byte, at time.Time) error {
 			}
 		}
 	}
-	return j.append(r)
+	if err := j.append(r); err != nil {
+		return err
+	}
+	j.discardObserved()
+	return nil
 }
 
 // FinishedReply reads the end of a run that has finished. finished is false

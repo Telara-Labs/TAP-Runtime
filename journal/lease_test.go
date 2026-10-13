@@ -193,3 +193,52 @@ func TestSweepKeepsAChildWithItsRootAndRemovesThemTogether(t *testing.T) {
 		}
 	}
 }
+
+// Runs recorded before finishing removed their readings, or whose readings
+// could not be removed then, lose them at the next sweep, whatever the
+// retention. An unfinished run keeps them: it may be resumed.
+func TestSweepRemovesTheReadingsOfFinishedRuns(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now()
+	write := func(run string, finished bool) string {
+		j, err := Create(root, header(run))
+		if err != nil {
+			t.Fatal(err)
+		}
+		j.Observed.Nanotime()
+		must(t, j.Observed.Sync())
+		if finished {
+			// As a runner from before this change left it.
+			must(t, j.append(Record{Phase: "finish", Outcome: "completed", At: now}))
+		}
+		j.Close()
+		return filepath.Join(root, run, "observed.bin")
+	}
+	done := write("run-done-0001", true)
+	open := write("run-open-0001", false)
+	held := write("run-held-0002", true)
+	writeLease(t, root, "run-held-0002", os.Getpid(), now.Add(time.Minute))
+	old := now.Add(-20 * 24 * time.Hour)
+	os.Chtimes(filepath.Join(root, "run-done-0001", "index.jsonl"), old, old)
+
+	for _, days := range []int{0, 30} {
+		Sweep(root, days, now)
+	}
+	if _, err := os.Stat(done); !os.IsNotExist(err) {
+		t.Errorf("a finished run kept its readings: %v", err)
+	}
+	if _, err := os.Stat(open); err != nil {
+		t.Errorf("an unfinished run lost its readings: %v", err)
+	}
+	if _, err := os.Stat(held); err != nil {
+		t.Errorf("a held run lost its readings: %v", err)
+	}
+	// Removing the readings is not activity: the run still ages out with
+	// its index.
+	if n := Sweep(root, 10, now); n != 1 {
+		t.Fatalf("removed %d runs, want the 20-day-old one", n)
+	}
+	if _, err := os.Stat(filepath.Join(root, "run-done-0001")); !os.IsNotExist(err) {
+		t.Error("the finished run did not age out")
+	}
+}

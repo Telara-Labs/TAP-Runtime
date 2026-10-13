@@ -156,11 +156,12 @@ func (l *Lease) Release() {
 // everything. It returns how many it removed. A run that another run started
 // is kept while that run is, and removed together with it.
 func Sweep(root string, days int, now time.Time) int {
-	if days <= 0 {
-		return 0
-	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
+		return 0
+	}
+	discardFinishedObserved(root, entries, now)
+	if days <= 0 {
 		return 0
 	}
 	cutoff := now.Add(-time.Duration(days) * 24 * time.Hour)
@@ -207,8 +208,10 @@ func Sweep(root string, days int, now time.Time) int {
 			if l, err := readLease(filepath.Join(dir, "lease.json")); err == nil && now.Before(l.Expires) && alive(l.PID) {
 				held = true
 			}
+			// Files only: removing a file touches its directory, and that
+			// is not activity of the run.
 			filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
-				if err == nil && info.ModTime().After(newest) {
+				if err == nil && !info.IsDir() && info.ModTime().After(newest) {
 					newest = info.ModTime()
 				}
 				return nil
@@ -228,6 +231,48 @@ func Sweep(root string, days int, now time.Time) int {
 		}
 	}
 	return removed
+}
+
+// discardFinishedObserved removes the clock and random readings of every run
+// that has finished and is not held. Finish removes them itself; this cleans
+// up runs recorded before it did, and any it could not remove then.
+func discardFinishedObserved(root string, entries []os.DirEntry, now time.Time) {
+	for _, e := range entries {
+		if !e.IsDir() || !runIDRe.MatchString(e.Name()) {
+			continue
+		}
+		dir := filepath.Join(root, e.Name())
+		path := filepath.Join(dir, "observed.bin")
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		if l, err := readLease(filepath.Join(dir, "lease.json")); err == nil && now.Before(l.Expires) && alive(l.PID) {
+			continue
+		}
+		if finishedRun(dir) {
+			os.Remove(path)
+		}
+	}
+}
+
+// finishedRun reports whether the run in dir has recorded its end.
+func finishedRun(dir string) bool {
+	f, err := os.Open(filepath.Join(dir, "index.jsonl"))
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64<<10), 64<<20)
+	for sc.Scan() {
+		var r struct {
+			Phase string `json:"phase"`
+		}
+		if json.Unmarshal(sc.Bytes(), &r) == nil && r.Phase == "finish" {
+			return true
+		}
+	}
+	return false
 }
 
 // parentOf is the run that started the run in dir, from its header, or "".

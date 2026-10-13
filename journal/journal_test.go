@@ -233,3 +233,41 @@ func TestAChildRunKeepsWhatItReturned(t *testing.T) {
 		t.Fatalf("the link was lost on reopening")
 	}
 }
+
+// The clock and random readings exist to resume a run, and a finished run
+// cannot be resumed, so finishing removes them. A program that keeps reading
+// the clock afterwards gets the real clock, unrecorded.
+func TestFinishingRemovesTheReadings(t *testing.T) {
+	root := t.TempDir()
+	for _, finish := range []func(*Journal) error{
+		func(j *Journal) error { return j.Finish("completed", time.Now()) },
+		func(j *Journal) error { return j.FinishWith("completed", []byte(`{"exit":0}`), time.Now()) },
+	} {
+		j, err := Create(root, header(NewRunID(time.Now())))
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(j.dir, "observed.bin")
+		for i := 0; i < 1000; i++ {
+			j.Observed.Nanotime()
+		}
+		j.Observed.Walltime()
+		must(t, j.Observed.Sync())
+		if info, err := os.Stat(path); err != nil || info.Size() == 0 {
+			t.Fatalf("the readings were not recorded: %v", err)
+		}
+		must(t, finish(j))
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("the readings outlived the run: %v", err)
+		}
+		a := j.Observed.Nanotime()
+		if b := j.Observed.Nanotime(); b < a {
+			t.Fatal("the clock went backwards after the run finished")
+		}
+		must(t, j.Observed.Sync())
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatal("a reading after the finish recreated the record")
+		}
+		must(t, j.Close())
+	}
+}
