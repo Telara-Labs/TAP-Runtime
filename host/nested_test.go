@@ -15,7 +15,9 @@ import (
 )
 
 // A call through a dispatcher takes the effect of the operation it
-// dispatches, when the client also lists that operation as its own tool.
+// dispatches, when the client also lists that operation as its own tool. That
+// effect can raise the declared effect and never lowers it: a dispatched read
+// runs unasked under a read declaration and is asked about under a write one.
 func TestADispatchedCallTakesTheEffectOfTheOperationItNames(t *testing.T) {
 	br := &fakeBridge{deny: map[string]bool{}, inv: []bind.Tool{
 		{Server: "telara", Name: "telara_execute_action", Annotated: bind.Unknown},
@@ -24,18 +26,26 @@ func TestADispatchedCallTakesTheEffectOfTheOperationItNames(t *testing.T) {
 		{Server: "telara", Name: "telara_jira_delete_issue", Annotated: bind.Destructive},
 		{Server: "telara", Name: "telara_jira_add_comment", Annotated: bind.Unknown},
 	}}
-	decl := []toolDecl{{Alias: "step_1", Capability: "local.discover/x@1", Effect: "write", Pin: &mf.Pin{Server: "telara", Tool: "telara_execute_action"}}}
+	pin := &mf.Pin{Server: "telara", Tool: "telara_execute_action"}
+	decl := []toolDecl{
+		{Alias: "step_1", Capability: "local.discover/x@1", Effect: "write", Pin: pin},
+		{Alias: "step_read", Capability: "local.discover/y@1", Effect: "read", Pin: pin},
+	}
 	a, err := admit(decl, br)
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := func(action string) reply {
+	callAs := func(alias, action string) reply {
 		var j bytes.Buffer
-		return callTool(a, br, request{Method: "call", Alias: "step_1", Arguments: map[string]any{
+		return callTool(a, br, request{Method: "call", Alias: alias, Arguments: map[string]any{
 			"integration": "jira", "action": action, "params": `{"issue_key":"K-1"}`}}, false, &j)
 	}
-	if r := call("get_issue"); r.Refused != "" {
-		t.Fatalf("a dispatched read asked for approval: %+v", r)
+	call := func(action string) reply { return callAs("step_1", action) }
+	if r := callAs("step_read", "get_issue"); r.Refused != "" {
+		t.Fatalf("a dispatched read under a read declaration asked for approval: %+v", r)
+	}
+	if r := call("get_issue"); !r.Gated {
+		t.Fatalf("a dispatched read ran unasked under a write declaration: %+v", r)
 	}
 	if r := call("add_comment"); !r.Gated {
 		t.Fatalf("a dispatched operation with no annotation ran without approval: %+v", r)

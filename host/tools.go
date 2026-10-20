@@ -513,10 +513,13 @@ func admitOnce(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 
 func rankOf(e bind.Effect) int { return bind.Rank(e) }
 
-// effective is the effect the gate uses. A server annotation can make an
-// effectful declaration more specific or more restrictive; it cannot make a
-// read declaration effectful (that is refused at admission). An unannotated
-// or client-asked call is at least a write.
+// effective is the effect the gate uses. The declared effect is the least that
+// is ever asked about. A server annotation can raise it, never lower it: a
+// tool its server calls read-only is still asked about when the primitive
+// declares write, because the annotation is the server's word and the
+// declaration is what the person approved. It cannot make a read declaration
+// effectful either (that is refused at admission). An unannotated or
+// client-asked call is at least a write.
 func (b *binding) effective() string {
 	declared := bind.Effect(b.Declared)
 	effective := declared
@@ -526,7 +529,10 @@ func (b *binding) effective() string {
 	}
 	switch annotated {
 	case bind.Read:
-		effective = bind.Read
+		// A read annotation settles a read declaration and nothing stronger.
+		if rankOf(declared) == 0 {
+			effective = bind.Read
+		}
 	case bind.Unknown:
 		// Keep the declaration; unknown effects never reduce its gate.
 	default:

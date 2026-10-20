@@ -8,6 +8,17 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **A declared write is asked about whatever the server annotates.** The effect
+  a primitive declares is now the least that is ever asked about. A server's
+  read-only annotation, or a dispatched or nested operation that reads, used to
+  lower a declared `write` to a read and run the call with no question. They
+  can now only raise it. A tool declared `read` for a read-only tool still runs
+  unasked, a tool with no annotation is still asked about as a write, and a
+  stronger annotation or operation still raises the question. A primitive that
+  declared `write` for a tool its server calls read-only now asks before it runs.
+  When a dispatched or catalog operation ranks the same as the declared effect
+  (destructive, financial and identity-admin share a rank), the declared
+  category is the one asked about.
 - **Windows trust confirmation fails closed when stdin is redirected.** A
   noninteractive process now refuses `tap trust` before opening the inherited
   console, instead of waiting for a person it cannot reach. Trust still

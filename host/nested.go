@@ -161,7 +161,8 @@ func nestedTool(args map[string]any, via bind.Tool, inv []bind.Tool) (bind.Tool,
 // callEffect is the effect one call is gated by. A dispatched operation the
 // client also lists as its own tool contributes its annotation to the gate.
 // A read declaration is refused when the operation is effectful; an
-// effectful declaration is promoted to the stronger observed effect.
+// effectful declaration is promoted to the stronger observed effect and is
+// never lowered below what the primitive declared.
 func callEffect(bd *binding, inv []bind.Tool, args map[string]any, br bridge.Bridge) (effect, refused, nested string) {
 	operationBinding := bd.dispatch != nil && bd.dispatch.PlainArgs
 	if isTelaraDispatcher(bd.tool) && (!bd.Asked || operationBinding) {
@@ -186,7 +187,7 @@ func callEffect(bd *binding, inv []bind.Tool, args map[string]any, br bridge.Bri
 				return "", "the dispatched operation " + nested + " is annotated " + string(inner.Annotated) + " and the primitive declares read", nested
 			}
 			resolved := inner.Annotated
-			if resolved != bind.Read && bind.Rank(bind.Effect(bd.Declared)) > bind.Rank(resolved) {
+			if declaredHolds(bd.Declared, resolved) {
 				resolved = bind.Effect(bd.Declared)
 			}
 			return string(resolved), "", nested
@@ -208,7 +209,7 @@ func callEffect(bd *binding, inv []bind.Tool, args map[string]any, br bridge.Bri
 		if resolved == string(bind.Read) && bd.Asked {
 			return string(bind.Write), "", integration + "/" + action
 		}
-		if resolved != string(bind.Read) && bind.Rank(bind.Effect(bd.Declared)) > bind.Rank(bind.Effect(resolved)) {
+		if declaredHolds(bd.Declared, bind.Effect(resolved)) {
 			resolved = bd.Declared
 		}
 		return resolved, "", integration + "/" + action
@@ -222,13 +223,25 @@ func callEffect(bd *binding, inv []bind.Tool, args map[string]any, br bridge.Bri
 	if bd.Declared == string(bind.Read) && inner.Annotated != bind.Read {
 		return effect, "the dispatched operation " + nested + " is annotated " + string(inner.Annotated) + " and the primitive declares " + bd.Declared, nested
 	}
-	if inner.Annotated == bind.Read && effect != string(bind.Read) && !bd.Asked {
+	// A nested read settles an unannotated tool the primitive declared read.
+	// It never lowers a stronger declaration.
+	if inner.Annotated == bind.Read && effect != string(bind.Read) && !bd.Asked && bind.Rank(bind.Effect(bd.Declared)) == 0 {
 		return string(bind.Read), "", nested
 	}
 	if bind.Rank(inner.Annotated) > bind.Rank(bind.Effect(effect)) {
 		effect = string(inner.Annotated)
 	}
 	return effect, "", nested
+}
+
+// declaredHolds reports whether the declared effect is what an observed effect
+// is gated as. A declared effect above read holds when it ranks at least as
+// high as the observation, so the declared category survives a tie (financial,
+// identity-admin and destructive share a rank) and only a genuinely higher rank
+// replaces it. A read or empty declaration holds nothing.
+func declaredHolds(declared string, observed bind.Effect) bool {
+	rank := bind.Rank(bind.Effect(declared))
+	return rank > 0 && rank >= bind.Rank(observed)
 }
 
 // telaraActionEffect checks the generic dispatcher's target against the

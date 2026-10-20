@@ -159,6 +159,18 @@ Anything but `read` is asked of the person before it happens. A tool whose
 own annotation says it does more than the declared effect (for example
 `readOnlyHint: false` on a tool declared `read`) is not bound.
 
+The declared effect is the least that is ever asked about. A server's
+annotation, or the operation a call dispatches, can raise what is asked and
+never lowers it. A tool its server calls read-only is still asked about when
+the primitive declares `write` or stronger. Only a `read` declaration runs
+without a question, and then only for a tool that is annotated read. What a
+tool really does can still differ from what its server says it does, so declare
+`read` only for tools you trust to be read-only.
+
+When an observed effect ranks the same as the declared one (destructive,
+financial and identity-admin share a rank), the declared category is the one
+asked about, and only a higher rank replaces it.
+
 Unpinned declarations can also bind operations behind a gateway. The host's
 Telara adapter queries the connected server's read-only `telara_tool_search`
 and `telara_tool_describe`, using the advertised integration/action envelope,
