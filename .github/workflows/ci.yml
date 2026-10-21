@@ -37,20 +37,6 @@ jobs:
         run: node --test vscode/extension.test.js
       - name: Test the npm launcher
         run: node --test npm/test/*.test.cjs
-      - name: Check public commit messages
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base_sha="${{ github.event.pull_request.base.sha }}"
-            head_sha="${{ github.event.pull_request.head.sha }}"
-            base_sha="$(git merge-base "$base_sha" "$head_sha")"
-          else
-            base_sha="${{ github.event.before }}"
-            head_sha="${{ github.sha }}"
-          fi
-          if [ "$base_sha" = "0000000000000000000000000000000000000000" ]; then
-            base_sha="$(git rev-parse "${head_sha}^")"
-          fi
-          go run ./cmd/public-check --commit-base "$base_sha" --commit-head "$head_sha"
       - name: Tools the store readers use (sqlite3, zstd)
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3 zstd
@@ -120,6 +106,32 @@ jobs:
           python3 -B examples/languages/test_languages.py --runner "${RUNNER_TEMP}/tap-language"
       - name: Test all root-module packages
         run: go test ./... -count=1 -timeout 20m
+
+  public-check:
+    # Keep the repository hygiene gate independent so its failure cannot
+    # prevent the platform test jobs from reporting their results.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.9"
+      - name: Check public commit messages
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            head_sha="${{ github.event.pull_request.head.sha }}"
+            base_sha="$(git merge-base "$base_sha" "$head_sha")"
+          else
+            base_sha="${{ github.event.before }}"
+            head_sha="${{ github.sha }}"
+          fi
+          if [ "$base_sha" = "0000000000000000000000000000000000000000" ]; then
+            base_sha="$(git rev-parse "${head_sha}^")"
+          fi
+          go run ./cmd/public-check --commit-base "$base_sha" --commit-head "$head_sha"
 
   windows:
     runs-on: windows-latest

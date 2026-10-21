@@ -8,6 +8,7 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Public commit-message hygiene now runs as an independent CI job, so a policy violation does not skip platform tests.
 - **A declared write is asked about whatever the server annotates.** The effect
   a primitive declares is now the least that is ever asked about. A server's
   read-only annotation, or a dispatched or nested operation that reads, used to
