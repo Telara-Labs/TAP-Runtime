@@ -418,7 +418,7 @@ to the author. `TestRedactRemovesWholePrivateKeyBlocks`,
 client history and private execution journal are not rewritten; redaction does
 not guarantee detection of an arbitrary secret with no identifying context.
 
-The runner and CI use patched Go 1.26.9 and gRPC 1.83.2. CI checks all three Go
+The runner and CI use patched Go 1.26.10 and gRPC 1.83.2. CI checks all three Go
 modules with govulncheck. A clean source scan means no reported affected call
 paths for that build configuration; it is not proof against unknown defects,
 unreachable dependency alerts, or other platform/build configurations. These

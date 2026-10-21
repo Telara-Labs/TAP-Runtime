@@ -1,6 +1,6 @@
 module github.com/Telara-Labs/TAP-Runtime
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/Telara-Labs/TAP-Runtime/contract v0.0.0-20261013143224-fafad389ed21

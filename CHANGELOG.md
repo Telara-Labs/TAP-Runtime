@@ -8,6 +8,7 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Runner builds and CI use patched Go 1.26.10 for the standard-library crypto/x509 vulnerability fix.
 - Public commit-message hygiene now runs as an independent CI job, so a policy violation does not skip platform tests.
 - **A declared write is asked about whatever the server annotates.** The effect
   a primitive declares is now the least that is ever asked about. A server's
