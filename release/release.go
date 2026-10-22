@@ -21,7 +21,9 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -225,6 +227,15 @@ func Build(repo, out, version string, platforms []string, keyFile, base string, 
 			}
 			files = append(files, name)
 		}
+	}
+
+	// The npm packaging sources ship inside the signed release, so the npm
+	// publish job packages from bytes the release key covers and never from a
+	// branch or tag checkout, which can move after the release is cut.
+	if npmSrc, err := npmSources(repo, abs, version); err != nil {
+		return err
+	} else if npmSrc != "" {
+		files = append(files, npmSrc)
 	}
 
 	notices, err := Notices(repo)
@@ -491,4 +502,78 @@ func buildRelay(repo string, env []string, goos, goarch string) (string, error) 
 		return "", err
 	}
 	return overlay, nil
+}
+
+// NpmSourcesName is the release asset that carries the npm packaging sources.
+func NpmSourcesName(version string) string {
+	return fmt.Sprintf("tap-npm-sources-%s.tar.gz", version)
+}
+
+// npmSources writes repo/npm, without node_modules, as a reproducible tar.gz:
+// sorted entries, zero times and owners, and only the executable bit kept from
+// the file mode. It returns the asset name, or "" when the repository has no
+// npm directory.
+func npmSources(repo, out, version string) (string, error) {
+	root := filepath.Join(repo, "npm")
+	if fi, err := os.Stat(root); err != nil || !fi.IsDir() {
+		return "", nil
+	}
+	var paths []string
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && d.Name() == "node_modules" {
+			return filepath.SkipDir
+		}
+		if d.Type().IsRegular() {
+			paths = append(paths, p)
+		} else if !d.IsDir() {
+			return fmt.Errorf("npm sources: %s is not a regular file", p)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	sort.Strings(paths)
+	var buf bytes.Buffer
+	gz, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	if err != nil {
+		return "", err
+	}
+	tw := tar.NewWriter(gz)
+	for _, p := range paths {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return "", err
+		}
+		fi, err := os.Stat(p)
+		if err != nil {
+			return "", err
+		}
+		rel, err := filepath.Rel(repo, p)
+		if err != nil {
+			return "", err
+		}
+		mode := int64(0o644)
+		if fi.Mode()&0o111 != 0 {
+			mode = 0o755
+		}
+		hdr := &tar.Header{Name: filepath.ToSlash(rel), Mode: mode, Size: int64(len(raw)), Typeflag: tar.TypeReg, Format: tar.FormatPAX}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return "", err
+		}
+		if _, err := tw.Write(raw); err != nil {
+			return "", err
+		}
+	}
+	if err := tw.Close(); err != nil {
+		return "", err
+	}
+	if err := gz.Close(); err != nil {
+		return "", err
+	}
+	name := NpmSourcesName(version)
+	return name, os.WriteFile(filepath.Join(out, name), buf.Bytes(), 0o644)
 }

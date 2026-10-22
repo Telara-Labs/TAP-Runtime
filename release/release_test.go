@@ -1,6 +1,9 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 const repo = ".."
@@ -310,5 +314,43 @@ func TestInstallScriptConnectsDetectedAgents(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude.json")); err == nil {
 		t.Error("touched Claude Code, which is not installed in this home")
+	}
+}
+
+func TestTheReleaseCarriesItsNpmSources(t *testing.T) {
+	out := build(t, "")
+	name := NpmSourcesName("0.0.0-test")
+	sums, _ := os.ReadFile(filepath.Join(out, "SHA256SUMS"))
+	if !strings.Contains(string(sums), name) {
+		t.Fatalf("SHA256SUMS does not list %s", name)
+	}
+	f, err := os.Open(filepath.Join(out, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(gz)
+	seen := map[string]bool{}
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(h.Name, "node_modules") || !strings.HasPrefix(h.Name, "npm/") || !h.ModTime.Equal(time.Unix(0, 0)) && !h.ModTime.IsZero() {
+			t.Fatalf("unexpected entry %q at %v", h.Name, h.ModTime)
+		}
+		seen[h.Name] = true
+	}
+	for _, want := range []string{"npm/package.json", "npm/pack.cjs", "npm/lib/pack.cjs", "npm/postinstall.cjs"} {
+		if !seen[want] {
+			t.Fatalf("%s is missing from the npm sources", want)
+		}
 	}
 }

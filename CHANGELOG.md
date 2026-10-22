@@ -28,11 +28,13 @@ see [version review](docs/versioning.md).
   with options redacts every text it keeps before anything bounds it, and
   never uses the parse cache. Plain reads, and what `tap discover` finds, are
   unchanged.
-- **npm packages are built from the tagged release, not from main (release).**
-  The publish workflow checked out `main` for its packaging scripts and the
-  release public key, so a commit landing after the tag changed what was
-  packaged and which key verified the release. It now checks out the tag it
-  publishes.
+- **npm packages are built only from bytes the release signature covers (release).**
+  Each release now carries its npm packaging sources as a signed,
+  reproducible `tap-npm-sources-<version>.tar.gz`. The publish workflow
+  verifies the release with the verifier and public key from `main`, then
+  tests and packages from those signed sources; it no longer executes code
+  from a branch or tag checkout, and it refuses releases cut before this
+  change. Only `main`'s copy of the workflow may publish.
 - **Handoff excerpts can no longer be closed by the text they quote (discover).**
   The request, tool arguments and tool results copied from a source session are
   wrapped in a fence one backtick longer than any run in the text, so a result
