@@ -37,7 +37,7 @@ func (r ClaudeCode) ReadProgress(since time.Time, p trace.Progress) ([]trace.Ses
 
 func (r ClaudeCode) read(since time.Time, p trace.Progress) ([]trace.Session, trace.ReadStats, error) {
 	var out []trace.Session
-	st, err := r.each(since, p, func(s trace.Session) error { out = append(out, s); return nil })
+	st, err := r.each(since, p, nil, func(s trace.Session) error { out = append(out, s); return nil })
 	if err != nil {
 		return nil, st, err
 	}
@@ -47,18 +47,28 @@ func (r ClaudeCode) read(since time.Time, p trace.Progress) ([]trace.Session, tr
 // Each passes Claude Code's sessions on in file order, a chunk of files at a
 // time.
 func (r ClaudeCode) Each(since time.Time, yield func(trace.Session) error) error {
-	_, err := r.each(since, nil, yield)
+	_, err := r.each(since, nil, nil, yield)
 	return err
 }
 
-func (r ClaudeCode) each(since time.Time, p trace.Progress, yield func(trace.Session) error) (trace.ReadStats, error) {
+// EachWith is Each for a read with options (see ReadOptions).
+func (r ClaudeCode) EachWith(since time.Time, o ReadOptions, yield func(trace.Session) error) error {
+	_, err := r.each(since, nil, &o, yield)
+	return err
+}
+
+func (r ClaudeCode) each(since time.Time, p trace.Progress, o *ReadOptions, yield func(trace.Session) error) (trace.ReadStats, error) {
 	var st trace.ReadStats
 	files, err := filepath.Glob(filepath.Join(r.Dir, "*", "*.jsonl"))
 	if err != nil {
 		return st, err
 	}
 	files = changedSince(files, since)
-	err = ParseFilesEach(files, "claude-code", nil, p, parseClaude, func(_ int, r Parsed) error {
+	cache, parse := "claude-code", parseClaude
+	if o != nil {
+		cache, parse = "", claudeParser(o)
+	}
+	err = ParseFilesEach(files, cache, nil, p, parse, func(_ int, r Parsed) error {
 		if r.Err != nil {
 			st.UnreadableFiles++
 			return nil
@@ -76,7 +86,14 @@ type ClaudeLine struct {
 	IsMeta    bool      `json:"isMeta"`
 	SessionID string    `json:"sessionId"`
 	Timestamp time.Time `json:"timestamp"`
-	Message   struct {
+	// The session's settings as of this line.
+	Cwd       string `json:"cwd"`
+	GitBranch string `json:"gitBranch"`
+	Version   string `json:"version"`
+	// Model is the message's model (message.model). Decoding a line does
+	// not fill it; ParseClaudeLine does.
+	Model   string `json:"-"`
+	Message struct {
 		ID      string          `json:"id"`
 		Content json.RawMessage `json:"content"`
 		Usage   *struct {
@@ -90,6 +107,7 @@ type ClaudeLine struct {
 
 type ClaudeBlock struct {
 	Type  string                     `json:"type"`
+	Text  string                     `json:"text"`
 	ID    string                     `json:"id"`
 	Name  string                     `json:"name"`
 	Input map[string]json.RawMessage `json:"input"`
@@ -97,26 +115,76 @@ type ClaudeBlock struct {
 
 func ReadClaudeFile(path string) (trace.Session, error) { return ParseFile(path, parseClaude) }
 
-func parseClaude(path string, fh io.Reader) (s trace.Session, err error) {
+// ReadClaudeFileWith is ReadClaudeFile for a read with options.
+func ReadClaudeFileWith(path string, o ReadOptions) (trace.Session, error) {
+	return ParseFile(path, claudeParser(&o))
+}
+
+func parseClaude(path string, fh io.Reader) (trace.Session, error) {
+	return parseClaudeWith(path, fh, nil)
+}
+
+func claudeParser(o *ReadOptions) FileParser {
+	return func(path string, fh io.Reader) (trace.Session, error) { return parseClaudeWith(path, fh, o) }
+}
+
+// newClaudeAssembler starts the session of the transcript at path.
+func newClaudeAssembler(path string, o *ReadOptions) *Assembler {
+	id := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+	if o == nil {
+		return NewAssembler("claude-code", id)
+	}
+	return NewAssemblerWith("claude-code", id, *o)
+}
+
+// ParseClaudeLine decodes one transcript line, Model included.
+func ParseClaudeLine(b []byte) (ClaudeLine, error) {
+	var ln ClaudeLine
+	if err := json.Unmarshal(b, &ln); err != nil {
+		return ln, err
+	}
+	var m struct {
+		Message struct {
+			Model string `json:"model"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(b, &m) == nil {
+		ln.Model = m.Message.Model
+	}
+	return ln, nil
+}
+
+// claudeLine applies one transcript line.
+func claudeLine(a *Assembler, b []byte, o *ReadOptions) {
+	var ln ClaudeLine
+	var err error
+	if o != nil && o.Conversation {
+		ln, err = ParseClaudeLine(b)
+	} else {
+		err = json.Unmarshal(b, &ln)
+	}
+	if err != nil {
+		a.Skip()
+		return
+	}
+	FirstTime(&a.S, ln.Timestamp)
+	for _, e := range claudeEvents(ln, a.S.ID, o) {
+		a.Add(e)
+	}
+}
+
+func parseClaudeWith(path string, fh io.Reader, o *ReadOptions) (s trace.Session, err error) {
 	// One file the parser cannot follow is skipped, not the whole run.
 	defer func() {
 		if r := recover(); r != nil {
 			s, err = trace.Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
 		}
 	}()
-	a := NewAssembler("claude-code", strings.TrimSuffix(filepath.Base(path), ".jsonl"))
+	a := newClaudeAssembler(path, o)
 	sc := bufio.NewScanner(fh)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	for sc.Scan() {
-		var ln ClaudeLine
-		if json.Unmarshal(sc.Bytes(), &ln) != nil {
-			a.Skip()
-			continue
-		}
-		FirstTime(&a.S, ln.Timestamp)
-		for _, e := range ClaudeEvents(ln, a.S.ID) {
-			a.Add(e)
-		}
+		claudeLine(a, sc.Bytes(), o)
 	}
 	return a.Finish(), sc.Err()
 }
@@ -124,8 +192,21 @@ func parseClaude(path string, fh io.Reader) (s trace.Session, err error) {
 // ClaudeEvents decodes one transcript line. One model response is written as
 // several lines (one per content block) that each repeat its usage; the
 // assembler counts it once, split over the tool calls it made.
-func ClaudeEvents(ln ClaudeLine, session string) []Event {
+func ClaudeEvents(ln ClaudeLine, session string) []Event { return claudeEvents(ln, session, nil) }
+
+// ClaudeEventsWith is ClaudeEvents for a read with options: it also
+// decodes the model's prose and the session's settings, and redacts tool
+// arguments before they are flattened and bounded.
+func ClaudeEventsWith(ln ClaudeLine, session string, o ReadOptions) []Event {
+	return claudeEvents(ln, session, &o)
+}
+
+func claudeEvents(ln ClaudeLine, session string, o *ReadOptions) []Event {
 	var out []Event
+	conv := o != nil && o.Conversation
+	if conv && (ln.Cwd != "" || ln.GitBranch != "" || ln.Version != "" || ln.Model != "") {
+		out = append(out, SessionMeta{Cwd: ln.Cwd, Branch: ln.GitBranch, Version: ln.Version, Model: ln.Model})
+	}
 	if ln.Type == "user" && !ln.IsMeta {
 		if text := ClaudeUserText(ln.Message.Content); text != "" {
 			role := "user"
@@ -152,11 +233,11 @@ func ClaudeEvents(ln ClaudeLine, session string) []Event {
 		return out
 	}
 	if ln.Type != "assistant" || len(ln.Message.Content) == 0 || ln.Message.Content[0] != '[' {
-		return nil
+		return out
 	}
 	var blocks []ClaudeBlock
 	if json.Unmarshal(ln.Message.Content, &blocks) != nil {
-		return nil
+		return out
 	}
 	var usage trace.Usage
 	if u := ln.Message.Usage; u != nil {
@@ -164,6 +245,10 @@ func ClaudeEvents(ln ClaudeLine, session string) []Event {
 	}
 	out = append(out, TurnUsage{Turn: "msg:" + ln.Message.ID, Usage: usage})
 	for _, b := range blocks {
+		if conv && b.Type == "text" {
+			out = append(out, AssistantText{Text: b.Text, Turn: "msg:" + ln.Message.ID})
+			continue
+		}
 		if b.Type != "tool_use" {
 			continue
 		}

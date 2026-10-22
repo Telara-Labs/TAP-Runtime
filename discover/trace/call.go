@@ -349,6 +349,38 @@ type Session struct {
 	// parse and left out. Like SourceDigest it describes the read, not the
 	// session, so it is not part of the session's encoding.
 	Skipped int `json:"-"`
+	// Assistant is the prose the model wrote to the person, in order, and
+	// Meta the session's settings each time they changed. Readers fill them
+	// only when asked (history.ReadOptions.Conversation); discover does not
+	// use them.
+	Assistant []AssistantMessage `json:",omitempty"`
+	Meta      []SessionMeta      `json:",omitempty"`
+}
+
+// AssistantMessage is one piece of prose the model wrote. It was written
+// while Request was in progress (-1: before the first request), after
+// AfterCall of the session's calls.
+// Final marks the last one written for its request. Text is whole, with
+// credentials redacted; a caller that stores it bounds it.
+type AssistantMessage struct {
+	Request   int
+	AfterCall int
+	Turn      string `json:",omitempty"`
+	Text      string
+	Final     bool `json:",omitempty"`
+}
+
+// SessionMeta is the session's settings from the point Request (-1: before
+// the first request) and AfterCall name: working directory, git branch,
+// client version and model.
+// A field the client did not record there is carried over from before.
+type SessionMeta struct {
+	Request   int
+	AfterCall int
+	Cwd       string `json:",omitempty"`
+	Branch    string `json:",omitempty"`
+	Version   string `json:",omitempty"`
+	Model     string `json:",omitempty"`
 }
 
 // Approval is a user acknowledgement given after AfterCall calls of the

@@ -1,6 +1,7 @@
 package history
 
 import (
+	"strings"
 	"time"
 
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
@@ -58,10 +59,27 @@ type TurnUsage struct {
 	Usage trace.Usage
 }
 
-func (UserText) event()   {}
-func (ToolCall) event()   {}
-func (ToolResult) event() {}
-func (TurnUsage) event()  {}
+// AssistantText is prose the model wrote to the person; Turn, when set,
+// names the model response it belongs to. Only an assembler made with
+// ReadOptions.Conversation keeps it (Session.Assistant).
+type AssistantText struct {
+	Text, Turn string
+}
+
+// SessionMeta is the session's settings as one record states them. An empty
+// field is one the record does not state, not one it cleared. Only an
+// assembler made with ReadOptions.Conversation keeps it (Session.Meta), and
+// only when something changed.
+type SessionMeta struct {
+	Cwd, Branch, Version, Model string
+}
+
+func (UserText) event()      {}
+func (ToolCall) event()      {}
+func (ToolResult) event()    {}
+func (TurnUsage) event()     {}
+func (AssistantText) event() {}
+func (SessionMeta) event()   {}
 
 // Assembler builds one session from events. S is the session so far; a
 // decoder may read it (for example to see how many requests there are) and
@@ -74,6 +92,9 @@ type Assembler struct {
 	turns   map[string]*namedTurn
 	order   []string
 	spread  struct{ from, turn int }
+	// opts is set for a read with options (NewAssemblerWith): texts are
+	// redacted before they are bounded, and conversation events are kept.
+	opts *ReadOptions
 }
 
 type namedTurn struct {
@@ -87,6 +108,25 @@ func NewAssembler(client, id string) *Assembler {
 	return &Assembler{S: trace.Session{Client: client, ID: id}, byKey: map[string][]int{}, turns: map[string]*namedTurn{}}
 }
 
+// NewAssemblerWith starts a session for a read with options: every text
+// is redacted before it is bounded, and the options say what else is kept.
+func NewAssemblerWith(client, id string, o ReadOptions) *Assembler {
+	a := NewAssembler(client, id)
+	a.opts = &o
+	return a
+}
+
+// clean is the text an assembler keeps: redacted for a read with options,
+// as given otherwise.
+func (a *Assembler) clean(s string) string {
+	if a.opts == nil {
+		return s
+	}
+	return redactText(s)
+}
+
+func (a *Assembler) conversation() bool { return a.opts != nil && a.opts.Conversation }
+
 // Add applies one event.
 func (a *Assembler) Add(e Event) {
 	switch e := e.(type) {
@@ -98,7 +138,38 @@ func (a *Assembler) Add(e Event) {
 		if role == "" {
 			role = "user"
 		}
-		a.S.AddRequestWithRole(e.Text, role)
+		a.S.AddRequestWithRole(a.clean(e.Text), role)
+	case AssistantText:
+		if !a.conversation() || strings.TrimSpace(e.Text) == "" {
+			return
+		}
+		a.S.Assistant = append(a.S.Assistant, trace.AssistantMessage{Request: len(a.S.Requests) - 1, AfterCall: len(a.S.Calls), Turn: e.Turn, Text: a.clean(e.Text)})
+	case SessionMeta:
+		if !a.conversation() {
+			return
+		}
+		var cur trace.SessionMeta
+		if n := len(a.S.Meta); n > 0 {
+			cur = a.S.Meta[n-1]
+		}
+		next := cur
+		for _, f := range []struct {
+			to   *string
+			from string
+		}{{&next.Cwd, e.Cwd}, {&next.Branch, e.Branch}, {&next.Version, e.Version}, {&next.Model, e.Model}} {
+			if f.from != "" {
+				*f.to = a.clean(f.from)
+			}
+		}
+		if next == cur {
+			return // unchanged, or nothing stated before anything was
+		}
+		next.Request, next.AfterCall = len(a.S.Requests)-1, len(a.S.Calls)
+		if n := len(a.S.Meta); n > 0 && cur.Request == next.Request && cur.AfterCall == next.AfterCall {
+			a.S.Meta[n-1] = next // two records stating settings at one point
+			return
+		}
+		a.S.Meta = append(a.S.Meta, next)
 	case ToolCall:
 		c := e.Call
 		c.Client = a.S.Client
@@ -181,6 +252,10 @@ func (a *Assembler) Finish() trace.Session {
 		}
 	}
 	a.S.Skipped = a.skipped
+	for i := range a.S.Assistant {
+		m := &a.S.Assistant[i]
+		m.Final = i == len(a.S.Assistant)-1 || a.S.Assistant[i+1].Request != m.Request
+	}
 	return a.S
 }
 

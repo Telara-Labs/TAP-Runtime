@@ -22,7 +22,7 @@ var allowed = map[string][]string{
 	"termart":    {},
 	"trace":      {"client", "util", "shellparse", "pyparse"},
 	"redact":     {"client", "util", "trace"},
-	"history":    {"client", "util", "trace"},
+	"history":    {"client", "util", "trace", "redact"},
 	"primitive":  {"client", "util", "shellparse", "pyparse", "trace", "redact", "termart"},
 	"model":      {"client", "util", "trace", "redact"},
 	"pack":       {"client", "util", "trace", "model", "redact"},

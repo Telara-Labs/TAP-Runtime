@@ -42,7 +42,7 @@ func (r Codex) ReadProgress(since time.Time, p trace.Progress) ([]trace.Session,
 
 func (r Codex) read(since time.Time, p trace.Progress) ([]trace.Session, trace.ReadStats, error) {
 	var out []trace.Session
-	st, err := r.each(since, p, func(s trace.Session) error { out = append(out, s); return nil })
+	st, err := r.each(since, p, nil, func(s trace.Session) error { out = append(out, s); return nil })
 	if err != nil {
 		return nil, st, err
 	}
@@ -51,11 +51,17 @@ func (r Codex) read(since time.Time, p trace.Progress) ([]trace.Session, trace.R
 
 // Each passes Codex's sessions on in file order, a chunk of files at a time.
 func (r Codex) Each(since time.Time, yield func(trace.Session) error) error {
-	_, err := r.each(since, nil, yield)
+	_, err := r.each(since, nil, nil, yield)
 	return err
 }
 
-func (r Codex) each(since time.Time, p trace.Progress, yield func(trace.Session) error) (trace.ReadStats, error) {
+// EachWith is Each for a read with options (see ReadOptions).
+func (r Codex) EachWith(since time.Time, o ReadOptions, yield func(trace.Session) error) error {
+	_, err := r.each(since, nil, &o, yield)
+	return err
+}
+
+func (r Codex) each(since time.Time, p trace.Progress, o *ReadOptions, yield func(trace.Session) error) (trace.ReadStats, error) {
 	var st trace.ReadStats
 	var files []string
 	err := filepath.WalkDir(r.Dir, func(p string, d os.DirEntry, err error) error {
@@ -78,7 +84,11 @@ func (r Codex) each(since time.Time, p trace.Progress, yield func(trace.Session)
 	}
 	ids := map[string]bool{}
 	files = changedSince(files, since)
-	err = ParseFilesEach(files, "codex", nil, p, parseCodex, func(i int, r Parsed) error {
+	cache, parse := "codex", parseCodex
+	if o != nil {
+		cache, parse = "", codexParser(o)
+	}
+	err = ParseFilesEach(files, cache, nil, p, parse, func(i int, r Parsed) error {
 		f, s := files[i], r.Session
 		if r.Err != nil {
 			st.UnreadableFiles++
@@ -118,7 +128,14 @@ type CodexLine struct {
 		Namespace    string          `json:"namespace"`
 		Arguments    json.RawMessage `json:"arguments"`
 		Input        string          `json:"input"`
-		Action       struct {
+		// The session's settings, on session_meta and turn_context.
+		Cwd        string `json:"cwd"`
+		CLIVersion string `json:"cli_version"`
+		Model      string `json:"model"`
+		Git        *struct {
+			Branch string `json:"branch"`
+		} `json:"git"`
+		Action struct {
 			Command []string `json:"command"`
 		} `json:"action"`
 		// Result is an mcp_tool_call_end event's {Ok: {content, isError}}
@@ -129,14 +146,32 @@ type CodexLine struct {
 
 func ReadCodexFile(path string) (trace.Session, error) { return ParseFile(path, parseCodex) }
 
-func parseCodex(path string, fh io.Reader) (res trace.Session, err error) {
+// ReadCodexFileWith is ReadCodexFile for a read with options.
+func ReadCodexFileWith(path string, o ReadOptions) (trace.Session, error) {
+	return ParseFile(path, codexParser(&o))
+}
+
+func codexParser(o *ReadOptions) FileParser {
+	return func(path string, fh io.Reader) (trace.Session, error) { return parseCodexWith(path, fh, o) }
+}
+
+func parseCodex(path string, fh io.Reader) (trace.Session, error) {
+	return parseCodexWith(path, fh, nil)
+}
+
+func parseCodexWith(path string, fh io.Reader, o *ReadOptions) (res trace.Session, err error) {
 	// One file the parser cannot follow is skipped, not the whole run.
 	defer func() {
 		if r := recover(); r != nil {
 			res, err = trace.Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
 		}
 	}()
-	a := NewAssembler("codex", strings.TrimSuffix(filepath.Base(path), ".jsonl"))
+	id := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+	a := NewAssembler("codex", id)
+	if o != nil {
+		a = NewAssemblerWith("codex", id, *o)
+	}
+	conv := o != nil && o.Conversation
 	s := &a.S
 	metaSeen := false
 	automationSession := false
@@ -169,7 +204,8 @@ func parseCodex(path string, fh io.Reader) (res trace.Session, err error) {
 			}
 			continue
 		}
-		if !JsonHasAny(b, `"session_meta"`, `"function_call"`, `"custom_tool_call"`, `"local_shell_call"`, `"role":"user"`, `"role": "user"`, `_call_output"`, `"mcp_tool_call_end"`) {
+		if !JsonHasAny(b, `"session_meta"`, `"function_call"`, `"custom_tool_call"`, `"local_shell_call"`, `"role":"user"`, `"role": "user"`, `_call_output"`, `"mcp_tool_call_end"`) &&
+			(!conv || !JsonHasAny(b, `"role":"assistant"`, `"role": "assistant"`, `"turn_context"`)) {
 			continue
 		}
 		var ln CodexLine
@@ -202,12 +238,34 @@ func parseCodex(path string, fh io.Reader) (res trace.Session, err error) {
 					break
 				}
 			}
+		case conv && p.Type == "message" && p.Role == "assistant":
+			var blocks []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			}
+			_ = json.Unmarshal(p.Content, &blocks)
+			for _, bl := range blocks {
+				if bl.Type == "output_text" {
+					a.Add(AssistantText{Text: bl.Text})
+				}
+			}
+		case ln.Type == "turn_context":
+			if conv {
+				a.Add(SessionMeta{Cwd: p.Cwd, Model: p.Model})
+			}
 		case ln.Type == "session_meta":
 			// A forked or resumed rollout also carries its parent's meta
 			// later in the file; the first one is this file's own.
 			if p.ID != "" && !metaSeen {
 				s.ID, metaSeen = p.ID, true
 				automationSession = p.ThreadSource == "automation"
+				if conv {
+					m := SessionMeta{Cwd: p.Cwd, Version: p.CLIVersion, Model: p.Model}
+					if p.Git != nil {
+						m.Branch = p.Git.Branch
+					}
+					a.Add(m)
+				}
 			}
 			if s.Start.IsZero() {
 				s.Start = ln.Timestamp
@@ -227,7 +285,7 @@ func parseCodex(path string, fh io.Reader) (res trace.Session, err error) {
 						}
 					}
 					if onlyHarness {
-						s.Requests = []string{trace.TruncateUTF8(prompt, 4000)}
+						s.Requests = []string{trace.TruncateUTF8(a.clean(prompt), 4000)}
 						s.RequestRoles = []string{"scheduled"}
 					}
 				}

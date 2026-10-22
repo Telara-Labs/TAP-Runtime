@@ -13,6 +13,9 @@ code, and exercises the edge cases of the format:
 - vscode-copilot/: VS Code 1.11x chat log (the log reader's _applySet,
   _applyPush): kinds 0-3 including a push with a cut (i), and a pre-1.109
   whole-document .json session.
+- conversation/: a Claude Code transcript and a Codex rollout with the
+  model's prose and the session's settings (cwd, branch, version, model)
+  around a tool call, for reads with history.ReadOptions.
 
 Real-run fixtures replace these when a real session is available.
 

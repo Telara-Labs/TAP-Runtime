@@ -8,6 +8,15 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **History readers can keep the conversation, not only the tool calls (discover).**
+  `ClaudeCode.EachWith`, `Codex.EachWith`, `ReadClaudeFileWith` and
+  `ReadCodexFileWith` take `history.ReadOptions`. With `Conversation` set, a
+  session also carries the model's prose (`Session.Assistant`, the last one
+  of each request marked `Final`) and its settings as they change
+  (`Session.Meta`: working directory, branch, client version, model). A read
+  with options redacts every text it keeps before anything bounds it, and
+  never uses the parse cache. Plain reads, and what `tap discover` finds, are
+  unchanged.
 - **npm packages are built from the tagged release, not from main (release).**
   The publish workflow checked out `main` for its packaging scripts and the
   release public key, so a commit landing after the tag changed what was
