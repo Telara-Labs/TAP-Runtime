@@ -8,6 +8,13 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **The history cache never stores a credential (discover).**
+  A session file or conversation holding anything shaped like a credential,
+  or an argument redaction would change by its name, is no longer written
+  to the parse cache under `~/.tap/discover/`, and an earlier cached copy of
+  it is removed. Such a unit is parsed again on each run, so what discover
+  finds is unchanged. `history.UseCache("")` keeps the cache off entirely,
+  and reads with `ReadOptions` never use it.
 - **Transcripts can be read incrementally (discover).**
   `TailClaudeFile` and `TailCodexFile` read a transcript from where the last
   read stopped and return the session so far with a `TailState` to continue

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Telara-Labs/TAP-Runtime/discover/redact"
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
@@ -36,7 +37,10 @@ var (
 
 // UseCache keeps each reader's parsed sessions under dir, so a later run
 // reads only what changed. Parsed sessions hold the user's messages, so the
-// directory and its files are private to the user.
+// directory and its files are private to the user, and a unit holding a
+// credential is never cached (see put). UseCache("") turns the cache off:
+// nothing a reader parses is written to disk. It is off until a caller
+// turns it on, and reads with ReadOptions never use it.
 func UseCache(dir string) {
 	cacheMu.Lock()
 	cacheDir = dir
@@ -177,9 +181,18 @@ func (c *unitCache) has(key, fp string) bool {
 }
 
 // put writes key's sessions to the unit's own file and indexes them under
-// fp. A unit whose file cannot be written is left out of the index.
+// fp. A unit whose file cannot be written is left out of the index. A unit
+// holding anything redaction would change (a credential in a request, an
+// argument, a result) is never written, and an earlier copy of it is
+// removed: the cache must not keep a credential on disk, and keeping a
+// redacted copy instead would make a cached read differ from a fresh one.
+// Such a unit is parsed again on every read.
 func (c *unitCache) put(key, fp string, ss []trace.Session) {
 	if c == nil || fp == "" {
+		return
+	}
+	if holdsCredential(ss) {
+		c.prune(func(k string) bool { return k == key })
 		return
 	}
 	if err := writePrivate(c.unitDir, c.unitFile(key), unitData{Key: key, Sessions: ss}); err != nil {
@@ -189,6 +202,68 @@ func (c *unitCache) put(key, fp string, ss []trace.Session) {
 	c.units[key] = cacheEntry{Fingerprint: fp}
 	c.dirty = true
 	c.mu.Unlock()
+}
+
+// holdsCredential reports whether the sessions keep anything shaped like a
+// credential (redact.SecretShape, the test discover itself uses), or an
+// argument redaction would change by its name or the names inside it.
+func holdsCredential(ss []trace.Session) bool {
+	// Sessions repeat themselves (the same command, the same identifiers),
+	// so each distinct text is checked once.
+	seen := map[string]bool{}
+	text := func(v string) bool {
+		if v == "" {
+			return false
+		}
+		found, ok := seen[v]
+		if !ok {
+			found = redact.SecretShape(v) != ""
+			seen[v] = found
+		}
+		return found
+	}
+	texts := func(vs ...string) bool {
+		for _, v := range vs {
+			if text(v) {
+				return true
+			}
+		}
+		return false
+	}
+	args := func(m map[string]string) bool {
+		for k, v := range m {
+			if text(v) {
+				return true
+			}
+			t := strings.TrimSpace(v)
+			if (redact.IsSensitiveName(k) || strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[")) && redact.Argument(k, v) != v {
+				return true
+			}
+		}
+		return false
+	}
+	for _, s := range ss {
+		if texts(s.Requests...) || texts(s.FullRequests...) {
+			return true
+		}
+		for _, m := range s.Assistant {
+			if text(m.Text) {
+				return true
+			}
+		}
+		for _, m := range s.Meta {
+			if texts(m.Cwd, m.Branch, m.Version, m.Model) {
+				return true
+			}
+		}
+		for _, c := range s.Calls {
+			if texts(c.Command, c.Output, c.FullOutput) || args(c.Args) || args(c.FullArgs) ||
+				texts(c.OutIDs...) || texts(c.OutCtx...) || texts(c.OutTokens...) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // writePrivate writes v as gob to path atomically, in dir, private to the
