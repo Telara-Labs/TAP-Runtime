@@ -163,8 +163,7 @@ func TestAManifestThatCannotBeComparedWidens(t *testing.T) {
 }
 
 // A version that drops a pin binds its tool across every server on the client
-// instead of the one server and tool that were approved, so it reaches more
-// (TAP-G05).
+// instead of the one server and tool that were approved, so it reaches more.
 func TestWideningFlagsARemovedPin(t *testing.T) {
 	pinned := strings.Replace(approved, "gmail.threads.search, effect: read}", "gmail.threads.search, effect: read, pin: {server: x, tool: y}}", 1)
 	if pinned == approved {

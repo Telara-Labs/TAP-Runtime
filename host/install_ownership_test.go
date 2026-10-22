@@ -9,7 +9,7 @@ import (
 )
 
 // A server of the user's own that happens to share TAP's name is not TAP's to
-// replace or delete (TAP-G07). Install refuses and says why, and remove leaves
+// replace or delete. Install refuses and says why, and remove leaves
 // it as it was, byte for byte. An entry TAP wrote is still removable.
 func TestInstallAndRemoveLeaveAHostOwnedEntryOfTheSameNameAlone(t *testing.T) {
 	home := t.TempDir()

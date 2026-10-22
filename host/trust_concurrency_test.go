@@ -50,8 +50,7 @@ func runTrustChild(t *testing.T, dir, mode string) *exec.Cmd {
 }
 
 // A forget in a terminal must not be undone by a long-lived runner that adds an
-// entry after a prompt, and a reader must never see a half-written store
-// (TAP-G08).
+// entry after a prompt, and a reader must never see a half-written store.
 func TestForgetIsNotUndoneByAConcurrentTrustAdd(t *testing.T) {
 	for round := 0; round < 8; round++ {
 		dir := t.TempDir()
