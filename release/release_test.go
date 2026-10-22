@@ -343,12 +343,12 @@ func TestTheReleaseCarriesItsNpmSources(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(h.Name, "node_modules") || !strings.HasPrefix(h.Name, "npm/") || !h.ModTime.Equal(time.Unix(0, 0)) && !h.ModTime.IsZero() {
+		if strings.Contains(h.Name, "node_modules") || !strings.HasPrefix(h.Name, "npm/") && h.Name != "LICENSE" || !h.ModTime.Equal(time.Unix(0, 0)) && !h.ModTime.IsZero() {
 			t.Fatalf("unexpected entry %q at %v", h.Name, h.ModTime)
 		}
 		seen[h.Name] = true
 	}
-	for _, want := range []string{"npm/package.json", "npm/pack.cjs", "npm/lib/pack.cjs", "npm/postinstall.cjs"} {
+	for _, want := range []string{"npm/package.json", "npm/pack.cjs", "npm/lib/pack.cjs", "npm/postinstall.cjs", "LICENSE"} {
 		if !seen[want] {
 			t.Fatalf("%s is missing from the npm sources", want)
 		}

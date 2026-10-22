@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -222,10 +223,16 @@ func (p *Publisher) Publish() Report {
 	}
 
 	// The GitHub release with the signed files.
-	assets, relErr := p.Run("gh", "release", "view", tag, "--repo", p.GitHubRepo, "--json", "assets", "--jq", ".assets | length")
-	n := strings.TrimSpace(assets)
+	assets, relErr := p.Run("gh", "release", "view", tag, "--repo", p.GitHubRepo, "--json", "assets", "--jq", ".assets[].name")
+	names := strings.Fields(assets)
+	n := strconv.Itoa(len(names))
 	switch {
-	case relErr == nil && n != "0" && n != "":
+	case relErr == nil && len(names) > 0:
+		// A release left by an interrupted upload has some files and not
+		// others; resuming from it would dispatch a publish that must fail.
+		if missing := missingAssets(names, "SHA256SUMS", "SHA256SUMS.sig", NpmSourcesName(p.Version)); len(missing) > 0 {
+			return fail("github release", tag+" exists but lacks "+strings.Join(missing, ", ")+"; delete the incomplete release and rerun")
+		}
 		add("github release", "skipped", tag+" exists with "+n+" files")
 	case published:
 		add("github release", "skipped", "npm already has "+p.Version)
@@ -415,4 +422,19 @@ func buildFromExportWithRunner(dir, key, githubRepo string, command releaseComma
 		_, err = command(src, []string{"GOWORK=off"}, "go", "run", "./release", "verify", "--dir", out, "--pub", "release/release.pub")
 		return err
 	}
+}
+
+// missingAssets returns the required names that are not in have.
+func missingAssets(have []string, required ...string) []string {
+	got := map[string]bool{}
+	for _, h := range have {
+		got[h] = true
+	}
+	var missing []string
+	for _, r := range required {
+		if !got[r] {
+			missing = append(missing, r)
+		}
+	}
+	return missing
 }

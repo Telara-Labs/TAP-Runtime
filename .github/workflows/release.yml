@@ -16,6 +16,10 @@ jobs:
     # Only main's copy of this workflow may publish; a dispatch from another
     # branch would run that branch's verifier.
     if: github.ref == 'refs/heads/main'
+    # The npm trusted publishers are bound to this environment, which only
+    # main may deploy to, so a workflow revision from another ref cannot
+    # obtain publishing credentials.
+    environment: npm-publish
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -61,8 +65,11 @@ jobs:
             echo "$RELEASE_TAG predates signed npm sources and cannot be published by this workflow" >&2
             exit 1
           fi
-          mkdir -p signed
-          tar -xzf "$src" -C signed
+          mkdir -p signed/release
+          tar -xzf "$src" -C signed --no-same-owner --no-same-permissions
+          # The packager checks the signature again; it gets main's key, never
+          # one from the release.
+          cp trusted/release/release.pub signed/release/release.pub
 
       - name: Test npm packaging
         run: node --test signed/npm/test/*.test.cjs

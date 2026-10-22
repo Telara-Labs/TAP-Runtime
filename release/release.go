@@ -509,7 +509,7 @@ func NpmSourcesName(version string) string {
 	return fmt.Sprintf("tap-npm-sources-%s.tar.gz", version)
 }
 
-// npmSources writes repo/npm, without node_modules, as a reproducible tar.gz:
+// npmSources writes repo/npm, without node_modules, and the repository LICENSE as a reproducible tar.gz:
 // sorted entries, zero times and owners, and only the executable bit kept from
 // the file mode. It returns the asset name, or "" when the repository has no
 // npm directory.
@@ -535,6 +535,11 @@ func npmSources(repo, out, version string) (string, error) {
 	})
 	if err != nil {
 		return "", err
+	}
+	// The packages carry the repository licence, so it travels with the
+	// sources it covers.
+	if lic := filepath.Join(repo, "LICENSE"); fileExists(lic) {
+		paths = append(paths, lic)
 	}
 	sort.Strings(paths)
 	var buf bytes.Buffer
@@ -576,4 +581,9 @@ func npmSources(repo, out, version string) (string, error) {
 	}
 	name := NpmSourcesName(version)
 	return name, os.WriteFile(filepath.Join(out, name), buf.Bytes(), 0o644)
+}
+
+func fileExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
 }

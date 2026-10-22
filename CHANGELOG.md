@@ -43,7 +43,11 @@ see [version review](docs/versioning.md).
   verifies the release with the verifier and public key from `main`, then
   tests and packages from those signed sources; it no longer executes code
   from a branch or tag checkout, and it refuses releases cut before this
-  change. Only `main`'s copy of the workflow may publish.
+  change. The signed sources include the licence the packages ship. Only
+  `main`'s copy of the workflow may publish, and publishing runs in the
+  `npm-publish` environment that only `main` can deploy to. Rerunning a
+  release whose GitHub upload was interrupted now stops and names the
+  missing files instead of dispatching a publish that cannot succeed.
 - **Handoff excerpts can no longer be closed by the text they quote (discover).**
   The request, tool arguments and tool results copied from a source session are
   wrapped in a fence one backtick longer than any run in the text, so a result

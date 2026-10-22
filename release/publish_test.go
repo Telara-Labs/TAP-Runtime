@@ -53,7 +53,13 @@ func (f *fakeHosts) run(dir string) func(name string, args ...string) (string, e
 				if !ok {
 					return "", fmt.Errorf("release not found")
 				}
-				return fmt.Sprint(n), nil
+				// A complete release: the signed sums and the npm sources,
+				// padded with runner files up to n names.
+				names := []string{"SHA256SUMS", "SHA256SUMS.sig", NpmSourcesName(strings.TrimPrefix(args[2], "v"))}
+				for i := len(names); i < n; i++ {
+					names = append(names, fmt.Sprintf("file-%d", i))
+				}
+				return strings.Join(names[:max(n, 0)], "\n") + "\n", nil
 			case "release create", "release upload":
 				f.releases[args[2]] = 12
 				return "", nil
@@ -424,5 +430,15 @@ func TestStagedNPMPackagesMatchTheReleaseTool(t *testing.T) {
 		if strings.Join(files, " ") != strings.Join([]string{"LICENSE", "README.md", "THIRD_PARTY_NOTICES.txt", bin, "package.json"}, " ") {
 			t.Fatalf("%s holds %v", w.Name, files)
 		}
+	}
+}
+
+func TestMissingAssetsNamesWhatAnIncompleteReleaseLacks(t *testing.T) {
+	got := missingAssets([]string{"SHA256SUMS", "tap-1.2.3-linux-amd64"}, "SHA256SUMS", "SHA256SUMS.sig", NpmSourcesName("1.2.3"))
+	if len(got) != 2 || got[0] != "SHA256SUMS.sig" || got[1] != "tap-npm-sources-1.2.3.tar.gz" {
+		t.Fatalf("missingAssets = %v", got)
+	}
+	if got := missingAssets([]string{"a", "b"}, "a"); len(got) != 0 {
+		t.Fatalf("missingAssets = %v", got)
 	}
 }
