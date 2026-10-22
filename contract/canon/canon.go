@@ -26,16 +26,26 @@ import (
 
 // CanonicalJSON returns the RFC 8785 (JSON Canonicalization Scheme) encoding of
 // a JSON document. Input is raw JSON bytes; numbers are interpreted as IEEE-754
-// doubles exactly as JCS requires. Duplicate object keys and invalid UTF-8 are
-// rejected rather than silently resolved.
+// doubles exactly as JCS requires. The input must be one I-JSON value (RFC
+// 7493) and nothing else but whitespace: duplicate object keys, invalid
+// UTF-8, escaped lone surrogates and anything after the value are rejected
+// rather than silently resolved. (Go's decoder would otherwise turn invalid
+// UTF-8 and lone surrogates into U+FFFD, so two different inputs would get
+// one encoding.)
 func CanonicalJSON(raw []byte) ([]byte, error) {
+	if !utf8.Valid(raw) {
+		return nil, fmt.Errorf("canonical json: invalid UTF-8")
+	}
+	if err := checkSurrogates(raw); err != nil {
+		return nil, err
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	v, err := decodeStrict(dec)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := dec.Token(); err == nil {
+	if len(bytes.TrimLeft(raw[dec.InputOffset():], " \t\r\n")) != 0 {
 		return nil, fmt.Errorf("canonical json: trailing data after document")
 	}
 	var buf bytes.Buffer
@@ -43,6 +53,62 @@ func CanonicalJSON(raw []byte) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// checkSurrogates rejects a \u escape of a UTF-16 surrogate that is not
+// one half of a pair: a high surrogate followed at once by an escaped low
+// one. Escapes the decoder cannot read are left to it.
+func checkSurrogates(raw []byte) error {
+	inString := false
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if !inString {
+			inString = c == '"'
+			continue
+		}
+		switch c {
+		case '"':
+			inString = false
+		case '\\':
+			if i+1 >= len(raw) {
+				return nil
+			}
+			if raw[i+1] != 'u' {
+				i++
+				continue
+			}
+			r, ok := hex4(raw, i+2)
+			if !ok {
+				i++
+				continue
+			}
+			switch {
+			case r >= 0xDC00 && r <= 0xDFFF:
+				return fmt.Errorf("canonical json: lone low surrogate \\u%04x", r)
+			case r >= 0xD800 && r <= 0xDBFF:
+				lo, ok := rune(0), false
+				if i+7 < len(raw) && raw[i+6] == '\\' && raw[i+7] == 'u' {
+					lo, ok = hex4(raw, i+8)
+				}
+				if !ok || lo < 0xDC00 || lo > 0xDFFF {
+					return fmt.Errorf("canonical json: lone high surrogate \\u%04x", r)
+				}
+				i += 11
+			default:
+				i += 5
+			}
+		}
+	}
+	return nil
+}
+
+// hex4 reads the four hex digits at raw[at:].
+func hex4(raw []byte, at int) (rune, bool) {
+	if at+4 > len(raw) {
+		return 0, false
+	}
+	v, err := strconv.ParseUint(string(raw[at:at+4]), 16, 32)
+	return rune(v), err == nil
 }
 
 // CanonicalValue canonicalizes an in-memory Go value (anything encoding/json

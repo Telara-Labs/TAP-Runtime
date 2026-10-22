@@ -8,6 +8,11 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **Canonical JSON rejects input that is not one valid value (contract).**
+  `canon.CanonicalJSON` accepted trailing garbage such as `{}x`, and turned
+  invalid UTF-8 and escaped lone surrogates into U+FFFD, so different inputs
+  could share one encoding and one digest. All three are now errors. Valid
+  input encodes exactly as before, so existing digests are unchanged.
 - **A Codex sub-rollout has the same session ID however it is read (discover).**
   A rollout that opens with its parent's meta used to take its parent's ID
   when read on its own, and its file name when read with its parent. It is
