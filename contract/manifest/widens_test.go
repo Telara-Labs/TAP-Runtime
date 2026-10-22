@@ -161,3 +161,28 @@ func TestAManifestThatCannotBeComparedWidens(t *testing.T) {
 		t.Fatalf("control failed: a manifest compared with itself widened: %v", w)
 	}
 }
+
+// A version that drops a pin binds its tool across every server on the client
+// instead of the one server and tool that were approved, so it reaches more
+// (TAP-G05).
+func TestWideningFlagsARemovedPin(t *testing.T) {
+	pinned := strings.Replace(approved, "gmail.threads.search, effect: read}", "gmail.threads.search, effect: read, pin: {server: x, tool: y}}", 1)
+	if pinned == approved {
+		t.Fatal("the fixture does not contain the tool to pin")
+	}
+	a, err := Parse([]byte(pinned))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := Parse([]byte(approved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(Widening(a, n), "; ")
+	if !strings.Contains(got, "gmail.threads.search") || !strings.Contains(got, "pin") {
+		t.Fatalf("a removed pin widened nothing: %q", got)
+	}
+	if same := Widening(a, a); len(same) != 0 {
+		t.Fatalf("an unchanged pin widens: %v", same)
+	}
+}

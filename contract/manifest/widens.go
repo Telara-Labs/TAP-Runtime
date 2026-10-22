@@ -15,6 +15,8 @@ import (
 //
 //   - a tool or capability not declared before, or a higher effect class on
 //     one that was;
+//   - a pin changed or removed on a tool (removing it lets the tool bind to
+//     any server that offers the capability);
 //   - a command, file, environment or fetch entry not declared before;
 //   - a changed pattern in any of those, unless the change only removes an
 //     entry. Whether one pattern is contained in another is not attempted:
@@ -78,7 +80,14 @@ func Widening(approved, next *Manifest) []string {
 	}
 	for _, t := range next.Tools {
 		name := CapabilityName(t.Capability)
-		if before, ok := pins[name]; ok && pinOf(t) != before && pinOf(t) != "" {
+		before, ok := pins[name]
+		switch {
+		case !ok || pinOf(t) == before:
+		case pinOf(t) == "":
+			// An unpinned tool binds across every server on the client, not
+			// the one server and tool that were approved.
+			add("tool %s: capability %s was pinned to %s and is no longer pinned", t.Alias, name, before)
+		default:
 			add("tool %s: capability %s is now pinned to %s", t.Alias, name, pinOf(t))
 		}
 	}

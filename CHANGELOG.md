@@ -8,6 +8,16 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **The run digest can no longer be forged by moving bytes between files (contract).**
+  `manifest.RunDigest` now hashes `primitive.yaml` and the entrypoint each
+  length-prefixed under a domain label (`RunDigestOf`). Before, a manifest ending
+  in a comment that held program text digested the same as a manifest without it
+  plus a program that began with that text. Every digest changes, so each
+  approval and attestation run_digest is asked for again. The host (`run_setup.go`,
+  `diff.go`) and discover take the new rule when the contract pin is bumped.
+- **A version that removes a tool pin now counts as widening (contract).** An
+  unpinned tool binds across every server on the client, so dropping the pin
+  reaches more than the approved version did.
 - Runner builds and CI use patched Go 1.26.10 for the standard-library crypto/x509 vulnerability fix.
 - Public commit-message hygiene now runs as an independent CI job, so a policy violation does not skip platform tests.
 - **A declared write is asked about whatever the server annotates.** The effect
