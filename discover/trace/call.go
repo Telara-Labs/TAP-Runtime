@@ -73,6 +73,11 @@ type Call struct {
 	// Src is where the reader found the call and its result, so evidence
 	// can cite the source exactly. It describes the read, not the call.
 	Src CallSource `json:"-"`
+	// FullArgs and FullOutput are the arguments and the result whole,
+	// where Args and Output are bounded. Readers fill them only when asked
+	// (history.ReadOptions.Full), with credentials redacted.
+	FullArgs   map[string]string `json:",omitempty"`
+	FullOutput string            `json:",omitempty"`
 }
 
 type ResultCollection struct {
@@ -355,6 +360,10 @@ type Session struct {
 	// use them.
 	Assistant []AssistantMessage `json:",omitempty"`
 	Meta      []SessionMeta      `json:",omitempty"`
+	// FullRequests are Requests whole, where Requests are bounded. Readers
+	// fill them only when asked (history.ReadOptions.Full), with
+	// credentials redacted.
+	FullRequests []string `json:",omitempty"`
 }
 
 // AssistantMessage is one piece of prose the model wrote. It was written

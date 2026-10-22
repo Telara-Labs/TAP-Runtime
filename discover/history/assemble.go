@@ -127,6 +127,17 @@ func (a *Assembler) clean(s string) string {
 
 func (a *Assembler) conversation() bool { return a.opts != nil && a.opts.Conversation }
 
+func (a *Assembler) full() bool { return a.opts != nil && a.opts.Full }
+
+// padFullRequests lines FullRequests up with the first n Requests: a
+// request the session added itself (the empty one before any message) is
+// whole as it is.
+func (a *Assembler) padFullRequests(n int) {
+	for len(a.S.FullRequests) < n {
+		a.S.FullRequests = append(a.S.FullRequests, a.S.Requests[len(a.S.FullRequests)])
+	}
+}
+
 // Add applies one event.
 func (a *Assembler) Add(e Event) {
 	switch e := e.(type) {
@@ -138,7 +149,13 @@ func (a *Assembler) Add(e Event) {
 		if role == "" {
 			role = "user"
 		}
-		a.S.AddRequestWithRole(a.clean(e.Text), role)
+		text := a.clean(e.Text)
+		n := len(a.S.Requests)
+		a.S.AddRequestWithRole(text, role)
+		if a.full() && len(a.S.Requests) > n {
+			a.padFullRequests(len(a.S.Requests) - 1)
+			a.S.FullRequests = append(a.S.FullRequests, trace.RequestText(text))
+		}
 	case AssistantText:
 		if !a.conversation() || strings.TrimSpace(e.Text) == "" {
 			return
@@ -196,7 +213,11 @@ func (a *Assembler) Add(e Event) {
 			return
 		}
 		c := &a.S.Calls[idx[n]]
-		RecordResult(c, e.Text)
+		text := a.clean(e.Text)
+		RecordResult(c, text)
+		if a.full() {
+			c.FullOutput = text
+		}
 		if e.Line > 0 {
 			c.Src.ResultLine = e.Line
 		}
@@ -252,6 +273,9 @@ func (a *Assembler) Finish() trace.Session {
 		}
 	}
 	a.S.Skipped = a.skipped
+	if a.full() {
+		a.padFullRequests(len(a.S.Requests))
+	}
 	for i := range a.S.Assistant {
 		m := &a.S.Assistant[i]
 		m.Final = i == len(a.S.Assistant)-1 || a.S.Assistant[i+1].Request != m.Request

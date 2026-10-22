@@ -73,7 +73,7 @@ func (r ClaudeCode) each(since time.Time, p trace.Progress, o *ReadOptions, yiel
 			st.UnreadableFiles++
 			return nil
 		}
-		if s := r.Session; len(s.Calls) > 0 && !s.Start.Before(since) {
+		if s := r.Session; keepSession(s, o) && !s.Start.Before(since) {
 			return yield(s)
 		}
 		return nil
@@ -253,7 +253,9 @@ func claudeEvents(ln ClaudeLine, session string, o *ReadOptions) []Event {
 			continue
 		}
 		c := trace.Call{Session: session, ID: b.ID, Time: ln.Timestamp}
-		c.Tool, c.Command, c.Args, c.RawArgs, c.MCPServer, c.MCPTool = DoubleUnderscore(b.Name, b.Input)
+		input := redactArgs(b.Input, o)
+		c.Tool, c.Command, c.Args, c.RawArgs, c.MCPServer, c.MCPTool = DoubleUnderscore(b.Name, input)
+		keepFullArgs(&c, input, o)
 		out = append(out, ToolCall{Key: b.ID, Turn: "msg:" + ln.Message.ID, Call: c})
 	}
 	return out

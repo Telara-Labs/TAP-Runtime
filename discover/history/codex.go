@@ -94,7 +94,7 @@ func (r Codex) each(since time.Time, p trace.Progress, o *ReadOptions, yield fun
 			st.UnreadableFiles++
 			return nil
 		}
-		if len(s.Calls) == 0 || s.Start.Before(since) {
+		if !keepSession(s, o) || s.Start.Before(since) {
 			return nil
 		}
 		// A sub-rollout can open with its parent's meta. Session identity
@@ -286,6 +286,9 @@ func parseCodexWith(path string, fh io.Reader, o *ReadOptions) (res trace.Sessio
 					}
 					if onlyHarness {
 						s.Requests = []string{trace.TruncateUTF8(a.clean(prompt), 4000)}
+						if o != nil && o.Full {
+							s.FullRequests = []string{a.clean(prompt)}
+						}
 						s.RequestRoles = []string{"scheduled"}
 					}
 				}
@@ -328,17 +331,28 @@ func parseCodexWith(path string, fh io.Reader, o *ReadOptions) (res trace.Sessio
 		case p.Type == "function_call":
 			var args map[string]json.RawMessage
 			_ = json.Unmarshal([]byte(RawString(p.Arguments)), &args)
-			add(CodexCall(*s, ln.Timestamp, p.Namespace, p.Name, args))
+			args = redactArgs(args, o)
+			c := CodexCall(*s, ln.Timestamp, p.Namespace, p.Name, args)
+			keepFullArgs(&c, args, o)
+			add(c)
 		case p.Type == "local_shell_call":
-			add(trace.Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: "shell", Command: strings.Join(p.Action.Command, " ")})
+			add(trace.Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: "shell", Command: a.clean(strings.Join(p.Action.Command, " "))})
 		case p.Type == "custom_tool_call" && p.Name == "exec":
 			execInputs[p.CallID] = p.Input
 			for _, inner := range JsToolCalls(p.Input) {
-				add(CodexCall(*s, ln.Timestamp, "", inner.Name, inner.Args))
+				args := redactArgs(inner.Args, o)
+				c := CodexCall(*s, ln.Timestamp, "", inner.Name, args)
+				keepFullArgs(&c, args, o)
+				add(c)
 			}
 		case p.Type == "custom_tool_call":
 			// apply_patch and other freeform tools: the input is the argument.
-			add(trace.Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: p.Name, Args: map[string]string{"input": Truncate(p.Input, MaxArg)}})
+			input := a.clean(p.Input)
+			c := trace.Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: p.Name, Args: map[string]string{"input": Truncate(input, MaxArg)}}
+			if o != nil && o.Full {
+				c.FullArgs = map[string]string{"input": input}
+			}
+			add(c)
 		}
 	}
 	if s.Start.IsZero() && len(s.Calls) > 0 {

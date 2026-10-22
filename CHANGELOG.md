@@ -8,6 +8,13 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **Reads with options can keep question-and-answer sessions and whole texts (discover).**
+  `ReadOptions.KeepEmpty` keeps sessions that made no tool call, which
+  discover leaves out. `ReadOptions.Full` keeps requests, tool arguments and
+  tool results whole (`Session.FullRequests`, `Call.FullArgs`,
+  `Call.FullOutput`) beside the bounded fields. Every one of those texts is
+  redacted whole before it is bounded, so a credential cut at a size limit, or
+  a short password inside a long JSON argument, is still caught.
 - **History readers can keep the conversation, not only the tool calls (discover).**
   `ClaudeCode.EachWith`, `Codex.EachWith`, `ReadClaudeFileWith` and
   `ReadCodexFileWith` take `history.ReadOptions`. With `Conversation` set, a
