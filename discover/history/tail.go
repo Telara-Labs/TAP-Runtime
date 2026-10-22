@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
@@ -152,7 +154,8 @@ func TailCodexFile(path string, from *TailState, o ReadOptions) (trace.Session, 
 				return tailDecoder{}, false
 			}
 			a := RestoreAssembler(st.Assembler)
-			return dec(&codexDecoder{a: a, o: a.opts, st: copyCodexState(*st.Codex)}), true
+			file := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+			return dec(&codexDecoder{a: a, o: a.opts, file: file, st: copyCodexState(*st.Codex)}), true
 		})
 }
 

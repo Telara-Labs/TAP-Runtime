@@ -172,9 +172,10 @@ type CodexState struct {
 
 // codexDecoder reads a rollout line by line into its assembler.
 type codexDecoder struct {
-	a  *Assembler
-	o  *ReadOptions
-	st CodexState
+	a    *Assembler
+	o    *ReadOptions
+	st   CodexState
+	file string // the rollout's file name, without .jsonl
 }
 
 func newCodexDecoder(path string, o *ReadOptions) *codexDecoder {
@@ -183,7 +184,7 @@ func newCodexDecoder(path string, o *ReadOptions) *codexDecoder {
 	if o != nil {
 		a = NewAssemblerWith("codex", id, *o)
 	}
-	return &codexDecoder{a: a, o: o, st: CodexState{Exec: map[string]CodexExecShape{}, MCPEnds: map[string]codexMCPResult{}}}
+	return &codexDecoder{a: a, o: o, file: id, st: CodexState{Exec: map[string]CodexExecShape{}, MCPEnds: map[string]codexMCPResult{}}}
 }
 
 func parseCodexWith(path string, fh io.Reader, o *ReadOptions) (res trace.Session, err error) {
@@ -203,9 +204,21 @@ func parseCodexWith(path string, fh io.Reader, o *ReadOptions) (res trace.Sessio
 	return d.a.Finish(), sc.Err()
 }
 
-// fix completes a session read so far: its start, its calls' session, and
-// a request for calls made before any message.
+// codexFileID is the thread ID a rollout's file name ends in.
+var codexFileID = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// fix completes a session read so far: its identity, its start, its calls'
+// session, and a request for calls made before any message.
 func (d *codexDecoder) fix(s *trace.Session) {
+	// A sub-rollout can open with its parent's meta. Its file name carries
+	// its own thread ID, so a meta naming another thread is the parent's,
+	// and the session is named by its file, whatever else is read with it.
+	if own := codexFileID.FindString(d.file); own != "" && d.st.MetaSeen && s.ID != own && s.ID != d.file {
+		if d.o != nil {
+			s.Parent = &trace.SessionLink{Relation: "fork", Session: s.ID}
+		}
+		s.ID = d.file
+	}
 	if s.Start.IsZero() && len(s.Calls) > 0 {
 		s.Start = s.Calls[0].Time
 	}

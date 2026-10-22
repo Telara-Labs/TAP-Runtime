@@ -8,6 +8,11 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **A Codex sub-rollout has the same session ID however it is read (discover).**
+  A rollout that opens with its parent's meta used to take its parent's ID
+  when read on its own, and its file name when read with its parent. It is
+  now named by its file either way, and a read with options links it to its
+  parent (`Session.Parent`, relation `fork`).
 - **The redaction rules carry an epoch and a digest (discover).**
   `redact.CurrentRuleset()` returns `{Epoch, Digest}`: `RulesetEpoch`, which
   goes up whenever a rule changes what is redacted, and the SHA-256 of the
