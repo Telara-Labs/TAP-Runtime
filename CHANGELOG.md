@@ -8,6 +8,11 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **npm packages are built from the tagged release, not from main (release).**
+  The publish workflow checked out `main` for its packaging scripts and the
+  release public key, so a commit landing after the tag changed what was
+  packaged and which key verified the release. It now checks out the tag it
+  publishes.
 - **Handoff excerpts can no longer be closed by the text they quote (discover).**
   The request, tool arguments and tool results copied from a source session are
   wrapped in a fence one backtick longer than any run in the text, so a result

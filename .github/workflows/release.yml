@@ -18,10 +18,13 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Check out packaging source
+      # Package from the tagged commit, not main. The packaging scripts and the
+      # release public key must be the ones the signed release was cut from;
+      # main can move after the tag.
+      - name: Check out the tagged release source
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: refs/tags/${{ inputs.tag }}
 
       - name: Set up Go
         uses: actions/setup-go@v6
