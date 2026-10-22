@@ -8,6 +8,12 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **Handoff excerpts can no longer be closed by the text they quote (discover).**
+  The request, tool arguments and tool results copied from a source session are
+  wrapped in a fence one backtick longer than any run in the text, so a result
+  holding its own fence cannot end the block and add headings or instructions
+  the authoring agent would read as the handoff's. Takes effect in the runner
+  when its `discover` pin is bumped.
 - **A forgotten trust stays forgotten, and a store is never read back half written.**
   `trusted.json` is changed under a lock shared by every TAP process, read fresh
   inside it, and replaced by renaming a whole file. Before, a forget in a

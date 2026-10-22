@@ -399,7 +399,8 @@ func excerpt(p Primitive, ex Execution, ie IndexedExecution, s *trace.Session, t
 		fmt.Fprintf(&b, "This execution disagrees with the majority source for: %s\n", strings.Join(ie.Contradicts, ", "))
 	}
 	if s != nil && ex.Request < len(s.Requests) {
-		fmt.Fprintf(&b, "\n## Request\n\n```text\n%s\n```\n", redact.Redact(s.Requests[ex.Request]))
+		b.WriteString("\n## Request\n\n")
+		b.WriteString(fenced(redact.Redact(s.Requests[ex.Request])))
 	}
 	calls := map[string]trace.Call{}
 	if s != nil {
@@ -425,9 +426,9 @@ func excerpt(p Primitive, ex Execution, ie IndexedExecution, s *trace.Session, t
 		}
 		b.WriteString("\n")
 		if c, ok := calls[ic.CallID]; ok {
-			b.WriteString("\nArguments:\n\n```text\n")
+			var args strings.Builder
 			if c.Tool == "shell" {
-				b.WriteString(redact.Redact(c.Command))
+				args.WriteString(redact.Redact(c.Command))
 			} else {
 				keys := make([]string, 0, len(c.Args))
 				for k := range c.Args {
@@ -435,10 +436,11 @@ func excerpt(p Primitive, ex Execution, ie IndexedExecution, s *trace.Session, t
 				}
 				sort.Strings(keys)
 				for _, k := range keys {
-					fmt.Fprintf(&b, "%s = %s\n", k, redact.Redact(c.Args[k]))
+					fmt.Fprintf(&args, "%s = %s\n", k, redact.Redact(c.Args[k]))
 				}
 			}
-			b.WriteString("\n```\n")
+			b.WriteString("\nArguments:\n\n")
+			b.WriteString(fenced(args.String()))
 		}
 		if t != nil && ic.Result != nil {
 			text := ""
@@ -454,7 +456,9 @@ func excerpt(p Primitive, ex Execution, ie IndexedExecution, s *trace.Session, t
 				note = fmt.Sprintf("\n(First %d of %d bytes; the full result is at %s.)\n", maxExcerpt, len(text), ic.Result.where())
 				text = trace.TruncateUTF8(text, maxExcerpt)
 			}
-			fmt.Fprintf(&b, "\nResult:\n\n```text\n%s\n```\n%s", redact.Redact(text), note)
+			b.WriteString("\nResult:\n\n")
+			b.WriteString(fenced(redact.Redact(text)))
+			b.WriteString(note)
 		}
 		var obs []string
 		for _, o := range ex.Observed {
@@ -471,6 +475,27 @@ func excerpt(p Primitive, ex Execution, ie IndexedExecution, s *trace.Session, t
 		}
 	}
 	return b.String()
+}
+
+// fenced wraps text from a session in a code block it cannot close. The text is
+// untrusted: a tool result or a request can hold a fence of its own, and with a
+// fixed three-backtick fence what followed it would read as the handoff's own
+// headings and instructions. The fence is one backtick longer than the longest
+// run of backticks in the text, and never shorter than three.
+func fenced(text string) string {
+	longest, run := 0, 0
+	for _, r := range text {
+		if r == '`' {
+			run++
+			if run > longest {
+				longest = run
+			}
+		} else {
+			run = 0
+		}
+	}
+	fence := strings.Repeat("`", max(3, longest+1))
+	return fence + "text\n" + strings.TrimSuffix(text, "\n") + "\n" + fence + "\n"
 }
 
 func dedupeLines(xs []string) []string {
