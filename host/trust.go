@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -117,13 +118,39 @@ func (t *trustStore) add(digest, name, path string, origins ...string) error {
 	if t.path == "" {
 		return fmt.Errorf("this machine has no user config directory to keep the answer in")
 	}
-	all := t.load()
-	all[digest] = trusted{Name: name, Path: path, At: time.Now().UTC().Format(time.RFC3339), FetchOrigins: origins}
-	b, _ := json.MarshalIndent(all, "", "  ")
-	if err := os.MkdirAll(filepath.Dir(t.path), 0o700); err != nil {
+	return t.change(func(all map[string]trusted) bool {
+		all[digest] = trusted{Name: name, Path: path, At: time.Now().UTC().Format(time.RFC3339), FetchOrigins: origins}
+		return true
+	})
+}
+
+// change is the one way the store is written. It holds the store's lock across
+// processes, reads what is on disk now, lets fn edit it, and replaces the file
+// whole. A forget in a terminal and an add in the long-lived runner each see
+// the other's result instead of overwriting it. A store that cannot be read is
+// an error, never an empty store, so one bad read cannot erase every trust.
+// The caller holds t.mu.
+func (t *trustStore) change(fn func(all map[string]trusted) bool) error {
+	unlock, err := lockBeside(t.path)
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(t.path, append(b, '\n'), 0o600)
+	defer unlock()
+	all := map[string]trusted{}
+	b, err := os.ReadFile(t.path)
+	switch {
+	case err == nil && len(bytes.TrimSpace(b)) > 0:
+		if err := json.Unmarshal(b, &all); err != nil {
+			return fmt.Errorf("%s cannot be read (%v); it was left unchanged", t.path, err)
+		}
+	case err != nil && !os.IsNotExist(err):
+		return err
+	}
+	if !fn(all) {
+		return nil
+	}
+	out, _ := json.MarshalIndent(all, "", "  ")
+	return replaceConfigFile(t.path, append(out, '\n'), 0o600)
 }
 
 // Truster asks the person whether a package may run. ok is false for a no,
@@ -228,23 +255,21 @@ func trustCommand(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case len(args) == 2 && args[0] == "--forget":
 		store.mu.Lock()
-		all := store.load()
 		removed := 0
-		for d := range all {
-			if strings.HasPrefix(d, args[1]) {
-				delete(all, d)
-				removed++
+		err := store.change(func(all map[string]trusted) bool {
+			for d := range all {
+				if strings.HasPrefix(d, args[1]) {
+					delete(all, d)
+					removed++
+				}
 			}
-		}
-		if removed > 0 {
-			b, _ := json.MarshalIndent(all, "", "  ")
-			if err := os.WriteFile(store.path, append(b, '\n'), 0o600); err != nil {
-				store.mu.Unlock()
-				fmt.Fprintln(stderr, "tap trust:", err)
-				return 1
-			}
-		}
+			return removed > 0
+		})
 		store.mu.Unlock()
+		if err != nil {
+			fmt.Fprintln(stderr, "tap trust:", err)
+			return 1
+		}
 		fmt.Fprintf(stdout, "forgot %d package(s)\n", removed)
 		return 0
 	case len(args) == 1 && !strings.HasPrefix(args[0], "-"):
@@ -311,23 +336,20 @@ func (t *trustStore) addFetchGrant(digest, kind string) error {
 	if t.path == "" {
 		return fmt.Errorf("this machine has no user config directory to keep the answer in")
 	}
-	all := t.load()
-	e := all[digest]
-	for _, k := range e.FetchGrants {
-		if k == kind {
-			return nil
+	return t.change(func(all map[string]trusted) bool {
+		e := all[digest]
+		for _, k := range e.FetchGrants {
+			if k == kind {
+				return false
+			}
 		}
-	}
-	if e.At == "" {
-		e.At = time.Now().UTC().Format(time.RFC3339)
-	}
-	e.FetchGrants = append(e.FetchGrants, kind)
-	all[digest] = e
-	b, _ := json.MarshalIndent(all, "", "  ")
-	if err := os.MkdirAll(filepath.Dir(t.path), 0o700); err != nil {
-		return err
-	}
-	return os.WriteFile(t.path, append(b, '\n'), 0o600)
+		if e.At == "" {
+			e.At = time.Now().UTC().Format(time.RFC3339)
+		}
+		e.FetchGrants = append(e.FetchGrants, kind)
+		all[digest] = e
+		return true
+	})
 }
 
 func (t *trustStore) fetchGrants(digest string) []string {

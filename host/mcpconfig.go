@@ -84,7 +84,7 @@ func setMCPEntry(path, key, name string, entry any) (bool, error) {
 			}
 		}
 	}
-	return true, os.WriteFile(path, out.Bytes(), 0o600)
+	return true, replaceConfigFile(path, out.Bytes(), 0o600)
 }
 
 // object is a JSON object that keeps its keys in order and its values as

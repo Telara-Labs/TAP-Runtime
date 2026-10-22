@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Telara-Labs/TAP-Runtime/internal/sharedwire"
 	"os"
 	"path/filepath"
 	"sync"
@@ -92,7 +93,7 @@ func acquire(dir, runID string, now time.Time) (*Lease, error) {
 		return nil, err
 	}
 	defer lock.Close()
-	if err := lockFile(lock); err != nil {
+	if err := sharedwire.LockFile(lock); err != nil {
 		return nil, err
 	}
 

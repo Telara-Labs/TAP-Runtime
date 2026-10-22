@@ -79,6 +79,21 @@ func install(args []string, stdout, stderr io.Writer, animate bool) int {
 		fmt.Fprintln(stderr, "cannot tell where this program is:", err)
 		return 1
 	}
+	// Two installs at once would each read a host's file and the later write
+	// would drop the earlier one's entry.
+	if !*print {
+		cfg, err := userConfigDir()
+		if err != nil {
+			fmt.Fprintln(stderr, "cannot tell where TAP keeps its configuration:", err)
+			return 1
+		}
+		unlock, err := lockBeside(filepath.Join(cfg, "tap", "install"))
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		defer unlock()
+	}
 	// Named agents must succeed; with all or detected, a missing program is
 	// reported and skipped.
 	explicit := true
@@ -538,7 +553,7 @@ func addGemini(path, name, self string, env envFlags) error {
 			return err
 		}
 	}
-	return os.WriteFile(path, append(out, '\n'), 0o600)
+	return replaceConfigFile(path, append(out, '\n'), 0o600)
 }
 
 type geminiHook struct {
@@ -628,7 +643,7 @@ func removeGemini(path, name string) (bool, error) {
 	if err := os.WriteFile(path+".tap-backup", raw, 0o600); err != nil {
 		return false, err
 	}
-	return true, os.WriteFile(path, append(out, '\n'), 0o600)
+	return true, replaceConfigFile(path, append(out, '\n'), 0o600)
 }
 
 func installArgv(client, scope, name, self string, env envFlags) ([]string, error) {

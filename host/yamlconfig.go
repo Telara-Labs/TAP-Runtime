@@ -112,7 +112,7 @@ func setYAMLEntry(path, key, name string, entry any) (bool, error) {
 			}
 		}
 	}
-	return true, os.WriteFile(path, out.Bytes(), 0o600)
+	return true, replaceConfigFile(path, out.Bytes(), 0o600)
 }
 
 func mappingIndex(m *yaml.Node, key string) int {

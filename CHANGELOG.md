@@ -8,6 +8,14 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **A forgotten trust stays forgotten, and a store is never read back half written.**
+  `trusted.json` is changed under a lock shared by every TAP process, read fresh
+  inside it, and replaced by renaming a whole file. Before, a forget in a
+  terminal could be undone by the long-lived runner's next add, and a store
+  that failed to parse was treated as empty, so the next add dropped every
+  trust. A store that cannot be read is now an error and is left alone. Host
+  configuration files (Cursor, Goose, Gemini and the other hosts `tap install`
+  edits) are replaced the same way, and two installs at once take turns.
 - **`tap install` and `tap install --remove` leave a server of your own that shares TAP's name.**
   An entry in a host's MCP list is replaced or removed only when it runs a TAP
   runner with `serve`. Install now refuses with the reason and `--name` as the
