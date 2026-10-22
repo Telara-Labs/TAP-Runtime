@@ -8,6 +8,11 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **The redaction rules carry an epoch and a digest (discover).**
+  `redact.CurrentRuleset()` returns `{Epoch, Digest}`: `RulesetEpoch`, which
+  goes up whenever a rule changes what is redacted, and the SHA-256 of the
+  RFC 8785 encoding of every rule's name and pattern. A record can say which
+  rules redacted it, and two programs can check they apply the same rules.
 - **The history cache never stores a credential (discover).**
   A session file or conversation holding anything shaped like a credential,
   or an argument redaction would change by its name, is no longer written
