@@ -159,6 +159,33 @@ func parseCodex(path string, fh io.Reader) (trace.Session, error) {
 	return parseCodexWith(path, fh, nil)
 }
 
+// CodexState is what reading a rollout carries from one line to the next,
+// beside the assembler: whether the file's own meta was seen, and the calls
+// still awaiting a result. An exec call keeps what its source says about
+// how its result reads, not the source.
+type CodexState struct {
+	MetaSeen   bool
+	Automation bool
+	Exec       map[string]CodexExecShape
+	MCPEnds    map[string]codexMCPResult
+}
+
+// codexDecoder reads a rollout line by line into its assembler.
+type codexDecoder struct {
+	a  *Assembler
+	o  *ReadOptions
+	st CodexState
+}
+
+func newCodexDecoder(path string, o *ReadOptions) *codexDecoder {
+	id := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+	a := NewAssembler("codex", id)
+	if o != nil {
+		a = NewAssemblerWith("codex", id, *o)
+	}
+	return &codexDecoder{a: a, o: o, st: CodexState{Exec: map[string]CodexExecShape{}, MCPEnds: map[string]codexMCPResult{}}}
+}
+
 func parseCodexWith(path string, fh io.Reader, o *ReadOptions) (res trace.Session, err error) {
 	// One file the parser cannot follow is skipped, not the whole run.
 	defer func() {
@@ -166,195 +193,19 @@ func parseCodexWith(path string, fh io.Reader, o *ReadOptions) (res trace.Sessio
 			res, err = trace.Session{}, fmt.Errorf("%s: unreadable: %v", path, r)
 		}
 	}()
-	id := strings.TrimSuffix(filepath.Base(path), ".jsonl")
-	a := NewAssembler("codex", id)
-	if o != nil {
-		a = NewAssemblerWith("codex", id, *o)
-	}
-	conv := o != nil && o.Conversation
-	s := &a.S
-	metaSeen := false
-	automationSession := false
-	execInputs := map[string]string{}      // functions.exec source, for result attribution
-	mcpEnds := map[string]codexMCPResult{} // call_id -> the clean result Codex recorded
-	curID := ""
-	// Calls under one call_id: one, or several from one exec script.
-	add := func(c trace.Call) { a.Add(ToolCall{Key: curID, Call: c}) }
+	d := newCodexDecoder(path, o)
 	sc := bufio.NewScanner(fh)
 	sc.Buffer(make([]byte, 1<<20), 128<<20)
 	for sc.Scan() {
-		b := sc.Bytes()
-		// Most lines are token counts and reasoning; skip them unparsed.
-		if JsonHasAny(b, `"token_count"`) {
-			// Usage of the model turn that issued the calls since the last one.
-			var tc struct {
-				Payload struct {
-					Info *struct {
-						Last struct {
-							Input  float64 `json:"input_tokens"`
-							Cached float64 `json:"cached_input_tokens"`
-							Output float64 `json:"output_tokens"`
-						} `json:"last_token_usage"`
-					} `json:"info"`
-				} `json:"payload"`
-			}
-			if json.Unmarshal(b, &tc) == nil && tc.Payload.Info != nil {
-				l := tc.Payload.Info.Last
-				a.Add(TurnUsage{Usage: trace.Usage{Fresh: l.Input - l.Cached, Cached: l.Cached, Output: l.Output}})
-			}
-			continue
-		}
-		if !JsonHasAny(b, `"session_meta"`, `"function_call"`, `"custom_tool_call"`, `"local_shell_call"`, `"role":"user"`, `"role": "user"`, `_call_output"`, `"mcp_tool_call_end"`) &&
-			(!conv || !JsonHasAny(b, `"role":"assistant"`, `"role": "assistant"`, `"turn_context"`)) {
-			continue
-		}
-		var ln CodexLine
-		if json.Unmarshal(b, &ln) != nil {
-			a.Skip()
-			continue
-		}
-		p := ln.Payload
-		curID = p.CallID
-		switch {
-		case p.Type == "mcp_tool_call_end":
-			// Codex records an MCP call's result here, clean, before the
-			// function_call_output that carries it inside a text envelope.
-			if r, ok := codexMCPEnd(p.Result); ok {
-				mcpEnds[p.CallID] = r
-			}
-		case p.Type == "message" && p.Role == "user":
-			var blocks []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			}
-			_ = json.Unmarshal(p.Content, &blocks)
-			for _, bl := range blocks {
-				if bl.Type == "input_text" && trace.IsRequest(bl.Text) {
-					role := "user"
-					if automationSession && CodexInjectedAutomationContext(bl.Text) {
-						role = "synthetic_context"
-					}
-					a.Add(UserText{Text: bl.Text, Role: role})
-					break
-				}
-			}
-		case conv && p.Type == "message" && p.Role == "assistant":
-			var blocks []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			}
-			_ = json.Unmarshal(p.Content, &blocks)
-			for _, bl := range blocks {
-				if bl.Type == "output_text" {
-					a.Add(AssistantText{Text: bl.Text})
-				}
-			}
-		case ln.Type == "turn_context":
-			if conv {
-				a.Add(SessionMeta{Cwd: p.Cwd, Model: p.Model})
-			}
-		case ln.Type == "session_meta":
-			// A forked or resumed rollout also carries its parent's meta
-			// later in the file; the first one is this file's own.
-			if p.ID != "" && !metaSeen {
-				s.ID, metaSeen = p.ID, true
-				automationSession = p.ThreadSource == "automation"
-				if conv {
-					m := SessionMeta{Cwd: p.Cwd, Version: p.CLIVersion, Model: p.Model}
-					if p.Git != nil {
-						m.Branch = p.Git.Branch
-					}
-					a.Add(m)
-				}
-			}
-			if s.Start.IsZero() {
-				s.Start = ln.Timestamp
-			}
-		case strings.HasSuffix(p.Type, "_call_output"):
-			// Scheduled runs receive their task in a pre-run automation record.
-			// The only user message before it can be an injected AGENTS.md
-			// wrapper. Keep the task at request zero so the calls and frozen
-			// episode identity still refer to the same work.
-			if p.Type == "function_call_output" && p.Name == "automation_update" && len(s.Calls) == 0 {
-				if prompt := CodexAutomationPrompt(RawString(p.Output)); prompt != "" {
-					onlyHarness := true
-					for i, request := range s.Requests {
-						if !trace.IsHarness(request) && (i >= len(s.RequestRoles) || s.RequestRoles[i] != "synthetic_context") {
-							onlyHarness = false
-							break
-						}
-					}
-					if onlyHarness {
-						s.Requests = []string{trace.TruncateUTF8(a.clean(prompt), 4000)}
-						if o != nil && o.Full {
-							s.FullRequests = []string{a.clean(prompt)}
-						}
-						s.RequestRoles = []string{"scheduled"}
-					}
-				}
-			}
-			n := a.CallsUnder(p.CallID)
-			// Only a literal Promise.allSettled array with a direct indexed
-			// display proves which nested call produced each result. A combined
-			// or transformed display still leaves every nested result unknown.
-			if n > 1 {
-				if source, nested := execInputs[p.CallID]; nested {
-					if results, ok := CodexExecIndexedResults(source, p.Output, n); ok {
-						for i := range n {
-							a.Add(ToolResult{Key: p.CallID, Nth: i, Text: results[i].Text, IsError: results[i].Failed})
-						}
-					}
-				}
-				continue
-			}
-			if n != 1 {
-				continue
-			}
-			text := CodexOutputText(p.Output)
-			failed := false
-			if r, ok := mcpEnds[p.CallID]; ok {
-				text, failed = r.Text, r.Failed
-			} else if inner, ok := CodexMCPEnvelope(text); ok {
-				text = inner
-			}
-			if source, nested := execInputs[p.CallID]; nested {
-				if !CodexExecPassesThroughResult(source) {
-					continue
-				}
-				var ok bool
-				text, failed, ok = CodexExecResultText(p.Output)
-				if !ok {
-					continue
-				}
-			}
-			a.Add(ToolResult{Key: p.CallID, Nth: 0, Text: text, IsError: failed})
-		case p.Type == "function_call":
-			var args map[string]json.RawMessage
-			_ = json.Unmarshal([]byte(RawString(p.Arguments)), &args)
-			args = redactArgs(args, o)
-			c := CodexCall(*s, ln.Timestamp, p.Namespace, p.Name, args)
-			keepFullArgs(&c, args, o)
-			add(c)
-		case p.Type == "local_shell_call":
-			add(trace.Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: "shell", Command: a.clean(strings.Join(p.Action.Command, " "))})
-		case p.Type == "custom_tool_call" && p.Name == "exec":
-			execInputs[p.CallID] = p.Input
-			for _, inner := range JsToolCalls(p.Input) {
-				args := redactArgs(inner.Args, o)
-				c := CodexCall(*s, ln.Timestamp, "", inner.Name, args)
-				keepFullArgs(&c, args, o)
-				add(c)
-			}
-		case p.Type == "custom_tool_call":
-			// apply_patch and other freeform tools: the input is the argument.
-			input := a.clean(p.Input)
-			c := trace.Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: p.Name, Args: map[string]string{"input": Truncate(input, MaxArg)}}
-			if o != nil && o.Full {
-				c.FullArgs = map[string]string{"input": input}
-			}
-			add(c)
-		}
+		d.line(sc.Bytes())
 	}
+	d.fix(&d.a.S)
+	return d.a.Finish(), sc.Err()
+}
+
+// fix completes a session read so far: its start, its calls' session, and
+// a request for calls made before any message.
+func (d *codexDecoder) fix(s *trace.Session) {
 	if s.Start.IsZero() && len(s.Calls) > 0 {
 		s.Start = s.Calls[0].Time
 	}
@@ -364,7 +215,191 @@ func parseCodexWith(path string, fh io.Reader, o *ReadOptions) (res trace.Sessio
 	if len(s.Requests) == 0 && len(s.Calls) > 0 {
 		s.Requests = []string{""}
 	}
-	return a.Finish(), sc.Err()
+}
+
+// line applies one rollout line.
+func (d *codexDecoder) line(b []byte) {
+	a, o := d.a, d.o
+	s := &a.S
+	conv := o != nil && o.Conversation
+	// Most lines are token counts and reasoning; skip them unparsed.
+	if JsonHasAny(b, `"token_count"`) {
+		// Usage of the model turn that issued the calls since the last one.
+		var tc struct {
+			Payload struct {
+				Info *struct {
+					Last struct {
+						Input  float64 `json:"input_tokens"`
+						Cached float64 `json:"cached_input_tokens"`
+						Output float64 `json:"output_tokens"`
+					} `json:"last_token_usage"`
+				} `json:"info"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(b, &tc) == nil && tc.Payload.Info != nil {
+			l := tc.Payload.Info.Last
+			a.Add(TurnUsage{Usage: trace.Usage{Fresh: l.Input - l.Cached, Cached: l.Cached, Output: l.Output}})
+		}
+		return
+	}
+	if !JsonHasAny(b, `"session_meta"`, `"function_call"`, `"custom_tool_call"`, `"local_shell_call"`, `"role":"user"`, `"role": "user"`, `_call_output"`, `"mcp_tool_call_end"`) &&
+		(!conv || !JsonHasAny(b, `"role":"assistant"`, `"role": "assistant"`, `"turn_context"`)) {
+		return
+	}
+	var ln CodexLine
+	if json.Unmarshal(b, &ln) != nil {
+		a.Skip()
+		return
+	}
+	p := ln.Payload
+	curID := p.CallID
+	// Calls under one call_id: one, or several from one exec script.
+	add := func(c trace.Call) { a.Add(ToolCall{Key: curID, Call: c}) }
+	switch {
+	case p.Type == "mcp_tool_call_end":
+		// Codex records an MCP call's result here, clean, before the
+		// function_call_output that carries it inside a text envelope.
+		if r, ok := codexMCPEnd(p.Result); ok {
+			if o != nil {
+				r.Text = a.clean(r.Text)
+			}
+			d.st.MCPEnds[p.CallID] = r
+		}
+	case p.Type == "message" && p.Role == "user":
+		var blocks []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		_ = json.Unmarshal(p.Content, &blocks)
+		for _, bl := range blocks {
+			if bl.Type == "input_text" && trace.IsRequest(bl.Text) {
+				role := "user"
+				if d.st.Automation && CodexInjectedAutomationContext(bl.Text) {
+					role = "synthetic_context"
+				}
+				a.Add(UserText{Text: bl.Text, Role: role})
+				break
+			}
+		}
+	case conv && p.Type == "message" && p.Role == "assistant":
+		var blocks []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		_ = json.Unmarshal(p.Content, &blocks)
+		for _, bl := range blocks {
+			if bl.Type == "output_text" {
+				a.Add(AssistantText{Text: bl.Text})
+			}
+		}
+	case ln.Type == "turn_context":
+		if conv {
+			a.Add(SessionMeta{Cwd: p.Cwd, Model: p.Model})
+		}
+	case ln.Type == "session_meta":
+		// A forked or resumed rollout also carries its parent's meta
+		// later in the file; the first one is this file's own.
+		if p.ID != "" && !d.st.MetaSeen {
+			s.ID, d.st.MetaSeen = p.ID, true
+			d.st.Automation = p.ThreadSource == "automation"
+			if conv {
+				m := SessionMeta{Cwd: p.Cwd, Version: p.CLIVersion, Model: p.Model}
+				if p.Git != nil {
+					m.Branch = p.Git.Branch
+				}
+				a.Add(m)
+			}
+		}
+		if s.Start.IsZero() {
+			s.Start = ln.Timestamp
+		}
+	case strings.HasSuffix(p.Type, "_call_output"):
+		// Scheduled runs receive their task in a pre-run automation record.
+		// The only user message before it can be an injected AGENTS.md
+		// wrapper. Keep the task at request zero so the calls and frozen
+		// episode identity still refer to the same work.
+		if p.Type == "function_call_output" && p.Name == "automation_update" && len(s.Calls) == 0 {
+			if prompt := CodexAutomationPrompt(RawString(p.Output)); prompt != "" {
+				onlyHarness := true
+				for i, request := range s.Requests {
+					if !trace.IsHarness(request) && (i >= len(s.RequestRoles) || s.RequestRoles[i] != "synthetic_context") {
+						onlyHarness = false
+						break
+					}
+				}
+				if onlyHarness {
+					s.Requests = []string{trace.TruncateUTF8(a.clean(prompt), 4000)}
+					if o != nil && o.Full {
+						s.FullRequests = []string{a.clean(prompt)}
+					}
+					s.RequestRoles = []string{"scheduled"}
+				}
+			}
+		}
+		n := a.CallsUnder(p.CallID)
+		// Only a literal Promise.allSettled array with a direct indexed
+		// display proves which nested call produced each result. A combined
+		// or transformed display still leaves every nested result unknown.
+		if n > 1 {
+			if shape, nested := d.st.Exec[p.CallID]; nested {
+				if results, ok := shape.IndexedResults(p.Output, n); ok {
+					for i := range n {
+						a.Add(ToolResult{Key: p.CallID, Nth: i, Text: results[i].Text, IsError: results[i].Failed})
+					}
+				}
+			}
+			return
+		}
+		if n != 1 {
+			return
+		}
+		text := CodexOutputText(p.Output)
+		failed := false
+		if r, ok := d.st.MCPEnds[p.CallID]; ok {
+			text, failed = r.Text, r.Failed
+			if o != nil {
+				delete(d.st.MCPEnds, p.CallID) // a tail checkpoint keeps only results still awaited
+			}
+		} else if inner, ok := CodexMCPEnvelope(text); ok {
+			text = inner
+		}
+		if shape, nested := d.st.Exec[p.CallID]; nested {
+			if !shape.PassThrough {
+				return
+			}
+			var ok bool
+			text, failed, ok = CodexExecResultText(p.Output)
+			if !ok {
+				return
+			}
+		}
+		a.Add(ToolResult{Key: p.CallID, Nth: 0, Text: text, IsError: failed})
+	case p.Type == "function_call":
+		var args map[string]json.RawMessage
+		_ = json.Unmarshal([]byte(RawString(p.Arguments)), &args)
+		args = redactArgs(args, o)
+		c := CodexCall(*s, ln.Timestamp, p.Namespace, p.Name, args)
+		keepFullArgs(&c, args, o)
+		add(c)
+	case p.Type == "local_shell_call":
+		add(trace.Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: "shell", Command: a.clean(strings.Join(p.Action.Command, " "))})
+	case p.Type == "custom_tool_call" && p.Name == "exec":
+		d.st.Exec[p.CallID] = CodexExecShapeOf(p.Input)
+		for _, inner := range JsToolCalls(p.Input) {
+			args := redactArgs(inner.Args, o)
+			c := CodexCall(*s, ln.Timestamp, "", inner.Name, args)
+			keepFullArgs(&c, args, o)
+			add(c)
+		}
+	case p.Type == "custom_tool_call":
+		// apply_patch and other freeform tools: the input is the argument.
+		input := a.clean(p.Input)
+		c := trace.Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: p.Name, Args: map[string]string{"input": Truncate(input, MaxArg)}}
+		if o != nil && o.Full {
+			c.FullArgs = map[string]string{"input": input}
+		}
+		add(c)
+	}
 }
 
 // codexMCPResult is an MCP call's result as Codex recorded it.
@@ -772,12 +807,36 @@ func CodexIndexedDisplay(count int, resultName, tail string, valueOnly bool) (in
 // result per array position. Missing, duplicated, or transformed blocks make
 // attribution fail for the whole cell.
 func CodexExecIndexedResults(src string, raw json.RawMessage, want int) ([]CodexIndexedResult, bool) {
-	count, indexKey, ok := CodexIndexedSource(src)
-	valueOnly := false
-	if !ok {
-		count, indexKey, ok = CodexIndexedValueSource(src)
-		valueOnly = ok
+	return CodexExecShapeOf(src).IndexedResults(raw, want)
+}
+
+// CodexExecShape is what an exec cell's source says about how its result
+// reads: whether it prints its one call's result as is (PassThrough), or
+// prints each of Count calls' results under an index (Indexed). It holds
+// no part of the source's values.
+type CodexExecShape struct {
+	PassThrough bool
+	Indexed     bool
+	Count       int
+	IndexKey    string
+	ValueOnly   bool
+}
+
+// CodexExecShapeOf reads an exec cell's source for its shape.
+func CodexExecShapeOf(src string) CodexExecShape {
+	sh := CodexExecShape{PassThrough: CodexExecPassesThroughResult(src)}
+	sh.Count, sh.IndexKey, sh.Indexed = CodexIndexedSource(src)
+	if !sh.Indexed {
+		sh.Count, sh.IndexKey, sh.Indexed = CodexIndexedValueSource(src)
+		sh.ValueOnly = sh.Indexed
 	}
+	return sh
+}
+
+// IndexedResults reads each of want calls' results from an exec output,
+// when the cell's shape proves which call produced each.
+func (sh CodexExecShape) IndexedResults(raw json.RawMessage, want int) ([]CodexIndexedResult, bool) {
+	count, indexKey, ok, valueOnly := sh.Count, sh.IndexKey, sh.Indexed, sh.ValueOnly
 	if !ok || count != want {
 		return nil, false
 	}

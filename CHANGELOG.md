@@ -8,6 +8,15 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **Transcripts can be read incrementally (discover).**
+  `TailClaudeFile` and `TailCodexFile` read a transcript from where the last
+  read stopped and return the session so far with a `TailState` to continue
+  from (encode it with `encoding/gob`). A line still being written is left
+  for the next read, and a file that was replaced or cut is read again from
+  its start. `Assembler.Checkpoint`, `RestoreAssembler` and
+  `Assembler.Snapshot` expose the same state for other decoders. What a
+  Codex tail keeps between reads holds no exec cell source and only redacted
+  results.
 - **Claude Code subagent transcripts can be read (discover).**
   `ReadOptions.Subagents` also reads `<project>/<session>/subagents/*.jsonl`.
   Each subagent is a session of its own, and its `Session.Parent` names the
