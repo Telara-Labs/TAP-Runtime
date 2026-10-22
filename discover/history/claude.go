@@ -63,6 +63,13 @@ func (r ClaudeCode) each(since time.Time, p trace.Progress, o *ReadOptions, yiel
 	if err != nil {
 		return st, err
 	}
+	if o != nil && o.Subagents {
+		sub, err := filepath.Glob(filepath.Join(r.Dir, "*", "*", "subagents", "*.jsonl"))
+		if err != nil {
+			return st, err
+		}
+		files = append(files, sub...)
+	}
 	files = changedSince(files, since)
 	cache, parse := "claude-code", parseClaude
 	if o != nil {
@@ -134,7 +141,11 @@ func newClaudeAssembler(path string, o *ReadOptions) *Assembler {
 	if o == nil {
 		return NewAssembler("claude-code", id)
 	}
-	return NewAssemblerWith("claude-code", id, *o)
+	a := NewAssemblerWith("claude-code", id, *o)
+	if dir := filepath.Dir(path); filepath.Base(dir) == "subagents" {
+		a.S.Parent = &trace.SessionLink{Relation: "subagent", Session: filepath.Base(filepath.Dir(dir))}
+	}
+	return a
 }
 
 // ParseClaudeLine decodes one transcript line, Model included.

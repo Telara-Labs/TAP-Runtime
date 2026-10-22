@@ -364,6 +364,17 @@ type Session struct {
 	// fill them only when asked (history.ReadOptions.Full), with
 	// credentials redacted.
 	FullRequests []string `json:",omitempty"`
+	// Parent is the session this one was started from, when the reader
+	// knows it and was asked (history.ReadOptions).
+	Parent *SessionLink `json:",omitempty"`
+}
+
+// SessionLink names another session of the same client and how this one
+// relates to it: "subagent" (this session is a subagent the other started)
+// or "fork" (this session began as a copy of the other).
+type SessionLink struct {
+	Relation string
+	Session  string
 }
 
 // AssistantMessage is one piece of prose the model wrote. It was written

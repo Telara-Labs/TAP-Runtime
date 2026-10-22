@@ -1,0 +1,4 @@
+{"type":"user","sessionId":"c1","agentId":"a1","isSidechain":true,"timestamp":"2026-10-01T10:00:10Z","cwd":"/work/app","message":{"role":"user","content":"find where foo is imported"}}
+{"type":"assistant","sessionId":"c1","agentId":"a1","isSidechain":true,"timestamp":"2026-10-01T10:00:11Z","cwd":"/work/app","message":{"id":"s1","model":"model-a","role":"assistant","content":[{"type":"tool_use","id":"st1","name":"Grep","input":{"pattern":"foo"}}]}}
+{"type":"user","sessionId":"c1","agentId":"a1","isSidechain":true,"timestamp":"2026-10-01T10:00:12Z","cwd":"/work/app","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"st1","content":"main.go:3"}]}}
+{"type":"assistant","sessionId":"c1","agentId":"a1","isSidechain":true,"timestamp":"2026-10-01T10:00:13Z","cwd":"/work/app","message":{"id":"s2","model":"model-a","role":"assistant","content":[{"type":"text","text":"foo is imported in main.go."}]}}

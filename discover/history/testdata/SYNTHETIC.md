@@ -15,7 +15,8 @@ code, and exercises the edge cases of the format:
   whole-document .json session.
 - conversation/: a Claude Code transcript and a Codex rollout with the
   model's prose and the session's settings (cwd, branch, version, model)
-  around a tool call, for reads with history.ReadOptions.
+  around a tool call, for reads with history.ReadOptions, and one subagent
+  transcript of that Claude Code session (c1/subagents/).
 
 Real-run fixtures replace these when a real session is available.
 

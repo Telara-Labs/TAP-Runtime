@@ -8,6 +8,10 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **Claude Code subagent transcripts can be read (discover).**
+  `ReadOptions.Subagents` also reads `<project>/<session>/subagents/*.jsonl`.
+  Each subagent is a session of its own, and its `Session.Parent` names the
+  session that started it. Discover does not read them.
 - **Reads with options can keep question-and-answer sessions and whole texts (discover).**
   `ReadOptions.KeepEmpty` keeps sessions that made no tool call, which
   discover leaves out. `ReadOptions.Full` keeps requests, tool arguments and

@@ -30,6 +30,10 @@ type ReadOptions struct {
 	// requests (Session.FullRequests), tool arguments (Call.FullArgs) and
 	// results (Call.FullOutput). They are redacted like everything else.
 	Full bool
+	// Subagents also reads the transcripts of the subagents a Claude Code
+	// session started (<project>/<session>/subagents/*.jsonl), each a
+	// session of its own whose Parent is the session that started it.
+	Subagents bool
 }
 
 // redactArgs is, for a read with options, each argument redacted whole
