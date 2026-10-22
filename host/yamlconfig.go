@@ -64,6 +64,15 @@ func setYAMLEntry(path, key, name string, entry any) (bool, error) {
 		return false, fmt.Errorf("%s: %s is not a mapping; it was left unchanged", path, key)
 	}
 	i := mappingIndex(servers, name)
+	if i >= 0 {
+		var old any
+		if servers.Content[i+1].Decode(&old) != nil || !tapWrote(old) {
+			if entry == nil {
+				return false, nil // not TAP's entry; not TAP's to remove
+			}
+			return false, notTapsEntry(path, name)
+		}
+	}
 	if entry == nil {
 		if i < 0 {
 			return false, nil

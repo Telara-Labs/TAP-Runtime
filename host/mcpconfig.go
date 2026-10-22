@@ -40,6 +40,18 @@ func setMCPEntry(path, key, name string, entry any) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("%s: %s is not an object; it was left unchanged", path, key)
 	}
+	if old := servers.get(name); old != nil {
+		var decoded any
+		if json.Unmarshal(old, &decoded) != nil || !tapWrote(decoded) {
+			if entry == nil {
+				return false, nil // not TAP's entry; not TAP's to remove
+			}
+			if jsonEqual(old, mustMarshal(entry)) {
+				return false, nil
+			}
+			return false, notTapsEntry(path, name)
+		}
+	}
 	if entry == nil {
 		if servers.get(name) == nil {
 			return false, nil
@@ -164,4 +176,9 @@ func jsonEqual(a, b []byte) bool {
 	xa, _ := json.Marshal(x)
 	ya, _ := json.Marshal(y)
 	return bytes.Equal(xa, ya)
+}
+
+func mustMarshal(v any) []byte {
+	b, _ := json.Marshal(v)
+	return b
 }

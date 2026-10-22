@@ -8,6 +8,12 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **`tap install` and `tap install --remove` leave a server of your own that shares TAP's name.**
+  An entry in a host's MCP list is replaced or removed only when it runs a TAP
+  runner with `serve`. Install now refuses with the reason and `--name` as the
+  way out, and remove leaves the entry byte for byte. This covers Cursor,
+  Windsurf and the other JSON hosts, Goose's YAML, Gemini's settings, and the
+  hosts TAP drives by command (it asks `<host> mcp get <name>` first).
 - **Two resumers of one run can no longer both take its lease.** A stale lease
   is replaced under a lock on `lease.lock`, and the new lease is written whole
   and linked into place. Before, the second resumer removed the first's fresh

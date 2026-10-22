@@ -382,6 +382,14 @@ func installOne(c agents.Client, home, self, name, scope string, env envFlags, p
 		fmt.Fprintf(stderr, "%s is not on this machine\n", argv[0])
 		return 1
 	}
+	if foreign, cmd := hostHoldsForeignEntry(host, name); foreign {
+		if remove {
+			fmt.Fprintf(stdout, "%s: %s is a server TAP did not write (%s); it was left in place.\n", c.Name, name, cmd)
+			return 0
+		}
+		fmt.Fprintf(stderr, "%s: it already has a server named %s that TAP did not write (%s); it was left unchanged. Install under another name with --name\n", c.Name, name, cmd)
+		return 1
+	}
 	if !remove {
 		// A client refuses to add a name it already has, and an entry left
 		// from an earlier install may point at an old path (the runner was
@@ -495,6 +503,9 @@ func addGemini(path, name, self string, env envFlags) error {
 	if servers == nil {
 		servers = map[string]any{}
 	}
+	if old, ok := servers[name]; ok && !tapWrote(old) {
+		return notTapsEntry(path, name)
+	}
 	entry := map[string]any{"command": self, "args": []any{"serve", "--name", name}}
 	if len(env) > 0 {
 		vars := map[string]any{}
@@ -594,7 +605,7 @@ func removeGemini(path, name string) (bool, error) {
 	}
 	changed := false
 	if servers, ok := settings["mcpServers"].(map[string]any); ok {
-		if _, ok := servers[name]; ok {
+		if old, ok := servers[name]; ok && tapWrote(old) {
 			delete(servers, name)
 			changed = true
 		}
