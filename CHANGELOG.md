@@ -8,6 +8,12 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **Two resumers of one run can no longer both take its lease.** A stale lease
+  is replaced under a lock on `lease.lock`, and the new lease is written whole
+  and linked into place. Before, the second resumer removed the first's fresh
+  lease and both continued the run, so a tool call could be dispatched twice. A
+  holder whose lease was taken now stops with `ErrLeaseLost` on its next
+  journal write instead of carrying on.
 - **The run digest can no longer be forged by moving bytes between files (contract).**
   `manifest.RunDigest` now hashes `primitive.yaml` and the entrypoint each
   length-prefixed under a domain label (`RunDigestOf`). Before, a manifest ending

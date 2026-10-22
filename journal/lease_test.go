@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -240,5 +241,78 @@ func TestSweepRemovesTheReadingsOfFinishedRuns(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "run-done-0001")); !os.IsNotExist(err) {
 		t.Error("the finished run did not age out")
+	}
+}
+
+// Two resumers that read the same stale lease must not both take the run. The
+// takeover used to remove whatever lease file was there, including the fresh
+// one the first resumer had just written (FUP-5-G06).
+func TestConcurrentTakeoverOfAStaleLeaseYieldsOneHolder(t *testing.T) {
+	const resumers = 16
+	for round := 0; round < 25; round++ {
+		root := t.TempDir()
+		j, err := Create(root, header("run-lease-4"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		j.Close()
+		writeLease(t, root, "run-lease-4", os.Getpid(), time.Now().Add(-time.Minute))
+
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		results := make(chan error, resumers)
+		opened := make(chan *Journal, resumers)
+		for i := 0; i < resumers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				j, err := Open(root, "run-lease-4")
+				if err == nil {
+					opened <- j
+				}
+				results <- err
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(results)
+		close(opened)
+		won := 0
+		for err := range results {
+			var held *HeldError
+			switch {
+			case err == nil:
+				won++
+			case !errors.As(err, &held):
+				t.Fatalf("round %d: a loser got %v, not a HeldError", round, err)
+			}
+		}
+		for j := range opened {
+			j.Close()
+		}
+		if won != 1 {
+			t.Fatalf("round %d: %d resumers hold one run, want exactly 1", round, won)
+		}
+	}
+}
+
+// A holder whose lease was taken is told, so it stops answering requests
+// instead of dispatching calls the new holder will dispatch too.
+func TestAHolderWhoseLeaseWasTakenStopsAnsweringRequests(t *testing.T) {
+	root := t.TempDir()
+	j, err := Create(root, header("run-lease-5"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	if err := j.Begin("r1", "call", "d1", "read", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	writeLease(t, root, "run-lease-5", os.Getpid(), time.Now().Add(time.Minute))
+	j.lease.renew(time.Now())
+	err = j.Begin("r2", "call", "d2", "read", time.Now())
+	if !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("a holder whose lease was taken kept answering: %v", err)
 	}
 }

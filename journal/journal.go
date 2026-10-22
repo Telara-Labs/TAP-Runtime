@@ -240,6 +240,9 @@ func Open(root, runID string) (*Journal, error) {
 }
 
 func (j *Journal) append(r Record) error {
+	if j.lease.Lost() {
+		return ErrLeaseLost
+	}
 	b, err := json.Marshal(r)
 	if err != nil {
 		return err

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -20,6 +21,9 @@ import (
 // LeaseTTL is how long a lease lasts without being renewed. The holder
 // renews it at a third of that.
 const LeaseTTL = 30 * time.Second
+
+// ErrLeaseLost is returned by a journal whose lease another process took.
+var ErrLeaseLost = errors.New("the lease on this run was taken by another process")
 
 // HeldError is returned when another process holds the run.
 type HeldError struct {
@@ -46,7 +50,11 @@ type Lease struct {
 	stop  chan struct{}
 	done  sync.WaitGroup
 	once  sync.Once
+	lost  atomic.Bool
 }
+
+// Lost reports whether another process now holds the run's lease.
+func (l *Lease) Lost() bool { return l != nil && l.lost.Load() }
 
 // alive reports whether a process exists. Where that cannot be asked, the
 // answer is yes: the lease then lasts until it expires, which is the safe
@@ -72,37 +80,40 @@ func readLease(path string) (*leaseRecord, error) {
 	return &r, nil
 }
 
-// acquire takes the lease of the run in dir, or says who holds it.
+// acquire takes the lease of the run in dir, or says who holds it. Deciding
+// that a lease is stale and replacing it happens under a lock on lease.lock,
+// so two processes that read the same stale lease cannot both replace it: the
+// second reads the first's fresh lease and is refused. The lease is written
+// whole to its own file and linked into place, so a reader never sees it empty.
 func acquire(dir, runID string, now time.Time) (*Lease, error) {
 	path := filepath.Join(dir, "lease.json")
-	token := NewRunID(now)
-	mine := leaseRecord{PID: os.Getpid(), Token: token, Expires: now.Add(LeaseTTL)}
-	body, _ := json.Marshal(mine)
-
-	for attempt := 0; attempt < 3; attempt++ {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err == nil {
-			_, werr := f.Write(body)
-			f.Close()
-			if werr != nil {
-				os.Remove(path)
-				return nil, werr
-			}
-			return start(path, token), nil
-		}
-		if !os.IsExist(err) {
-			return nil, err
-		}
-		held, rerr := readLease(path)
-		if rerr == nil && now.Before(held.Expires) && alive(held.PID) {
-			return nil, &HeldError{RunID: runID, PID: held.PID, Expires: held.Expires}
-		}
-		// Expired, unreadable, or its holder is gone. It is removed and
-		// taken afresh; if two processes do this at once, O_EXCL lets one
-		// through and the other reads the winner's lease on its next pass.
-		os.Remove(path)
+	lock, err := os.OpenFile(filepath.Join(dir, "lease.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("run %s: the lease could not be taken", runID)
+	defer lock.Close()
+	if err := lockFile(lock); err != nil {
+		return nil, err
+	}
+
+	if held, rerr := readLease(path); rerr == nil && now.Before(held.Expires) && alive(held.PID) {
+		return nil, &HeldError{RunID: runID, PID: held.PID, Expires: held.Expires}
+	}
+	// Absent, expired, unreadable, or its holder is gone: it is nobody's.
+	token := NewRunID(now)
+	body, _ := json.Marshal(leaseRecord{PID: os.Getpid(), Token: token, Expires: now.Add(LeaseTTL)})
+	fresh := path + ".new-" + token
+	if err := os.WriteFile(fresh, body, 0o600); err != nil {
+		return nil, err
+	}
+	defer os.Remove(fresh)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	if err := os.Link(fresh, path); err != nil {
+		return nil, fmt.Errorf("run %s: the lease could not be taken: %w", runID, err)
+	}
+	return start(path, token), nil
 }
 
 func start(path, token string) *Lease {
@@ -126,8 +137,12 @@ func start(path, token string) *Lease {
 
 func (l *Lease) renew(now time.Time) {
 	held, err := readLease(l.path)
-	if err != nil || held.Token != l.token {
-		return // it is no longer ours to renew
+	if err != nil && os.IsNotExist(err) || err == nil && held.Token != l.token {
+		l.lost.Store(true) // another process took it; this holder must stop
+		return
+	}
+	if err != nil {
+		return
 	}
 	held.Expires = now.Add(LeaseTTL)
 	body, _ := json.Marshal(held)
@@ -210,8 +225,9 @@ func Sweep(root string, days int, now time.Time) int {
 			}
 			// Files only: removing a file touches its directory, and that
 			// is not activity of the run.
+			// lease.lock is touched by every takeover and is not the run's activity.
 			filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
-				if err == nil && !info.IsDir() && info.ModTime().After(newest) {
+				if err == nil && !info.IsDir() && info.Name() != "lease.lock" && info.ModTime().After(newest) {
 					newest = info.ModTime()
 				}
 				return nil
