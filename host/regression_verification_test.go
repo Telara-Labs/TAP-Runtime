@@ -268,7 +268,7 @@ func TestVerificationSearchBeyondTwentyPackages(t *testing.T) {
 	t.Log("25 packages are scanned; 20 results returned without pagination; a specific query reaches package 25")
 }
 
-func TestVerificationLegacyTrustSurvivesRelocationButNotManifestChange(t *testing.T) {
+func TestVerificationTrustDigestRolloverAndRelocation(t *testing.T) {
 	pkg := writePackage(t, "apiVersion: primitives.telara.dev/v3\nkind: Primitive\nmetadata: {publisher: dev.verify, name: trust-migration, version: 1.0.0}\nexecution: {entrypoint: main.sh}\n", "echo unchanged\n")
 	raw, _ := os.ReadFile(filepath.Join(pkg, "primitive.yaml"))
 	program, _ := os.ReadFile(filepath.Join(pkg, "main.sh"))
@@ -285,14 +285,24 @@ func TestVerificationLegacyTrustSurvivesRelocationButNotManifestChange(t *testin
 	os.WriteFile(filepath.Join(relocated, "SKILL.md"), []byte("pointer changed after save or pull"), 0o600)
 	called := 0
 	ask := func(string, string, string, string, string, string) bool { called++; return false }
-	if refusal := admitPackage(store, ask, relocated); refusal != "" || called != 0 {
-		t.Fatalf("legacy trust was lost after relocation/pointer creation: refusal=%q prompts=%d", refusal, called)
+	if refusal := admitPackage(store, ask, relocated); refusal == "" || called != 1 {
+		t.Fatalf("legacy concatenation digest reused approval: refusal=%q prompts=%d", refusal, called)
+	}
+	digest, _, err := packageDigest(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.add(digest, "trust-migration", pkg); err != nil {
+		t.Fatal(err)
+	}
+	if refusal := admitPackage(store, ask, relocated); refusal != "" || called != 1 {
+		t.Fatalf("current trust was lost after relocation/pointer creation: refusal=%q prompts=%d", refusal, called)
 	}
 	os.WriteFile(filepath.Join(relocated, "primitive.yaml"), append(raw, []byte("# byte-level change\n")...), 0o600)
-	if refusal := admitPackage(store, ask, relocated); refusal == "" || called != 1 {
+	if refusal := admitPackage(store, ask, relocated); refusal == "" || called != 2 {
 		t.Fatalf("changed manifest reused old approval: refusal=%q prompts=%d", refusal, called)
 	}
-	t.Log("v0.1.3 approval digest survives relocation and SKILL.md changes; a manifest byte change prompts again")
+	t.Log("legacy approval requires review; current approval survives relocation and SKILL.md changes; a manifest byte change prompts again")
 }
 
 func TestVerificationBashMemoryPressure(t *testing.T) {

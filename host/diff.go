@@ -143,8 +143,7 @@ func readDiffPackage(dir string) (diffPackage, error) {
 	if err != nil {
 		return diffPackage{}, err
 	}
-	sum := sha256.Sum256(append(append([]byte{}, raw...), code...))
-	return diffPackage{diffIdentity{m.Metadata.Publisher + "/" + m.Metadata.Name + "@" + m.Metadata.Version, hex.EncodeToString(sum[:])}, m, code}, nil
+	return diffPackage{diffIdentity{m.Metadata.Publisher + "/" + m.Metadata.Name + "@" + m.Metadata.Version, mf.RunDigestOf(raw, code)}, m, code}, nil
 }
 
 func comparePackages(oldDir, newDir string) (*packageDiff, error) {

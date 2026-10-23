@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,8 +53,7 @@ func preparePackage(o Options) (*preparedPackage, error) {
 	if err != nil {
 		return nil, err
 	}
-	sum := sha256.Sum256(append(append([]byte{}, raw...), script...))
-	digest := hex.EncodeToString(sum[:])
+	digest := mf.RunDigestOf(raw, script)
 	if o.ExpectedDigest != "" && digest != o.ExpectedDigest {
 		return nil, fmt.Errorf("the selected primitive changed since discovery; search again")
 	}

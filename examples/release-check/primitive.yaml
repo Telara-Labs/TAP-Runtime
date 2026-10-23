@@ -33,5 +33,5 @@ execution:
 # either of them does; tap manifest complete refreshes them from what is
 # installed here.
 uses:
-  - {alias: release_brief, ref: dev.telara/api-release-brief, version: 0.1.1, digest: 340600ac9a8b4f9604595b5742fc841e04f43ec116fe920805388fb18afb7e76, effect: read}
-  - {alias: open_tasks, ref: examples.telara.dev/task-summary-python, version: 0.1.0, digest: e6528ea3e1892792d760cd8059c974e650b0077eca09434f601727df4aa54039, effect: read}
+  - {alias: release_brief, ref: dev.telara/api-release-brief, version: 0.1.1, digest: fea6365cfd29dc49da1bcb30df1a20f08a4f974e5371279c39163cf5ae4a2a13, effect: read}
+  - {alias: open_tasks, ref: examples.telara.dev/task-summary-python, version: 0.1.0, digest: 3d10782995911ec554f352e345b15bb77b9c936c61c238821475ac3039383e06, effect: read}

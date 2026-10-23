@@ -114,8 +114,11 @@ see [version review](docs/versioning.md).
   length-prefixed under a domain label (`RunDigestOf`). Before, a manifest ending
   in a comment that held program text digested the same as a manifest without it
   plus a program that began with that text. Every digest changes, so each
-  approval and attestation run_digest is asked for again. The host (`run_setup.go`,
-  `diff.go`) and discover take the new rule when the contract pin is bumped.
+  approval must be reviewed again and any attestation run_digest must be
+  reissued. Existing runs cannot resume across the digest change. Refresh
+  composed primitives with `tap manifest complete` to update child digest
+  pins. The host execution, diff and trust paths and discover all use the
+  same published rule.
 - **A version that removes a tool pin now counts as widening (contract).** An
   unpinned tool binds across every server on the client, so dropping the pin
   reaches more than the approved version did.
