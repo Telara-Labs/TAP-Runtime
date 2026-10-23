@@ -418,8 +418,7 @@ func (d *codexDecoder) line(b []byte) {
 			// representation. Escaped property names and opaque expressions
 			// must not make an ordinary read eligible for persistence.
 			for _, parsed := range jsToolCalls(p.Input, &ReadOptions{}) {
-				b, _ := json.Marshal(parsed.Args)
-				if rawArgsUnsafe(parsed.Args) || strings.Contains(string(b), omittedJS) {
+				if parsed.Unsafe || rawArgsUnsafe(parsed.Args) {
 					a.S.CacheUnsafe = true
 				}
 			}
@@ -577,8 +576,9 @@ func CodexCall(s trace.Session, t time.Time, namespace, name string, args map[st
 }
 
 type JsCall struct {
-	Name string
-	Args map[string]json.RawMessage
+	Name   string
+	Args   map[string]json.RawMessage
+	Unsafe bool
 }
 
 var JsToolRe = regexp.MustCompile(`tools\.([A-Za-z0-9_]+)\s*\(`)
@@ -596,15 +596,17 @@ func jsToolCalls(src string, o *ReadOptions) []JsCall {
 		name := src[m[2]:m[3]]
 		rest := strings.TrimSpace(src[m[1]:])
 		args := map[string]json.RawMessage{}
+		unsafe := false
 		switch {
 		case strings.HasPrefix(rest, "{"):
 			if o != nil {
-				if values, ok := jsLiteralData(rest).(map[string]any); ok {
+				value, unsafe := jsLiteralRead(rest)
+				if values, ok := value.(map[string]any); ok {
 					for k, v := range values {
 						args[k], _ = json.Marshal(v)
 					}
 				}
-				out = append(out, JsCall{Name: name, Args: args})
+				out = append(out, JsCall{Name: name, Args: args, Unsafe: unsafe})
 				continue
 			}
 			fields, quoted := JsObjectFieldsKinds(rest)
@@ -622,14 +624,14 @@ func jsToolCalls(src string, o *ReadOptions) []JsCall {
 			// tools.apply_patch(`*** Begin Patch ...`): one string argument.
 			var v any
 			if o != nil {
-				v = jsLiteralData(rest)
+				v, unsafe = jsLiteralRead(rest)
 			} else {
 				v, _ = trace.ReadJSString([]rune(rest), 0)
 			}
 			b, _ := json.Marshal(v)
 			args["input"] = b
 		}
-		out = append(out, JsCall{Name: name, Args: args})
+		out = append(out, JsCall{Name: name, Args: args, Unsafe: unsafe})
 	}
 	return out
 }

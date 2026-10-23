@@ -265,3 +265,23 @@ func TestCredentialCacheKeysAreNotPersisted(t *testing.T) {
 		t.Fatal("cache bookkeeping retained credential key")
 	}
 }
+
+func TestPlainCodexOpaqueAndDuplicateJSIsNeverCacheable(t *testing.T) {
+	for _, src := range []string{
+		`tools.put({config: ({'pass\u0077ord':'tiny'})})`,
+		`tools.put({config: {'pass\u0077ord':'tiny'}, ...extra})`,
+		`tools.put({config: {'pass\u0077ord':'tiny','pass\u0077ord':'$TOKEN'}})`,
+	} {
+		t.Run(src, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "rollout-s.jsonl")
+			writeJSONL(t, path, []map[string]any{{"type": "session_meta", "payload": map[string]any{"id": "s"}}, {"type": "response_item", "payload": map[string]any{"type": "custom_tool_call", "name": "exec", "input": src, "call_id": "c"}}})
+			got, err := ReadCodexFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !got.CacheUnsafe {
+				t.Fatal("opaque or ambiguous literal stayed cache eligible")
+			}
+		})
+	}
+}

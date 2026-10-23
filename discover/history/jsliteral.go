@@ -14,13 +14,20 @@ const omittedJS = "<omitted JavaScript expression>"
 // jsLiteralData interprets only literal data, never JavaScript expressions.
 // Unsupported syntax and templates are omitted without retaining their source.
 func jsLiteralData(src string) any {
+	v, _ := jsLiteralRead(src)
+	return v
+}
+
+func jsLiteralRead(src string) (any, bool) {
 	p := jsLiteralParser{r: []rune(src)}
-	return p.value(0)
+	v := p.value(0)
+	return v, p.unsafe
 }
 
 type jsLiteralParser struct {
-	r []rune
-	i int
+	r      []rune
+	i      int
+	unsafe bool
 }
 
 func (p *jsLiteralParser) space() {
@@ -29,6 +36,7 @@ func (p *jsLiteralParser) space() {
 	}
 }
 func (p *jsLiteralParser) omit(start int) any {
+	p.unsafe = true
 	p.i = trace.ScanJSValue(p.r, start)
 	if p.i <= start {
 		p.i = len(p.r)
@@ -119,7 +127,12 @@ func (p *jsLiteralParser) value(depth int) any {
 			p.i++
 			value := p.value(depth + 1)
 			if safeIdentifier(key) {
+				if _, duplicate := out[key]; duplicate {
+					p.unsafe = true
+				}
 				out[key] = value
+			} else {
+				p.unsafe = true
 			}
 			p.space()
 			if p.i >= len(p.r) {
@@ -170,6 +183,7 @@ func (p *jsLiteralParser) value(depth int) any {
 		if json.Valid([]byte(raw)) && !strings.ContainsAny(raw, "{}[]\"'") {
 			return json.RawMessage(raw)
 		}
+		p.unsafe = true
 		return omittedJS
 	}
 }
