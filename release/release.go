@@ -101,6 +101,7 @@ func main() {
 				return string(out), err
 			}}
 		p.Build = buildFromExport(dir, *key, p.GitHubRepo)
+		p.VerifyExisting = verifyExistingRelease(dir, p.GitHubRepo, p.Run)
 		rep := p.Publish()
 		b, _ := json.MarshalIndent(rep, "", "  ")
 		fmt.Println(string(b))

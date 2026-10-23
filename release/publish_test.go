@@ -55,9 +55,12 @@ func (f *fakeHosts) run(dir string) func(name string, args ...string) (string, e
 				}
 				// A complete release: the signed sums and the npm sources,
 				// padded with runner files up to n names.
-				names := []string{"SHA256SUMS", "SHA256SUMS.sig", NpmSourcesName(strings.TrimPrefix(args[2], "v"))}
+				names := requiredReleaseAssets(strings.TrimPrefix(args[2], "v"))
 				for i := len(names); i < n; i++ {
 					names = append(names, fmt.Sprintf("file-%d", i))
+				}
+				if n >= 12 {
+					return strings.Join(names, "\n") + "\n", nil
 				}
 				return strings.Join(names[:max(n, 0)], "\n") + "\n", nil
 			case "release create", "release upload":
@@ -121,6 +124,7 @@ func releaseRepo(t *testing.T) string {
 func publisher(dir string, f *fakeHosts, version string, plan bool) *Publisher {
 	return &Publisher{Dir: dir, Version: version, GitHubRepo: "o/r", Origin: "origin", GitHub: "github",
 		Packages: npmPackageNames(), Workflow: "release.yml", Plan: plan, Run: f.run(dir), Wait: time.Second,
+		VerifyExisting: func(tag string) error { return nil },
 		Build: func(tag, out string) error {
 			for i := 0; i < 12; i++ {
 				os.WriteFile(filepath.Join(out, fmt.Sprintf("f%d", i)), []byte(tag), 0o644)
@@ -440,5 +444,31 @@ func TestMissingAssetsNamesWhatAnIncompleteReleaseLacks(t *testing.T) {
 	}
 	if got := missingAssets([]string{"a", "b"}, "a"); len(got) != 0 {
 		t.Fatalf("missingAssets = %v", got)
+	}
+}
+
+func TestResumeRefusesMissingRunnerAndUnauthenticatedAssets(t *testing.T) {
+	required := requiredReleaseAssets("1.2.3")
+	var without []string
+	for _, name := range required {
+		if name != "tap-1.2.3-linux-amd64" {
+			without = append(without, name)
+		}
+	}
+	missing := missingAssets(without, required...)
+	if len(missing) != 1 || missing[0] != "tap-1.2.3-linux-amd64" {
+		t.Fatal("missing runner was not detected", missing)
+	}
+	dir := releaseRepo(t)
+	f := &fakeHosts{releases: map[string]int{}, npm: map[string]bool{}}
+	p := publisher(dir, f, "0.1.4", false)
+	if got := p.Publish(); got.Status != "ok" {
+		t.Fatal(got)
+	}
+	p.VerifyExisting = func(string) error { return fmt.Errorf("signature does not match") }
+	before := f.runs
+	got := p.Publish()
+	if got.Status != "failed" || !strings.Contains(got.Reason, "authentication") || f.runs != before {
+		t.Fatal("unverified resume dispatched workflow", got)
 	}
 }

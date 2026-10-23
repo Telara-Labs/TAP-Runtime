@@ -45,6 +45,8 @@ type Publisher struct {
 	Run func(name string, args ...string) (string, error)
 	// Build builds and verifies the signed release of tag into out.
 	Build func(tag, out string) error
+	// VerifyExisting authenticates a downloaded release before a resume.
+	VerifyExisting func(tag string) error
 	// Wait is how long to wait for npm to show a published version. npm can
 	// take several minutes to process a package after publish accepts it.
 	Wait time.Duration
@@ -230,8 +232,16 @@ func (p *Publisher) Publish() Report {
 	case relErr == nil && len(names) > 0:
 		// A release left by an interrupted upload has some files and not
 		// others; resuming from it would dispatch a publish that must fail.
-		if missing := missingAssets(names, "SHA256SUMS", "SHA256SUMS.sig", NpmSourcesName(p.Version)); len(missing) > 0 {
+		if missing := missingAssets(names, requiredReleaseAssets(p.Version)...); len(missing) > 0 {
 			return fail("github release", tag+" exists but lacks "+strings.Join(missing, ", ")+"; delete the incomplete release and rerun")
+		}
+		if !p.Plan {
+			if p.VerifyExisting == nil {
+				return fail("github release", "cannot authenticate existing release; restore the verifier before resuming")
+			}
+			if err := p.VerifyExisting(tag); err != nil {
+				return fail("github release", "existing release failed authentication: "+err.Error()+"; repair the release from verified build outputs before resuming")
+			}
 		}
 		add("github release", "skipped", tag+" exists with "+n+" files")
 	case published:
@@ -255,7 +265,7 @@ func (p *Publisher) Publish() Report {
 			}
 		} else {
 			args := append([]string{"release", "create", tag, "--repo", p.GitHubRepo, "--verify-tag", "--title", "TAP Runtime " + tag,
-				"--notes", "Signed TAP runner release " + tag + ". Verify with: go run ./release verify --dir <downloaded release> --pub release/release.pub"}, files...)
+				"--notes", "Signed TAP runner release " + tag + ". Verify using go run ./release verify --dir <downloaded release> --pub release/release.pub"}, files...)
 			if _, err := p.Run("gh", args...); err != nil {
 				return fail("github release", err.Error())
 			}
@@ -300,6 +310,33 @@ func (p *Publisher) Publish() Report {
 		add("npm", "done", fmt.Sprintf("%d packages at %s published by workflow run %s: %s", len(p.Packages), p.Version, id, strings.Join(p.Packages, ", ")))
 	}
 	return r
+}
+
+func requiredReleaseAssets(version string) []string {
+	names := []string{"SHA256SUMS", "SHA256SUMS.sig", "SHA256SUMS.pub", NpmSourcesName(version), "sh-" + version + ".wasm", "install.sh", "install.ps1", "THIRD_PARTY_NOTICES.txt", "tap-vscode-" + version + ".vsix"}
+	for _, platform := range Platforms {
+		os, arch, _ := strings.Cut(platform, "/")
+		name := "tap-" + version + "-" + os + "-" + arch
+		if os == "windows" {
+			name += ".exe"
+		}
+		names = append(names, name)
+	}
+	return names
+}
+
+func verifyExistingRelease(dir, repo string, command func(string, ...string) (string, error)) func(string) error {
+	return func(tag string) error {
+		out, err := os.MkdirTemp("", "tap-release-resume-")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(out)
+		if _, err := command("gh", "release", "download", tag, "--repo", repo, "--dir", out); err != nil {
+			return err
+		}
+		return Verify(out, filepath.Join(dir, "release", "release.pub"))
+	}
 }
 
 // npmHas reports whether npm serves this version of every package.
