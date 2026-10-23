@@ -75,7 +75,7 @@ func (r ClaudeCode) each(since time.Time, p trace.Progress, o *ReadOptions, yiel
 	if o != nil {
 		cache, parse = "", claudeParser(o)
 	}
-	err = ParseFilesEach(files, cache, nil, p, parse, func(_ int, r Parsed) error {
+	err = parseFilesEach(files, cache, nil, p, parse, func(_ int, r Parsed) error {
 		if r.Err != nil {
 			st.UnreadableFiles++
 			return nil
@@ -84,7 +84,7 @@ func (r ClaudeCode) each(since time.Time, p trace.Progress, o *ReadOptions, yiel
 			return yield(s)
 		}
 		return nil
-	})
+	}, o == nil)
 	return st, err
 }
 
@@ -124,7 +124,7 @@ func ReadClaudeFile(path string) (trace.Session, error) { return ParseFile(path,
 
 // ReadClaudeFileWith is ReadClaudeFile for a read with options.
 func ReadClaudeFileWith(path string, o ReadOptions) (trace.Session, error) {
-	return ParseFile(path, claudeParser(&o))
+	return parseFile(path, claudeParser(&o), false)
 }
 
 func parseClaude(path string, fh io.Reader) (trace.Session, error) {
@@ -141,9 +141,15 @@ func newClaudeAssembler(path string, o *ReadOptions) *Assembler {
 	if o == nil {
 		return NewAssembler("claude-code", id)
 	}
+	if dir := filepath.Dir(path); filepath.Base(dir) == "subagents" {
+		id = filepath.Base(filepath.Dir(dir)) + "/" + id
+	}
 	a := NewAssemblerWith("claude-code", id, *o)
 	if dir := filepath.Dir(path); filepath.Base(dir) == "subagents" {
-		a.S.Parent = &trace.SessionLink{Relation: "subagent", Session: filepath.Base(filepath.Dir(dir))}
+		parent := filepath.Base(filepath.Dir(dir))
+		if safeIdentifier(parent) {
+			a.S.Parent = &trace.SessionLink{Relation: "subagent", Session: parent}
+		}
 	}
 	return a
 }
@@ -175,6 +181,10 @@ func claudeLine(a *Assembler, b []byte, o *ReadOptions) {
 		err = json.Unmarshal(b, &ln)
 	}
 	if err != nil {
+		a.Skip()
+		return
+	}
+	if o != nil && (!safeIdentifier(ln.Message.ID) || !safeIdentifier(ln.SessionID)) {
 		a.Skip()
 		return
 	}
@@ -256,6 +266,9 @@ func claudeEvents(ln ClaudeLine, session string, o *ReadOptions) []Event {
 	}
 	out = append(out, TurnUsage{Turn: "msg:" + ln.Message.ID, Usage: usage})
 	for _, b := range blocks {
+		if o != nil && (!safeIdentifier(b.ID) || !safeIdentifier(b.Name)) {
+			continue
+		}
 		if conv && b.Type == "text" {
 			out = append(out, AssistantText{Text: b.Text, Turn: "msg:" + ln.Message.ID})
 			continue

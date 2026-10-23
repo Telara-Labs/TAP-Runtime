@@ -111,6 +111,9 @@ func NewAssembler(client, id string) *Assembler {
 // NewAssemblerWith starts a session for a read with options: every text
 // is redacted before it is bounded, and the options say what else is kept.
 func NewAssemblerWith(client, id string, o ReadOptions) *Assembler {
+	if !safeIdentifier(id) {
+		id = ""
+	}
 	a := NewAssembler(client, id)
 	a.opts = &o
 	return a
@@ -140,6 +143,30 @@ func (a *Assembler) padFullRequests(n int) {
 
 // Add applies one event.
 func (a *Assembler) Add(e Event) {
+	if a.opts != nil {
+		switch v := e.(type) {
+		case ToolCall:
+			if !safeIdentifier(v.Key) || !safeIdentifier(v.Turn) || !safeIdentifier(v.Call.ID) || !safeIdentifier(v.Call.Tool) || !safeIdentifier(v.Call.MCPServer) || !safeIdentifier(v.Call.MCPTool) {
+				a.Skip()
+				return
+			}
+		case ToolResult:
+			if !safeIdentifier(v.Key) || !safeIdentifier(v.Record) {
+				a.Skip()
+				return
+			}
+		case TurnUsage:
+			if !safeIdentifier(v.Turn) {
+				a.Skip()
+				return
+			}
+		case AssistantText:
+			if !safeIdentifier(v.Turn) {
+				a.Skip()
+				return
+			}
+		}
+	}
 	switch e := e.(type) {
 	case UserText:
 		if !trace.IsRequest(e.Text) {

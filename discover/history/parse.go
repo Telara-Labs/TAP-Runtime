@@ -5,8 +5,11 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 
+	"bytes"
+	"github.com/Telara-Labs/TAP-Runtime/discover/redact"
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
@@ -49,8 +52,12 @@ func ParseFilesWith(files []string, cache string, extra func(string) string, p t
 // file order, a chunk of files at a time, so a long history is never held
 // whole. An error from emit stops the read and is returned.
 func ParseFilesEach(files []string, cache string, extra func(string) string, p trace.Progress, parse FileParser, emit func(int, Parsed) error) error {
+	return parseFilesEach(files, cache, extra, p, parse, emit, true)
+}
+
+func parseFilesEach(files []string, cache string, extra func(string) string, p trace.Progress, parse FileParser, emit func(int, Parsed) error, digest bool) error {
 	return readFilesEach(files, cache, extra, p, func(path string) ([]trace.Session, error) {
-		s, err := ParseFile(path, parse)
+		s, err := parseFile(path, parse, digest)
 		if err != nil {
 			return nil, err
 		}
@@ -67,20 +74,67 @@ func ParseFilesEach(files []string, cache string, extra func(string) string, p t
 
 // ParseFile parses one file, setting SourceDigest from the bytes parsed.
 func ParseFile(path string, parse FileParser) (trace.Session, error) {
+	return parseFile(path, parse, true)
+}
+
+func parseFile(path string, parse FileParser, digest bool) (trace.Session, error) {
 	fh, err := os.Open(path)
 	if err != nil {
 		return trace.Session{}, err
 	}
 	defer fh.Close()
+	if !digest {
+		return parse(path, fh)
+	}
 	h := sha256.New()
-	s, err := parse(path, io.TeeReader(fh, h))
+	audit := &sourceAudit{disabled: filepath.Ext(path) == ".db" || filepath.Ext(path) == ".vscdb"}
+	s, err := parse(path, io.TeeReader(fh, io.MultiWriter(h, audit)))
 	if err != nil {
 		return s, err
 	}
 	// The digest covers the whole file, including what the parser left
 	// unread; like FileDigest, a failed read leaves it empty.
-	if _, err := io.Copy(h, fh); err == nil {
+	if _, err := io.Copy(io.MultiWriter(h, audit), fh); err == nil {
 		s.SourceDigest = hex.EncodeToString(h.Sum(nil))
 	}
+	audit.check()
+	s.CacheUnsafe = audit.unsafe
 	return s, nil
+}
+
+// sourceAudit inspects complete source lines before parser truncation. An
+// oversized line is conservatively non-cacheable and never buffered whole.
+type sourceAudit struct {
+	pending  []byte
+	unsafe   bool
+	disabled bool
+}
+
+func (a *sourceAudit) Write(b []byte) (int, error) {
+	n := len(b)
+	for len(b) > 0 && !a.unsafe && !a.disabled {
+		i := bytes.IndexByte(b, '\n')
+		if i < 0 {
+			i = len(b) - 1
+		}
+		part := b[:i+1]
+		if len(a.pending)+len(part) > 128<<20 {
+			a.unsafe = true
+			break
+		}
+		a.pending = append(a.pending, part...)
+		b = b[i+1:]
+		if part[len(part)-1] == '\n' {
+			a.check()
+		}
+	}
+	return n, nil
+}
+
+func (a *sourceAudit) check() {
+	if len(a.pending) > 0 {
+		s := string(a.pending)
+		a.unsafe = a.unsafe || redact.Redact(s) != s
+		a.pending = nil
+	}
 }

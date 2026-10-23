@@ -2,7 +2,9 @@ package redact
 
 import (
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
+	"encoding/json"
 	"sync"
 
 	"github.com/Telara-Labs/TAP-Runtime/contract/canon"
@@ -12,7 +14,7 @@ import (
 // rule changes what is redacted, so a record can say which rules redacted
 // it and a store can tell what to redact again. TestRulesetDigestNeedsAnEpoch
 // fails when the rules change and the epoch does not.
-const RulesetEpoch = 1
+const RulesetEpoch = 2
 
 // Ruleset identifies the redaction rules in force: their epoch, and a digest
 // derived from the rules themselves (never typed in), so two programs that
@@ -53,14 +55,33 @@ func rules() []rule {
 		rule{"sensitive name", SensitiveName.String()},
 		rule{"assignment word", assignmentWord.String()},
 		rule{"variable reference", reference.String()},
+		rule{"quoted field", quotedField.String()},
 	)
 }
 
 func rulesDigest() string {
-	b, err := canon.CanonicalValue(rules())
+	var corpus []struct {
+		Name  string `json:"name"`
+		Input string `json:"input"`
+	}
+	if err := json.Unmarshal(behaviorCorpus, &corpus); err != nil {
+		panic(err)
+	}
+	behavior := make([]string, 0, len(corpus))
+	for _, c := range corpus {
+		behavior = append(behavior, Argument(c.Name, c.Input))
+	}
+	b, err := canon.CanonicalValue(struct {
+		Rules                                []rule
+		Credentials, Configuration, Behavior []string
+		Engine                               int
+	}{rules(), credentialWords, configurationWords, behavior, 2})
 	if err != nil {
 		panic("redact: rules do not encode: " + err.Error())
 	}
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
+
+//go:embed testdata/behavior.json
+var behaviorCorpus []byte

@@ -1,0 +1,82 @@
+[
+  {
+    "name": "",
+    "input": "DB_PASSWORD=abc ls"
+  },
+  {
+    "name": "",
+    "input": "{'password':'tiny'}"
+  },
+  {
+    "name": "",
+    "input": "{\"password\":\"hunter22x\",\"password\":\"$TOKEN\"}"
+  },
+  {
+    "name": "",
+    "input": "{\"tokenizer\":\"ordinary-model\",\"password_length\":\"twenty-four\"}"
+  },
+  {
+    "name": "",
+    "input": "{\"config\":{\"dbPassword\":\"tiny\",\"authToken\":\"tiny\",\"credentials\":[\"a\",\"b\"]}}"
+  },
+  {
+    "name": "apiKey",
+    "input": "tiny"
+  },
+  {
+    "name": "token",
+    "input": "$TOKEN"
+  },
+  {
+    "name": "password",
+    "input": "{env:PASS}"
+  },
+  {
+    "name": "password",
+    "input": "${PASSWORD:-embedded}"
+  },
+  {
+    "name": "password",
+    "input": "false"
+  },
+  {
+    "name": "",
+    "input": "https://user:password@example.com/path"
+  },
+  {
+    "name": "",
+    "input": "Bearer synthetic123456789012345"
+  },
+  {
+    "name": "",
+    "input": "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+    "name": "",
+    "input": "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----"
+  },
+  {
+    "name": "",
+    "input": "[{\"password\":\"tiny\"}, {\"token_count\":42}]"
+  },
+  {
+    "name": "",
+    "input": "request {\"password\":\"tiny\",\"tokenizer\":\"ok\"}"
+  },
+  {
+    "name": "",
+    "input": "config {password: \"tiny\"}"
+  },
+  {
+    "name": "",
+    "input": "{\"APIKey\":\"tiny\",\"passwordHash\":\"tiny\",\"cookie\":\"tiny\"}"
+  },
+  {
+    "name": "",
+    "input": "{\"limits\":{\"password_length\":24,\"tokenCount\":50}}"
+  },
+  {
+    "name": "",
+    "input": "API_TOKEN=\"$TOKEN\" tool"
+  }
+]

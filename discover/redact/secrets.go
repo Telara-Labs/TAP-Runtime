@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Telara-Labs/TAP-Runtime/contract/canon"
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 	"github.com/Telara-Labs/TAP-Runtime/discover/util"
 )
@@ -89,40 +90,22 @@ func nameLetter(c byte) bool {
 	return nameUpper(c) || nameLower(c) || (c >= '0' && c <= '9')
 }
 
+var credentialWords = []string{"password", "passwd", "pwd", "secret", "token", "credential", "credentials", "cookie", "authorization", "bearer"}
+var configurationWords = []string{"count", "length", "limit", "interval", "budget", "size", "duration", "timeout"}
+
 func credentialWord(word string) bool {
-	switch word[0] | 0x20 {
-	case 'p':
-		return strings.EqualFold(word, "password") || strings.EqualFold(word, "passwd") || strings.EqualFold(word, "pwd")
-	case 's':
-		return strings.EqualFold(word, "secret")
-	case 't':
-		return strings.EqualFold(word, "token")
-	case 'c':
-		return strings.EqualFold(word, "credential") || strings.EqualFold(word, "credentials") || strings.EqualFold(word, "cookie")
-	case 'a':
-		return strings.EqualFold(word, "authorization")
-	case 'b':
-		return strings.EqualFold(word, "bearer")
+	for _, w := range credentialWords {
+		if strings.EqualFold(word, w) {
+			return true
+		}
 	}
 	return false
 }
-
 func configurationWord(word string) bool {
-	switch word[0] | 0x20 {
-	case 'c':
-		return strings.EqualFold(word, "count")
-	case 'l':
-		return strings.EqualFold(word, "length") || strings.EqualFold(word, "limit")
-	case 'i':
-		return strings.EqualFold(word, "interval")
-	case 'b':
-		return strings.EqualFold(word, "budget")
-	case 's':
-		return strings.EqualFold(word, "size")
-	case 'd':
-		return strings.EqualFold(word, "duration")
-	case 't':
-		return strings.EqualFold(word, "timeout")
+	for _, w := range configurationWords {
+		if strings.EqualFold(word, w) {
+			return true
+		}
 	}
 	return false
 }
@@ -202,6 +185,13 @@ func Redact(s string) string {
 // arguments to JSON strings; nested objects, arrays and environment maps must
 // retain that context instead of relying on a token's recognizable shape.
 func Argument(name, s string) string {
+	// Decoding a duplicate-key object loses earlier values. Never return
+	// its original bytes after inspecting only the last occurrence.
+	if json.Valid([]byte(s)) {
+		if _, err := canon.CanonicalJSON([]byte(s)); err != nil {
+			return "<redacted ambiguous JSON>"
+		}
+	}
 	sensitive := IsSensitiveName(name)
 	if value, ok := structured(s); ok {
 		out, changed := redactValue(value, sensitive)
@@ -289,7 +279,16 @@ func redactValue(value any, sensitive bool) (any, bool) {
 	return value, changed
 }
 
+var quotedField = regexp.MustCompile(`(["'])([A-Za-z_][A-Za-z0-9_-]*)(["']\s*:\s*)("(?:\\.|[^"\\])*"|'[^']*'|[^,\s}\]]+)`)
+
 func redactText(s string) string {
+	s = quotedField.ReplaceAllStringFunc(s, func(field string) string {
+		m := quotedField.FindStringSubmatch(field)
+		if !IsSensitiveName(m[2]) || variableReference(strings.Trim(m[4], `'"`)) {
+			return field
+		}
+		return m[1] + m[2] + m[3] + `"<redacted credential>"`
+	})
 	// Cover short opaque env assignments too, preserving the rest of the
 	// command and complete variable references. Include named text fields.
 	if strings.ContainsAny(s, "=:") && assignmentWord.MatchString(s) {

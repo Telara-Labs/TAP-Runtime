@@ -88,7 +88,7 @@ func (r Codex) each(since time.Time, p trace.Progress, o *ReadOptions, yield fun
 	if o != nil {
 		cache, parse = "", codexParser(o)
 	}
-	err = ParseFilesEach(files, cache, nil, p, parse, func(i int, r Parsed) error {
+	err = parseFilesEach(files, cache, nil, p, parse, func(i int, r Parsed) error {
 		f, s := files[i], r.Session
 		if r.Err != nil {
 			st.UnreadableFiles++
@@ -108,7 +108,7 @@ func (r Codex) each(since time.Time, p trace.Progress, o *ReadOptions, yield fun
 		}
 		ids[s.ID] = true
 		return yield(s)
-	})
+	}, o == nil)
 	return st, err
 }
 
@@ -148,7 +148,7 @@ func ReadCodexFile(path string) (trace.Session, error) { return ParseFile(path, 
 
 // ReadCodexFileWith is ReadCodexFile for a read with options.
 func ReadCodexFileWith(path string, o ReadOptions) (trace.Session, error) {
-	return ParseFile(path, codexParser(&o))
+	return parseFile(path, codexParser(&o), false)
 }
 
 func codexParser(o *ReadOptions) FileParser {
@@ -180,6 +180,9 @@ type codexDecoder struct {
 
 func newCodexDecoder(path string, o *ReadOptions) *codexDecoder {
 	id := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+	if o != nil && !safeIdentifier(id) {
+		id = ""
+	}
 	a := NewAssembler("codex", id)
 	if o != nil {
 		a = NewAssemblerWith("codex", id, *o)
@@ -265,6 +268,10 @@ func (d *codexDecoder) line(b []byte) {
 		return
 	}
 	p := ln.Payload
+	if o != nil && (!safeIdentifier(p.CallID) || !safeIdentifier(p.ID) || !safeIdentifier(p.Name) || !safeIdentifier(p.Namespace)) {
+		a.Skip()
+		return
+	}
 	curID := p.CallID
 	// Calls under one call_id: one, or several from one exec script.
 	add := func(c trace.Call) { a.Add(ToolCall{Key: curID, Call: c}) }
@@ -398,7 +405,7 @@ func (d *codexDecoder) line(b []byte) {
 		add(trace.Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: "shell", Command: a.clean(strings.Join(p.Action.Command, " "))})
 	case p.Type == "custom_tool_call" && p.Name == "exec":
 		d.st.Exec[p.CallID] = CodexExecShapeOf(p.Input)
-		for _, inner := range JsToolCalls(p.Input) {
+		for _, inner := range jsToolCalls(p.Input, o) {
 			args := redactArgs(inner.Args, o)
 			c := CodexCall(*s, ln.Timestamp, "", inner.Name, args)
 			keepFullArgs(&c, args, o)
@@ -559,6 +566,10 @@ var JsToolRe = regexp.MustCompile(`tools\.([A-Za-z0-9_]+)\s*\(`)
 // literal is JavaScript, not JSON, so only its top-level string-valued keys are
 // recovered; other values are recorded as their source text.
 func JsToolCalls(src string) []JsCall {
+	return jsToolCalls(src, nil)
+}
+
+func jsToolCalls(src string, o *ReadOptions) []JsCall {
 	var out []JsCall
 	for _, m := range JsToolRe.FindAllStringSubmatchIndex(src, -1) {
 		name := src[m[2]:m[3]]
@@ -568,6 +579,13 @@ func JsToolCalls(src string) []JsCall {
 		case strings.HasPrefix(rest, "{"):
 			fields, quoted := JsObjectFieldsKinds(rest)
 			for k, v := range fields {
+				if o != nil {
+					if !safeIdentifier(k) {
+						continue
+					}
+					args[k], _ = json.Marshal(safeJSValue(v, quoted[k], 0))
+					continue
+				}
 				// An unquoted value that is valid JSON (a number, true, an
 				// object literal with quoted keys) keeps its type.
 				if !quoted[k] && json.Valid([]byte(v)) {
@@ -586,6 +604,64 @@ func JsToolCalls(src string) []JsCall {
 		out = append(out, JsCall{Name: name, Args: args})
 	}
 	return out
+}
+
+// safeJSValue recovers literal data without evaluating JavaScript. Source
+// expressions are omitted rather than persisted as potentially secret text.
+func safeJSValue(src string, quoted bool, depth int) any {
+	if depth > 32 {
+		return "<omitted JavaScript expression>"
+	}
+	if quoted {
+		return src
+	}
+	src = strings.TrimSpace(src)
+	var value any
+	if json.Unmarshal([]byte(src), &value) == nil {
+		// Preserve duplicate-key detection in the ordinary JSON redactor.
+		red := redactText(src)
+		if json.Valid([]byte(red)) {
+			return json.RawMessage(red)
+		}
+		return red
+	}
+	if strings.HasPrefix(src, "{") && strings.HasSuffix(src, "}") {
+		fields, quotes := JsObjectFieldsKinds(src)
+		out := map[string]any{}
+		for k, v := range fields {
+			if safeIdentifier(k) {
+				out[k] = safeJSValue(v, quotes[k], depth+1)
+			}
+		}
+		return out
+	}
+	if strings.HasPrefix(src, "[") && strings.HasSuffix(src, "]") {
+		rs := []rune(src)
+		var out []any
+		for i := 1; i < len(rs)-1; {
+			if IsSpace(rs[i]) || rs[i] == ',' {
+				i++
+				continue
+			}
+			if trace.IsQuote(rs[i]) {
+				v, next := trace.ReadJSString(rs, i)
+				if next <= i {
+					return "<omitted JavaScript expression>"
+				}
+				out = append(out, v)
+				i = next
+			} else {
+				next := trace.ScanJSValue(rs, i)
+				if next <= i {
+					return "<omitted JavaScript expression>"
+				}
+				out = append(out, safeJSValue(string(rs[i:next]), false, depth+1))
+				i = next
+			}
+		}
+		return out
+	}
+	return "<omitted JavaScript expression>"
 }
 
 // JsObjectFields reads the top-level key: value pairs of a JavaScript object

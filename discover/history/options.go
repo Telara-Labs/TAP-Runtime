@@ -3,6 +3,7 @@ package history
 import (
 	"bytes"
 	"encoding/json"
+	"regexp"
 
 	"github.com/Telara-Labs/TAP-Runtime/discover/redact"
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
@@ -17,6 +18,8 @@ import (
 // before anything bounds it, so a credential cut at a size limit cannot
 // leave half of itself unrecognised. And it never uses the parse cache, so
 // nothing it reads is written to disk.
+// SourceDigest is empty: a hash of raw transcript bytes would preserve an
+// offline guessing oracle for text the reader redacted.
 //
 // Only the Claude Code and Codex readers take options so far.
 type ReadOptions struct {
@@ -46,6 +49,9 @@ func redactArgs(in map[string]json.RawMessage, o *ReadOptions) map[string]json.R
 	}
 	out := make(map[string]json.RawMessage, len(in))
 	for k, v := range in {
+		if !safeIdentifier(k) {
+			continue
+		}
 		s := RawString(v)
 		r := redact.Argument(k, s)
 		if r == s {
@@ -59,6 +65,15 @@ func redactArgs(in map[string]json.RawMessage, o *ReadOptions) map[string]json.R
 		out[k], _ = json.Marshal(r)
 	}
 	return out
+}
+
+var identifierSyntax = regexp.MustCompile(`^[A-Za-z0-9_.:/@+\-]{1,512}$`)
+
+// Identifiers are correlation keys, never a free-text persistence channel.
+// Reject suspicious records instead of merging distinct keys into a shared
+// redaction placeholder.
+func safeIdentifier(s string) bool {
+	return s == "" || identifierSyntax.MatchString(s) && redact.Redact(s) == s
 }
 
 // keepFullArgs sets c.FullArgs, for a read with ReadOptions.Full, from the

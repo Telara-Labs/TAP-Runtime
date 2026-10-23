@@ -8,6 +8,14 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **Conversation reads fail closed on ambiguous or unsafe source data (discover).**
+  Duplicate JSON keys cannot retain a shadowed credential. JavaScript literal
+  arguments are redacted recursively and opaque expressions are omitted.
+  Credential-shaped identifiers are rejected, subagent identities include
+  their parent, and reads with options never compute a raw transcript digest.
+  Cache eligibility is checked on complete source text before truncation;
+  obsolete cache blobs are removed. Ruleset epoch 2 fingerprints semantic
+  name rules and a behavior corpus as well as regular expressions.
 - **Canonical JSON rejects input that is not one valid value (contract).**
   `canon.CanonicalJSON` accepted trailing garbage such as `{}x`, and turned
   invalid UTF-8 and escaped lone surrogates into U+FFFD, so different inputs
@@ -32,10 +40,12 @@ see [version review](docs/versioning.md).
   and reads with `ReadOptions` never use it.
 - **Transcripts can be read incrementally (discover).**
   `TailClaudeFile` and `TailCodexFile` read a transcript from where the last
-  read stopped and return the session so far with a `TailState` to continue
-  from (encode it with `encoding/gob`). A line still being written is left
+  read stopped and return the session so far with an in-memory `TailState`
+  to continue from. Source continuity, options and the redaction ruleset
+  are verified before resuming. A serialized state safely restarts from
+  the beginning because its continuity key is never persisted. A line still being written is left
   for the next read, and a file that was replaced or cut is read again from
-  its start. `Assembler.Checkpoint`, `RestoreAssembler` and
+  its start. Lines larger than 64 MiB return an error. `Assembler.Checkpoint`, `RestoreAssembler` and
   `Assembler.Snapshot` expose the same state for other decoders. What a
   Codex tail keeps between reads holds no exec cell source and only redacted
   results.

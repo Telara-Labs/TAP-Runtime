@@ -101,6 +101,10 @@ func TestPlainReadIsUnchangedByConversationEvents(t *testing.T) {
 			t.Fatal(err)
 		}
 		with.Assistant, with.Meta = nil, nil
+		if with.SourceDigest != "" {
+			t.Fatalf("%s: options read retained a digest of raw text", tc.path)
+		}
+		plain.SourceDigest = ""
 		if !reflect.DeepEqual(plain, with) {
 			t.Fatalf("%s: the calls and requests differ between a plain read and a read with options:\n%+v\n%+v", tc.path, plain, with)
 		}

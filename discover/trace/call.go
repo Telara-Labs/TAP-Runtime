@@ -350,6 +350,9 @@ type Session struct {
 	// (its transcript file, or its rows in a client database), so a frozen
 	// corpus can prove its inputs unchanged whatever the parser does.
 	SourceDigest string `json:"-"`
+	// CacheUnsafe is set from complete source input before a reader bounds
+	// any text. It prevents a truncated credential prefix entering a cache.
+	CacheUnsafe bool `json:"-"`
 	// Skipped counts the records of this session the reader could not
 	// parse and left out. Like SourceDigest it describes the read, not the
 	// session, so it is not part of the session's encoding.

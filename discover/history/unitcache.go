@@ -114,6 +114,7 @@ func openUnitCache(name string) *unitCache {
 	os.Remove(filepath.Join(dir, name+".gob"))
 	f, err := os.Open(c.path)
 	if err != nil {
+		os.RemoveAll(c.unitDir)
 		return c
 	}
 	defer f.Close()
@@ -128,6 +129,9 @@ func openUnitCache(name string) *unitCache {
 		if cf.Dirs != nil {
 			c.dirs = cf.Dirs
 		}
+	} else {
+		// Invalidated indexes must not strand old raw unit files on disk.
+		os.RemoveAll(c.unitDir)
 	}
 	return c
 }
@@ -193,6 +197,7 @@ func (c *unitCache) put(key, fp string, ss []trace.Session) {
 	}
 	if holdsCredential(ss) {
 		c.prune(func(k string) bool { return k == key })
+		os.Remove(c.unitFile(key))
 		return
 	}
 	if err := writePrivate(c.unitDir, c.unitFile(key), unitData{Key: key, Sessions: ss}); err != nil {
@@ -208,6 +213,11 @@ func (c *unitCache) put(key, fp string, ss []trace.Session) {
 // credential (redact.SecretShape, the test discover itself uses), or an
 // argument redaction would change by its name or the names inside it.
 func holdsCredential(ss []trace.Session) bool {
+	for _, s := range ss {
+		if s.CacheUnsafe {
+			return true
+		}
+	}
 	// Sessions repeat themselves (the same command, the same identifiers),
 	// so each distinct text is checked once.
 	seen := map[string]bool{}
@@ -217,7 +227,7 @@ func holdsCredential(ss []trace.Session) bool {
 		}
 		found, ok := seen[v]
 		if !ok {
-			found = redact.SecretShape(v) != ""
+			found = redact.Redact(v) != v
 			seen[v] = found
 		}
 		return found
@@ -263,7 +273,38 @@ func holdsCredential(ss []trace.Session) bool {
 			}
 		}
 	}
-	return false
+	// Include identifiers, source metadata and all map keys, including
+	// fields added to Session in the future.
+	var walk func(reflect.Value) bool
+	walk = func(v reflect.Value) bool {
+		switch v.Kind() {
+		case reflect.String:
+			return text(v.String())
+		case reflect.Pointer, reflect.Interface:
+			return !v.IsNil() && walk(v.Elem())
+		case reflect.Struct:
+			for i := 0; i < v.NumField(); i++ {
+				if v.Type().Field(i).IsExported() && walk(v.Field(i)) {
+					return true
+				}
+			}
+		case reflect.Slice, reflect.Array:
+			for i := 0; i < v.Len(); i++ {
+				if walk(v.Index(i)) {
+					return true
+				}
+			}
+		case reflect.Map:
+			it := v.MapRange()
+			for it.Next() {
+				if walk(it.Key()) || walk(it.Value()) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return walk(reflect.ValueOf(ss))
 }
 
 // writePrivate writes v as gob to path atomically, in dir, private to the

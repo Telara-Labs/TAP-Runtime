@@ -35,7 +35,7 @@ func TestClaudeSubagentTranscriptsAreLinkedToTheirParent(t *testing.T) {
 		{"options without subagents", read(func(y func(trace.Session) error) error { return r.EachWith(time.Time{}, ReadOptions{}, y) }), []string{"c1"}},
 		{"subagents", read(func(y func(trace.Session) error) error {
 			return r.EachWith(time.Time{}, ReadOptions{Subagents: true, Conversation: true}, y)
-		}), []string{"agent-a1", "c1"}},
+		}), []string{"c1", "c1/agent-a1"}},
 	}
 	for _, tc := range cases {
 		if got := ids(tc.got); !reflect.DeepEqual(got, tc.want) {
@@ -43,14 +43,14 @@ func TestClaudeSubagentTranscriptsAreLinkedToTheirParent(t *testing.T) {
 		}
 	}
 	all := cases[2].got
-	sub := all["agent-a1"]
+	sub := all["c1/agent-a1"]
 	if want := (&trace.SessionLink{Relation: "subagent", Session: "c1"}); !reflect.DeepEqual(sub.Parent, want) {
 		t.Errorf("parent = %+v, want %+v", sub.Parent, want)
 	}
 	if all["c1"].Parent != nil {
 		t.Errorf("the parent session has a parent: %+v", all["c1"].Parent)
 	}
-	if len(sub.Calls) != 1 || sub.Calls[0].Session != "agent-a1" || sub.Calls[0].Outcome == trace.OutcomeFailed {
+	if len(sub.Calls) != 1 || sub.Calls[0].Session != "c1/agent-a1" || sub.Calls[0].Outcome == trace.OutcomeFailed {
 		t.Errorf("subagent calls = %+v", sub.Calls)
 	}
 	if len(sub.Assistant) != 1 || sub.Assistant[0].Text != "foo is imported in main.go." || !sub.Assistant[0].Final {

@@ -3,12 +3,18 @@ package history
 import (
 	"bufio"
 	"bytes"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/Telara-Labs/TAP-Runtime/discover/redact"
 	"github.com/Telara-Labs/TAP-Runtime/discover/trace"
 )
 
@@ -102,11 +108,13 @@ func copySession(s trace.Session) trace.Session {
 type TailState struct {
 	// Offset is the byte just past the last complete line read.
 	Offset int64
-	// FirstLine is the length of the file's first line, with its newline.
-	// A file whose first line differs, or that is shorter than Offset, was
-	// replaced or cut, and is read again from its start. Nothing is
-	// hashed: a digest of unredacted text would be a guessing oracle.
-	FirstLine int64
+	// Continuity material is memory-only. Encoding a TailState drops it,
+	// so a decoded state safely restarts instead of trusting an old offset.
+	source    os.FileInfo
+	path      string
+	key       [32]byte
+	mac       []byte
+	Ruleset   redact.Ruleset
 	Assembler Checkpoint
 	// Codex is the Codex decoder's state; nil for other clients.
 	Codex *CodexState
@@ -121,16 +129,18 @@ type tailDecoder struct {
 	save     func(*TailState)
 }
 
-// TailClaudeFile reads a Claude Code transcript from where from stopped (the
+// TailClaudeFile parses a Claude Code transcript from where from stopped (the
 // start when from is nil, or when the file was replaced since) and returns
 // the session so far and where this read stopped. Tailing a file to its end
 // gives the session a whole read with the same options gives, except
-// SourceDigest, which a tail does not compute.
+// SourceDigest, which a tail does not compute. Resume scans the prior prefix
+// with a memory-only HMAC key to verify continuity, then parses new lines.
+// A serialized TailState loses that key and safely restarts from the start.
 func TailClaudeFile(path string, from *TailState, o ReadOptions) (trace.Session, TailState, error) {
 	dec := func(a *Assembler) tailDecoder {
 		return tailDecoder{a: a, line: func(b []byte) { claudeLine(a, b, a.opts) }, snapshot: a.Snapshot}
 	}
-	return tailFile(path, from, func() tailDecoder { return dec(newClaudeAssembler(path, &o)) },
+	return tailFile(path, from, "claude-code", o, func() tailDecoder { return dec(newClaudeAssembler(path, &o)) },
 		func(st *TailState) (tailDecoder, bool) { return dec(RestoreAssembler(st.Assembler)), true })
 }
 
@@ -148,13 +158,16 @@ func TailCodexFile(path string, from *TailState, o ReadOptions) (trace.Session, 
 				st.Codex = &cs
 			}}
 	}
-	return tailFile(path, from, func() tailDecoder { return dec(newCodexDecoder(path, &o)) },
+	return tailFile(path, from, "codex", o, func() tailDecoder { return dec(newCodexDecoder(path, &o)) },
 		func(st *TailState) (tailDecoder, bool) {
 			if st.Codex == nil {
 				return tailDecoder{}, false
 			}
 			a := RestoreAssembler(st.Assembler)
 			file := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+			if !safeIdentifier(file) {
+				file = ""
+			}
 			return dec(&codexDecoder{a: a, o: a.opts, file: file, st: copyCodexState(*st.Codex)}), true
 		})
 }
@@ -173,70 +186,80 @@ func copyCodexState(s CodexState) CodexState {
 // tailFile reads path's complete lines from from.Offset with the decoder
 // resume gives, or from the start with a fresh one, and records where it
 // stopped.
-func tailFile(path string, from *TailState, fresh func() tailDecoder, resume func(*TailState) (tailDecoder, bool)) (trace.Session, TailState, error) {
+func tailFile(path string, from *TailState, client string, o ReadOptions, fresh func() tailDecoder, resume func(*TailState) (tailDecoder, bool)) (trace.Session, TailState, error) {
 	fh, err := os.Open(path)
 	if err != nil {
 		return trace.Session{}, TailState{}, err
 	}
 	defer fh.Close()
-	first, err := firstLineLength(fh)
+	info, err := fh.Stat()
+	if err != nil {
+		return trace.Session{}, TailState{}, err
+	}
+	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return trace.Session{}, TailState{}, err
 	}
 	var d tailDecoder
 	offset := int64(0)
-	if from != nil && from.Offset > 0 && from.FirstLine == first {
-		if info, err := fh.Stat(); err == nil && info.Size() >= from.Offset {
-			var ok bool
-			if d, ok = resume(from); ok {
+	var key [32]byte
+	var prefix hash.Hash
+	rules := redact.CurrentRuleset()
+	if from != nil && from.source != nil && from.path == absolute && os.SameFile(from.source, info) &&
+		from.Offset > 0 && info.Size() >= from.Offset && from.Assembler.Session.Client == client &&
+		from.Assembler.Options != nil && *from.Assembler.Options == o && from.Ruleset == rules {
+		key = from.key
+		prefix = hmac.New(sha256.New, key[:])
+		n, err := io.CopyN(prefix, fh, from.Offset)
+		if err == nil && n == from.Offset && hmac.Equal(prefix.Sum(nil), from.mac) {
+			if resumed, ok := resume(from); ok {
+				d = resumed
 				offset = from.Offset
 			}
 		}
 	}
 	if offset == 0 {
 		d = fresh()
+		if _, err := rand.Read(key[:]); err != nil {
+			return trace.Session{}, TailState{}, err
+		}
+		prefix = hmac.New(sha256.New, key[:])
 	}
 	if _, err := fh.Seek(offset, io.SeekStart); err != nil {
 		return trace.Session{}, TailState{}, err
 	}
-	r := bufio.NewReaderSize(fh, 1<<20)
+	r := bufio.NewReaderSize(fh, 64<<10)
 	for {
-		b, err := r.ReadBytes('\n')
+		b, err := readTailLine(r, 64<<20)
 		if errors.Is(err, io.EOF) {
-			break // a line without its newline is still being written
+			break
 		}
 		if err != nil {
 			return trace.Session{}, TailState{}, err
 		}
 		offset += int64(len(b))
+		prefix.Write(b)
 		d.line(bytes.TrimSuffix(b, []byte("\n")))
 	}
-	st := TailState{Offset: offset, FirstLine: first, Assembler: d.a.Checkpoint()}
+	st := TailState{Offset: offset, Assembler: d.a.Checkpoint(), source: info, path: absolute, key: key, mac: prefix.Sum(nil), Ruleset: rules}
 	if d.save != nil {
 		d.save(&st)
 	}
 	return d.snapshot(), st, nil
 }
 
-// firstLineLength is the length of fh's first complete line with its
-// newline, 0 when it has none yet. fh is left anywhere.
-func firstLineLength(fh *os.File) (int64, error) {
-	if _, err := fh.Seek(0, io.SeekStart); err != nil {
-		return 0, err
-	}
-	buf := make([]byte, 64<<10)
-	var n int64
+// readTailLine bounds allocations even when a writer never finishes a line.
+func readTailLine(r *bufio.Reader, limit int) ([]byte, error) {
+	var out []byte
 	for {
-		k, err := fh.Read(buf)
-		if i := bytes.IndexByte(buf[:k], '\n'); i >= 0 {
-			return n + int64(i) + 1, nil
+		part, err := r.ReadSlice('\n')
+		if len(part) > limit-len(out) {
+			return nil, fmt.Errorf("transcript record exceeds %d bytes", limit)
 		}
-		n += int64(k)
-		if errors.Is(err, io.EOF) {
-			return 0, nil
+		out = append(out, part...)
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
 		}
-		if err != nil {
-			return 0, err
-		}
+		return out, err
 	}
 }
