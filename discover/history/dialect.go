@@ -13,6 +13,8 @@ import (
 
 // MCPCall fills c as a call to tool on server with args.
 func MCPCall(c *trace.Call, server, tool string, args map[string]json.RawMessage) {
+	c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(args)
+	c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(args)
 	c.Tool, c.Args, c.RawArgs = "mcp:"+tool, Flatten(args), RawKeys(args)
 	c.MCPServer, c.MCPTool = server, tool
 }

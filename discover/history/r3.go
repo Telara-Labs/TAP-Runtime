@@ -285,6 +285,7 @@ func clineCalls(b anthropicBlock, session string, at time.Time, servers []string
 		c.Tool, c.Command = "shell", RawString(b.Input["command"])
 	case "use_mcp_tool":
 		if !Dispatcher(&c, b.Input, "server_name", "tool_name", "arguments") {
+			c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(b.Input)
 			c.Tool, c.Args, c.RawArgs = b.Name, Flatten(b.Input), RawKeys(b.Input)
 		}
 	default:
@@ -292,6 +293,7 @@ func clineCalls(b anthropicBlock, session string, at time.Time, servers []string
 		if server != "" {
 			MCPCall(&c, server, tool, b.Input)
 		} else {
+			c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(b.Input)
 			c.Tool, c.Args, c.RawArgs = b.Name, Flatten(b.Input), RawKeys(b.Input)
 		}
 	}

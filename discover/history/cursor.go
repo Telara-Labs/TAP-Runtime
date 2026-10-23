@@ -465,6 +465,7 @@ func CursorEvents(row CursorRow, key string) []Event {
 		args = CursorMCPArgs(args)
 		MCPCall(&c, server, parts[len(parts)-1], args)
 	default:
+		c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(args)
 		c.Tool, c.Args, c.RawArgs = row.Name, Flatten(args), RawKeys(args)
 	}
 	var outcome trace.Outcome

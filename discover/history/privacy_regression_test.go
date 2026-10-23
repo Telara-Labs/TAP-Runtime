@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/gob"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -148,5 +149,35 @@ func TestTailRejectsOversizedIncompleteRecord(t *testing.T) {
 	r := bufio.NewReaderSize(strings.NewReader(strings.Repeat("x", 1025)), 64)
 	if _, err := readTailLine(r, 1024); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatal("unbounded incomplete record", err)
+	}
+}
+
+func TestStoreReadersMarkCompleteArgumentsBeforeBounding(t *testing.T) {
+	input := map[string]json.RawMessage{"config": json.RawMessage(`"` + strings.Repeat("x", MaxArg-10) + fakeGitHubToken() + `"`)}
+	for _, test := range []struct {
+		name string
+		tool func(*trace.Call)
+	}{
+		{"cursor-cli", func(c *trace.Call) { CursorCLITool(c, "Read", input) }},
+		{"open-code", func(c *trace.Call) { OpenCodeTool(c, "read", input, nil) }},
+		{"goose", func(c *trace.Call) { GooseTool(c, "read", input, "") }},
+		{"crush", func(c *trace.Call) { CrushTool(c, "read", input, nil) }},
+		{"mcp", func(c *trace.Call) { MCPCall(c, "synthetic", "read", input) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var call trace.Call
+			test.tool(&call)
+			if !call.CacheUnsafe {
+				t.Fatal("complete input contamination lost")
+			}
+			if !holdsCredential([]trace.Session{{Calls: []trace.Call{call}}}) {
+				t.Fatal("contaminated call can enter cache")
+			}
+		})
+	}
+	a := NewAssembler("synthetic", "s")
+	a.Add(UserText{Text: strings.Repeat("x", 3990) + " " + fakeGitHubToken()})
+	if !a.Finish().CacheUnsafe {
+		t.Fatal("full user text contamination lost")
 	}
 }

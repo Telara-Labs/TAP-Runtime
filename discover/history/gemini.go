@@ -184,6 +184,7 @@ func GeminiTool(c *trace.Call, name string, args map[string]json.RawMessage) {
 		}
 		fallthrough
 	default:
+		c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(args)
 		c.Tool, c.Args, c.RawArgs = name, Flatten(args), RawKeys(args)
 	}
 }

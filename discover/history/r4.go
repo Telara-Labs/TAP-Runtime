@@ -308,6 +308,7 @@ func OpenCodeTool(c *trace.Call, name string, input map[string]json.RawMessage, 
 			return
 		}
 	}
+	c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(input)
 	c.Tool, c.Args, c.RawArgs = name, Flatten(input), RawKeys(input)
 }
 
@@ -482,6 +483,7 @@ func GooseTool(c *trace.Call, name string, args map[string]json.RawMessage, exte
 	case tool == "shell" && (ext == "developer" || ext == ""):
 		c.Tool, c.Command = "shell", RawString(args["command"])
 	case ext == "" || ext == "developer" || ext == "extensionmanager":
+		c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(args)
 		c.Tool, c.Args, c.RawArgs = tool, Flatten(args), RawKeys(args)
 	default:
 		MCPCall(c, ext, tool, args)
@@ -674,6 +676,7 @@ func CrushTool(c *trace.Call, name string, args map[string]json.RawMessage, serv
 			}
 		}
 	}
+	c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(args)
 	c.Tool, c.Args, c.RawArgs = name, Flatten(args), RawKeys(args)
 }
 
@@ -798,6 +801,7 @@ func (r Continue) ReadWithStats(since time.Time) ([]trace.Session, trace.ReadSta
 				case server != "" && !continueBuiltin(name):
 					MCPCall(&c, server, name, tc.ParsedArgs)
 				default:
+					c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(tc.ParsedArgs)
 					c.Tool, c.Args, c.RawArgs = name, Flatten(tc.ParsedArgs), RawKeys(tc.ParsedArgs)
 				}
 				a.Add(ToolCall{Key: tc.ToolCallID, Turn: turn, Call: c})

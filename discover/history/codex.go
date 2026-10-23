@@ -547,9 +547,11 @@ func CodexCall(s trace.Session, t time.Time, namespace, name string, args map[st
 			c.Command = strings.Join(argv, " ")
 		}
 	case strings.HasPrefix(full, "mcp__"):
+		c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(args)
 		c.Tool, c.Args, c.RawArgs = "mcp:"+Undouble(strings.TrimPrefix(LastSegment(full), "_")), Flatten(args), RawKeys(args)
 		c.MCPServer, c.MCPTool, _ = strings.Cut(strings.TrimPrefix(full, "mcp__"), "__")
 	default:
+		c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(args)
 		c.Tool, c.Args, c.RawArgs = name, Flatten(args), RawKeys(args)
 	}
 	return c

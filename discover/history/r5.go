@@ -113,6 +113,7 @@ func parseCopilot(path string, fh io.Reader, servers []string) (trace.Session, e
 				if server, tool := splitServerToolSep(name, servers, "-", "__"); server != "" {
 					MCPCall(&c, server, tool, d.Arguments)
 				} else {
+					c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(d.Arguments)
 					c.Tool, c.Args, c.RawArgs = name, Flatten(d.Arguments), RawKeys(d.Arguments)
 				}
 			}
@@ -323,6 +324,7 @@ func ZedThread(id string, at time.Time, doc []byte) (trace.Session, error) {
 				if tu.Name == "terminal" {
 					call.Tool, call.Command = "shell", RawString(tu.Input["command"])
 				} else {
+					call.CacheUnsafe = call.CacheUnsafe || rawArgsUnsafe(tu.Input)
 					call.Tool, call.Args, call.RawArgs = tu.Name, Flatten(tu.Input), RawKeys(tu.Input)
 				}
 				a.Add(ToolCall{Key: tu.ID, Call: call})

@@ -323,5 +323,6 @@ func CursorCLITool(c *trace.Call, name string, args map[string]json.RawMessage) 
 			return
 		}
 	}
+	c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(args)
 	c.Tool, c.Args, c.RawArgs = name, Flatten(args), RawKeys(args)
 }

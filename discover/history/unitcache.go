@@ -267,7 +267,7 @@ func holdsCredential(ss []trace.Session) bool {
 			}
 		}
 		for _, c := range s.Calls {
-			if texts(c.Command, c.Output, c.FullOutput) || args(c.Args) || args(c.FullArgs) ||
+			if c.CacheUnsafe || texts(c.Command, c.Output, c.FullOutput) || args(c.Args) || args(c.FullArgs) ||
 				texts(c.OutIDs...) || texts(c.OutCtx...) || texts(c.OutTokens...) {
 				return true
 			}

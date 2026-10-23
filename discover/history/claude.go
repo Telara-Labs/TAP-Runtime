@@ -278,6 +278,7 @@ func claudeEvents(ln ClaudeLine, session string, o *ReadOptions) []Event {
 		}
 		c := trace.Call{Session: session, ID: b.ID, Time: ln.Timestamp}
 		input := redactArgs(b.Input, o)
+		c.CacheUnsafe = rawArgsUnsafe(input)
 		c.Tool, c.Command, c.Args, c.RawArgs, c.MCPServer, c.MCPTool = DoubleUnderscore(b.Name, input)
 		keepFullArgs(&c, input, o)
 		out = append(out, ToolCall{Key: b.ID, Turn: "msg:" + ln.Message.ID, Call: c})

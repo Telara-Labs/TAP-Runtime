@@ -178,6 +178,7 @@ func VSCodeEvents(req VSCodeRequest, session string) []Event {
 		case p.Source.Type == "mcp" && p.Source.Label != "":
 			MCPCall(&c, p.Source.Label, VSCodeMCPToolName(p.ToolID, p.Source.Label), args)
 		default:
+			c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(args)
 			c.Tool, c.Args, c.RawArgs = p.ToolID, Flatten(args), RawKeys(args)
 		}
 		out = append(out, ToolCall{Key: p.ToolCallID, Call: c})

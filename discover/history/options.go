@@ -113,3 +113,14 @@ func redactText(s string) string {
 	}
 	return redact.Redact(s)
 }
+
+// rawArgsUnsafe is evaluated before any dialect flattens or bounds input.
+func rawArgsUnsafe(in map[string]json.RawMessage) bool {
+	for k, v := range in {
+		text := RawString(v)
+		if redact.Redact(k) != k || redact.Argument(k, text) != text {
+			return true
+		}
+	}
+	return false
+}

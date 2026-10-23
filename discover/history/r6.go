@@ -260,6 +260,7 @@ func AmpThread(id string, b []byte) (trace.Session, error) {
 						c.Command = RawString(p.Input["command"])
 					}
 				} else {
+					c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(p.Input)
 					c.Tool, c.Command, c.Args, c.RawArgs, c.MCPServer, c.MCPTool = DoubleUnderscore(p.Name, p.Input)
 				}
 				a.Add(ToolCall{Key: p.ID, Call: c})
@@ -470,7 +471,7 @@ func readAiderFile(path string) ([]trace.Session, error) {
 			n++
 			key := fmt.Sprintf("a%d", n)
 			args := map[string]json.RawMessage{"file_path": json.RawMessage(fmt.Sprintf("%q", file))}
-			a.Add(ToolCall{Key: key, Call: trace.Call{Time: at.UTC(), Tool: "edit", Args: Flatten(args), RawArgs: RawKeys(args)}})
+			a.Add(ToolCall{Key: key, Call: trace.Call{Time: at.UTC(), Tool: "edit", CacheUnsafe: rawArgsUnsafe(args), Args: Flatten(args), RawArgs: RawKeys(args)}})
 			a.Add(ToolResult{Key: key, Nth: 0, Text: strings.TrimPrefix(line, "> ")})
 		case pending != "" && strings.HasPrefix(line, "> "):
 			output = append(output, strings.TrimPrefix(line, "> "))

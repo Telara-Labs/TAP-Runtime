@@ -193,6 +193,7 @@ func QwenEvents(rec QwenRecord, session string) []Event {
 				if name == "run_shell_command" {
 					c.Tool, c.Command = "shell", RawString(args["command"])
 				} else {
+					c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(args)
 					c.Tool, c.Command, c.Args, c.RawArgs, c.MCPServer, c.MCPTool = DoubleUnderscore(name, args)
 				}
 				out = append(out, ToolCall{Key: fc.ID, Turn: turn, Call: c})

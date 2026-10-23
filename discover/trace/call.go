@@ -14,8 +14,10 @@ import (
 
 // Call is one tool call an agent made, in any client.
 type Call struct {
-	Client  string
-	Session string
+	// CacheUnsafe marks complete input that must never enter a parse cache.
+	CacheUnsafe bool `json:"-"`
+	Client      string
+	Session     string
 	// ID is the client's own identifier for the call, when it records one. A
 	// resumed or forked session can copy earlier calls into a new file with
 	// their IDs; a call already read from another file is not read again.

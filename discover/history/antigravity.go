@@ -171,6 +171,7 @@ func (d *AntigravityDecoder) Events(st AntigravityStep, session string, line int
 			c.Tool, c.Command = "shell", RawString(args["CommandLine"])
 		case tc.Name == "call_mcp_tool" && Dispatcher(&c, args, "ServerName", "ToolName", "Arguments"):
 		default:
+			c.CacheUnsafe = c.CacheUnsafe || rawArgsUnsafe(args)
 			c.Tool, c.Args, c.RawArgs = tc.Name, Flatten(args), RawKeys(args)
 		}
 		out = append(out, ToolCall{Key: key, Turn: turn, Call: c})

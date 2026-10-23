@@ -123,6 +123,7 @@ func NewAssemblerWith(client, id string, o ReadOptions) *Assembler {
 // as given otherwise.
 func (a *Assembler) clean(s string) string {
 	if a.opts == nil {
+		a.S.CacheUnsafe = a.S.CacheUnsafe || redactText(s) != s
 		return s
 	}
 	return redactText(s)
@@ -216,6 +217,7 @@ func (a *Assembler) Add(e Event) {
 		a.S.Meta = append(a.S.Meta, next)
 	case ToolCall:
 		c := e.Call
+		a.S.CacheUnsafe = a.S.CacheUnsafe || c.CacheUnsafe
 		c.Client = a.S.Client
 		if c.Session == "" {
 			c.Session = a.S.ID
@@ -314,6 +316,7 @@ func (a *Assembler) Finish() trace.Session {
 // the identifiers, paths and collections it returned, a preview, and its
 // size.
 func RecordResult(c *trace.Call, text string) {
+	c.CacheUnsafe = c.CacheUnsafe || redactText(text) != text
 	c.Outcome = trace.ResultOutcome(text)
 	c.OutIDs, c.OutCtx, c.OutPaths = trace.OutputRefsPaths(text)
 	c.OutCollections = trace.ResultCollections(text)
