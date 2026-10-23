@@ -91,7 +91,13 @@ class LanguageRuntimeTest(unittest.TestCase):
         shutil.copytree(self.root / "examples/languages/python", child)
         (child / ".tap-primitive.json").write_text(json.dumps(
             {"name": "examples.telara.dev/task-summary-python", "digest": "installed"}))
-        digest = hashlib.sha256((child / "primitive.yaml").read_bytes() + (child / "main.py").read_bytes()).hexdigest()
+        # Match the published run-digest domain and file-boundary encoding.
+        identity = hashlib.sha256(b"tap-run-digest-v2\n")
+        for name in ("primitive.yaml", "main.py"):
+            part = (child / name).read_bytes()
+            identity.update(len(part).to_bytes(8, "big"))
+            identity.update(part)
+        digest = identity.hexdigest()
         return ("uses:\n  - {alias: tasks, ref: examples.telara.dev/task-summary-python, "
                 "version: 0.1.0, digest: %s, effect: read}\n" % digest)
 
