@@ -25,3 +25,13 @@ func TestRulesetFingerprintIncludesSemanticBehavior(t *testing.T) {
 		t.Fatal("semantic credential table did not affect digest")
 	}
 }
+
+func TestCredentialObjectKeysAreOmitted(t *testing.T) {
+	tok := "ghp_" + strings.Repeat("a", 36)
+	for _, in := range []string{`{"` + tok + `":"ordinary"}`, `{"nested":{"` + tok + `":"ordinary"}}`} {
+		out := Redact(in)
+		if strings.Contains(out, tok) {
+			t.Fatal("credential key retained")
+		}
+	}
+}

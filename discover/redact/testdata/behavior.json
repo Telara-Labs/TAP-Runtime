@@ -78,5 +78,9 @@
   {
     "name": "",
     "input": "API_TOKEN=\"$TOKEN\" tool"
+  },
+  {
+    "name": "",
+    "input": "{\"ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\":\"ordinary\"}"
   }
 ]

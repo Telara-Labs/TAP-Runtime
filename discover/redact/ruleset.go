@@ -14,7 +14,7 @@ import (
 // rule changes what is redacted, so a record can say which rules redacted
 // it and a store can tell what to redact again. TestRulesetDigestNeedsAnEpoch
 // fails when the rules change and the epoch does not.
-const RulesetEpoch = 2
+const RulesetEpoch = 3
 
 // Ruleset identifies the redaction rules in force: their epoch, and a digest
 // derived from the rules themselves (never typed in), so two programs that
@@ -33,7 +33,7 @@ var (
 // hex SHA-256 of the RFC 8785 encoding of every rule's name and pattern, in
 // the order they are applied: the value shapes (SecretShapes), then the
 // patterns that recognise credential names, assignments and variable
-// references.
+// references, the semantic word tables, and outputs of the behavior corpus.
 func CurrentRuleset() Ruleset {
 	rulesetOnce.Do(func() {
 		ruleset = Ruleset{Epoch: RulesetEpoch, Digest: rulesDigest()}
@@ -75,7 +75,7 @@ func rulesDigest() string {
 		Rules                                []rule
 		Credentials, Configuration, Behavior []string
 		Engine                               int
-	}{rules(), credentialWords, configurationWords, behavior, 2})
+	}{rules(), credentialWords, configurationWords, behavior, 3})
 	if err != nil {
 		panic("redact: rules do not encode: " + err.Error())
 	}

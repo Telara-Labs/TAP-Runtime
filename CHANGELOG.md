@@ -14,7 +14,7 @@ see [version review](docs/versioning.md).
   Credential-shaped identifiers are rejected, subagent identities include
   their parent, and reads with options never compute a raw transcript digest.
   Cache eligibility is checked on complete source text before truncation;
-  obsolete cache blobs are removed. Ruleset epoch 2 fingerprints semantic
+  obsolete cache blobs are removed. Ruleset epoch 3 fingerprints semantic
   name rules and a behavior corpus as well as regular expressions.
 - **Canonical JSON rejects input that is not one valid value (contract).**
   `canon.CanonicalJSON` accepted trailing garbage such as `{}x`, and turned

@@ -102,6 +102,10 @@ func (r Codex) each(since time.Time, p trace.Progress, o *ReadOptions, yield fun
 		// its own file.
 		if ids[s.ID] {
 			s.ID = strings.TrimSuffix(filepath.Base(f), ".jsonl")
+			if o != nil && !safeIdentifier(s.ID) {
+				st.UnreadableFiles++
+				return nil
+			}
 			for i := range s.Calls {
 				s.Calls[i].Session = s.ID
 			}
@@ -579,15 +583,17 @@ func jsToolCalls(src string, o *ReadOptions) []JsCall {
 		args := map[string]json.RawMessage{}
 		switch {
 		case strings.HasPrefix(rest, "{"):
+			if o != nil {
+				if values, ok := jsLiteralData(rest).(map[string]any); ok {
+					for k, v := range values {
+						args[k], _ = json.Marshal(v)
+					}
+				}
+				out = append(out, JsCall{Name: name, Args: args})
+				continue
+			}
 			fields, quoted := JsObjectFieldsKinds(rest)
 			for k, v := range fields {
-				if o != nil {
-					if !safeIdentifier(k) {
-						continue
-					}
-					args[k], _ = json.Marshal(safeJSValue(v, quoted[k], 0))
-					continue
-				}
 				// An unquoted value that is valid JSON (a number, true, an
 				// object literal with quoted keys) keeps its type.
 				if !quoted[k] && json.Valid([]byte(v)) {
@@ -599,71 +605,18 @@ func jsToolCalls(src string, o *ReadOptions) []JsCall {
 			}
 		case rest != "" && trace.IsQuote([]rune(rest)[0]):
 			// tools.apply_patch(`*** Begin Patch ...`): one string argument.
-			v, _ := trace.ReadJSString([]rune(rest), 0)
+			var v any
+			if o != nil {
+				v = jsLiteralData(rest)
+			} else {
+				v, _ = trace.ReadJSString([]rune(rest), 0)
+			}
 			b, _ := json.Marshal(v)
 			args["input"] = b
 		}
 		out = append(out, JsCall{Name: name, Args: args})
 	}
 	return out
-}
-
-// safeJSValue recovers literal data without evaluating JavaScript. Source
-// expressions are omitted rather than persisted as potentially secret text.
-func safeJSValue(src string, quoted bool, depth int) any {
-	if depth > 32 {
-		return "<omitted JavaScript expression>"
-	}
-	if quoted {
-		return src
-	}
-	src = strings.TrimSpace(src)
-	var value any
-	if json.Unmarshal([]byte(src), &value) == nil {
-		// Preserve duplicate-key detection in the ordinary JSON redactor.
-		red := redactText(src)
-		if json.Valid([]byte(red)) {
-			return json.RawMessage(red)
-		}
-		return red
-	}
-	if strings.HasPrefix(src, "{") && strings.HasSuffix(src, "}") {
-		fields, quotes := JsObjectFieldsKinds(src)
-		out := map[string]any{}
-		for k, v := range fields {
-			if safeIdentifier(k) {
-				out[k] = safeJSValue(v, quotes[k], depth+1)
-			}
-		}
-		return out
-	}
-	if strings.HasPrefix(src, "[") && strings.HasSuffix(src, "]") {
-		rs := []rune(src)
-		var out []any
-		for i := 1; i < len(rs)-1; {
-			if IsSpace(rs[i]) || rs[i] == ',' {
-				i++
-				continue
-			}
-			if trace.IsQuote(rs[i]) {
-				v, next := trace.ReadJSString(rs, i)
-				if next <= i {
-					return "<omitted JavaScript expression>"
-				}
-				out = append(out, v)
-				i = next
-			} else {
-				next := trace.ScanJSValue(rs, i)
-				if next <= i {
-					return "<omitted JavaScript expression>"
-				}
-				out = append(out, safeJSValue(string(rs[i:next]), false, depth+1))
-				i = next
-			}
-		}
-		return out
-	}
-	return "<omitted JavaScript expression>"
 }
 
 // JsObjectFields reads the top-level key: value pairs of a JavaScript object

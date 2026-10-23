@@ -254,6 +254,11 @@ func redactValue(value any, sensitive bool) (any, bool) {
 	switch v := value.(type) {
 	case map[string]any:
 		for k, old := range v {
+			if redactText(k) != k {
+				delete(v, k)
+				changed = true
+				continue
+			}
 			next, dirty := redactValue(old, sensitive || IsSensitiveName(k))
 			v[k], changed = next, changed || dirty
 		}

@@ -71,7 +71,7 @@ func TestOptionsOmitOpaqueJSAndRedactQuotedNestedKeys(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout-s.jsonl")
 	writeJSONL(t, path, []map[string]any{
 		{"type": "session_meta", "payload": map[string]any{"id": "s"}},
-		{"type": "response_item", "payload": map[string]any{"type": "custom_tool_call", "name": "exec", "input": `await tools.put({config: {'password':'tiny', nested: [{token: 'small'}]}, other: derive('hidden')})`, "call_id": "c"}},
+		{"type": "response_item", "payload": map[string]any{"type": "custom_tool_call", "name": "exec", "input": `await tools.put({config: {'pass\u0077ord':'tiny', nested: [{token: 'small'}], templ: unknown("template-private")}, other: derive('hidden')})`, "call_id": "c"}},
 	})
 	s, st, err := TailCodexFile(path, nil, ReadOptions{Full: true})
 	if err != nil {
@@ -82,7 +82,7 @@ func TestOptionsOmitOpaqueJSAndRedactQuotedNestedKeys(t *testing.T) {
 	}
 	var b bytes.Buffer
 	gob.NewEncoder(&b).Encode(st)
-	for _, secret := range []string{"tiny", "small", "hidden"} {
+	for _, secret := range []string{"tiny", "small", "hidden", "template-private"} {
 		if strings.Contains(b.String(), secret) {
 			t.Fatal("JS credential/expression retained", secret)
 		}
@@ -153,7 +153,7 @@ func TestTailRejectsOversizedIncompleteRecord(t *testing.T) {
 }
 
 func TestStoreReadersMarkCompleteArgumentsBeforeBounding(t *testing.T) {
-	input := map[string]json.RawMessage{"config": json.RawMessage(`"` + strings.Repeat("x", MaxArg-10) + fakeGitHubToken() + `"`)}
+	input := map[string]json.RawMessage{"config": json.RawMessage(`"` + strings.Repeat("x", MaxArg-10) + " " + fakeGitHubToken() + `"`)}
 	for _, test := range []struct {
 		name string
 		tool func(*trace.Call)
@@ -180,4 +180,53 @@ func TestStoreReadersMarkCompleteArgumentsBeforeBounding(t *testing.T) {
 	if !a.Finish().CacheUnsafe {
 		t.Fatal("full user text contamination lost")
 	}
+}
+
+func TestDuplicateCodexSessionCannotFallbackToCredentialFilename(t *testing.T) {
+	dir := t.TempDir()
+	lines := []map[string]any{
+		{"type": "session_meta", "payload": map[string]any{"id": "s"}},
+		{"type": "response_item", "payload": map[string]any{"type": "function_call", "name": "exec_command", "arguments": `{"cmd":"ls"}`, "call_id": "c"}},
+	}
+	writeJSONL(t, filepath.Join(dir, "a.jsonl"), lines)
+	writeJSONL(t, filepath.Join(dir, fakeGitHubToken()+".jsonl"), lines)
+	if err := (Codex{Dir: dir}).EachWith(time.Time{}, ReadOptions{}, func(s trace.Session) error {
+		if strings.Contains(s.ID, fakeGitHubToken()) {
+			t.Fatal("fallback identifier contains credential")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestJSLiteralsDecodeEscapedKeysAndOmitTemplates(t *testing.T) {
+	for _, src := range []string{`{config:{'pass\u0077ord':'tiny'}}`, `{config:{"pass\x77ord":"tiny"}}`} {
+		value := jsLiteralData(src)
+		raw, _ := json.Marshal(value)
+		clean := redactText(string(raw))
+		if strings.Contains(clean, "tiny") {
+			t.Fatal("escaped secret property survived", clean)
+		}
+	}
+	value := jsLiteralData("{config: `text ${'template-private'}`} ")
+	raw, _ := json.Marshal(value)
+	if strings.Contains(string(raw), "template-private") {
+		t.Fatal("template source retained")
+	}
+}
+
+func FuzzJSLiteralData(f *testing.F) {
+	for _, seed := range []string{`{config:{'pass\u0077ord':'tiny'}}`, `{value:[1,true,null,{k:'x'}]}`, "{data: `template ${secret}`}"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, src string) {
+		if len(src) > 65536 {
+			return
+		}
+		value := jsLiteralData(src)
+		if _, err := json.Marshal(value); err != nil {
+			t.Fatalf("literal parser returned invalid data: %v", err)
+		}
+	})
 }
