@@ -408,7 +408,22 @@ func (d *codexDecoder) line(b []byte) {
 	case p.Type == "local_shell_call":
 		add(trace.Call{Client: "codex", Session: s.ID, Time: ln.Timestamp, Tool: "shell", Command: a.clean(strings.Join(p.Action.Command, " "))})
 	case p.Type == "custom_tool_call" && p.Name == "exec":
-		d.st.Exec[p.CallID] = CodexExecShapeOf(p.Input)
+		shape := CodexExecShapeOf(p.Input)
+		if o != nil && !safeIdentifier(shape.IndexKey) {
+			shape = CodexExecShape{}
+		}
+		d.st.Exec[p.CallID] = shape
+		if o == nil {
+			// Inspect decoded literal data separately from discover's legacy
+			// representation. Escaped property names and opaque expressions
+			// must not make an ordinary read eligible for persistence.
+			for _, parsed := range jsToolCalls(p.Input, &ReadOptions{}) {
+				b, _ := json.Marshal(parsed.Args)
+				if rawArgsUnsafe(parsed.Args) || strings.Contains(string(b), omittedJS) {
+					a.S.CacheUnsafe = true
+				}
+			}
+		}
 		for _, inner := range jsToolCalls(p.Input, o) {
 			args := redactArgs(inner.Args, o)
 			c := CodexCall(*s, ln.Timestamp, "", inner.Name, args)

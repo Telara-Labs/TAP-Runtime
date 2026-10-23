@@ -98,7 +98,7 @@ func parseFile(path string, parse FileParser, digest bool) (trace.Session, error
 		s.SourceDigest = hex.EncodeToString(h.Sum(nil))
 	}
 	audit.check()
-	s.CacheUnsafe = audit.unsafe
+	s.CacheUnsafe = s.CacheUnsafe || audit.unsafe
 	return s, nil
 }
 

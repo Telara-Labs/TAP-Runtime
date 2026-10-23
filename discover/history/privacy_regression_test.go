@@ -230,3 +230,38 @@ func FuzzJSLiteralData(f *testing.F) {
 		}
 	})
 }
+
+func TestPlainCodexCacheAuditsDecodedLiteralKeys(t *testing.T) {
+	cache := useTempCache(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rollout-s.jsonl")
+	writeJSONL(t, path, []map[string]any{
+		{"type": "session_meta", "payload": map[string]any{"id": "s"}},
+		{"type": "response_item", "payload": map[string]any{"type": "custom_tool_call", "name": "exec", "input": `await tools.put({config:{'pass\u0077ord':'tiny'}})`, "call_id": "c"}},
+	})
+	os.Chtimes(path, time.Now().Add(-time.Hour), time.Now().Add(-time.Hour))
+	s, err := (Codex{Dir: dir}).Read(time.Time{})
+	if err != nil || len(s) != 1 {
+		t.Fatal("read failed", err)
+	}
+	if !strings.Contains(s[0].Calls[0].Args["config"], "tiny") {
+		t.Fatal("ordinary read representation changed")
+	}
+	if blobs, _ := filepath.Glob(filepath.Join(cache, "codex", "*.gob")); len(blobs) != 0 {
+		t.Fatal("decoded JS secret was cached")
+	}
+}
+
+func TestCredentialCacheKeysAreNotPersisted(t *testing.T) {
+	cache := useTempCache(t)
+	c := openUnitCache("synthetic")
+	key := fakeGitHubToken()
+	c.put(key, "fp", []trace.Session{{ID: "safe"}})
+	c.setMark(key, 1)
+	c.setDir(key, walkDir{})
+	c.setDir("safe", walkDir{Subdirs: []string{key}})
+	c.save()
+	if cacheHolds(t, cache, key) {
+		t.Fatal("cache bookkeeping retained credential key")
+	}
+}

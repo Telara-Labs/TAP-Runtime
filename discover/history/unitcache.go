@@ -115,6 +115,7 @@ func openUnitCache(name string) *unitCache {
 	f, err := os.Open(c.path)
 	if err != nil {
 		os.RemoveAll(c.unitDir)
+		os.Remove(c.path)
 		return c
 	}
 	defer f.Close()
@@ -132,6 +133,7 @@ func openUnitCache(name string) *unitCache {
 	} else {
 		// Invalidated indexes must not strand old raw unit files on disk.
 		os.RemoveAll(c.unitDir)
+		os.Remove(c.path)
 	}
 	return c
 }
@@ -195,7 +197,7 @@ func (c *unitCache) put(key, fp string, ss []trace.Session) {
 	if c == nil || fp == "" {
 		return
 	}
-	if holdsCredential(ss) {
+	if redact.Redact(key) != key || holdsCredential(ss) {
 		c.prune(func(k string) bool { return k == key })
 		os.Remove(c.unitFile(key))
 		return
@@ -356,7 +358,7 @@ func (c *unitCache) mark(store string) int64 {
 }
 
 func (c *unitCache) setMark(store string, v int64) {
-	if c == nil {
+	if c == nil || redact.Redact(store) != store {
 		return
 	}
 	c.mu.Lock()
@@ -956,8 +958,13 @@ func (c *unitCache) dir(path string) (walkDir, bool) {
 }
 
 func (c *unitCache) setDir(path string, d walkDir) {
-	if c == nil {
+	if c == nil || redact.Redact(path) != path {
 		return
+	}
+	for _, subdir := range d.Subdirs {
+		if redact.Redact(subdir) != subdir {
+			return
+		}
 	}
 	c.mu.Lock()
 	c.dirs[path] = d
