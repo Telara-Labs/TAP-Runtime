@@ -8,6 +8,9 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- **The runner now embeds the hardened history and manifest modules.**
+  Its published `discover` and `contract` dependencies include the capture,
+  redaction, cache, session identity and canonical JSON fixes below.
 - **Conversation reads fail closed on ambiguous or unsafe source data (discover).**
   Duplicate JSON keys cannot retain a shadowed credential. JavaScript literal
   arguments are redacted recursively and opaque expressions are omitted.
@@ -84,8 +87,8 @@ see [version review](docs/versioning.md).
   The request, tool arguments and tool results copied from a source session are
   wrapped in a fence one backtick longer than any run in the text, so a result
   holding its own fence cannot end the block and add headings or instructions
-  the authoring agent would read as the handoff's. Takes effect in the runner
-  when its `discover` pin is bumped.
+  the authoring agent would read as the handoff's. The runner includes the
+  updated `discover` module.
 - **A forgotten trust stays forgotten, and a store is never read back half written.**
   `trusted.json` is changed under a lock shared by every TAP process, read fresh
   inside it, and replaced by renaming a whole file. Before, a forget in a
