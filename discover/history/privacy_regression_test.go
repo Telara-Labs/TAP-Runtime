@@ -285,3 +285,29 @@ func TestPlainCodexOpaqueAndDuplicateJSIsNeverCacheable(t *testing.T) {
 		})
 	}
 }
+
+func TestCleanLiteralCodexCallsStillUseCache(t *testing.T) {
+	useTempCache(t)
+	reads := readsOf(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rollout-s.jsonl")
+	writeJSONL(t, path, []map[string]any{
+		{"type": "session_meta", "payload": map[string]any{"id": "s"}},
+		{"type": "response_item", "payload": map[string]any{"type": "custom_tool_call", "name": "exec", "input": `tools.put({config:{name:'ordinary'}})`, "call_id": "c"}},
+	})
+	r := Codex{Dir: dir}
+	first, err := r.Read(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reads("codex")) != 1 {
+		t.Fatal("first read was not observed")
+	}
+	second, err := r.Read(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reads("codex")) != 0 || !reflect.DeepEqual(first, second) {
+		t.Fatal("safe literals did not cache identically")
+	}
+}

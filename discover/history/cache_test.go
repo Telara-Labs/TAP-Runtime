@@ -200,6 +200,11 @@ func TestEveryReaderReadsTheSameFromItsCache(t *testing.T) {
 			if tc.cache == "cursor-cli" && len(got) == 1 && filepath.Base(filepath.Dir(got[0])) == "758ccfd6-542b-4fed-b2ac-d9bbb242eab4" {
 				got = nil
 			}
+			// The Codex fixture's template expression is intentionally opaque
+			// to literal auditing, so its source must be read again.
+			if tc.cache == "codex" && len(got) == 1 && filepath.Base(got[0]) == "rollout-2026-09-27T10-00-00-c1.jsonl" {
+				got = nil
+			}
 			if len(got) != 0 {
 				t.Errorf("unchanged history was read again: %v", got)
 			}
