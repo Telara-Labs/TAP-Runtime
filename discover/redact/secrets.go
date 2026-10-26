@@ -1167,11 +1167,29 @@ func gatewayCredentialSpans(s string) []valueSpan {
 				}
 
 				start = at
+				// The frozen gateway expression stops at whitespace, which can
+				// split its own multiword redaction marker on a second pass.
+				// Extend the span through a complete marker so replacing it is
+				// idempotent and cannot leave a marker fragment behind.
+				if markerEnd := redactionMarkerEnd(s[start:]); markerEnd > 0 {
+					end = start + markerEnd
+				}
 			}
 			spans = append(spans, valueSpan{start, end})
 		}
 	}
 	return spans
+}
+
+func redactionMarkerEnd(s string) int {
+	if marker := redactionMarker.FindStringIndex(s); marker != nil && marker[0] == 0 {
+		return marker[1]
+	}
+	const externalMarker = "[REDACTED: sensitive value]"
+	if strings.HasPrefix(s, externalMarker) {
+		return len(externalMarker)
+	}
+	return 0
 }
 
 func yamlSequenceValue(s string) bool {
