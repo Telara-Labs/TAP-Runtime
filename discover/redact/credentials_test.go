@@ -170,8 +170,12 @@ func TestCredentialWordsKeepFieldContext(t *testing.T) {
 			}
 			for _, ref := range []string{"$SYNTHETIC_TOKEN", "${SYNTHETIC_TOKEN}", "{env:SYNTHETIC_TOKEN}"} {
 				input, _ := json.Marshal(map[string]string{name: ref})
-				if got := Argument("config", string(input)); got != string(input) {
-					t.Fatalf("literal reference changed: %s", got)
+				got := Argument("config", string(input))
+				if len(gatewayCredentialSpans(string(input))) == 0 && got != string(input) {
+					t.Fatalf("literal reference changed outside the frozen floor: %s", got)
+				}
+				if len(gatewayCredentialSpans(string(input))) > 0 && strings.Contains(got, ref) {
+					t.Fatalf("frozen credential floor was bypassed: %s", got)
 				}
 			}
 			input, _ := json.Marshal(map[string]string{name: "${SYNTHETIC_TOKEN:-synthetic-default}"})

@@ -61,9 +61,8 @@ func TestCredentialSuffixBeatsPrefixMetadataWords(t *testing.T) {
 				t.Fatalf("credential suffix value survived: %q", got)
 			}
 			input := name + ": " + value
-			floor := gatewayFloor(input, inspection{input, ""})
-			if floor.text == input || strings.Contains(floor.text, value) {
-				t.Fatalf("frozen source floor missed credential suffix %q: %q", name, floor.text)
+			if got := Redact(input); got == input || strings.Contains(got, value) {
+				t.Fatalf("contextual assignment inspection missed credential suffix %q: %q", name, got)
 			}
 		})
 	}

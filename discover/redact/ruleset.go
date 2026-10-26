@@ -16,7 +16,7 @@ import (
 // rule changes what is redacted, so a record can say which rules redacted
 // it and a store can tell what to redact again. TestRulesetDigestNeedsAnEpoch
 // fails when the rules change and the epoch does not.
-const RulesetEpoch = 46
+const RulesetEpoch = 47
 
 // Ruleset identifies the redaction rules in force: their epoch, and a digest
 // derived from the rules themselves (never typed in), so two programs that
@@ -109,7 +109,7 @@ func rulesDigest() string {
 		SharedCorpus                         []CorpusCase
 		SharedBehavior                       []string
 		Engine                               int
-	}{rules(), credentialWords, configurationWords, behavior, Corpus(), sharedBehavior(), 37})
+	}{rules(), credentialWords, configurationWords, behavior, Corpus(), sharedBehavior(), 38})
 	if err != nil {
 		panic("redact: rules do not encode: " + err.Error())
 	}

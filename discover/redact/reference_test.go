@@ -113,6 +113,9 @@ func (p *referenceInspector) textView(original string, sensitive bool, depth int
 	// unrelated decoded siblings must retain their exact contents.
 	if value, ok := structured(original); ok {
 		result := p.json(original, value, sensitive, depth)
+		if result.shape != "" {
+			result.shape = detectionClass(referenceAssembleLine(referenceNormalize(original)), result.shape)
+		}
 		if result.shape == "" {
 			result.text = original
 		}

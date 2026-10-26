@@ -8,6 +8,11 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Ruleset epoch 47 keeps the frozen gateway compatibility patterns byte-for-byte
+  aligned with their independent reference while classifying newer credential
+  field names through the contextual inspector. Exact variable references remain
+  inert for slot admission; fallbacks with literal values remain sensitive.
+
 - Ruleset epoch 46 preserves complete JSON, YAML and literal structure through
   nested catalog values within the bounded inspection depth. Credential names
   with configuration suffixes such as `api_key_name`, pagination tokens and TTL

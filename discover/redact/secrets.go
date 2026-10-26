@@ -222,7 +222,42 @@ func SensitiveSlot(label string, sl trace.Slot) bool {
 	if (name == "-u=" || name == "--user=") && UserFlagPrograms[strings.SplitN(strings.TrimPrefix(label, "sh:"), " ", 2)[0]] && strings.Contains(sl.Value, ":") {
 		return true
 	}
-	return SecretShape(sl.Value) != ""
+	value := sl.Value
+	// Environment references are inert text, even when a credential-name
+	// field contains one. The source redactor may still remove a reference if
+	// it overlaps the frozen compatibility floor, but it is not a hardcoded
+	// credential value for slot admission.
+	if decoded, ok := structured(value); ok {
+		if stripVariableReferences(decoded) {
+			value = encodeValue(decoded)
+		}
+	}
+	return SecretShape(value) != ""
+}
+
+func stripVariableReferences(value any) bool {
+	changed := false
+	switch v := value.(type) {
+	case map[string]any:
+		for key, child := range v {
+			if text, ok := child.(string); ok && variableReference(text) {
+				v[key] = ""
+				changed = true
+				continue
+			}
+			changed = stripVariableReferences(child) || changed
+		}
+	case []any:
+		for i, child := range v {
+			if text, ok := child.(string); ok && variableReference(text) {
+				v[i] = ""
+				changed = true
+				continue
+			}
+			changed = stripVariableReferences(child) || changed
+		}
+	}
+	return changed
 }
 
 // Redact replaces every credential-shaped part of s with <redacted>. It is
@@ -555,6 +590,9 @@ func (p *inspector) textView(original string, sensitive bool, depth int) (result
 			context = *p.rootContext
 		}
 		result := p.json(original, value, context, depth)
+		if result.shape != "" {
+			result.shape = detectionClass(assembleLine(Normalize(original)), result.shape)
+		}
 		if result.shape == "" {
 			result.text = original
 		}
@@ -1190,7 +1228,7 @@ func schemaChildKeyword(key string) bool {
 // are independent of all structured parsers and credential-name classifiers.
 var gatewayCredentialPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\b(?:` + SecretIdentifierPattern + `)\b["']?\s*[:=]\s*["']?[^"'\s,}]{8,}`),
-	regexp.MustCompile(`(?i)\b[a-z0-9_-]*(?:api[\s_-]*key|access[\s_-]*token|refresh[\s_-]*token|auth[\s_-]*token|secret|password|passwd|credential|private[\s_-]*key)\b["']?\s*[:=]\s*["']?[^"'\s,}]{8,}`),
+	regexp.MustCompile(`(?i)\b(?:[a-z0-9]+[_-])*(?:api[\s_-]*key|access[\s_-]*token|refresh[\s_-]*token|auth[\s_-]*token|secret|password|passwd|credential|private[\s_-]*key)\b["']?\s*[:=]\s*["']?[^"'\s,}]{8,}`),
 	regexp.MustCompile(`\b(ghp|glpat|gsk|sk|xox[baprs])-[_A-Za-z0-9]{16,}\b`),
 	regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[_A-Za-z0-9]{80,}|gsk_[A-Za-z0-9]{48,}`),
 }
