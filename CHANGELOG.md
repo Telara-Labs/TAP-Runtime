@@ -8,10 +8,13 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
-- Ruleset epoch 43 preserves complete JSON, YAML and literal structure through
+- Ruleset epoch 46 preserves complete JSON, YAML and literal structure through
   nested catalog values within the bounded inspection depth. Credential names
   with configuration suffixes such as `api_key_name`, pagination tokens and TTL
   settings remain readable, while provider-shaped credential values still redact.
+  Full-path JSON inspection preserves only the closed `password.enabled` boolean
+  and exact `password.policy: strict` controls; malformed or unknown descendants
+  remain sensitive.
   Reinspection preserves existing credential markers without extending them.
 
 - Credential inspection preserves unchanged ASCII prose and simple JSON without

@@ -79,7 +79,10 @@ func IsSensitiveName(name string) bool {
 	if credentialClassName.MatchString(name) {
 		return false
 	}
-	configurationLabel := hasConfigurationWord(name)
+	if paginationTokenName.MatchString(name) {
+		return false
+	}
+	configurationLabel := hasConfigurationWordAfterCredential(name)
 	if SensitiveName.MatchString(name) {
 		return !configurationLabel
 	}
@@ -106,7 +109,6 @@ func IsSensitiveName(name string) bool {
 		if i > start {
 			word := name[start:i]
 			credential = credential || credentialWord(word) || (strings.EqualFold(word, "key") && (strings.EqualFold(previous, "api") || strings.EqualFold(previous, "private")))
-			configuration = configuration || configurationWord(word)
 			previous = word
 		}
 		start = i
@@ -117,22 +119,35 @@ func IsSensitiveName(name string) bool {
 	return credential && !configuration
 }
 
-func hasConfigurationWord(name string) bool {
+var paginationTokenName = regexp.MustCompile(`(?i)^(?:next|previous|prev|before|after)[_-]?page[_-]?token$`)
+
+func hasConfigurationWordAfterCredential(name string) bool {
+	lastCredentialEnd, lastConfigurationStart := -1, -1
+	previous := ""
+	start := 0
 	for i := 0; i <= len(name); i++ {
 		if i < len(name) && nameLetter(name[i]) {
-			continue
+			// Use the same camel-case boundaries as IsSensitiveName.
+			if i == start || !nameUpper(name[i]) || (!nameLower(name[i-1]) && !(nameUpper(name[i-1]) && i+1 < len(name) && nameLower(name[i+1]))) {
+				continue
+			}
 		}
-		if i > 0 {
-			start := i - 1
-			for start >= 0 && nameLetter(name[start]) {
-				start--
+		if i > start {
+			word := name[start:i]
+			if configurationWord(word) {
+				lastConfigurationStart = start
 			}
-			if configurationWord(name[start+1 : i]) {
-				return true
+			if credentialWord(word) || strings.EqualFold(word, "key") && (strings.EqualFold(previous, "api") || strings.EqualFold(previous, "private")) {
+				lastCredentialEnd = i
 			}
+			previous = word
+		}
+		start = i
+		if i < len(name) && !nameLetter(name[i]) {
+			start++
 		}
 	}
-	return false
+	return lastCredentialEnd >= 0 && lastConfigurationStart >= lastCredentialEnd
 }
 
 func nameUpper(c byte) bool { return c >= 'A' && c <= 'Z' }
@@ -379,6 +394,7 @@ type inspector struct {
 	// Value annotations contain data, even when objects/strings resemble schemas.
 	schemaData      bool
 	metadataProfile bool
+	rootContext     *schemaContext
 }
 
 func inspect(s string, sensitive bool) inspection {
@@ -534,7 +550,11 @@ func (p *inspector) textView(original string, sensitive bool, depth int) (result
 	// Decode original values before normalization. Detection views may change;
 	// unrelated decoded siblings must retain their exact contents.
 	if value, ok := structured(original); ok {
-		result := p.json(original, value, sensitive, depth)
+		context := schemaContext{sensitive: sensitive, data: p.schemaData}
+		if depth == 0 && p.rootContext != nil {
+			context = *p.rootContext
+		}
+		result := p.json(original, value, context, depth)
 		if result.shape == "" {
 			result.text = original
 		}
@@ -646,13 +666,13 @@ func encodeValue(v any) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-func (p *inspector) json(raw string, value any, sensitive bool, depth int) inspection {
+func (p *inspector) json(raw string, value any, context schemaContext, depth int) inspection {
 	// A map decoder alone would discard shadowed values. Refuse duplicate
 	// keys and other ambiguous encodings for whole roots and prose fragments.
 	if _, err := canon.CanonicalJSON([]byte(raw)); err != nil {
 		return inspection{"<redacted ambiguous JSON>", "ambiguous JSON"}
 	}
-	next, shape := p.valueContext(value, schemaContext{sensitive: sensitive, data: p.schemaData}, depth+1)
+	next, shape := p.valueContext(value, context, depth+1)
 	if shape == "" {
 		return inspection{raw, ""}
 	}
@@ -931,7 +951,7 @@ func (p *inspector) fragmentPass(s string, depth, phase int, rawMarker string) (
 				}
 			}
 		}
-		r := p.json(raw, value, false, depth)
+		r := p.json(raw, value, schemaContext{data: p.schemaData}, depth)
 		// A compatibility-layer replacement is a real edit even if the
 		// decoded value no longer has a provider shape. Serialize the decoded
 		// fragment so downstream view filters still see reconstructed syntax.
@@ -1170,7 +1190,7 @@ func schemaChildKeyword(key string) bool {
 // are independent of all structured parsers and credential-name classifiers.
 var gatewayCredentialPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\b(?:` + SecretIdentifierPattern + `)\b["']?\s*[:=]\s*["']?[^"'\s,}]{8,}`),
-	regexp.MustCompile(`(?i)\b(?:[a-z0-9]+[_-])*(?:api[\s_-]*key|access[\s_-]*token|refresh[\s_-]*token|auth[\s_-]*token|secret|password|passwd|credential|private[\s_-]*key)\b["']?\s*[:=]\s*["']?[^"'\s,}]{8,}`),
+	regexp.MustCompile(`(?i)\b[a-z0-9_-]*(?:api[\s_-]*key|access[\s_-]*token|refresh[\s_-]*token|auth[\s_-]*token|secret|password|passwd|credential|private[\s_-]*key)\b["']?\s*[:=]\s*["']?[^"'\s,}]{8,}`),
 	regexp.MustCompile(`\b(ghp|glpat|gsk|sk|xox[baprs])-[_A-Za-z0-9]{16,}\b`),
 	regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[_A-Za-z0-9]{80,}|gsk_[A-Za-z0-9]{48,}`),
 }
@@ -1665,9 +1685,9 @@ func inspectionMarker(s, base string) string {
 // are case-sensitive. Unknown extensions remain data; value annotations cannot
 // reclassify a descendant as a schema, even through a decoded string.
 type schemaContext struct {
-	schema, properties, sensitive, data, metadata, metadataMap bool
-	dependencies, dependency                                   bool
-	oauthFlow, oauthScopes, oauthResource, oauthIssuer         bool
+	schema, properties, sensitive, data, metadata, metadataMap, credentialControls bool
+	dependencies, dependency                                                       bool
+	oauthFlow, oauthScopes, oauthResource, oauthIssuer                             bool
 }
 
 // A subschema may be an object or boolean. Other scalar types do not gain
@@ -1741,6 +1761,23 @@ func (c schemaContext) child(key string) schemaContext {
 // credential classification. The same validator serves decoded JSON and YAML.
 func (c schemaContext) childValue(key string, value any) schemaContext {
 	child := c.child(key)
+	if c.credentialControls {
+		switch v := value.(type) {
+		case bool, nil:
+			if key == "enabled" {
+				child.sensitive = false
+			}
+		case string:
+			if key == "policy" && v == "strict" {
+				child.sensitive = false
+			}
+		}
+	}
+	if !c.sensitive && !c.data && !c.metadata && !c.schema && !c.properties && Normalize(key) == "password" {
+		if _, ok := value.(map[string]any); ok {
+			child.credentialControls = true
+		}
+	}
 	// A flow name can also name an actual authorization-code credential.
 	// Only a complete, well-shaped metadata object changes that interpretation.
 	// Credential ancestors and schema value annotations never gain exemptions.

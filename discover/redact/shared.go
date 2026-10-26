@@ -81,7 +81,14 @@ func Field(path []string, text string) string {
 		key = Normalize(key)
 		context = context.mapping().recognize(key).child(key)
 	}
-	p := inspector{remaining: 64*len(text) + 65536, schemaData: context.data}
+	if context.sensitive && !context.data && !context.metadata && !context.schema && !context.properties {
+		if value, ok := structured(text); ok {
+			if _, ok := value.(map[string]any); ok {
+				context.credentialControls = true
+			}
+		}
+	}
+	p := inspector{remaining: 64*len(text) + 65536, schemaData: context.data, rootContext: &context}
 	boolean := text == "true" || text == "false"
 	result := p.text(text, context.scalarSensitive(boolean), 0).text
 	if context.data {

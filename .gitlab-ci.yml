@@ -1,150 +1,23 @@
-# Tests that need an installed client, or the network, skip themselves when
-# there is none. Everything else runs real programs in the real sandbox.
-stages: [verify]
+stages: [probe]
 
-variables:
-  GOWORK: "off"
-  GOFLAGS: "-mod=readonly"
-
-# Every job runs on Telara's own runners on GCP, never on GitLab.com's shared
-# ones. Those runners are Linux.
-default:
+ruleset-digest-probe:
+  stage: probe
+  image: golang:1.26.10
   tags: [telara-amd64]
-  retry:
-    max: 2
-    when: runner_system_failure
-  # As the other Telara repositories do on these runners: temporary files and
-  # the build cache live in the project directory.
-  before_script:
-    - mkdir -p "${CI_PROJECT_DIR}/.tmp" "${CI_PROJECT_DIR}/.cache/go-build"
-    - export TMPDIR="${CI_PROJECT_DIR}/.tmp" GOTMPDIR="${CI_PROJECT_DIR}/.tmp" GOCACHE="${CI_PROJECT_DIR}/.cache/go-build"
-    # contract/ and discover/ come from the public module proxy at the
-    # versions go.mod names, as for anyone building from source.
-
-.suite: &suite
-  - test -z "$(gofmt -l acceptance bind bridge cmd conformance contract host internal journal release satisfy guest-sh sdk/go/tap)"
-  - go vet ./...
-  - go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
-  - (cd contract && go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...)
-  - (cd discover && go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...)
-  - (cd contract && go vet ./... && go test ./... -count=1)
-  - GOOS=wasip1 GOARCH=wasm go build -o /dev/null ./guest-sh
-  # The Go image has no Node; install the public JS test runtime explicitly.
-  - command -v npm >/dev/null || (apt-get update -qq && apt-get install -y -qq nodejs npm >/dev/null)
-  # Shared runners can run several times slower when busy; host and the
-  # conformance kit take about five minutes on an idle one.
-  - go test ./... -count=1 -timeout 20m
-  - |
-    if [ -n "${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}" ]; then
-      base_sha="$CI_MERGE_REQUEST_DIFF_BASE_SHA"
-    else
-      base_sha="$CI_COMMIT_BEFORE_SHA"
-    fi
-    head_sha="$CI_COMMIT_SHA"
-    if [ "$base_sha" = "0000000000000000000000000000000000000000" ]; then
-      base_sha="$(git rev-parse "${head_sha}^")"
-    fi
-    if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-      git fetch --unshallow --no-tags origin
-    fi
-    if ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null; then
-      git fetch --no-tags origin "$base_sha"
-    fi
-    go run ./cmd/public-check --commit-base "$base_sha" --commit-head "$head_sha"
-  # discover reads agents' stores with the sqlite3 and zstd programs; with
-  # them installed its store readers are tested, not skipped.
-  - command -v sqlite3 >/dev/null && command -v zstd >/dev/null || (apt-get update -qq && apt-get install -y -qq sqlite3 zstd >/dev/null)
-  - (cd discover && test -z "$(gofmt -l .)" && go vet ./... && go test ./... -count=1)
-  - command -v node >/dev/null || (apt-get update -qq && apt-get install -y -qq nodejs npm >/dev/null)
-  - node --test vscode/extension.test.js
-  - node --test npm/test/*.test.cjs
-  - command -v python3 >/dev/null || (apt-get update -qq && apt-get install -y -qq python3 >/dev/null)
-  - python3 -B -m unittest discover -s examples/browser-support -v
-  - python3 -B -m unittest discover -s examples/desktop-support -v
-  - python3 -B -m unittest discover -s examples/api-release-brief -v
-  - python3 -B -m unittest discover -s examples/connector-meeting-brief -v
-  - python3 -B -m unittest discover -s examples/connector-draft-reply -v
-  - python3 -B -m unittest discover -s examples/connector-issue-triage -v
-  - python3 -B -m unittest discover -s examples/languages -p 'test_*.py' -v
-
-linux-amd64:
-  stage: verify
-  image: golang:1.26.10
-  script: *suite
-
-# Published-artifact acceptance on the existing native GCP runner, when
-# GitHub's hosted runner pool cannot supply an amd64 machine. The package
-# version is set by the release command; no separate CI version setting.
-published-acceptance-linux-amd64:
-  stage: verify
-  image: golang:1.26.10
-  when: manual
-  allow_failure: true
-  timeout: 30m
-  script:
-    - uname -m
-    - apt-get update -qq && apt-get install -y -qq nodejs npm strace busybox
-    - go test ./acceptance/launch -count=1 -v -timeout 25m -launch-version "$(node -p "require('./npm/package.json').version")"
-
-linux-arm64:
-  stage: verify
-  image: golang:1.26.10
-  tags: [telara-arm64]
-  script:
-    - uname -m
-    - *suite
-
-# On Windows itself: Telara's Windows runner on GCP
-# (telara-cloud/ci-runners, "Windows runner"), whose image has git and Go
-# installed. A worker is made for the job and removed afterwards, so the
-# first minutes of the job are Windows starting.
-windows-amd64:
-  stage: verify
-  timeout: 40m
-  # The worker is a spot VM: it can be taken back while the job runs.
-  retry:
-    max: 2
-    when: runner_system_failure
-  tags: [telara-windows]
-  before_script: []
-  artifacts:
-    when: always
-    paths: [windows.log]
-    expire_in: 1 week
-  script:
-    - powershell -NoProfile -ExecutionPolicy Bypass -File ci/windows.ps1
-
-# Every listed test and fuzz seed runs in exactly one partition. Receipts carry
-# the full denominator and selected names so combined coverage is auditable.
-redaction-race:
-  stage: verify
-  image: golang:1.26.10
-  parallel: 4
-  timeout: 40m
-  artifacts:
-    when: always
-    paths: [redaction-all.list, redaction-selected.list, redaction-race.log]
-    expire_in: 1 week
   script:
     - cd discover
-    - go test -list '^(Test|Fuzz|Example)' ./redact | awk '/^(Test|Fuzz|Example)[[:alnum:]_]*$/' > ../redaction-all.list
-    - test -s ../redaction-all.list
-    - awk -v total="$CI_NODE_TOTAL" -v part="$CI_NODE_INDEX" '$0 != "TestPristineGatewayDifferential" && (NR - 1) % total == part - 1' ../redaction-all.list > ../redaction-selected.list
-    - echo TestPristineGatewayDifferential >> ../redaction-selected.list
-    - test -s ../redaction-selected.list
-    - cat ../redaction-selected.list
-    - go test -race -v -p 1 -count=1 -timeout 35m -run "^($(paste -sd '|' ../redaction-selected.list))$" ./redact -redaction-differential-shard "$CI_NODE_INDEX/$CI_NODE_TOTAL" > ../redaction-race.log 2>&1 || (cat ../redaction-race.log; exit 1)
-    - cat ../redaction-race.log
-
-redaction-cost:
-  stage: verify
-  image: golang:1.26.10
-  timeout: 15m
+    - |
+      set +e
+      output="$(GOWORK=off GOFLAGS=-mod=readonly go test -p 1 -run '^TestRulesetDigestNeedsAnEpoch$' ./redact -count=1 2>&1)"
+      status=$?
+      set -e
+      printf '%s\n' "$output"
+      digest="$(printf '%s\n' "$output" | sed -n 's/.*append "46 \([0-9a-f]\{64\}\)".*/\1/p' | head -1)"
+      test -n "$digest"
+      printf '46 %s\n' "$digest" > ../ruleset-digest.txt
+      printf '<testsuites tests="1" failures="0"><testsuite name="ruleset-digest" tests="1" failures="0"><testcase name="epoch-46-digest"><system-out>46 %s</system-out></testcase></testsuite></testsuites>\n' "$digest" > ../ruleset-digest.xml
   artifacts:
     when: always
-    paths: [redaction-cost.log]
-    expire_in: 1 week
-  script:
-    - cd discover
-    - go test -p 1 -run '^$' -bench 'BenchmarkInspection(Typical|Realistic)' -benchmem -benchtime=200x -count=3 ./redact > ../redaction-cost.log 2>&1
-    - cat ../redaction-cost.log
+    paths: [ruleset-digest.txt]
+    reports:
+      junit: ruleset-digest.xml

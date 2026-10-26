@@ -32,6 +32,9 @@ func TestFieldKeepsCredentialMetadataNames(t *testing.T) {
 		"api_key_name: production-key-name",
 		"access_token_ttl_seconds=3600000",
 		"next_page_token: opaque cursor from the previous page",
+		"apiKeyName: production-key-name",
+		"accessTokenTtlSeconds=3600000",
+		"nextPageToken: opaque cursor from the previous page",
 	} {
 		if got := Field(nil, input); got != input {
 			t.Errorf("credential metadata changed: input %q got %q", input, got)
@@ -40,6 +43,29 @@ func TestFieldKeepsCredentialMetadataNames(t *testing.T) {
 	providerToken := "next_page_token: ghp_" + strings.Repeat("A", 36)
 	if got := Field(nil, providerToken); strings.Contains(got, strings.Repeat("A", 36)) {
 		t.Fatalf("provider token escaped under pagination metadata: %q", got)
+	}
+	providerToken = "nextPageToken: ghp_" + strings.Repeat("A", 36)
+	if got := Field(nil, providerToken); strings.Contains(got, strings.Repeat("A", 36)) {
+		t.Fatalf("provider token escaped under camel-case pagination metadata: %q", got)
+	}
+}
+
+func TestCredentialSuffixBeatsPrefixMetadataWords(t *testing.T) {
+	for _, name := range []string{"name_password", "policy_secret", "endpoint_api_key", "token_name_password", "namePassword", "policySecret", "endpointApiKey", "tokenNamePassword"} {
+		t.Run(name, func(t *testing.T) {
+			if !IsSensitiveName(name) {
+				t.Fatalf("credential suffix was exempted by its prefix: %q", name)
+			}
+			const value = "syntheticOpaqueValue42"
+			if got := Field([]string{name}, value); strings.Contains(got, value) {
+				t.Fatalf("credential suffix value survived: %q", got)
+			}
+			input := name + ": " + value
+			floor := gatewayFloor(input, inspection{input, ""})
+			if floor.text == input || strings.Contains(floor.text, value) {
+				t.Fatalf("frozen source floor missed credential suffix %q: %q", name, floor.text)
+			}
+		})
 	}
 }
 
