@@ -1724,6 +1724,8 @@ func inspectionMarker(s, base string) string {
 // reclassify a descendant as a schema, even through a decoded string.
 type schemaContext struct {
 	schema, properties, sensitive, data, metadata, metadataMap, credentialControls bool
+	credentialControl                                                              bool
+	controlKey                                                                     string
 	dependencies, dependency                                                       bool
 	oauthFlow, oauthScopes, oauthResource, oauthIssuer                             bool
 }
@@ -1798,20 +1800,28 @@ func (c schemaContext) child(key string) schemaContext {
 // shape. Malformed declarations become instance data and retain the enclosing
 // credential classification. The same validator serves decoded JSON and YAML.
 func (c schemaContext) childValue(key string, value any) schemaContext {
+	return c.childValueOccurrence(key, value, true, true)
+}
+
+func (c schemaContext) childValueOccurrence(key string, value any, valueUnique, keyUnique bool) schemaContext {
 	child := c.child(key)
-	if c.credentialControls {
+	if c.credentialControls && keyUnique {
 		switch v := value.(type) {
 		case bool, nil:
 			if key == "enabled" {
 				child.sensitive = false
+				child.credentialControl = true
+				child.controlKey = Normalize(key)
 			}
 		case string:
 			if key == "policy" && v == "strict" {
 				child.sensitive = false
+				child.credentialControl = true
+				child.controlKey = Normalize(key)
 			}
 		}
 	}
-	if !c.sensitive && !c.data && !c.metadata && !c.schema && !c.properties && Normalize(key) == "password" {
+	if valueUnique && keyUnique && !c.sensitive && !c.data && !c.metadata && !c.schema && !c.properties && Normalize(key) == "password" {
 		if _, ok := value.(map[string]any); ok {
 			child.credentialControls = true
 		}
@@ -1819,10 +1829,10 @@ func (c schemaContext) childValue(key string, value any) schemaContext {
 	// A flow name can also name an actual authorization-code credential.
 	// Only a complete, well-shaped metadata object changes that interpretation.
 	// Credential ancestors and schema value annotations never gain exemptions.
-	if !c.sensitive && !c.data && !c.properties && !c.metadata && validOAuthFlow(key, value) {
+	if valueUnique && keyUnique && !c.sensitive && !c.data && !c.properties && !c.metadata && validOAuthFlow(key, value) {
 		return schemaContext{oauthFlow: true}
 	}
-	if c.schema && !c.data && !c.metadata && !c.properties && schemaMetadataKeyword(Normalize(key)) && !validSchemaMetadata(Normalize(key), value) {
+	if c.schema && !c.data && !c.metadata && !c.properties && schemaMetadataKeyword(Normalize(key)) && (!valueUnique || !keyUnique || !validSchemaMetadata(Normalize(key), value)) {
 		return schemaContext{data: true, sensitive: c.sensitive || IsSensitiveName(key)}
 	}
 	return child

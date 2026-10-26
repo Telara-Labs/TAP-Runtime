@@ -8,6 +8,12 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Ruleset epoch 48 adds incremental typed field context for egress consumers.
+  Consumers carry source occurrence uniqueness, precharge bounded schema
+  validation work, and pass each original scalar token once. Only boolean/null
+  `password.enabled` values and the exact JSON string `password.policy: "strict"`
+  retain their original tokens; string lookalikes and escaped spellings stay sensitive.
+
 - Ruleset epoch 47 keeps the frozen gateway compatibility patterns byte-for-byte
   aligned with their independent reference while classifying newer credential
   field names through the contextual inspector. Exact variable references remain

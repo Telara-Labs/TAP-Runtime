@@ -16,7 +16,7 @@ import (
 // rule changes what is redacted, so a record can say which rules redacted
 // it and a store can tell what to redact again. TestRulesetDigestNeedsAnEpoch
 // fails when the rules change and the epoch does not.
-const RulesetEpoch = 47
+const RulesetEpoch = 48
 
 // Ruleset identifies the redaction rules in force: their epoch, and a digest
 // derived from the rules themselves (never typed in), so two programs that
@@ -109,7 +109,7 @@ func rulesDigest() string {
 		SharedCorpus                         []CorpusCase
 		SharedBehavior                       []string
 		Engine                               int
-	}{rules(), credentialWords, configurationWords, behavior, Corpus(), sharedBehavior(), 38})
+	}{rules(), credentialWords, configurationWords, behavior, Corpus(), sharedBehavior(), 40})
 	if err != nil {
 		panic("redact: rules do not encode: " + err.Error())
 	}
@@ -131,5 +131,26 @@ func sharedBehavior() []string {
 		out = append(out, Field(nil, c.Input), Field([]string{"password", "value"}, c.Input), ExternalField([]string{"password", "value"}, c.Input), Field([]string{"properties", "password", "default"}, c.Input), Field([]string{"properties", "password", "description"}, c.Input), Field([]string{"default"}, c.Input))
 		out = append(out, Normalize(c.Input), Redact(c.Input), ExternalText(c.Input), SecretShape(c.Input), strconv.FormatBool(ContainsProviderToken(c.Input)), strconv.FormatBool(len(ScanArtifacts(map[string][]byte{"corpus": []byte(c.Input)})) != 0))
 	}
+	out = append(out,
+		fieldValue([]string{"result", "password", "enabled"}, []any{map[string]any{}, map[string]any{}, false}, false, "false"),
+		fieldValue([]string{"result", "password", "enabled"}, []any{map[string]any{}, map[string]any{}, "false"}, "false", `"false"`),
+		fieldValue([]string{"result", "password", "enabled"}, []any{map[string]any{}, map[string]any{}, nil}, nil, "null"),
+		fieldValue([]string{"result", "password", "enabled"}, []any{map[string]any{}, map[string]any{}, "null"}, "null", `"null"`),
+		fieldValue([]string{"result", "password", "enabled"}, []any{map[string]any{}, map[string]any{}, json.Number("0")}, json.Number("0"), "0"),
+		fieldValue([]string{"result", "password", "enabled"}, []any{map[string]any{}, map[string]any{}, "0"}, "0", `"0"`),
+		fieldValue([]string{"result", "password", "policy"}, []any{map[string]any{}, map[string]any{}, "strict"}, "strict", `"strict"`),
+		fieldValue([]string{"result", "password", "policy"}, []any{map[string]any{}, map[string]any{}, "strict"}, "strict", `"\u0073trict"`),
+		fieldValue([]string{"properties", "password"}, []any{map[string]any{}, false}, false, "false"),
+		fieldValue([]string{"properties", "password"}, []any{map[string]any{}, "false"}, "false", `"false"`),
+		fieldValueOccurrences([]string{"result", "password", "enabled"}, []FieldOccurrence{
+			{Value: map[string]any{}, KeyUnique: true, ValueUnique: true},
+			{Value: map[string]any{"enabled": false, "enabled_shadow": false}, KeyUnique: true, ValueUnique: false},
+			{Value: false, KeyUnique: false, ValueUnique: true},
+		}, false, "false"),
+		fieldValueOccurrences([]string{"result", "ordinary"}, []FieldOccurrence{
+			{Value: map[string]any{}, KeyUnique: true, ValueUnique: true},
+			{Value: "plain", KeyUnique: false, ValueUnique: true},
+		}, "plain", `"plain"`),
+	)
 	return out
 }
