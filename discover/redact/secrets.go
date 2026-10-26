@@ -17,6 +17,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// maxInspectionDepth bounds recursive JSON, YAML and text-fragment traversal.
+// Keep it high enough for real catalog schemas while the byte budget in each
+// inspector continues to bound total work.
+const maxInspectionDepth = 2048
+
 // SecretShapes are value patterns that are credentials wherever they appear.
 var SecretShapes = []struct {
 	name string
@@ -74,7 +79,11 @@ func IsSensitiveName(name string) bool {
 	if credentialClassName.MatchString(name) {
 		return false
 	}
-	if SensitiveName.MatchString(name) || qualifiedCredentialName.MatchString(name) || mixedCredentialName.MatchString(name) {
+	configurationLabel := hasConfigurationWord(name)
+	if SensitiveName.MatchString(name) {
+		return !configurationLabel
+	}
+	if qualifiedCredentialName.MatchString(name) || mixedCredentialName.MatchString(name) {
 		return true
 	}
 	// A spaced label must end in its credential field, rather than merely
@@ -84,7 +93,7 @@ func IsSensitiveName(name string) bool {
 		words := strings.Fields(name)
 		return len(words) > 0 && IsSensitiveName(words[len(words)-1])
 	}
-	credential, configuration := false, false
+	credential, configuration := false, configurationLabel
 	previous := ""
 	start := 0
 	for i := 0; i <= len(name); i++ {
@@ -108,6 +117,24 @@ func IsSensitiveName(name string) bool {
 	return credential && !configuration
 }
 
+func hasConfigurationWord(name string) bool {
+	for i := 0; i <= len(name); i++ {
+		if i < len(name) && nameLetter(name[i]) {
+			continue
+		}
+		if i > 0 {
+			start := i - 1
+			for start >= 0 && nameLetter(name[start]) {
+				start--
+			}
+			if configurationWord(name[start+1 : i]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func nameUpper(c byte) bool { return c >= 'A' && c <= 'Z' }
 func nameLower(c byte) bool { return c >= 'a' && c <= 'z' }
 func nameLetter(c byte) bool {
@@ -115,7 +142,7 @@ func nameLetter(c byte) bool {
 }
 
 var credentialWords = []string{"password", "passwd", "pwd", "secret", "token", "credential", "credentials", "cookie", "authorization", "bearer"}
-var configurationWords = []string{"count", "length", "limit", "interval", "budget", "size", "duration", "timeout", "policy", "url", "uri", "endpoint", "enabled", "required", "format", "algorithm", "class", "type", "kind", "mode", "status", "hint"}
+var configurationWords = []string{"count", "length", "limit", "interval", "budget", "size", "duration", "timeout", "policy", "url", "uri", "endpoint", "enabled", "required", "format", "algorithm", "class", "type", "kind", "mode", "status", "hint", "name", "page", "ttl", "seconds"}
 
 // These public enum constants describe credential handling, never a value.
 // Match their exact source spelling; generic inline-password fields remain
@@ -366,7 +393,7 @@ func inspectProfile(s string, sensitive, metadataProfile bool) inspection {
 // Run the floor independently on every decoded string as well as the outer
 // source. JSON escapes must not move a value outside the original-text floor.
 func (p *inspector) text(s string, sensitive bool, depth int) inspection {
-	if depth > 64 || len(s) > p.remaining {
+	if depth > maxInspectionDepth || len(s) > p.remaining {
 		return inspection{"<redacted inspection limit>", "inspection limit"}
 	}
 	if !sensitive && !p.metadataProfile && fastRulesCurrent() && (plainASCII(s) || depth == 0 && p.remaining == 64*len(s)+65536 && (simpleJSON(s) || candidateText(s, 0))) {
@@ -500,7 +527,7 @@ func (p *inspector) textView(original string, sensitive bool, depth int) (result
 			result.text = strings.ReplaceAll(result.text, rawMarker, "<redacted credential>")
 		}
 	}()
-	if depth > 64 || len(original) > p.remaining {
+	if depth > maxInspectionDepth || len(original) > p.remaining {
 		return inspection{"<redacted inspection limit>", "inspection limit"}
 	}
 	p.remaining -= len(original)
@@ -639,7 +666,7 @@ func (p *inspector) value(value any, sensitive bool, depth int) (any, string) {
 // Schema maps describe fields. Only annotations carrying actual values inherit
 // the field's credential classification. Metadata still undergoes shape checks.
 func (p *inspector) valueContext(value any, context schemaContext, depth int) (any, string) {
-	if depth > 64 {
+	if depth > maxInspectionDepth {
 		return "<redacted inspection limit>", "inspection limit"
 	}
 	shape := ""
@@ -1158,7 +1185,12 @@ func gatewayCredentialSpans(s string) []valueSpan {
 		for _, m := range re.FindAllStringIndex(s, -1) {
 			start, end := m[0], m[1]
 			if i < 2 {
-				at := strings.IndexAny(s[start:end], ":=") + start + 1
+				separator := strings.IndexAny(s[start:end], ":=") + start
+				fieldName := strings.Trim(strings.TrimSpace(s[start:separator]), `"'`)
+				if !IsSensitiveName(fieldName) {
+					continue
+				}
+				at := separator + 1
 				for at < len(s) && asciiSpace(s[at]) {
 					at++
 				}
@@ -2027,7 +2059,7 @@ func (p *inspector) yamlSchema(s string, depth int) (inspection, bool) {
 	shape := ""
 	var walk func(*yaml.Node, schemaContext, int)
 	walk = func(n *yaml.Node, c schemaContext, d int) {
-		if d > 64 || p.remaining < 1 {
+		if d > maxInspectionDepth || p.remaining < 1 {
 			invalid = true
 			return
 		}

@@ -20,7 +20,7 @@ type referenceInspector struct {
 }
 
 func (p *referenceInspector) text(s string, sensitive bool, depth int) inspection {
-	if depth > 64 || len(s) > p.remaining {
+	if depth > maxInspectionDepth || len(s) > p.remaining {
 		return inspection{"<redacted inspection limit>", "inspection limit"}
 	}
 	// All original/pristine/current frozen spans contribute to the floor.
@@ -105,7 +105,7 @@ func (p *referenceInspector) textView(original string, sensitive bool, depth int
 			result.text = strings.ReplaceAll(result.text, rawMarker, "<redacted credential>")
 		}
 	}()
-	if depth > 64 || len(original) > p.remaining {
+	if depth > maxInspectionDepth || len(original) > p.remaining {
 		return inspection{"<redacted inspection limit>", "inspection limit"}
 	}
 	p.remaining -= len(original)
@@ -223,7 +223,7 @@ func (p *referenceInspector) value(value any, sensitive bool, depth int) (any, s
 }
 
 func (p *referenceInspector) valueContext(value any, context schemaContext, depth int) (any, string) {
-	if depth > 64 {
+	if depth > maxInspectionDepth {
 		return "<redacted inspection limit>", "inspection limit"
 	}
 	shape := ""
@@ -645,7 +645,7 @@ func (p *referenceInspector) yamlSchema(s string, depth int) (inspection, bool) 
 	shape := ""
 	var walk func(*yaml.Node, schemaContext, int)
 	walk = func(n *yaml.Node, c schemaContext, d int) {
-		if d > 64 || p.remaining < 1 {
+		if d > maxInspectionDepth || p.remaining < 1 {
 			invalid = true
 			return
 		}
