@@ -129,10 +129,11 @@ redaction-race:
     - cd discover
     - go test -list '^(Test|Fuzz|Example)' ./redact | awk '/^(Test|Fuzz|Example)[[:alnum:]_]*$/' > ../redaction-all.list
     - test -s ../redaction-all.list
-    - awk -v total="$CI_NODE_TOTAL" -v part="$CI_NODE_INDEX" '(NR - 1) % total == part - 1' ../redaction-all.list > ../redaction-selected.list
+    - awk -v total="$CI_NODE_TOTAL" -v part="$CI_NODE_INDEX" '$0 != "TestPristineGatewayDifferential" && (NR - 1) % total == part - 1' ../redaction-all.list > ../redaction-selected.list
+    - echo TestPristineGatewayDifferential >> ../redaction-selected.list
     - test -s ../redaction-selected.list
     - cat ../redaction-selected.list
-    - go test -race -p 1 -count=1 -timeout 35m -run "^($(paste -sd '|' ../redaction-selected.list))$" ./redact > ../redaction-race.log 2>&1 || (cat ../redaction-race.log; exit 1)
+    - go test -race -v -p 1 -count=1 -timeout 35m -run "^($(paste -sd '|' ../redaction-selected.list))$" ./redact -redaction-differential-shard "$CI_NODE_INDEX/$CI_NODE_TOTAL" > ../redaction-race.log 2>&1 || (cat ../redaction-race.log; exit 1)
     - cat ../redaction-race.log
 
 redaction-cost:

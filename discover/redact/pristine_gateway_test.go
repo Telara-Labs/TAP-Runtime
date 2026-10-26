@@ -2,8 +2,10 @@ package redact
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -36,10 +38,34 @@ func pristineGateway(s string) string {
 	return s
 }
 
+// CI may distribute this large generated matrix without changing its cases.
+// Ordinary invocations still execute the complete matrix.
+var pristineDifferentialShard = flag.String("redaction-differential-shard", "", "generated differential input partition, one-based part/total")
+
 func TestPristineGatewayDifferential(t *testing.T) {
-	checked, legacyHits, providerHits := 0, 0, 0
+	part, total := 1, 1
+	if *pristineDifferentialShard != "" {
+		fields := strings.Split(*pristineDifferentialShard, "/")
+		if len(fields) != 2 {
+			t.Fatal("invalid differential partition")
+		}
+		var err error
+		part, err = strconv.Atoi(fields[0])
+		if err != nil {
+			t.Fatal("invalid differential partition")
+		}
+		total, err = strconv.Atoi(fields[1])
+		if err != nil || part < 1 || total < 1 || part > total {
+			t.Fatal("invalid differential partition")
+		}
+	}
+	seen, checked, legacyHits, providerHits := 0, 0, 0, 0
 	check := func(id, input string, secrets []string) {
 		t.Helper()
+		seen++
+		if (seen-1)%total != part-1 {
+			return
+		}
 		checked++
 		old := pristineGateway(input)
 		for _, re := range pristineProviderPatterns {
@@ -188,7 +214,7 @@ func TestPristineGatewayDifferential(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("checked %d inputs, %d pristine gateway positives, %d schema provider positives", checked, legacyHits, providerHits)
+	t.Logf("partition %d/%d checked %d inputs of %d generated, %d pristine gateway positives, %d schema provider positives", part, total, checked, seen, legacyHits, providerHits)
 }
 
 func encodeJSONString(s string) string { b, _ := json.Marshal(s); return string(b) }
