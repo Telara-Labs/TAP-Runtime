@@ -8,6 +8,54 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Credential inspection preserves unchanged ASCII prose and simple JSON without
+  rebuilding their trees. Uncertain syntax and metadata profiles retain complete
+  inspection. Differential corpus and fuzz checks compare the optimized path
+  with the unoptimized inspector, preserving the current ruleset fingerprint.
+
+- **Consumers share one credential ruleset and embedded synthetic corpus.**
+  `discover/redact` exports normalization, provider-token detection and external
+  display redaction with shared instance-field path inspection. Schema value
+  literals retain credential ancestry across gateway and resource boundaries.
+  Hint fields remain configuration metadata; provider shapes and the unconditional
+  compatibility floor still apply to their values. Tokens adjacent to underscores or split by invisible
+  controls are removed, including Groq and GitHub fine-grained formats.
+  Ruleset epoch 42 fingerprints the shared corpus and normalization behavior,
+  preserves clean decoded siblings and exact request correlation IDs when another
+  field is redacted, preserves task identifiers with embedded `sk-`, and checks escaped fields
+  without blocking ordinary source references or generated input descriptions.
+  Schema metadata exemptions require valid keyword value shapes, including URI-to-boolean
+  vocabulary maps and string-array dependency declarations. Malformed values receive
+  instance-data inspection in JSON and YAML. Structurally recognized OAuth flow
+  metadata preserves discovery endpoints and scope descriptions while inspecting
+  every value for credentials. Scalar authorization and device codes remain sensitive.
+  Protected-resource discovery validates absolute authorization-server URIs and
+  recognized bearer methods before granting metadata treatment.
+  Frozen gateway credential patterns add an unconditional compatibility layer
+  over original and normalized source, including decoded strings. The named
+  `push-metadata` profile adds email/IP minimization and secret-bearing webhook
+  URLs. Reserved example.invalid email addresses survive the profile extra.
+  Profile rules and outputs enter the fingerprint. Older schema dependency and
+  recursive-reference keywords retain metadata roles. YAML schema anchors and
+  aliases are handled conservatively and may be over-redacted. IPv6 detection
+  handles adjacent colons, compressed literals, zones and bracketed endpoints.
+  Reference and metadata exemptions apply only to structured inspection.
+  JSON and YAML block/flow schemas share standard keyword classification.
+  Schema metadata stays readable while value annotations and unknown fields
+  remain inspected. YAML sequence scalars include nested and block values.
+  Complete YAML scalars and quoted multiline assignments are inspected, while
+  schema property metadata survives and defaults and examples are inspected.
+  Both text views share assignment parsing and field classification. JSON string
+  roots and arrays are decoded for redaction and scanning; configuration fields
+  remain readable, and encoded query names cannot hide credential values.
+  Scanning refuses ambiguous JSON, and named assignments cannot strip only a
+  private-key header while retaining the body. One inspection pipeline normalizes
+  before recursive JSON decoding, checks embedded fragments and shell logical
+  lines, and preserves mixed credential-name separators. Both views keep original
+  bytes for clean text. Multiline scalar values are inspected without consuming following schema metadata.
+  Credential labels preserve explanatory documentation and links. A frozen gateway
+  reference checks every consumer predicate and guards preserved prose.
+
 - **The runner now embeds the hardened history and manifest modules.**
   Its published `discover` and `contract` dependencies include the capture,
   redaction, cache, session identity and canonical JSON fixes below.
