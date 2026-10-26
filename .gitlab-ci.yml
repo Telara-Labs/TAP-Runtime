@@ -113,3 +113,20 @@ windows-amd64:
     expire_in: 1 week
   script:
     - powershell -NoProfile -ExecutionPolicy Bypass -File ci/windows.ps1
+
+# Exercise the shared inspector with the race detector as well as the ordinary
+# suite. Timing receipts use fixed iteration counts for comparable reruns.
+redaction-race-and-cost:
+  stage: verify
+  image: golang:1.26.10
+  timeout: 40m
+  artifacts:
+    when: always
+    paths: [redaction-race.log, redaction-cost.log]
+    expire_in: 1 week
+  script:
+    - cd discover
+    - go test -race -p 1 -count=1 -timeout 35m ./redact > ../redaction-race.log 2>&1 || (cat ../redaction-race.log; exit 1)
+    - cat ../redaction-race.log
+    - go test -p 1 -run '^$' -bench 'BenchmarkInspection(Typical|Realistic)' -benchmem -benchtime=200x -count=3 ./redact > ../redaction-cost.log 2>&1
+    - cat ../redaction-cost.log
