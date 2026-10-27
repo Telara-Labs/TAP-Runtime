@@ -432,6 +432,14 @@ type inspector struct {
 	rootContext     *schemaContext
 }
 
+func (p *inspector) reserve(work int) bool {
+	if work < 0 || work > p.remaining {
+		return false
+	}
+	p.remaining -= work
+	return true
+}
+
 func inspect(s string, sensitive bool) inspection {
 	return inspectProfile(s, sensitive, false)
 }
@@ -741,13 +749,20 @@ func (p *inspector) valueContext(value any, context schemaContext, depth int) (a
 			keys = append(keys, key)
 		}
 		sort.Strings(keys)
+		projection, admitted := (FieldContext{state: context, initialized: true}).projectVocabularyKeys(value, keys, nil, func(text string) string { return p.text(text, false, depth+1).text }, p.reserve)
+		if !admitted {
+			return "<redacted inspection limit>", "inspection limit"
+		}
 		for _, key := range keys {
-			if r := p.text(key, false, depth); r.shape != "" {
+			if r := p.text(key, false, depth); projection == nil && r.shape != "" {
 				delete(v, key)
 				shape = r.shape
 				continue
 			}
-			child := context.childValue(key, v[key])
+			child, admitted := context.childValueOccurrenceCharged(key, v[key], true, true, p.reserve)
+			if !admitted {
+				return "<redacted inspection limit>", "inspection limit"
+			}
 			beforeData := p.schemaData
 			p.schemaData = child.data
 			next, found := p.valueContext(v[key], child, depth+1)
@@ -757,14 +772,38 @@ func (p *inspector) valueContext(value any, context schemaContext, depth int) (a
 				shape = "secret in JSON"
 			}
 		}
+		// Original keys and Boolean values drive every Child classification.
+		// Apply the collision-free names only after visiting the whole map.
+		if projection != nil {
+			for i, key := range keys {
+				if projection[i] != key {
+					v[projection[i]] = v[key]
+					delete(v, key)
+					shape = "secret in JSON"
+				}
+			}
+		}
 	case []any:
 		if context.dependency {
 			if metadataStrings(value, false) {
-				context = schemaContext{metadata: true}
+				context = schemaContext{metadata: true, schemaIdentifierList: context.dependencyIdentifierListUnique}
 			} else {
 				context.data = true
 				context.dependency = false
 			}
+		}
+		projection, admitted := (FieldContext{state: context, initialized: true}).projectIdentifiers(value, nil, func(text string) string { return p.text(text, false, depth+1).text }, p.reserve)
+		if !admitted {
+			return "<redacted inspection limit>", "inspection limit"
+		}
+		if projection != nil {
+			for i, text := range projection {
+				if v[i] != text {
+					shape = "secret in JSON"
+				}
+				v[i] = text
+			}
+			return value, shape
 		}
 		for i, child := range v {
 			next, found := p.valueContext(child, context, depth+1)
@@ -1729,6 +1768,11 @@ type schemaContext struct {
 	credentialControl                                                              bool
 	controlKey                                                                     string
 	dependencies, dependency                                                       bool
+	dependencyNameSensitive                                                        bool
+	schemaStructureValidated                                                       bool
+	schemaIdentifierList, schemaIdentifierMap                                      bool
+	dependencyIdentifierListUnique                                                 bool
+	schemaVocabularyKeys, projectionAmbiguous, vocabularyProjectionBlocked         bool
 	oauthFlow, oauthScopes, oauthResource, oauthIssuer                             bool
 }
 
@@ -1766,7 +1810,11 @@ func (c schemaContext) recognize(key string) schemaContext {
 
 func (c schemaContext) child(key string) schemaContext {
 	key = Normalize(key) // classify a view; retain the original map key
-	child := schemaContext{sensitive: c.sensitive || IsSensitiveName(key), data: c.data}
+	sensitiveName := IsSensitiveName(key)
+	child := schemaContext{
+		sensitive: c.sensitive || sensitiveName, data: c.data,
+		dependencyNameSensitive: c.sensitive && c.dependencyNameSensitive && !sensitiveName,
+	}
 	switch {
 	case c.data:
 	case c.oauthIssuer && key == "authorization_response_iss_parameter_supported":
@@ -1783,6 +1831,7 @@ func (c schemaContext) child(key string) schemaContext {
 	case c.metadata:
 		child.sensitive = false
 		child.metadata = true
+		child.schemaIdentifierList = c.schemaIdentifierMap
 	case c.schemaDeclarationMap:
 		child.schema = !c.dependencies
 		child.properties = c.dependencies
@@ -1806,6 +1855,8 @@ func (c schemaContext) child(key string) schemaContext {
 		child.sensitive = false
 		child.metadata = true
 		child.metadataMap = key == "dependentRequired" || key == "$vocabulary"
+		child.schemaIdentifierList = key == "required"
+		child.schemaIdentifierMap = key == "dependentRequired"
 	}
 	return child
 }
@@ -1818,7 +1869,101 @@ func (c schemaContext) childValue(key string, value any) schemaContext {
 }
 
 func (c schemaContext) childValueOccurrence(key string, value any, valueUnique, keyUnique bool) schemaContext {
+	child, admitted := c.childValueOccurrenceCharged(key, value, valueUnique, keyUnique, func(int) bool { return true })
+	if !admitted {
+		return schemaContext{sensitive: c.sensitive || IsSensitiveName(key), data: true}
+	}
+	return child
+}
+
+func (c schemaContext) childValueOccurrenceCharged(key string, value any, valueUnique, keyUnique bool, precharge func(int) bool) (schemaContext, bool) {
+	return c.childValueOccurrenceChargedOriginal(key, key, value, valueUnique, keyUnique, precharge)
+}
+
+// Keep the legacy normalized classification view separate from exact decoded
+// keyword provenance. Declaration member names remain arbitrary identifiers.
+func (c schemaContext) childValueOccurrenceChargedOriginal(key, originalKey string, value any, valueUnique, keyUnique bool, precharge func(int) bool) (schemaContext, bool) {
+	child := c.childValueOccurrenceUnvalidated(key, value, valueUnique, keyUnique)
+	if c.dependencyNameSensitive && c.schema && !c.schemaAmbiguous &&
+		!c.data && !c.metadata && valueUnique && keyUnique && schemaChildKeyword(Normalize(key)) {
+		// Validated structure covers this source traversal, so known schema edges
+		// within it need no repeated full scan. Unknown/metadata/data edges do
+		// not carry this proof; nonunique Child and Enter revoke its ancestry.
+		valid, admitted := c.schemaStructureValidated, true
+		if !valid {
+			valid, admitted = validatedSchemaChild(Normalize(key), value, precharge)
+		}
+		if !admitted {
+			return schemaContext{}, false
+		}
+		if valid {
+			child.schemaDeclaration = true
+			child.schemaStructureValidated = true
+		} else {
+			// Invalid structure cannot carry clearing authority through a later
+			// otherwise valid child. Actual sensitivity is retained.
+			child.dependencyNameSensitive = false
+		}
+	}
+	// The metadata role alone is not projection authority. Mint this fact only
+	// from the original validated, unique vocabulary occurrence. Genuine
+	// credential ancestry cannot acquire it through metadata classification.
+	if originalKey == "$vocabulary" && child.metadata && child.metadataMap && c.schema && !c.schemaAmbiguous &&
+		!c.projectionAmbiguous && !c.vocabularyProjectionBlocked && !c.data && !c.metadata && !c.properties && !c.schemaDeclarationMap &&
+		valueUnique && keyUnique && (!c.sensitive ||
+		c.dependencyNameSensitive && c.schemaDeclaration && c.schemaStructureValidated) {
+		child.schemaVocabularyKeys = true
+	}
+	// New projection authority is occurrence-specific and ambiguity is sticky
+	// across all later schema and metadata transitions in this traversal.
+	knownProjectionEdge := c.properties || c.schemaDeclarationMap || c.schema &&
+		(schemaPropertyKeyword(originalKey) || schemaChildKeyword(originalKey) ||
+			schemaMetadataKeyword(originalKey) || schemaValueKeyword(originalKey))
+	child.vocabularyProjectionBlocked = c.vocabularyProjectionBlocked || c.data || c.metadata || !knownProjectionEdge
+	child.projectionAmbiguous = c.projectionAmbiguous || !valueUnique || !keyUnique
+	if child.projectionAmbiguous || child.vocabularyProjectionBlocked {
+		child.schemaVocabularyKeys = false
+	}
+	return child, true
+}
+
+func (c schemaContext) childValueOccurrenceUnvalidated(key string, value any, valueUnique, keyUnique bool) schemaContext {
 	child := c.child(key)
+	// Structural validity is separate from dependency-name sensitivity. A
+	// known schema/declaration edge keeps the prior whole-subtree validation
+	// even when a declaration ends name-derived sensitivity. This avoids
+	// rescanning nested dependency schemas already covered by that validation.
+	if c.schemaStructureValidated && !c.schemaAmbiguous && !c.data && !c.metadata &&
+		valueUnique && keyUnique &&
+		(c.schema && (schemaChildKeyword(Normalize(key)) || schemaPropertyKeyword(Normalize(key))) ||
+			(c.properties || c.schemaDeclarationMap) && (isMappingContainer(value) || isBooleanSchema(value))) {
+		child.schemaStructureValidated = true
+	}
+	// Only an unambiguous dependency-name occurrence may introduce this
+	// clearable provenance. The path-only child helper has no source facts.
+	if c.dependencies && (c.properties || c.schemaDeclarationMap) &&
+		!c.schemaAmbiguous && !c.sensitive && !c.data && !c.metadata &&
+		valueUnique && keyUnique {
+		child.dependencyNameSensitive = IsSensitiveName(key)
+	}
+	// Keep revocation sticky across intermediate schema-combinator edges.
+	// Their own unique values cannot repair an earlier ambiguous occurrence.
+	if !valueUnique || !keyUnique {
+		child.dependencyNameSensitive = false
+		child.schemaStructureValidated = false
+		child.schemaIdentifierList = false
+		child.schemaIdentifierMap = false
+	}
+	// A dependency name selects a schema for the surrounding instance. Its
+	// conservative direct-annotation sensitivity does not make independently
+	// named declarations in that schema credential descendants. Only this
+	// name-derived provenance can end here; actual credential ancestry cannot.
+	if c.dependencyNameSensitive && c.schemaDeclaration && !c.schemaAmbiguous &&
+		!c.data && !c.metadata && valueUnique && keyUnique &&
+		schemaPropertyKeyword(Normalize(key)) && isMappingContainer(value) {
+		child.sensitive = IsSensitiveName(key)
+		child.dependencyNameSensitive = false
+	}
 	if c.schemaAmbiguous {
 		switch {
 		case schemaValueKeyword(Normalize(key)):
@@ -1830,7 +1975,7 @@ func (c schemaContext) childValueOccurrence(key string, value any, valueUnique, 
 			// These exact scalar/list declarations are independently shape checked.
 			individuallySafe := c.schemaDeclaration && (!c.sensitive || Normalize(key) == "type" || Normalize(key) == "required")
 			if !c.data && !c.metadata && individuallySafe && valueUnique && keyUnique && validSchemaMetadata(Normalize(key), value) {
-				child = schemaContext{metadata: true, metadataMap: Normalize(key) == "dependentRequired" || Normalize(key) == "$vocabulary"}
+				child = schemaContext{metadata: true, metadataMap: Normalize(key) == "dependentRequired" || Normalize(key) == "$vocabulary", schemaIdentifierList: Normalize(key) == "required", schemaIdentifierMap: Normalize(key) == "dependentRequired"}
 			} else {
 				child = schemaContext{sensitive: c.sensitive || IsSensitiveName(key), data: c.data}
 			}
@@ -1893,6 +2038,12 @@ func (c schemaContext) childValueOccurrence(key string, value any, valueUnique, 
 	if c.schema && !c.schemaAmbiguous && !c.data && !c.metadata && !c.properties && schemaMetadataKeyword(Normalize(key)) && (!valueUnique || !keyUnique || !validSchemaMetadata(Normalize(key), value)) {
 		return schemaContext{data: true, sensitive: c.sensitive || IsSensitiveName(key)}
 	}
+	// Dependency-array metadata predates identifier projection. Only the
+	// actual unique dependency occurrence may additionally authorize projection;
+	// Enter must not infer key uniqueness from the array value alone.
+	child.dependencyIdentifierListUnique = child.dependency && valueUnique && keyUnique &&
+		!c.schemaAmbiguous && !c.sensitive && !c.data && !c.metadata
+
 	return child
 }
 
@@ -2241,6 +2392,19 @@ func (p *inspector) yamlSchema(s string, depth int) (inspection, bool) {
 				c = c.recognize(n.Content[i].Value)
 			}
 			seen = seen || c.schema || c.properties || c.oauthFlow || c.oauthScopes || c.oauthResource || c.oauthIssuer || c.sensitive
+			if !p.reserve(1 + len(n.Content)/2) {
+				invalid = true
+				return
+			}
+			originalKeys := make([]string, len(n.Content)/2)
+			for i := range originalKeys {
+				originalKeys[i] = n.Content[2*i].Value
+			}
+			projection, admitted := (FieldContext{state: c, initialized: true}).projectVocabularyKeys(n, originalKeys, nil, func(text string) string { return p.text(text, false, d+1).text }, p.reserve)
+			if !admitted {
+				invalid = true
+				return
+			}
 			keys := make(map[string]bool)
 			for i := 0; i+1 < len(n.Content); i += 2 {
 				key := n.Content[i]
@@ -2251,19 +2415,45 @@ func (p *inspector) yamlSchema(s string, depth int) (inspection, bool) {
 				keys[key.Value] = true
 				name := key.Value
 				walk(key, schemaContext{metadata: true}, d+1)
-				walk(n.Content[i+1], c.childValue(name, n.Content[i+1]), d+1)
+				child, admitted := c.childValueOccurrenceCharged(name, n.Content[i+1], true, true, p.reserve)
+				if !admitted {
+					invalid = true
+					return
+				}
+				walk(n.Content[i+1], child, d+1)
+			}
+			if projection != nil {
+				for i, key := range originalKeys {
+					if projection[i] != key {
+						n.Content[2*i].Value = projection[i]
+						n.Content[2*i].Tag = "!!str"
+						n.Content[2*i].Style = yaml.DoubleQuotedStyle
+						shape = "secret in YAML"
+					}
+				}
 			}
 		case yaml.DocumentNode, yaml.SequenceNode:
 			if n.Kind == yaml.SequenceNode && c.dependency {
 				if metadataStrings(n, false) {
-					c = schemaContext{metadata: true}
+					c = schemaContext{metadata: true, schemaIdentifierList: c.dependencyIdentifierListUnique}
 				} else {
 					c.data = true
 					c.dependency = false
 				}
 			}
-			for _, child := range n.Content {
+			projection, admitted := (FieldContext{state: c, initialized: true}).projectIdentifiers(n, nil, func(text string) string { return p.text(text, false, d+1).text }, p.reserve)
+			if !admitted {
+				invalid = true
+				return
+			}
+			for i, child := range n.Content {
+				// Preserve inspection of scalar tags, comments and anchors. The
+				// projected value came from the original item and same profile.
 				walk(child, c, d+1)
+				if projection != nil && child.Value != projection[i] {
+					shape = "secret in YAML"
+					child.Value = projection[i]
+				}
 			}
 		case yaml.ScalarNode:
 			before := p.schemaData

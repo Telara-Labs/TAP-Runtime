@@ -80,6 +80,12 @@ func Field(path []string, text string) string {
 }
 
 func inspectField(context schemaContext, text string, boolean bool) string {
+	// Encoded text is a fresh inspection view, never another source-tree edge.
+	context.schemaStructureValidated = false
+	context.schemaIdentifierList = false
+	context.schemaIdentifierMap = false
+	context.dependencyIdentifierListUnique = false
+	context.schemaVocabularyKeys = false
 	if context.sensitive && !context.data && !context.metadata && !context.schema && !context.properties {
 		if value, ok := structured(text); ok {
 			if _, ok := value.(map[string]any); ok {
@@ -123,6 +129,13 @@ func fieldContext(path []string) schemaContext {
 // member with that member's decoded value; array elements retain their
 // containing context and add no key. This applies schema shape validation once
 // at the member instead of rebuilding ancestry for every scalar.
+//
+// Contexts belong to one traversal of one source document. Child's Value and
+// uniqueness facts must describe the actual source occurrence. Enter consumes
+// that same value, or an actual array element from that document. Callers must
+// not transplant contexts or change schema structure during traversal; start
+// from RootFieldContext for a replacement value or another document. Retained
+// structural validation is a trusted traversal fact, not a value-identity check.
 type FieldContext struct {
 	state       schemaContext
 	initialized bool
@@ -141,11 +154,48 @@ type FieldOccurrence struct {
 // RootFieldContext returns a fresh root context for one document traversal.
 func RootFieldContext() FieldContext { return FieldContext{} }
 
+// Schema marks an occurrence the consumer independently established is a
+// schema. It does not infer that role from an annotation keyword or override
+// credential ancestry, instance data or metadata. unique must describe both
+// the source field and its subtree. Ambiguous schema occurrences still classify
+// annotations as data, but cannot grant whole-container metadata exemptions.
+// Child continues to validate each metadata occurrence before exempting it.
+// Consumers must independently validate the actual wrapper occurrence before
+// calling Schema. That trusted role may cross an ordinary protocol envelope;
+// it cannot repair prior ambiguity or override credential or data ancestry.
+func (c FieldContext) Schema(unique bool) FieldContext {
+	if !c.state.sensitive && !c.state.data && !c.state.metadata && !c.state.properties &&
+		!c.state.schemaDeclarationMap {
+		c.state.schema = true
+		// A consumer-proven schema may cross an ordinary protocol envelope.
+		// This never repairs source ambiguity or credential/data ancestry.
+		c.state.vocabularyProjectionBlocked = false
+		c.state.schemaAmbiguous = c.state.schemaAmbiguous || !unique
+		c.state.projectionAmbiguous = c.state.projectionAmbiguous || !unique
+		if !unique {
+			c.state.schemaVocabularyKeys = false
+		}
+	}
+	return c
+}
+
+// CredentialValue reports a credential instance context outside schema slots,
+// annotations and metadata. It grants no exemption: Scalar remains strict.
+// Consumers with an empty-value compatibility contract must also establish
+// source occurrence uniqueness and direct-field ancestry independently.
+func (c FieldContext) CredentialValue() bool {
+	s := c.state
+	return s.sensitive && !s.schema && !s.data && !s.metadata && !s.properties &&
+		!s.schemaDeclaration && !s.schemaDeclarationMap && !s.schemaAmbiguous &&
+		!s.dependency && !s.credentialControl
+}
+
 // Child advances through one object member using its source occurrence and
 // actual decoded value.
 // precharge is called with the bounded validation-work estimate before any
 // schema metadata shape validation runs. Return false to refuse the traversal.
 func (c FieldContext) Child(key string, occurrence FieldOccurrence, precharge func(int) bool) (FieldContext, bool) {
+	originalKey := key // Actual decoded spelling is authority for new URI projection.
 	key = Normalize(key)
 	state := c.state
 	if !c.initialized && !state.schemaAmbiguous && schemaValueKeyword(key) {
@@ -156,7 +206,11 @@ func (c FieldContext) Child(key string, occurrence FieldOccurrence, precharge fu
 	if !ok || precharge == nil || !precharge(work) {
 		return FieldContext{}, false
 	}
-	return FieldContext{state: state.childValueOccurrence(key, occurrence.Value, occurrence.ValueUnique, occurrence.KeyUnique), initialized: true}, true
+	child, ok := state.childValueOccurrenceChargedOriginal(key, originalKey, occurrence.Value, occurrence.ValueUnique, occurrence.KeyUnique, precharge)
+	if !ok {
+		return FieldContext{}, false
+	}
+	return FieldContext{state: child, initialized: true}, true
 }
 
 // Enter applies transitions that depend on the current container value. Call
@@ -170,7 +224,17 @@ func (c FieldContext) Enter(value any, valueUnique bool, precharge func(int) boo
 		return FieldContext{}, false
 	}
 	state := c.state
+	ambiguous := state.projectionAmbiguous || !valueUnique
 	if !valueUnique {
+		// Once a container is ambiguous, a later unique combinator or
+		// declaration cannot restore authority to clear dependency-name taint.
+		state.dependencyNameSensitive = false
+		state.schemaStructureValidated = false
+		state.schemaIdentifierList = false
+		state.schemaIdentifierMap = false
+		state.dependencyIdentifierListUnique = false
+		state.schemaVocabularyKeys = false
+		state.projectionAmbiguous = true
 		declarationMap := state.properties && isMappingContainer(value)
 		dependencyMap := declarationMap && state.dependencies
 		dependencySchema := state.dependency && isMappingContainer(value)
@@ -218,7 +282,7 @@ func (c FieldContext) Enter(value any, valueUnique bool, precharge func(int) boo
 	} else if isSequenceContainer(value) {
 		if state.dependency {
 			if metadataStrings(value, false) {
-				state = schemaContext{metadata: true}
+				state = schemaContext{metadata: true, schemaIdentifierList: state.dependencyIdentifierListUnique}
 			} else {
 				state.data = true
 				state.dependency = false
@@ -226,6 +290,10 @@ func (c FieldContext) Enter(value any, valueUnique bool, precharge func(int) boo
 		}
 	} else {
 		state.schemaNullAnnotation = false
+	}
+	state.projectionAmbiguous = ambiguous
+	if ambiguous {
+		state.schemaVocabularyKeys = false
 	}
 	return FieldContext{state: state, initialized: c.initialized}, true
 }
