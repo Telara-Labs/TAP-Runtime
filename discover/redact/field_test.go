@@ -422,6 +422,17 @@ func TestIncrementalFieldContextPreservesSchemaNullBaseline(t *testing.T) {
 	}
 }
 
+func TestIncrementalFieldContextAmbiguousCredentialArrayKeepsBooleanSensitive(t *testing.T) {
+	value := []any{false, map[string]any{"dup": 2}}
+	rootValue := map[string]any{"password": value}
+	root := enterFieldContext(t, RootFieldContext(), rootValue, false)
+	context := childFieldContext(t, root, "password", value, true, false)
+	context = enterFieldContext(t, context, value, false)
+	if got := context.Scalar(false, "false"); got == "false" {
+		t.Fatal("a duplicate-bearing password array granted a boolean schema exemption")
+	}
+}
+
 func TestIncrementalFieldContextRestrictedMapEntryPrechargesOrSkipsScan(t *testing.T) {
 	value := map[string]any{"one": 1, "two": 2, "three": 3, "four": 4}
 	context := childFieldContext(t, RootFieldContext(), "api_key", value, true, true)

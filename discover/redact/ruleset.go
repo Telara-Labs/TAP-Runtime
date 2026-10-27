@@ -16,7 +16,7 @@ import (
 // rule changes what is redacted, so a record can say which rules redacted
 // it and a store can tell what to redact again. TestRulesetDigestNeedsAnEpoch
 // fails when the rules change and the epoch does not.
-const RulesetEpoch = 49
+const RulesetEpoch = 50
 
 // Ruleset identifies the redaction rules in force: their epoch, and a digest
 // derived from the rules themselves (never typed in), so two programs that
@@ -205,6 +205,9 @@ func sharedBehavior() []string {
 				{Value: duplicateWithSchema["properties"].(map[string]any)["password"], KeyUnique: true, ValueUnique: true},
 				{Value: "syntheticOpaqueValue42", KeyUnique: true, ValueUnique: true}},
 			"syntheticOpaqueValue42", `"syntheticOpaqueValue42"`),
+		fieldValueWithContainers(map[string]any{"password": []any{false, map[string]any{"dup": 2}}}, false,
+			[]string{"password"},
+			[]FieldOccurrence{{Value: []any{false, map[string]any{"dup": 2}}, KeyUnique: true, ValueUnique: false}}, false, "false"),
 		fieldValueWithContainers(map[string]any{"properties": map[string]any{"password": nil}}, true,
 			[]string{"properties", "password"},
 			[]FieldOccurrence{{Value: map[string]any{"password": nil}, KeyUnique: true, ValueUnique: true},

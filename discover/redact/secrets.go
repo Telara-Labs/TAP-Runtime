@@ -1734,7 +1734,7 @@ type schemaContext struct {
 // A subschema may be an object or boolean. Other scalar types do not gain
 // metadata treatment merely by occupying a schema slot.
 func (c schemaContext) scalarSensitive(boolean bool) bool {
-	return c.sensitive && !c.metadata && !((c.schema || c.dependency) && boolean)
+	return c.sensitive && !c.metadata && !(c.schema && !c.schemaAmbiguous && boolean) && !(c.dependency && boolean)
 }
 
 // Only vocabulary declarations and dependency-name maps have metadata keys.

@@ -8,6 +8,9 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Ruleset epoch 50 prevents duplicate-bearing credential containers from
+  granting typed boolean schema exemptions to array elements.
+
 - Ruleset epoch 49 treats annotation values beneath duplicate-bearing schema
   candidates as instance data without disabling independently unique password
   controls, schema branches, or nested OAuth shapes. Schema null behavior and
