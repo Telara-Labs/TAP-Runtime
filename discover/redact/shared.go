@@ -171,14 +171,21 @@ func (c FieldContext) Enter(value any, valueUnique bool, precharge func(int) boo
 	}
 	state := c.state
 	if !valueUnique {
+		declarationMap := state.properties && isMappingContainer(value)
+		dependencyMap := declarationMap && state.dependencies
+		dependencySchema := state.dependency && isMappingContainer(value)
 		// Keep only a possible schema-parent role. It can classify annotation
 		// values as data, but cannot authorize schema metadata exemptions or
-		// whole-container discovery from the duplicate-losing decoded map.
+		// whole-container discovery from the duplicate-losing decoded map. An
+		// explicit schema declaration map is retained separately so its actual
+		// member occurrences can be classified one at a time by Child.
 		state.schema = true
+		state.schemaDeclarationMap = state.schemaDeclarationMap || declarationMap
+		state.schemaDeclaration = state.schemaDeclaration || dependencySchema
 		state.properties = false
 		state.metadata = false
 		state.metadataMap = false
-		state.dependencies = false
+		state.dependencies = dependencyMap
 		state.dependency = false
 		state.oauthFlow = false
 		state.oauthScopes = false
@@ -187,10 +194,23 @@ func (c FieldContext) Enter(value any, valueUnique bool, precharge func(int) boo
 		state.credentialControl = false
 		state.controlKey = ""
 		state.schemaAmbiguous = true
+		if dependencySchema {
+			state.properties = false
+			state.dependencies = false
+			state.schemaDeclarationMap = false
+		}
+		if isMappingContainer(value) {
+			state.schemaNullAnnotation = false
+		}
 		return FieldContext{state: state, initialized: c.initialized}, true
 	}
 	if isMappingContainer(value) {
+		dependencySchema := state.dependency
 		state = state.mapping()
+		if dependencySchema {
+			state.schemaDeclaration = true
+		}
+		state.schemaNullAnnotation = false
 		if !state.schemaAmbiguous {
 			state = state.discovery(value)
 			state = recognizeContainerKeys(state, value)
@@ -204,6 +224,8 @@ func (c FieldContext) Enter(value any, valueUnique bool, precharge func(int) boo
 				state.dependency = false
 			}
 		}
+	} else {
+		state.schemaNullAnnotation = false
 	}
 	return FieldContext{state: state, initialized: c.initialized}, true
 }
@@ -247,6 +269,9 @@ func (c FieldContext) Scalar(value any, source string) string {
 			return jsonStringToken("<redacted credential>")
 		}
 	case nil:
+		if context.schemaNullAnnotation {
+			return source
+		}
 		if context.schema && !context.schemaAmbiguous && !context.data && !context.metadata {
 			return source
 		}
@@ -323,14 +348,16 @@ func fieldContextValidationWork(context schemaContext, key string, occurrence Fi
 	if !occurrence.ValueUnique || !occurrence.KeyUnique {
 		return work, true
 	}
-	if context.schema && !context.schemaAmbiguous && !context.data && !context.metadata && !context.properties && schemaMetadataKeyword(key) {
+	metadataEligible := !context.schemaAmbiguous ||
+		context.schemaDeclaration && (!context.sensitive || key == "type" || key == "required")
+	if context.schema && metadataEligible && !context.data && !context.metadata && !context.properties && schemaMetadataKeyword(key) {
 		cost, ok := schemaMetadataWork(key, occurrence.Value, maxFieldContextValidationWork-work)
 		if !ok || cost > maxFieldContextValidationWork-work {
 			return 0, false
 		}
 		work += cost
 	}
-	if !context.sensitive && !context.data && !context.properties && !context.metadata && knownOAuthFlow(key) {
+	if !context.sensitive && !context.data && !context.properties && !context.schemaDeclarationMap && !context.schemaDeclaration && !context.metadata && knownOAuthFlow(key) {
 		cost, ok := oauthFlowWork(occurrence.Value, maxFieldContextValidationWork-work)
 		if !ok || cost > maxFieldContextValidationWork-work {
 			return 0, false

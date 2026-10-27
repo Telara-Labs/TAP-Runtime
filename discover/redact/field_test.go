@@ -422,6 +422,192 @@ func TestIncrementalFieldContextPreservesSchemaNullBaseline(t *testing.T) {
 	}
 }
 
+func TestIncrementalFieldContextPreservesDuplicateSchemaDeclarationRoles(t *testing.T) {
+	propertiesValue := map[string]any{"password": map[string]any{"type": "string"}}
+	properties := childFieldContext(t, RootFieldContext(), "properties", propertiesValue, true, true)
+	properties = enterFieldContext(t, properties, propertiesValue, false)
+
+	// The properties object is duplicate-bearing, and the source has repeated
+	// password members. Each actual declaration remains structural even though
+	// neither map-level uniqueness nor winner-map authority is available.
+	passwordSchema := map[string]any{"type": "string", "default": "syntheticOpaqueValue42"}
+	password := childFieldContext(t, properties, "password", passwordSchema, false, true)
+	password = enterFieldContext(t, password, passwordSchema, true)
+	typeValue := childFieldContext(t, password, "type", "string", true, true)
+	if got := typeValue.Scalar("string", `"string"`); got != `"string"` {
+		t.Fatalf("actual schema declaration lost its type role: %q", got)
+	}
+	defaultValue := childFieldContext(t, password, "default", "syntheticOpaqueValue42", true, true)
+	if got := defaultValue.Scalar("syntheticOpaqueValue42", `"syntheticOpaqueValue42"`); strings.Contains(got, "syntheticOpaqueValue42") {
+		t.Fatalf("schema declaration role exempted a credential default: %q", got)
+	}
+
+	// A duplicate inside one declaration keeps that declaration ambiguous, but
+	// still validates a unique type occurrence and redacts non-null defaults.
+	ambiguousSchema := childFieldContext(t, properties, "password", passwordSchema, false, false)
+	ambiguousSchema = enterFieldContext(t, ambiguousSchema, passwordSchema, false)
+	typeValue = childFieldContext(t, ambiguousSchema, "type", "string", true, true)
+	if got := typeValue.Scalar("string", `"string"`); got != `"string"` {
+		t.Fatalf("individually validated type was lost under duplicate descendants: %q", got)
+	}
+	defaultValue = childFieldContext(t, ambiguousSchema, "default", "syntheticOpaqueValue42", true, true)
+	if got := defaultValue.Scalar("syntheticOpaqueValue42", `"syntheticOpaqueValue42"`); strings.Contains(got, "syntheticOpaqueValue42") {
+		t.Fatalf("ambiguous declaration exposed a credential default: %q", got)
+	}
+}
+
+func TestIncrementalFieldContextDependencySchemaDoesNotRetainNameRole(t *testing.T) {
+	dependenciesValue := map[string]any{"password": map[string]any{"enum": []any{"syntheticOpaqueValue42"}}}
+	rootValue := map[string]any{"dependencies": dependenciesValue}
+	root := enterFieldContext(t, RootFieldContext(), rootValue, false)
+	dependencies := childFieldContext(t, root, "dependencies", dependenciesValue, true, false)
+	dependencies = enterFieldContext(t, dependencies, dependenciesValue, false)
+
+	passwordSchema := dependenciesValue["password"]
+	password := childFieldContext(t, dependencies, "password", passwordSchema, false, true)
+	password = enterFieldContext(t, password, passwordSchema, true)
+	enumValue := passwordSchema.(map[string]any)["enum"]
+	enum := childFieldContext(t, password, "enum", enumValue, true, true)
+	enum = enterFieldContext(t, enum, enumValue, true)
+	if got := enum.Scalar("syntheticOpaqueValue42", `"syntheticOpaqueValue42"`); strings.Contains(got, "syntheticOpaqueValue42") {
+		t.Fatalf("dependency-name role exempted a schema enum credential: %q", got)
+	}
+}
+
+func TestIncrementalFieldContextDeclarationMapsDoNotGrantInstanceExemptions(t *testing.T) {
+	for _, keyword := range []string{"properties", "$defs", "definitions", "dependencies", "dependentSchemas", "items", "additionalProperties"} {
+		t.Run("sensitive parent cannot grant "+keyword, func(t *testing.T) {
+			description := "syntheticOpaqueValue42"
+			ordinarySchema := map[string]any{"description": description}
+			nestedMap := map[string]any{"ordinary": ordinarySchema}
+			passwordValue := map[string]any{keyword: nestedMap}
+			rootValue := map[string]any{"password": passwordValue}
+			root := enterFieldContext(t, RootFieldContext(), rootValue, true)
+			password := childFieldContext(t, root, "password", passwordValue, true, false)
+			password = enterFieldContext(t, password, passwordValue, false)
+			declarations := childFieldContext(t, password, keyword, nestedMap, true, true)
+			declarations = enterFieldContext(t, declarations, nestedMap, true)
+			ordinary := childFieldContext(t, declarations, "ordinary", ordinarySchema, true, true)
+			ordinary = enterFieldContext(t, ordinary, ordinarySchema, true)
+			value := childFieldContext(t, ordinary, "description", description, true, true)
+			if got := value.Scalar(description, `"`+description+`"`); strings.Contains(got, description) {
+				t.Fatalf("sensitive ambiguous parent granted %s schema metadata: %q", keyword, got)
+			}
+		})
+	}
+
+	t.Run("oauth flow scopes", func(t *testing.T) {
+		passwordFlow := map[string]any{
+			"tokenUrl": "https://example.invalid",
+			"scopes":   map[string]any{"custom_password": "syntheticOpaqueValue42"},
+		}
+		propertiesValue := map[string]any{"password": passwordFlow}
+		root := enterFieldContext(t, RootFieldContext(), map[string]any{"properties": propertiesValue}, true)
+		properties := childFieldContext(t, root, "properties", propertiesValue, true, true)
+		properties = enterFieldContext(t, properties, propertiesValue, false)
+		password := childFieldContext(t, properties, "password", passwordFlow, true, true)
+		password = enterFieldContext(t, password, passwordFlow, true)
+		scopesValue := passwordFlow["scopes"]
+		scopes := childFieldContext(t, password, "scopes", scopesValue, true, true)
+		scopes = enterFieldContext(t, scopes, scopesValue, true)
+		credential := childFieldContext(t, scopes, "custom_password", "syntheticOpaqueValue42", true, true)
+		if got := credential.Scalar("syntheticOpaqueValue42", `"syntheticOpaqueValue42"`); strings.Contains(got, "syntheticOpaqueValue42") {
+			t.Fatalf("schema declaration acquired OAuth scope exemption: %q", got)
+		}
+	})
+
+	t.Run("password controls", func(t *testing.T) {
+		passwordSchema := map[string]any{"enabled": false, "policy": "strict"}
+		propertiesValue := map[string]any{"password": passwordSchema}
+		root := enterFieldContext(t, RootFieldContext(), map[string]any{"properties": propertiesValue}, true)
+		properties := childFieldContext(t, root, "properties", propertiesValue, true, true)
+		properties = enterFieldContext(t, properties, propertiesValue, false)
+		password := childFieldContext(t, properties, "password", passwordSchema, true, true)
+		password = enterFieldContext(t, password, passwordSchema, true)
+		enabled := childFieldContext(t, password, "enabled", false, true, true)
+		if got := enabled.Scalar(false, "false"); got == "false" {
+			t.Fatal("schema declaration acquired the password control exemption")
+		}
+		policy := childFieldContext(t, password, "policy", "strict", true, true)
+		if got := policy.Scalar("strict", `"strict"`); got == `"strict"` {
+			t.Fatal("schema declaration acquired the password policy exemption")
+		}
+	})
+}
+
+func TestIncrementalFieldContextRequiredNeedsSchemaDeclarationProvenance(t *testing.T) {
+	t.Run("ambiguous credential object", func(t *testing.T) {
+		passwordValue := map[string]any{"required": []any{"syntheticOpaqueValue42"}}
+		rootValue := map[string]any{"password": passwordValue}
+		root := enterFieldContext(t, RootFieldContext(), rootValue, true)
+		password := childFieldContext(t, root, "password", passwordValue, true, false)
+		password = enterFieldContext(t, password, passwordValue, false)
+		requiredValue := passwordValue["required"]
+		required := childFieldContext(t, password, "required", requiredValue, true, true)
+		if got := required.Scalar("syntheticOpaqueValue42", `"syntheticOpaqueValue42"`); strings.Contains(got, "syntheticOpaqueValue42") {
+			t.Fatalf("ambiguous credential object acquired a required-name exemption: %q", got)
+		}
+	})
+
+	t.Run("actual credential schema declaration", func(t *testing.T) {
+		passwordValue := map[string]any{"type": "string", "required": []any{"token"}}
+		propertiesValue := map[string]any{"password": passwordValue}
+		rootValue := map[string]any{"properties": propertiesValue}
+		root := enterFieldContext(t, RootFieldContext(), rootValue, true)
+		properties := childFieldContext(t, root, "properties", propertiesValue, true, true)
+		properties = enterFieldContext(t, properties, propertiesValue, false)
+		password := childFieldContext(t, properties, "password", passwordValue, true, false)
+		password = enterFieldContext(t, password, passwordValue, false)
+		typeValue := childFieldContext(t, password, "type", "string", true, true)
+		if got := typeValue.Scalar("string", `"string"`); got != `"string"` {
+			t.Fatalf("individually validated schema type changed: %q", got)
+		}
+		required := childFieldContext(t, password, "required", passwordValue["required"], true, true)
+		if got := required.Scalar("token", `"token"`); got != `"token"` {
+			t.Fatalf("individually validated required name changed: %q", got)
+		}
+	})
+}
+
+func TestIncrementalFieldContextPreservesSchemaAnnotationNullsOnly(t *testing.T) {
+	propertiesValue := map[string]any{"password": map[string]any{}}
+	properties := childFieldContext(t, RootFieldContext(), "properties", propertiesValue, true, true)
+	properties = enterFieldContext(t, properties, propertiesValue, true)
+	passwordValue := propertiesValue["password"]
+	password := childFieldContext(t, properties, "password", passwordValue, true, true)
+	password = enterFieldContext(t, password, passwordValue, true)
+
+	for _, key := range []string{"default", "const", "example", "enum", "examples"} {
+		t.Run(key, func(t *testing.T) {
+			value := any(nil)
+			annotation := childFieldContext(t, password, key, value, true, true)
+			if key == "enum" || key == "examples" {
+				value = []any{nil, "syntheticOpaqueValue42"}
+				annotation = childFieldContext(t, password, key, value, true, true)
+				annotation = enterFieldContext(t, annotation, value, true)
+				if got := annotation.Scalar(nil, "null"); got != "null" {
+					t.Fatalf("typed null annotation changed: %q", got)
+				}
+				if got := annotation.Scalar("syntheticOpaqueValue42", `"syntheticOpaqueValue42"`); strings.Contains(got, "syntheticOpaqueValue42") {
+					t.Fatalf("non-null credential annotation escaped: %q", got)
+				}
+				return
+			}
+			if got := annotation.Scalar(nil, "null"); got != "null" {
+				t.Fatalf("typed null annotation changed: %q", got)
+			}
+			annotation = childFieldContext(t, password, key, "syntheticOpaqueValue42", true, true)
+			if got := annotation.Scalar("syntheticOpaqueValue42", `"syntheticOpaqueValue42"`); strings.Contains(got, "syntheticOpaqueValue42") {
+				t.Fatalf("non-null credential annotation escaped: %q", got)
+			}
+		})
+	}
+	direct := childFieldContext(t, RootFieldContext(), "password", nil, true, true)
+	if got := direct.Scalar(nil, "null"); got == "null" {
+		t.Fatal("direct credential null escaped redaction")
+	}
+}
+
 func TestIncrementalFieldContextAmbiguousCredentialArrayKeepsBooleanSensitive(t *testing.T) {
 	value := []any{false, map[string]any{"dup": 2}}
 	rootValue := map[string]any{"password": value}

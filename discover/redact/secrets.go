@@ -1725,6 +1725,7 @@ func inspectionMarker(s, base string) string {
 type schemaContext struct {
 	schema, properties, sensitive, data, metadata, metadataMap, credentialControls bool
 	schemaAmbiguous                                                                bool
+	schemaDeclarationMap, schemaDeclaration, schemaNullAnnotation                  bool
 	credentialControl                                                              bool
 	controlKey                                                                     string
 	dependencies, dependency                                                       bool
@@ -1744,6 +1745,10 @@ func (c schemaContext) mapping() schemaContext {
 	if c.dependency {
 		c.dependency = false
 		c.schema = true
+		c.properties = false
+		c.dependencies = false
+		c.schemaDeclarationMap = false
+		c.schemaDeclaration = true
 	}
 	if c.metadata && !c.metadataMap {
 		return schemaContext{data: true}
@@ -1778,12 +1783,20 @@ func (c schemaContext) child(key string) schemaContext {
 	case c.metadata:
 		child.sensitive = false
 		child.metadata = true
+	case c.schemaDeclarationMap:
+		child.schema = !c.dependencies
+		child.properties = c.dependencies
+		child.dependencies = c.dependencies
+		child.dependency = c.dependencies
+		child.schemaDeclaration = !c.dependencies
 	case c.properties:
 		child.schema = !c.dependencies
 		child.dependency = c.dependencies
+		child.schemaDeclaration = !c.dependencies
 	case c.schema && schemaValueKeyword(key):
 		child.sensitive = c.sensitive
 		child.data = true
+		child.schemaNullAnnotation = !c.schemaAmbiguous || c.schemaDeclaration
 	case c.schema && schemaPropertyKeyword(key):
 		child.properties = true
 		child.dependencies = key == "dependencies"
@@ -1811,17 +1824,46 @@ func (c schemaContext) childValueOccurrence(key string, value any, valueUnique, 
 		case schemaValueKeyword(Normalize(key)):
 			// A default/const/enum/example under an ambiguous schema candidate
 			// is instance data, not an annotation exemption.
-			child = schemaContext{sensitive: c.sensitive || IsSensitiveName(key), data: true}
+			child = schemaContext{sensitive: c.sensitive || IsSensitiveName(key), data: true, schemaNullAnnotation: c.schemaDeclaration}
 		case schemaMetadataKeyword(Normalize(key)):
-			// Direct metadata cannot be authorized by a duplicate-losing parent.
-			child = schemaContext{sensitive: c.sensitive || IsSensitiveName(key), data: c.data}
-		case schemaPropertyKeyword(Normalize(key)) || schemaChildKeyword(Normalize(key)):
-			if !valueUnique || !keyUnique {
+			// A duplicate-bearing parent cannot authorize whole-map metadata.
+			// These exact scalar/list declarations are independently shape checked.
+			individuallySafe := c.schemaDeclaration && (!c.sensitive || Normalize(key) == "type" || Normalize(key) == "required")
+			if !c.data && !c.metadata && individuallySafe && valueUnique && keyUnique && validSchemaMetadata(Normalize(key), value) {
+				child = schemaContext{metadata: true, metadataMap: Normalize(key) == "dependentRequired" || Normalize(key) == "$vocabulary"}
+			} else {
+				child = schemaContext{sensitive: c.sensitive || IsSensitiveName(key), data: c.data}
+			}
+		case schemaPropertyKeyword(Normalize(key)):
+			if !c.data && !c.metadata && (!c.sensitive || c.schemaDeclaration) {
+				if _, ok := value.(map[string]any); ok {
+					child.schema = true
+					child.properties = true
+					child.dependencies = Normalize(key) == "dependencies"
+					child.schemaDeclarationMap = true
+					child.schemaAmbiguous = true
+				} else {
+					child = schemaContext{sensitive: c.sensitive || IsSensitiveName(key), data: true}
+				}
+			} else {
+				child = schemaContext{sensitive: c.sensitive || IsSensitiveName(key), data: true}
+			}
+		case schemaChildKeyword(Normalize(key)):
+			if !c.data && !c.metadata && (!c.sensitive || c.schemaDeclaration) &&
+				(isMappingContainer(value) || isSequenceContainer(value)) {
+				child.schema = true
+				child.schemaDeclaration = true
+				child.schemaAmbiguous = !valueUnique
+			} else {
 				child = schemaContext{sensitive: c.sensitive || IsSensitiveName(key), data: true}
 			}
 		}
 	}
-	if c.credentialControls && keyUnique {
+	if c.schemaDeclarationMap && !c.dependencies && !c.data && !c.sensitive && !c.metadata {
+		child.schemaDeclaration = true
+		child.schemaAmbiguous = !valueUnique
+	}
+	if c.credentialControls && !c.schemaDeclarationMap && !c.schemaDeclaration && keyUnique {
 		switch v := value.(type) {
 		case bool, nil:
 			if key == "enabled" {
@@ -1837,7 +1879,7 @@ func (c schemaContext) childValueOccurrence(key string, value any, valueUnique, 
 			}
 		}
 	}
-	if valueUnique && keyUnique && !c.sensitive && !c.data && !c.metadata && (!c.schema || c.schemaAmbiguous) && !c.properties && Normalize(key) == "password" {
+	if valueUnique && keyUnique && !c.sensitive && !c.data && !c.metadata && (!c.schema || c.schemaAmbiguous) && !c.properties && !c.schemaDeclarationMap && !c.schemaDeclaration && Normalize(key) == "password" {
 		if _, ok := value.(map[string]any); ok {
 			child.credentialControls = true
 		}
@@ -1845,7 +1887,7 @@ func (c schemaContext) childValueOccurrence(key string, value any, valueUnique, 
 	// A flow name can also name an actual authorization-code credential.
 	// Only a complete, well-shaped metadata object changes that interpretation.
 	// Credential ancestors and schema value annotations never gain exemptions.
-	if valueUnique && keyUnique && !c.sensitive && !c.data && !c.properties && !c.metadata && validOAuthFlow(key, value) {
+	if valueUnique && keyUnique && !c.sensitive && !c.data && !c.properties && !c.schemaDeclarationMap && !c.schemaDeclaration && !c.metadata && validOAuthFlow(key, value) {
 		return schemaContext{oauthFlow: true}
 	}
 	if c.schema && !c.schemaAmbiguous && !c.data && !c.metadata && !c.properties && schemaMetadataKeyword(Normalize(key)) && (!valueUnique || !keyUnique || !validSchemaMetadata(Normalize(key), value)) {

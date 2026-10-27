@@ -8,6 +8,13 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Ruleset epoch 51 preserves independently visited schema declarations inside
+  duplicate-bearing declaration maps, while keeping map-level metadata authority
+  disabled. These declaration roles do not grant OAuth scope or password-control
+  exemptions, and ambiguous credential objects cannot exempt `required` values.
+  Typed nulls remain null in schema value annotations, including array elements;
+  non-null credential annotations and direct credential nulls stay redacted.
+
 - Ruleset epoch 50 prevents duplicate-bearing credential containers from
   granting typed boolean schema exemptions to array elements.
 

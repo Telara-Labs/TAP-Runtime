@@ -16,7 +16,7 @@ import (
 // rule changes what is redacted, so a record can say which rules redacted
 // it and a store can tell what to redact again. TestRulesetDigestNeedsAnEpoch
 // fails when the rules change and the epoch does not.
-const RulesetEpoch = 50
+const RulesetEpoch = 51
 
 // Ruleset identifies the redaction rules in force: their epoch, and a digest
 // derived from the rules themselves (never typed in), so two programs that
@@ -214,6 +214,49 @@ func sharedBehavior() []string {
 				{Value: nil, KeyUnique: true, ValueUnique: true}}, nil, "null"),
 		fieldValueWithContainers(map[string]any{"password": nil}, true,
 			[]string{"password"}, []FieldOccurrence{{Value: nil, KeyUnique: true, ValueUnique: true}}, nil, "null"),
+		fieldValueWithContainers(map[string]any{"properties": map[string]any{"password": map[string]any{"type": "string"}}}, false,
+			[]string{"properties", "password", "type"}, []FieldOccurrence{
+				{Value: map[string]any{"password": map[string]any{"type": "string"}}, KeyUnique: true, ValueUnique: false},
+				{Value: map[string]any{"type": "string"}, KeyUnique: false, ValueUnique: true},
+				{Value: "string", KeyUnique: true, ValueUnique: true},
+			}, "string", `"string"`),
+		fieldValueWithContainers(map[string]any{"properties": map[string]any{"password": map[string]any{"default": nil}}}, true,
+			[]string{"properties", "password", "default"}, []FieldOccurrence{
+				{Value: map[string]any{"password": map[string]any{"default": nil}}, KeyUnique: true, ValueUnique: true},
+				{Value: map[string]any{"default": nil}, KeyUnique: true, ValueUnique: true},
+				{Value: nil, KeyUnique: true, ValueUnique: true},
+			}, nil, "null"),
+		fieldValueWithContainers(map[string]any{"dependencies": map[string]any{"password": map[string]any{"enum": []any{"syntheticOpaqueValue42"}}}}, false,
+			[]string{"dependencies", "password", "enum"}, []FieldOccurrence{
+				{Value: map[string]any{"password": map[string]any{"enum": []any{"syntheticOpaqueValue42"}}}, KeyUnique: true, ValueUnique: false},
+				{Value: map[string]any{"enum": []any{"syntheticOpaqueValue42"}}, KeyUnique: false, ValueUnique: true},
+				{Value: []any{"syntheticOpaqueValue42"}, KeyUnique: true, ValueUnique: true},
+			}, "syntheticOpaqueValue42", `"syntheticOpaqueValue42"`),
+		fieldValueWithContainers(map[string]any{"properties": map[string]any{"password": map[string]any{"tokenUrl": "https://example.invalid", "scopes": map[string]any{"custom_password": "syntheticOpaqueValue42"}}}}, true,
+			[]string{"properties", "password", "scopes", "custom_password"}, []FieldOccurrence{
+				{Value: map[string]any{"password": map[string]any{"tokenUrl": "https://example.invalid", "scopes": map[string]any{"custom_password": "syntheticOpaqueValue42"}}}, KeyUnique: true, ValueUnique: false},
+				{Value: map[string]any{"tokenUrl": "https://example.invalid", "scopes": map[string]any{"custom_password": "syntheticOpaqueValue42"}}, KeyUnique: true, ValueUnique: true},
+				{Value: map[string]any{"custom_password": "syntheticOpaqueValue42"}, KeyUnique: true, ValueUnique: true},
+				{Value: "syntheticOpaqueValue42", KeyUnique: true, ValueUnique: true},
+			}, "syntheticOpaqueValue42", `"syntheticOpaqueValue42"`),
+		fieldValueWithContainers(map[string]any{"properties": map[string]any{"password": map[string]any{"enabled": false}}}, true,
+			[]string{"properties", "password", "enabled"}, []FieldOccurrence{
+				{Value: map[string]any{"password": map[string]any{"enabled": false}}, KeyUnique: true, ValueUnique: false},
+				{Value: map[string]any{"enabled": false}, KeyUnique: true, ValueUnique: true},
+				{Value: false, KeyUnique: true, ValueUnique: true},
+			}, false, "false"),
+		fieldValueWithContainers(map[string]any{"password": map[string]any{"required": []any{"syntheticOpaqueValue42"}}}, true,
+			[]string{"password", "required"}, []FieldOccurrence{
+				{Value: map[string]any{"required": []any{"syntheticOpaqueValue42"}}, KeyUnique: true, ValueUnique: false},
+				{Value: []any{"syntheticOpaqueValue42"}, KeyUnique: true, ValueUnique: true},
+			}, "syntheticOpaqueValue42", `"syntheticOpaqueValue42"`),
+		fieldValueWithContainers(map[string]any{"password": map[string]any{"properties": map[string]any{"ordinary": map[string]any{"description": "syntheticOpaqueValue42"}}}}, true,
+			[]string{"password", "properties", "ordinary", "description"}, []FieldOccurrence{
+				{Value: map[string]any{"properties": map[string]any{"ordinary": map[string]any{"description": "syntheticOpaqueValue42"}}}, KeyUnique: true, ValueUnique: false},
+				{Value: map[string]any{"ordinary": map[string]any{"description": "syntheticOpaqueValue42"}}, KeyUnique: true, ValueUnique: true},
+				{Value: map[string]any{"description": "syntheticOpaqueValue42"}, KeyUnique: true, ValueUnique: true},
+				{Value: "syntheticOpaqueValue42", KeyUnique: true, ValueUnique: true},
+			}, "syntheticOpaqueValue42", `"syntheticOpaqueValue42"`),
 	)
 	return out
 }
