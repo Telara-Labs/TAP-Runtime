@@ -52,7 +52,7 @@ func TestArgumentRedactsOpaqueValuesByFieldName(t *testing.T) {
 func TestArgumentRedactsNestedCredentialsAndPreservesConfig(t *testing.T) {
 	in := `{"env":{"API_TOKEN":"synthetic-opaque","MODE":"development","PASSWORD":"x","REFRESH_TOKEN":"${SYNTHETIC_TOKEN}"},"rows":[{"credentials":{"value":"synthetic-hidden"},"issue_key":"ABC-12"}],"max_output_tokens":9007199254740993,"enabled":true,"vars":["PASSWORD=short","MODE=development","API_TOKEN=$SYNTHETIC_TOKEN"],"nested":"{\"password\":\"synthetic-nested\",\"limit\":5}"}`
 	got := Argument("config", in)
-	for _, value := range []string{"synthetic-opaque", `"PASSWORD":"x"`, "synthetic-hidden", "PASSWORD=short", "synthetic-nested"} {
+	for _, value := range []string{"synthetic-opaque", `"PASSWORD":"x"`, "synthetic-hidden", "PASSWORD=short", "synthetic-nested", "${SYNTHETIC_TOKEN}", "API_TOKEN=$SYNTHETIC_TOKEN"} {
 		if strings.Contains(got, value) {
 			t.Fatalf("nested credential retained: %s in %s", value, got)
 		}
@@ -60,11 +60,12 @@ func TestArgumentRedactsNestedCredentialsAndPreservesConfig(t *testing.T) {
 	if !json.Valid([]byte(got)) {
 		t.Fatalf("redacted structure is not JSON: %s", got)
 	}
-	for _, value := range []string{"development", "ABC-12", "9007199254740993", `"enabled":true`, "${SYNTHETIC_TOKEN}", "API_TOKEN=$SYNTHETIC_TOKEN"} {
+	for _, value := range []string{"development", "ABC-12", "9007199254740993", `"enabled":true`} {
 		if !strings.Contains(got, value) {
 			t.Fatalf("ordinary configuration lost: %s in %s", value, got)
 		}
 	}
+	// The unconditional frozen layer also removes matching reference syntax.
 	// JSON payloads printed as request/output text need the same field context.
 	if got := Redact(`{"password":"x","nested":{"token":1234},"count":5}`); strings.Contains(got, `"x"`) || strings.Contains(got, "1234") || !strings.Contains(got, `"count":5`) || !json.Valid([]byte(got)) {
 		t.Fatalf("structured output not safely redacted: %s", got)
@@ -80,12 +81,12 @@ func BenchmarkArgumentOrdinaryText(b *testing.B) {
 func TestRedactShellEnvironmentKeepsTheProcedure(t *testing.T) {
 	in := `API_TOKEN=x PASSWORD='synthetic phrase' REGION=west PATH=/ordinary/bin tool --issue_key ABC-12; TOKEN="$SYNTHETIC_TOKEN" OTHER_TOKEN=${SYNTHETIC_TOKEN} MODEL_TOKEN='{env:SYNTHETIC_TOKEN}' tool status`
 	got := Redact(in)
-	for _, secret := range []string{"API_TOKEN=x", "synthetic phrase"} {
+	for _, secret := range []string{"API_TOKEN=x", "synthetic phrase", "OTHER_TOKEN=${SYNTHETIC_TOKEN}", "MODEL_TOKEN='{env:SYNTHETIC_TOKEN}'"} {
 		if strings.Contains(got, secret) {
 			t.Fatalf("env credential retained: %s", got)
 		}
 	}
-	for _, normal := range []string{"REGION=west", "PATH=/ordinary/bin", "tool --issue_key ABC-12", `TOKEN="$SYNTHETIC_TOKEN"`, "OTHER_TOKEN=${SYNTHETIC_TOKEN}", "MODEL_TOKEN='{env:SYNTHETIC_TOKEN}'", "tool status"} {
+	for _, normal := range []string{"REGION=west", "PATH=/ordinary/bin", "tool --issue_key ABC-12", `TOKEN="$SYNTHETIC_TOKEN"`, "tool status"} {
 		if !strings.Contains(got, normal) {
 			t.Fatalf("normal command context lost: %s in %s", normal, got)
 		}
@@ -169,8 +170,12 @@ func TestCredentialWordsKeepFieldContext(t *testing.T) {
 			}
 			for _, ref := range []string{"$SYNTHETIC_TOKEN", "${SYNTHETIC_TOKEN}", "{env:SYNTHETIC_TOKEN}"} {
 				input, _ := json.Marshal(map[string]string{name: ref})
-				if got := Argument("config", string(input)); got != string(input) {
-					t.Fatalf("literal reference changed: %s", got)
+				got := Argument("config", string(input))
+				if len(gatewayCredentialSpans(string(input))) == 0 && got != string(input) {
+					t.Fatalf("literal reference changed outside the frozen floor: %s", got)
+				}
+				if len(gatewayCredentialSpans(string(input))) > 0 && strings.Contains(got, ref) {
+					t.Fatalf("frozen credential floor was bypassed: %s", got)
 				}
 			}
 			input, _ := json.Marshal(map[string]string{name: "${SYNTHETIC_TOKEN:-synthetic-default}"})

@@ -8,6 +8,90 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Ruleset epoch 51 preserves independently visited schema declarations inside
+  duplicate-bearing declaration maps, while keeping map-level metadata authority
+  disabled. These declaration roles do not grant OAuth scope or password-control
+  exemptions, and ambiguous credential objects cannot exempt `required` values.
+  Typed nulls remain null in schema value annotations, including array elements;
+  non-null credential annotations and direct credential nulls stay redacted.
+
+- Ruleset epoch 50 prevents duplicate-bearing credential containers from
+  granting typed boolean schema exemptions to array elements.
+
+- Ruleset epoch 49 treats annotation values beneath duplicate-bearing schema
+  candidates as instance data without disabling independently unique password
+  controls, schema branches, or nested OAuth shapes. Schema null behavior and
+  restricted-container validation accounting remain covered by the shared
+  redactor fixtures.
+
+- Ruleset epoch 48 adds incremental typed field context for egress consumers.
+  Consumers carry source occurrence uniqueness, precharge bounded schema
+  validation work, and pass each original scalar token once. Only boolean/null
+  `password.enabled` values and the exact JSON string `password.policy: "strict"`
+  retain their original tokens; string lookalikes and escaped spellings stay sensitive.
+
+- Ruleset epoch 47 keeps the frozen gateway compatibility patterns byte-for-byte
+  aligned with their independent reference while classifying newer credential
+  field names through the contextual inspector. Exact variable references remain
+  inert for slot admission; fallbacks with literal values remain sensitive.
+
+- Ruleset epoch 46 preserves complete JSON, YAML and literal structure through
+  nested catalog values within the bounded inspection depth. Credential names
+  with configuration suffixes such as `api_key_name`, pagination tokens and TTL
+  settings remain readable, while provider-shaped credential values still redact.
+  Full-path JSON inspection preserves only the closed `password.enabled` boolean
+  and exact `password.policy: strict` controls; malformed or unknown descendants
+  remain sensitive.
+  Reinspection preserves existing credential markers without extending them.
+
+- Credential inspection preserves unchanged ASCII prose and simple JSON without
+  rebuilding their trees. Uncertain syntax and metadata profiles retain complete
+  inspection. Differential corpus and fuzz checks compare the optimized path
+  with the unoptimized inspector, preserving the current ruleset fingerprint.
+
+- **Consumers share one credential ruleset and embedded synthetic corpus.**
+  `discover/redact` exports normalization, provider-token detection and external
+  display redaction with shared instance-field path inspection. Schema value
+  literals retain credential ancestry across gateway and resource boundaries.
+  Hint fields remain configuration metadata; provider shapes and the unconditional
+  compatibility floor still apply to their values. Tokens adjacent to underscores or split by invisible
+  controls are removed, including Groq and GitHub fine-grained formats.
+  Ruleset epoch 42 fingerprints the shared corpus and normalization behavior,
+  preserves clean decoded siblings and exact request correlation IDs when another
+  field is redacted, preserves task identifiers with embedded `sk-`, and checks escaped fields
+  without blocking ordinary source references or generated input descriptions.
+  Schema metadata exemptions require valid keyword value shapes, including URI-to-boolean
+  vocabulary maps and string-array dependency declarations. Malformed values receive
+  instance-data inspection in JSON and YAML. Structurally recognized OAuth flow
+  metadata preserves discovery endpoints and scope descriptions while inspecting
+  every value for credentials. Scalar authorization and device codes remain sensitive.
+  Protected-resource discovery validates absolute authorization-server URIs and
+  recognized bearer methods before granting metadata treatment.
+  Frozen gateway credential patterns add an unconditional compatibility layer
+  over original and normalized source, including decoded strings. The named
+  `push-metadata` profile adds email/IP minimization and secret-bearing webhook
+  URLs. Reserved example.invalid email addresses survive the profile extra.
+  Profile rules and outputs enter the fingerprint. Older schema dependency and
+  recursive-reference keywords retain metadata roles. YAML schema anchors and
+  aliases are handled conservatively and may be over-redacted. IPv6 detection
+  handles adjacent colons, compressed literals, zones and bracketed endpoints.
+  Reference and metadata exemptions apply only to structured inspection.
+  JSON and YAML block/flow schemas share standard keyword classification.
+  Schema metadata stays readable while value annotations and unknown fields
+  remain inspected. YAML sequence scalars include nested and block values.
+  Complete YAML scalars and quoted multiline assignments are inspected, while
+  schema property metadata survives and defaults and examples are inspected.
+  Both text views share assignment parsing and field classification. JSON string
+  roots and arrays are decoded for redaction and scanning; configuration fields
+  remain readable, and encoded query names cannot hide credential values.
+  Scanning refuses ambiguous JSON, and named assignments cannot strip only a
+  private-key header while retaining the body. One inspection pipeline normalizes
+  before recursive JSON decoding, checks embedded fragments and shell logical
+  lines, and preserves mixed credential-name separators. Both views keep original
+  bytes for clean text. Multiline scalar values are inspected without consuming following schema metadata.
+  Credential labels preserve explanatory documentation and links. A frozen gateway
+  reference checks every consumer predicate and guards preserved prose.
+
 - **The runner now embeds the hardened history and manifest modules.**
   Its published `discover` and `contract` dependencies include the capture,
   redaction, cache, session identity and canonical JSON fixes below.

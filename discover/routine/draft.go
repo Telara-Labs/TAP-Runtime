@@ -22,6 +22,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Keep the short type keyword first so conservative text credential rules do
+// not interpret a following description keyword as an opaque credential value.
+type draftInputProperty struct {
+	Type        string `yaml:"type" json:"type"`
+	Description string `yaml:"description" json:"description"`
+}
+
 // DefaultPublisher names a draft that has not been given a namespace yet.
 const DefaultPublisher = "local.draft"
 
@@ -202,10 +209,7 @@ func BuildDraft(c model.Candidate, occ [][]trace.Step, opt model.DraftOptions) *
 		if in.Extract != "" {
 			continue
 		}
-		props[in.Name] = map[string]any{
-			"type":        "string",
-			"description": fmt.Sprintf("Argument %d ($%d): %s, from %s.", in.Position, in.Position, in.Type, in.From),
-		}
+		props[in.Name] = draftInputProperty{Type: "string", Description: fmt.Sprintf("Argument %d ($%d): %s, from %s.", in.Position, in.Position, in.Type, in.From)}
 		required = append(required, in.Name)
 	}
 	in := map[string]any{"type": "object", "properties": props}
