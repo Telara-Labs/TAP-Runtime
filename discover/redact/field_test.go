@@ -344,6 +344,103 @@ func TestIncrementalFieldContextPreservesDiscoveryAndDependencies(t *testing.T) 
 	}
 }
 
+func TestIncrementalFieldContextDuplicateSiblingKeepsAnnotationData(t *testing.T) {
+	rootValue := map[string]any{"result": map[string]any{
+		"type": "object",
+		"default": map[string]any{"properties": map[string]any{
+			"password": map[string]any{"description": "syntheticOpaqueValue42"},
+		}},
+		"password": map[string]any{"enabled": false},
+		"dup":      2, // Source occurrence analysis reports a second "dup" member.
+	}}
+	root := enterFieldContext(t, RootFieldContext(), rootValue, true)
+	resultValue := rootValue["result"]
+	result := childFieldContext(t, root, "result", resultValue, true, false)
+	result = enterFieldContext(t, result, resultValue, false)
+	resultRoot := result
+	defaultValue := resultValue.(map[string]any)["default"]
+	result = childFieldContext(t, result, "default", defaultValue, true, true)
+	result = enterFieldContext(t, result, defaultValue, true)
+	properties := defaultValue.(map[string]any)["properties"]
+	result = childFieldContext(t, result, "properties", properties, true, true)
+	result = enterFieldContext(t, result, properties, true)
+	password := properties.(map[string]any)["password"]
+	result = childFieldContext(t, result, "password", password, true, true)
+	result = enterFieldContext(t, result, password, true)
+	description := childFieldContext(t, result, "description", "syntheticOpaqueValue42", true, true)
+	if got := description.Scalar("syntheticOpaqueValue42", `"syntheticOpaqueValue42"`); strings.Contains(got, "syntheticOpaqueValue42") {
+		t.Fatalf("duplicate-bearing annotation subtree regained a schema metadata exemption: %q", got)
+	}
+	ordinary := childFieldContext(t, resultRoot, "ordinary", "safe value", false, true)
+	if got := ordinary.Scalar("safe value", `"safe value"`); got != `"safe value"` {
+		t.Fatalf("ordinary duplicate-bearing data was changed: %q", got)
+	}
+	control := resultRoot
+	passwordValue := resultValue.(map[string]any)["password"]
+	control = childFieldContext(t, control, "password", passwordValue, true, true)
+	control = enterFieldContext(t, control, passwordValue, true)
+	control = childFieldContext(t, control, "enabled", false, true, true)
+	if got := control.Scalar(false, "false"); got != "false" {
+		t.Fatalf("an unrelated duplicate sibling invalidated a unique password control: %q", got)
+	}
+	closedControls := map[string]any{"enabled": nil, "policy": "strict"}
+	controlContext := childFieldContext(t, resultRoot, "password", closedControls, true, true)
+	controlContext = enterFieldContext(t, controlContext, closedControls, true)
+	controlContext = childFieldContext(t, controlContext, "enabled", nil, true, true)
+	if got := controlContext.Scalar(nil, "null"); got != "null" {
+		t.Fatalf("an unrelated duplicate sibling invalidated a unique enabled null control: %q", got)
+	}
+	controlContext = childFieldContext(t, enterFieldContext(t,
+		childFieldContext(t, resultRoot, "password", closedControls, true, true), closedControls, true),
+		"policy", "strict", true, true)
+	if got := controlContext.Scalar("strict", `"strict"`); got != `"strict"` {
+		t.Fatalf("an unrelated duplicate sibling invalidated a unique strict policy control: %q", got)
+	}
+	uniqueSchema := map[string]any{"password": map[string]any{"description": "syntheticOpaqueValue42"}}
+	schema := childFieldContext(t, resultRoot, "properties", uniqueSchema, true, true)
+	schema = enterFieldContext(t, schema, uniqueSchema, true)
+	passwordSchema := uniqueSchema["password"]
+	schema = childFieldContext(t, schema, "password", passwordSchema, true, true)
+	schema = enterFieldContext(t, schema, passwordSchema, true)
+	schemaDescription := childFieldContext(t, schema, "description", "syntheticOpaqueValue42", true, true)
+	if got := schemaDescription.Scalar("syntheticOpaqueValue42", `"syntheticOpaqueValue42"`); got != `"syntheticOpaqueValue42"` {
+		t.Fatalf("an unrelated duplicate sibling invalidated a unique schema subtree: %q", got)
+	}
+}
+
+func TestIncrementalFieldContextPreservesSchemaNullBaseline(t *testing.T) {
+	propertiesValue := map[string]any{"password": nil}
+	properties := childFieldContext(t, RootFieldContext(), "properties", propertiesValue, true, true)
+	properties = enterFieldContext(t, properties, propertiesValue, true)
+	password := childFieldContext(t, properties, "password", nil, true, true)
+	if got := password.Scalar(nil, "null"); got != "null" {
+		t.Fatalf("schema null compatibility changed: %q", got)
+	}
+	directCredential := childFieldContext(t, RootFieldContext(), "password", nil, true, true)
+	if got := directCredential.Scalar(nil, "null"); got == "null" {
+		t.Fatal("direct credential null escaped redaction")
+	}
+}
+
+func TestIncrementalFieldContextRestrictedMapEntryPrechargesOrSkipsScan(t *testing.T) {
+	value := map[string]any{"one": 1, "two": 2, "three": 3, "four": 4}
+	context := childFieldContext(t, RootFieldContext(), "api_key", value, true, true)
+	work := 0
+	entered, ok := context.Enter(value, true, func(cost int) bool {
+		work += cost
+		return work <= 2
+	})
+	if !ok {
+		t.Fatal("restricted map entry exceeded its bounded precharge")
+	}
+	if work > 2 {
+		t.Fatalf("restricted map entry charged excessive work: %d", work)
+	}
+	if got := childFieldContext(t, entered, "ordinary", "safe value", true, true).Scalar("safe value", `"safe value"`); got == `"safe value"` {
+		t.Fatal("restricted map entry lost sensitive ancestry")
+	}
+}
+
 func TestIncrementalFieldContextRetainsTypedAncestry(t *testing.T) {
 	ordinary := childFieldContext(t, childFieldContext(t, RootFieldContext(), "result", map[string]any{}, true, true), "password", map[string]any{}, true, true)
 	if got := childFieldContext(t, ordinary, "enabled", false, true, true).Scalar(false, "false"); got != "false" {

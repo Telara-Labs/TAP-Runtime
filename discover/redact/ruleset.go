@@ -16,7 +16,7 @@ import (
 // rule changes what is redacted, so a record can say which rules redacted
 // it and a store can tell what to redact again. TestRulesetDigestNeedsAnEpoch
 // fails when the rules change and the epoch does not.
-const RulesetEpoch = 48
+const RulesetEpoch = 49
 
 // Ruleset identifies the redaction rules in force: their epoch, and a digest
 // derived from the rules themselves (never typed in), so two programs that
@@ -151,6 +151,66 @@ func sharedBehavior() []string {
 			{Value: map[string]any{}, KeyUnique: true, ValueUnique: true},
 			{Value: "plain", KeyUnique: false, ValueUnique: true},
 		}, "plain", `"plain"`),
+	)
+	duplicateResult := map[string]any{
+		"type": "object",
+		"default": map[string]any{"properties": map[string]any{
+			"password": map[string]any{"description": "syntheticOpaqueValue42"},
+		}},
+		"password": map[string]any{"enabled": false},
+		"dup":      2,
+	}
+	duplicateControls := map[string]any{
+		"password": map[string]any{"enabled": nil, "policy": "strict"},
+		"ordinary": 2,
+	}
+	duplicateWithSchema := map[string]any{"properties": map[string]any{
+		"password": map[string]any{
+			"description": "ordinary schema prose",
+			"type":        "string",
+			"default":     "syntheticOpaqueValue42",
+		},
+	}, "ordinary": 2}
+	resultOccurrences := func(result map[string]any, values []any, unique []bool) []FieldOccurrence {
+		occurrences := []FieldOccurrence{{Value: result, KeyUnique: true, ValueUnique: false}}
+		for i := range values {
+			occurrences = append(occurrences, FieldOccurrence{Value: values[i], KeyUnique: true, ValueUnique: unique[i]})
+		}
+		return occurrences
+	}
+	out = append(out,
+		fieldValueWithContainers(map[string]any{"result": duplicateResult}, true,
+			[]string{"result", "default", "properties", "password", "description"}, resultOccurrences(duplicateResult,
+				[]any{duplicateResult["default"], duplicateResult["default"].(map[string]any)["properties"], duplicateResult["default"].(map[string]any)["properties"].(map[string]any)["password"], "syntheticOpaqueValue42"},
+				[]bool{true, true, true, true}), "syntheticOpaqueValue42", `"syntheticOpaqueValue42"`),
+		fieldValueWithContainers(map[string]any{"result": duplicateResult}, true,
+			[]string{"result", "password", "enabled"},
+			[]FieldOccurrence{{Value: duplicateResult, KeyUnique: true, ValueUnique: false},
+				{Value: duplicateResult["password"], KeyUnique: true, ValueUnique: true},
+				{Value: false, KeyUnique: true, ValueUnique: true}}, false, "false"),
+		fieldValueWithContainers(map[string]any{"result": duplicateControls}, true,
+			[]string{"result", "password", "enabled"},
+			[]FieldOccurrence{{Value: duplicateControls, KeyUnique: true, ValueUnique: false},
+				{Value: duplicateControls["password"], KeyUnique: true, ValueUnique: true},
+				{Value: nil, KeyUnique: true, ValueUnique: true}}, nil, "null"),
+		fieldValueWithContainers(map[string]any{"result": duplicateControls}, true,
+			[]string{"result", "password", "policy"},
+			[]FieldOccurrence{{Value: duplicateControls, KeyUnique: true, ValueUnique: false},
+				{Value: duplicateControls["password"], KeyUnique: true, ValueUnique: true},
+				{Value: "strict", KeyUnique: true, ValueUnique: true}}, "strict", `"strict"`),
+		fieldValueWithContainers(map[string]any{"result": duplicateWithSchema}, true,
+			[]string{"result", "properties", "password", "default"},
+			[]FieldOccurrence{{Value: duplicateWithSchema, KeyUnique: true, ValueUnique: false},
+				{Value: duplicateWithSchema["properties"], KeyUnique: true, ValueUnique: true},
+				{Value: duplicateWithSchema["properties"].(map[string]any)["password"], KeyUnique: true, ValueUnique: true},
+				{Value: "syntheticOpaqueValue42", KeyUnique: true, ValueUnique: true}},
+			"syntheticOpaqueValue42", `"syntheticOpaqueValue42"`),
+		fieldValueWithContainers(map[string]any{"properties": map[string]any{"password": nil}}, true,
+			[]string{"properties", "password"},
+			[]FieldOccurrence{{Value: map[string]any{"password": nil}, KeyUnique: true, ValueUnique: true},
+				{Value: nil, KeyUnique: true, ValueUnique: true}}, nil, "null"),
+		fieldValueWithContainers(map[string]any{"password": nil}, true,
+			[]string{"password"}, []FieldOccurrence{{Value: nil, KeyUnique: true, ValueUnique: true}}, nil, "null"),
 	)
 	return out
 }

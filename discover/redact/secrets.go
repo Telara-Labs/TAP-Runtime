@@ -1724,6 +1724,7 @@ func inspectionMarker(s, base string) string {
 // reclassify a descendant as a schema, even through a decoded string.
 type schemaContext struct {
 	schema, properties, sensitive, data, metadata, metadataMap, credentialControls bool
+	schemaAmbiguous                                                                bool
 	credentialControl                                                              bool
 	controlKey                                                                     string
 	dependencies, dependency                                                       bool
@@ -1752,7 +1753,7 @@ func (c schemaContext) mapping() schemaContext {
 
 func (c schemaContext) recognize(key string) schemaContext {
 	key = Normalize(key) // classify a view; retain the original map key
-	if !c.data && !c.metadata && !c.sensitive && !c.properties && (schemaPropertyKeyword(key) || schemaChildKeyword(key) || schemaMetadataKeyword(key)) {
+	if !c.schemaAmbiguous && !c.data && !c.metadata && !c.sensitive && !c.properties && (schemaPropertyKeyword(key) || schemaChildKeyword(key) || schemaMetadataKeyword(key)) {
 		c.schema = true
 	}
 	return c
@@ -1805,6 +1806,21 @@ func (c schemaContext) childValue(key string, value any) schemaContext {
 
 func (c schemaContext) childValueOccurrence(key string, value any, valueUnique, keyUnique bool) schemaContext {
 	child := c.child(key)
+	if c.schemaAmbiguous {
+		switch {
+		case schemaValueKeyword(Normalize(key)):
+			// A default/const/enum/example under an ambiguous schema candidate
+			// is instance data, not an annotation exemption.
+			child = schemaContext{sensitive: c.sensitive || IsSensitiveName(key), data: true}
+		case schemaMetadataKeyword(Normalize(key)):
+			// Direct metadata cannot be authorized by a duplicate-losing parent.
+			child = schemaContext{sensitive: c.sensitive || IsSensitiveName(key), data: c.data}
+		case schemaPropertyKeyword(Normalize(key)) || schemaChildKeyword(Normalize(key)):
+			if !valueUnique || !keyUnique {
+				child = schemaContext{sensitive: c.sensitive || IsSensitiveName(key), data: true}
+			}
+		}
+	}
 	if c.credentialControls && keyUnique {
 		switch v := value.(type) {
 		case bool, nil:
@@ -1821,7 +1837,7 @@ func (c schemaContext) childValueOccurrence(key string, value any, valueUnique, 
 			}
 		}
 	}
-	if valueUnique && keyUnique && !c.sensitive && !c.data && !c.metadata && !c.schema && !c.properties && Normalize(key) == "password" {
+	if valueUnique && keyUnique && !c.sensitive && !c.data && !c.metadata && (!c.schema || c.schemaAmbiguous) && !c.properties && Normalize(key) == "password" {
 		if _, ok := value.(map[string]any); ok {
 			child.credentialControls = true
 		}
@@ -1832,7 +1848,7 @@ func (c schemaContext) childValueOccurrence(key string, value any, valueUnique, 
 	if valueUnique && keyUnique && !c.sensitive && !c.data && !c.properties && !c.metadata && validOAuthFlow(key, value) {
 		return schemaContext{oauthFlow: true}
 	}
-	if c.schema && !c.data && !c.metadata && !c.properties && schemaMetadataKeyword(Normalize(key)) && (!valueUnique || !keyUnique || !validSchemaMetadata(Normalize(key), value)) {
+	if c.schema && !c.schemaAmbiguous && !c.data && !c.metadata && !c.properties && schemaMetadataKeyword(Normalize(key)) && (!valueUnique || !keyUnique || !validSchemaMetadata(Normalize(key), value)) {
 		return schemaContext{data: true, sensitive: c.sensitive || IsSensitiveName(key)}
 	}
 	return child

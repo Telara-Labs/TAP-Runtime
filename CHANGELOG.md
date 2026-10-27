@@ -8,6 +8,12 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- Ruleset epoch 49 treats annotation values beneath duplicate-bearing schema
+  candidates as instance data without disabling independently unique password
+  controls, schema branches, or nested OAuth shapes. Schema null behavior and
+  restricted-container validation accounting remain covered by the shared
+  redactor fixtures.
+
 - Ruleset epoch 48 adds incremental typed field context for egress consumers.
   Consumers carry source occurrence uniqueness, precharge bounded schema
   validation work, and pass each original scalar token once. Only boolean/null

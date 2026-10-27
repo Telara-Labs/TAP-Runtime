@@ -148,7 +148,7 @@ func RootFieldContext() FieldContext { return FieldContext{} }
 func (c FieldContext) Child(key string, occurrence FieldOccurrence, precharge func(int) bool) (FieldContext, bool) {
 	key = Normalize(key)
 	state := c.state
-	if !c.initialized && schemaValueKeyword(key) {
+	if !c.initialized && !state.schemaAmbiguous && schemaValueKeyword(key) {
 		state.schema = true
 	}
 	state = state.mapping().recognize(key)
@@ -170,15 +170,34 @@ func (c FieldContext) Enter(value any, valueUnique bool, precharge func(int) boo
 		return FieldContext{}, false
 	}
 	state := c.state
+	if !valueUnique {
+		// Keep only a possible schema-parent role. It can classify annotation
+		// values as data, but cannot authorize schema metadata exemptions or
+		// whole-container discovery from the duplicate-losing decoded map.
+		state.schema = true
+		state.properties = false
+		state.metadata = false
+		state.metadataMap = false
+		state.dependencies = false
+		state.dependency = false
+		state.oauthFlow = false
+		state.oauthScopes = false
+		state.oauthResource = false
+		state.oauthIssuer = false
+		state.credentialControl = false
+		state.controlKey = ""
+		state.schemaAmbiguous = true
+		return FieldContext{state: state, initialized: c.initialized}, true
+	}
 	if isMappingContainer(value) {
 		state = state.mapping()
-		if valueUnique {
+		if !state.schemaAmbiguous {
 			state = state.discovery(value)
 			state = recognizeContainerKeys(state, value)
 		}
 	} else if isSequenceContainer(value) {
 		if state.dependency {
-			if valueUnique && metadataStrings(value, false) {
+			if metadataStrings(value, false) {
 				state = schemaContext{metadata: true}
 			} else {
 				state.data = true
@@ -228,6 +247,9 @@ func (c FieldContext) Scalar(value any, source string) string {
 			return jsonStringToken("<redacted credential>")
 		}
 	case nil:
+		if context.schema && !context.schemaAmbiguous && !context.data && !context.metadata {
+			return source
+		}
 		if context.scalarSensitive(false) {
 			return jsonStringToken("<redacted credential>")
 		}
@@ -267,6 +289,33 @@ func fieldValueOccurrences(path []string, occurrences []FieldOccurrence, value a
 	return context.Scalar(value, source)
 }
 
+// fieldValueWithContainers is a ruleset-fingerprint fixture for the public
+// traversal contract. Production consumers retain each returned context in
+// their traversal frames rather than replaying this path for every scalar.
+func fieldValueWithContainers(root any, rootUnique bool, path []string, occurrences []FieldOccurrence, value any, source string) string {
+	if len(occurrences) != len(path) {
+		return jsonStringToken("<redacted credential>")
+	}
+	context, ok := RootFieldContext().Enter(root, rootUnique, func(int) bool { return true })
+	if !ok {
+		return jsonStringToken("<redacted credential>")
+	}
+	for i, key := range path {
+		occurrence := occurrences[i]
+		context, ok = context.Child(key, occurrence, func(int) bool { return true })
+		if !ok {
+			return jsonStringToken("<redacted credential>")
+		}
+		if isMappingContainer(occurrence.Value) || isSequenceContainer(occurrence.Value) {
+			context, ok = context.Enter(occurrence.Value, occurrence.ValueUnique, func(int) bool { return true })
+			if !ok {
+				return jsonStringToken("<redacted credential>")
+			}
+		}
+	}
+	return context.Scalar(value, source)
+}
+
 const maxFieldContextValidationWork = 1 << 20
 
 func fieldContextValidationWork(context schemaContext, key string, occurrence FieldOccurrence) (int, bool) {
@@ -274,7 +323,7 @@ func fieldContextValidationWork(context schemaContext, key string, occurrence Fi
 	if !occurrence.ValueUnique || !occurrence.KeyUnique {
 		return work, true
 	}
-	if context.schema && !context.data && !context.metadata && !context.properties && schemaMetadataKeyword(key) {
+	if context.schema && !context.schemaAmbiguous && !context.data && !context.metadata && !context.properties && schemaMetadataKeyword(key) {
 		cost, ok := schemaMetadataWork(key, occurrence.Value, maxFieldContextValidationWork-work)
 		if !ok || cost > maxFieldContextValidationWork-work {
 			return 0, false
@@ -293,7 +342,7 @@ func fieldContextValidationWork(context schemaContext, key string, occurrence Fi
 
 func fieldContainerValidationWork(context schemaContext, value any, valueUnique bool) (int, bool) {
 	work := 1
-	if !valueUnique {
+	if !valueUnique || context.schemaAmbiguous {
 		return work, true
 	}
 	if isMappingContainer(value) {
@@ -369,6 +418,9 @@ func isSequenceContainer(value any) bool {
 }
 
 func recognizeContainerKeys(context schemaContext, value any) schemaContext {
+	if context.schemaAmbiguous || context.data || context.metadata || context.sensitive || context.properties {
+		return context
+	}
 	if m, ok := value.(map[string]any); ok {
 		for key := range m {
 			context = context.recognize(key)
