@@ -16,7 +16,7 @@ import (
 // rule changes what is redacted, so a record can say which rules redacted
 // it and a store can tell what to redact again. TestRulesetDigestNeedsAnEpoch
 // fails when the rules change and the epoch does not.
-const RulesetEpoch = 51
+const RulesetEpoch = 52
 
 // Ruleset identifies the redaction rules in force: their epoch, and a digest
 // derived from the rules themselves (never typed in), so two programs that
@@ -109,7 +109,7 @@ func rulesDigest() string {
 		SharedCorpus                         []CorpusCase
 		SharedBehavior                       []string
 		Engine                               int
-	}{rules(), credentialWords, configurationWords, behavior, Corpus(), sharedBehavior(), 40})
+	}{rules(), credentialWords, configurationWords, behavior, Corpus(), sharedBehavior(), 43})
 	if err != nil {
 		panic("redact: rules do not encode: " + err.Error())
 	}
@@ -258,5 +258,114 @@ func sharedBehavior() []string {
 				{Value: "syntheticOpaqueValue42", KeyUnique: true, ValueUnique: true},
 			}, "syntheticOpaqueValue42", `"syntheticOpaqueValue42"`),
 	)
+	out = append(out, explicitSchemaBehavior()...)
+	out = append(out, dependencyAmbiguityBehavior()...)
+	identifierSource := `{"dependencies":{"password":{"allOf":[{"required":["ghp_` + strings.Repeat("A", 36) + `","ghp_` + strings.Repeat("B", 36) + `"],"properties":{"ordinary":{"default":false}}}]}}}`
+	identifierProjection := Redact(identifierSource)
+	out = append(out, identifierProjection, Redact(identifierProjection))
+	metadataSource := `{"dependencies":{"password":{"allOf":[{"required":["a@example.invalid","b@example.invalid"],"properties":{"ordinary":{"default":false}}}]}}}`
+	metadataProjection := (Ruleset{}).RedactProfile(PushMetadataProfile, metadataSource)
+	out = append(out, metadataProjection, (Ruleset{}).RedactProfile(PushMetadataProfile, metadataProjection))
+	for _, source := range []string{
+		`{"dependencies":{"password":{"allOf":[{"properties":{"ordinary":{"default":false}}}]}}}`,
+		`{"dependencies":{"password":{"allOf":{"properties":{"ordinary":{"default":"syntheticOpaqueValue42"}}}}}}`,
+		`{"dependencies":{"password":{"allOf":[{"type":false,"properties":{"ordinary":{"default":"syntheticOpaqueValue42"}}}]}}}`,
+		`{"dependencies":{"password":{"unknown":{"allOf":[{"properties":{"ordinary":{"default":"syntheticOpaqueValue42"}}}]}}}}`,
+	} {
+		out = append(out, Redact(source))
+	}
+	direct, ok := RootFieldContext().Child("password", FieldOccurrence{Value: nil, KeyUnique: true, ValueUnique: true}, func(int) bool { return true })
+	if !ok {
+		out = append(out, "<redacted inspection limit>")
+	} else {
+		out = append(out, strconv.FormatBool(direct.CredentialValue()), direct.Scalar(nil, "null"))
+	}
+	ordinary := map[string]any{"type": "boolean", "default": false}
+	definitions := map[string]any{"ordinary": ordinary}
+	dependency := map[string]any{"definitions": definitions}
+	dependencies := map[string]any{"password": dependency}
+	out = append(out, fieldValueWithContainers(map[string]any{"dependencies": dependencies}, true,
+		[]string{"dependencies", "password", "definitions", "ordinary", "default"}, []FieldOccurrence{
+			{Value: dependencies, KeyUnique: true, ValueUnique: true},
+			{Value: dependency, KeyUnique: true, ValueUnique: true},
+			{Value: definitions, KeyUnique: true, ValueUnique: true},
+			{Value: ordinary, KeyUnique: true, ValueUnique: true},
+			{Value: false, KeyUnique: true, ValueUnique: true},
+		}, false, "false"))
+	return out
+}
+
+// Bind the explicit consumer-established schema role, including ambiguous
+// occurrences, independently of keyword-based root schema inference.
+func explicitSchemaBehavior() []string {
+	var out []string
+	for _, keyword := range schemaValueKeywords {
+		password := map[string]any{"description": "syntheticOpaqueValue42"}
+		properties := map[string]any{"password": password}
+		literal := map[string]any{"properties": properties}
+		var annotation any = literal
+		if keyword == "enum" || keyword == "examples" {
+			annotation = []any{literal}
+		}
+		schema := map[string]any{keyword: annotation}
+		for _, unique := range []bool{true, false} {
+			reserve := func(int) bool { return true }
+			context, ok := RootFieldContext().Child("value", FieldOccurrence{Value: schema, KeyUnique: unique, ValueUnique: true}, reserve)
+			context = context.Schema(unique)
+			for _, step := range []struct {
+				key   string
+				value any
+			}{{keyword, annotation}, {"properties", properties}, {"password", password}, {"description", "syntheticOpaqueValue42"}} {
+				if !ok {
+					break
+				}
+				context, ok = context.Child(step.key, FieldOccurrence{Value: step.value, KeyUnique: true, ValueUnique: true}, reserve)
+				if ok && (isMappingContainer(step.value) || isSequenceContainer(step.value)) {
+					context, ok = context.Enter(step.value, true, reserve)
+				}
+			}
+			if !ok {
+				out = append(out, "<redacted inspection limit>")
+			} else {
+				out = append(out, context.Scalar("syntheticOpaqueValue42", `"syntheticOpaqueValue42"`))
+			}
+		}
+	}
+	return out
+}
+
+// Bind the source uniqueness required before dependency-name sensitivity may
+// end at a nested declaration, including a unique schema-combinator hop.
+func dependencyAmbiguityBehavior() []string {
+	ordinary := map[string]any{"default": "syntheticOpaqueValue42"}
+	properties := map[string]any{"ordinary": ordinary}
+	declaration := map[string]any{"properties": properties}
+	children := []any{declaration}
+	composed := map[string]any{"allOf": children}
+	var out []string
+	for _, composedPath := range []bool{false, true} {
+		dependency := declaration
+		path := []string{"dependencies", "password"}
+		if composedPath {
+			dependency = composed
+		}
+		dependencies := map[string]any{"password": dependency}
+		occurrences := []FieldOccurrence{
+			{Value: dependencies, KeyUnique: true, ValueUnique: false},
+			{Value: dependency, KeyUnique: composedPath, ValueUnique: !composedPath},
+		}
+		if composedPath {
+			path = append(path, "allOf")
+			occurrences = append(occurrences, FieldOccurrence{Value: children, KeyUnique: true, ValueUnique: true})
+		}
+		path = append(path, "properties", "ordinary", "default")
+		occurrences = append(occurrences,
+			FieldOccurrence{Value: properties, KeyUnique: true, ValueUnique: true},
+			FieldOccurrence{Value: ordinary, KeyUnique: true, ValueUnique: true},
+			FieldOccurrence{Value: "syntheticOpaqueValue42", KeyUnique: true, ValueUnique: true},
+		)
+		out = append(out, fieldValueWithContainers(map[string]any{"dependencies": dependencies}, false,
+			path, occurrences, "syntheticOpaqueValue42", `"syntheticOpaqueValue42"`))
+	}
 	return out
 }
