@@ -116,10 +116,14 @@ windows-amd64:
 
 # Every listed test and fuzz seed runs in exactly one partition. Receipts carry
 # the full denominator and selected names so combined coverage is auditable.
+# The heavy whole tests are placed one per partition before the round-robin:
+# with plain round-robin all three landed in partition 1 and it hit the 35m
+# test timeout. A test missing from that list still runs exactly
+# once; it only loses the balancing.
 redaction-race:
   stage: verify
   image: golang:1.26.10
-  parallel: 4
+  parallel: 6
   timeout: 40m
   artifacts:
     when: always
@@ -129,7 +133,7 @@ redaction-race:
     - cd discover
     - go test -list '^(Test|Fuzz|Example)' ./redact | awk '/^(Test|Fuzz|Example)[[:alnum:]_]*$/' > ../redaction-all.list
     - test -s ../redaction-all.list
-    - awk -v total="$CI_NODE_TOTAL" -v part="$CI_NODE_INDEX" '$0 != "TestPristineGatewayDifferential" && (NR - 1) % total == part - 1' ../redaction-all.list > ../redaction-selected.list
+    - awk -v total="$CI_NODE_TOTAL" -v part="$CI_NODE_INDEX" -v heavy="TestCandidateRealisticDifferential TestInspectionFastPathDifferential TestFieldContext" 'BEGIN { n = split(heavy, h, " "); for (i = 1; i <= n; i++) slot[h[i]] = (i - 1) % total } $0 == "TestPristineGatewayDifferential" { next } $0 in slot { if (slot[$0] == part - 1) print; next } { if (r++ % total == part - 1) print }' ../redaction-all.list > ../redaction-selected.list
     - echo TestPristineGatewayDifferential >> ../redaction-selected.list
     - test -s ../redaction-selected.list
     - cat ../redaction-selected.list
