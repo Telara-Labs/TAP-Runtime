@@ -489,6 +489,9 @@ func admitOnce(store bindingStore, choose Chooser, decls []toolDecl, b bridge.Br
 		}
 		if refusal != "" {
 			missing = missing || absent
+			if d.Pin == nil {
+				refusal += dispatcherCapabilityHint(d.Capability)
+			}
 			if d.Optional {
 				a.Skipped = append(a.Skipped, d.Alias)
 				logf("optional   %-10s not bound: %s", d.Alias, refusal)
@@ -644,4 +647,18 @@ func callTool(a *admission, b bridge.Bridge, rq request, approve bool, journal i
 	logf("  call     %s -> %s / %s  [%s] %dB in, %s", rq.Alias, bd.Server, bd.Tool, effect, len(res), time.Since(t0).Round(time.Millisecond))
 	record("ran", map[string]any{"result_bytes": len(res), "ms": time.Since(t0).Milliseconds()})
 	return reply{Result: res}
+}
+
+// dispatcherCapabilityHint explains a refusal for an unpinned capability that
+// names a gateway's dispatcher rather than an operation. No operation can
+// match such a name, and the dispatcher's own annotation is broader than any
+// read, so the bare refusal ("the only matching tools do more than the
+// declared read") hid the real fix. It is the same guidance tap resolve gives.
+func dispatcherCapabilityHint(capability string) string {
+	name := mf.CapabilityName(capability)
+	if !strings.HasSuffix(name, ".execute_action") {
+		return ""
+	}
+	return fmt.Sprintf("; %s names the gateway's dispatcher, not an operation: declare the operation itself (for example %s.list_projects), or pin the dispatcher",
+		name, strings.TrimSuffix(name, ".execute_action"))
 }

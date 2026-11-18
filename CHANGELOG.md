@@ -8,6 +8,11 @@ see [version review](docs/versioning.md).
 
 ## Unreleased
 
+- An unpinned tool whose capability names a gateway dispatcher (for example
+  `telara.execute_action`) is still refused, but the refusal now says what to
+  do: declare the operation itself, or pin the dispatcher. It used to say only
+  that the matching tools do more than the declared effect.
+
 - Ruleset epoch 51 preserves independently visited schema declarations inside
   duplicate-bearing declaration maps, while keeping map-level metadata authority
   disabled. These declaration roles do not grant OAuth scope or password-control
